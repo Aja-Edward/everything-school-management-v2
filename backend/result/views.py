@@ -4139,18 +4139,72 @@ class NurseryResultViewSet(
     def create(self, request, *args, **kwargs):
         try:
             with transaction.atomic():
+                # ✅ ADD THIS DEBUG LOGGING
+                logger.info("=" * 80)
+                logger.info("🔍 NURSERY RESULT CREATE - DEBUGGING")
+                logger.info(f"📦 Full request.data: {request.data}")
+                logger.info(f"📦 request.data type: {type(request.data)}")
+
+                # Check each field individually
+                for field in [
+                    "student",
+                    "subject",
+                    "exam_session",
+                    "grading_system",
+                    "max_marks_obtainable",
+                    "mark_obtained",
+                    "academic_comment",
+                    "status",
+                ]:
+                    value = request.data.get(field)
+                    logger.info(
+                        f"   {field}: {value} (type: {type(value).__name__}, is None: {value is None})"
+                    )
+                logger.info("=" * 80)
+
                 student_id = request.data.get("student")
                 if not student_id:
+                    logger.error("❌ student_id is missing or None")
                     return Response(
                         {"error": "student is required"},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
+                # ✅ ADD MORE VALIDATION
+                subject_id = request.data.get("subject")
+                if not subject_id:
+                    logger.error("❌ subject_id is missing or None")
+                    return Response(
+                        {"error": "subject is required"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                exam_session_id = request.data.get("exam_session")
+                if not exam_session_id:
+                    logger.error("❌ exam_session_id is missing or None")
+                    return Response(
+                        {"error": "exam_session is required"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                grading_system_id = request.data.get("grading_system")
+                logger.info(
+                    f"🔍 grading_system_id: {grading_system_id} (type: {type(grading_system_id)})"
+                )
+
                 try:
                     student = Student.objects.get(id=student_id)
+                    logger.info(f"✅ Student found: {student}")
                 except Student.DoesNotExist:
+                    logger.error(f"❌ Student not found with id: {student_id}")
                     return Response(
                         {"error": "Student not found"}, status=status.HTTP_404_NOT_FOUND
+                    )
+                except Exception as e:
+                    logger.error(f"❌ Error fetching student: {str(e)}", exc_info=True)
+                    return Response(
+                        {"error": f"Error fetching student: {str(e)}"},
+                        status=status.HTTP_400_BAD_REQUEST,
                     )
 
                 # Ensure education level matches NURSERY
@@ -4177,9 +4231,22 @@ class NurseryResultViewSet(
                     request.data._mutable = True
                 request.data["entered_by"] = request.user.id
 
+                logger.info(f"📤 Sending to serializer: {request.data}")
+
                 serializer = self.get_serializer(data=request.data)
-                serializer.is_valid(raise_exception=True)
+
+                # ✅ CATCH VALIDATION ERRORS PROPERLY
+                try:
+                    serializer.is_valid(raise_exception=True)
+                except serializers.ValidationError as ve:
+                    logger.error(f"❌ Serializer validation failed: {ve.detail}")
+                    return Response(
+                        {"error": "Validation failed", "details": ve.detail},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
                 result = serializer.save()
+                logger.info(f"✅ Result created successfully: {result.id}")
 
                 detailed_serializer = NurseryResultSerializer(result)
                 return Response(
@@ -4187,7 +4254,10 @@ class NurseryResultViewSet(
                 )
 
         except Exception as e:
-            logger.error(f"Failed to create result: {str(e)}")
+            logger.error(f"❌ Failed to create result: {str(e)}", exc_info=True)
+            import traceback
+
+            logger.error(f"❌ Traceback: {traceback.format_exc()}")
             return Response(
                 {"error": f"Failed to create result: {str(e)}"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -6223,7 +6293,6 @@ class ReportGenerationViewSet(viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-
 # ===== PROFESSIONAL ASSIGNMENT VIEWS =====
 from rest_framework.parsers import MultiPartParser, FormParser
 import cloudinary.uploader
@@ -6236,7 +6305,6 @@ class ProfessionalAssignmentViewSet(
     ViewSet for Professional Assignment tab functionality.
     Handles teacher remarks, signatures, and student assignments.
     """
-
     pagination_class = StandardResultsPagination
     permission_classes = [IsAuthenticated]
     parser_classes = (MultiPartParser, FormParser)
@@ -6479,7 +6547,6 @@ class ProfessionalAssignmentViewSet(
                 {"error": f"Failed to fetch students: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
     def _can_teacher_edit_remark(self, user, term_report):
         """
         Check if teacher can edit remarks for this term report.

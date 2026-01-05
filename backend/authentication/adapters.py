@@ -15,18 +15,21 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
         # Get extra data from request if available
         extra_data = getattr(request, "social_extra_data", {})
 
-        # Get the Google profile picture
-        extra_data = sociallogin.account.extra_data
-        picture_url = extra_data.get("picture")
+        # Get the Google profile picture from social login extra data
+        social_extra_data = sociallogin.account.extra_data
+        picture_url = social_extra_data.get("picture")
 
-        if picture_url:
+        # Define user from sociallogin
+        user = sociallogin.user
+
+        if picture_url and hasattr(user, "profile_picture"):
             # Store it temporarily in the user model (e.g., a 'profile_picture' field)
             user.profile_picture = picture_url
 
         # If user doesn't exist, we'll create them in save_user
-        if not sociallogin.user.pk:
+        if not user.pk:
             # Store extra data for later use
-            sociallogin.user._social_extra_data = extra_data
+            user._social_extra_data = extra_data
 
     def save_user(self, request, sociallogin, form=None):
         """

@@ -140,6 +140,7 @@ export interface LessonFilters {
   date_from?: string;
   date_to?: string;
   ordering?: string;
+  page_size?: number;
 }
 
 export interface LessonStatistics {
@@ -164,6 +165,19 @@ export interface SchedulingConflict {
   subject: string;
 }
 
+// Helper type for API errors
+interface ApiError {
+  response?: {
+    data?: any;
+  };
+  message?: string;
+}
+
+// Type guard to check if error is an ApiError
+function isApiError(error: unknown): error is ApiError {
+  return typeof error === 'object' && error !== null && 'response' in error;
+}
+
 export class LessonService {
   private static baseUrl = '/api/lessons';
 
@@ -183,7 +197,7 @@ export class LessonService {
 
       const response = await api.get(`${this.baseUrl}/lessons/?${params.toString()}`);
       return response;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error fetching lessons:', error);
       throw new Error('Failed to fetch lessons');
     }
@@ -196,7 +210,7 @@ export class LessonService {
     try {
       const response = await api.get(`${this.baseUrl}/lessons/${id}/`);
       return response;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error fetching lesson:', error);
       throw new Error('Failed to fetch lesson');
     }
@@ -209,9 +223,9 @@ export class LessonService {
     try {
       const response = await api.post(`${this.baseUrl}/lessons/`, data);
       return response;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error creating lesson:', error);
-      if (error.response?.data) {
+      if (isApiError(error) && error.response?.data) {
         throw new Error(JSON.stringify(error.response.data));
       }
       throw new Error('Failed to create lesson');
@@ -225,9 +239,9 @@ export class LessonService {
     try {
       const response = await api.patch(`${this.baseUrl}/lessons/${id}/`, data);
       return response;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error updating lesson:', error);
-      if (error.response?.data) {
+      if (isApiError(error) && error.response?.data) {
         throw new Error(JSON.stringify(error.response.data));
       }
       throw new Error('Failed to update lesson');
@@ -240,7 +254,7 @@ export class LessonService {
   static async deleteLesson(id: number): Promise<void> {
     try {
       await api.delete(`${this.baseUrl}/lessons/${id}/`);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error deleting lesson:', error);
       throw new Error('Failed to delete lesson');
     }
@@ -251,8 +265,8 @@ export class LessonService {
    */
   static async startLesson(id: number): Promise<void> {
     try {
-      await api.post(`${this.baseUrl}/lessons/${id}/start_lesson/`);
-    } catch (error) {
+      await api.post(`${this.baseUrl}/lessons/${id}/start_lesson/`, {});
+    } catch (error: unknown) {
       console.error('Error starting lesson:', error);
       throw new Error('Failed to start lesson');
     }
@@ -263,8 +277,8 @@ export class LessonService {
    */
   static async completeLesson(id: number): Promise<void> {
     try {
-      await api.post(`${this.baseUrl}/lessons/${id}/complete_lesson/`);
-    } catch (error) {
+      await api.post(`${this.baseUrl}/lessons/${id}/complete_lesson/`, {});
+    } catch (error: unknown) {
       console.error('Error completing lesson:', error);
       throw new Error('Failed to complete lesson');
     }
@@ -275,8 +289,8 @@ export class LessonService {
    */
   static async cancelLesson(id: number): Promise<void> {
     try {
-      await api.post(`${this.baseUrl}/lessons/${id}/cancel_lesson/`);
-    } catch (error) {
+      await api.post(`${this.baseUrl}/lessons/${id}/cancel_lesson/`, {});
+    } catch (error: unknown) {
       console.error('Error cancelling lesson:', error);
       throw new Error('Failed to cancel lesson');
     }
@@ -292,7 +306,7 @@ export class LessonService {
         ...data
       });
       return response;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error updating lesson status:', error);
       throw new Error('Failed to update lesson status');
     }
@@ -305,7 +319,7 @@ export class LessonService {
     try {
       const response = await api.get(`${this.baseUrl}/lessons/${id}/get_progress/`);
       return response;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error getting lesson progress:', error);
       throw new Error('Failed to get lesson progress');
     }
@@ -316,9 +330,9 @@ export class LessonService {
    */
   static async updateLessonProgress(id: number): Promise<{ progress: number; lesson: Lesson }> {
     try {
-      const response = await api.post(`${this.baseUrl}/lessons/${id}/update_progress/`);
+      const response = await api.post(`${this.baseUrl}/lessons/${id}/update_progress/`, {});
       return response;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error updating lesson progress:', error);
       throw new Error('Failed to update lesson progress');
     }
@@ -342,7 +356,7 @@ export class LessonService {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error downloading lesson report:', error);
       throw new Error('Failed to download lesson report');
     }
@@ -355,7 +369,7 @@ export class LessonService {
     try {
       const response = await api.get(`${this.baseUrl}/lessons/statistics/`);
       return response;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error fetching lesson statistics:', error);
       throw new Error('Failed to fetch lesson statistics');
     }
@@ -368,7 +382,7 @@ export class LessonService {
     try {
       const response = await api.get(`${this.baseUrl}/lessons/calendar/?start_date=${startDate}&end_date=${endDate}`);
       return response;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error fetching calendar lessons:', error);
       throw new Error('Failed to fetch calendar lessons');
     }
@@ -398,7 +412,7 @@ export class LessonService {
 
       const response = await api.get(`${this.baseUrl}/lessons/conflicts/?${params.toString()}`);
       return response.conflicts;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error checking conflicts:', error);
       throw new Error('Failed to check scheduling conflicts');
     }
@@ -413,9 +427,9 @@ export class LessonService {
         lessons
       });
       return response;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error bulk creating lessons:', error);
-      if (error.response?.data) {
+      if (isApiError(error) && error.response?.data) {
         throw new Error(JSON.stringify(error.response.data));
       }
       throw new Error('Failed to bulk create lessons');

@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 from datetime import date
 
-# ✅ IMPORT Subject from the subject app instead of defining it here
+# goodIMPORT Subject from the subject app instead of defining it here
 from subject.models import Subject
 
 
@@ -133,7 +133,7 @@ class Term(models.Model):
 class SubjectAllocation(models.Model):
     """Subject allocation to teachers and classes"""
 
-    # ✅ This will now use the Subject from subject app
+    # goodThis will now use the Subject from subject app
     subject = models.ForeignKey(
         Subject, on_delete=models.CASCADE, related_name="allocations"
     )
@@ -181,7 +181,7 @@ class Curriculum(models.Model):
     academic_session = models.ForeignKey(
         "academics.AcademicSession", on_delete=models.CASCADE, related_name="curricula"
     )
-    # ✅ This will now use the Subject from subject app
+    # goodThis will now use the Subject from subject app
     subjects = models.ManyToManyField(
         Subject, through="CurriculumSubject", related_name="curricula"
     )
@@ -208,7 +208,7 @@ class CurriculumSubject(models.Model):
     curriculum = models.ForeignKey(
         Curriculum, on_delete=models.CASCADE, related_name="curriculum_subjects"
     )
-    # ✅ This will now use the Subject from subject app
+    # goodThis will now use the Subject from subject app
     subject = models.ForeignKey(
         Subject, on_delete=models.CASCADE, related_name="curriculum_subjects"
     )

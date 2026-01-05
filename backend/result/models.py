@@ -45,6 +45,34 @@ class GradingSystem(models.Model):
         verbose_name = "Grading System"
         verbose_name_plural = "Grading Systems"
 
+    def get_grade(self, percentage):
+        """
+        Get the grade letter based on percentage score.
+        Returns the grade from the associated Grade that matches the percentage.
+        """
+        if percentage is None:
+            return None
+
+        try:
+            # ✅ FIXED: Use 'grades' instead of 'grade_ranges'
+            grade_objects = self.grades.all().order_by("-min_score")
+
+            if not grade_objects.exists():
+                logger.warning(f"⚠️ No grades defined for grading system: {self.name}")
+                return None
+
+            for grade_obj in grade_objects:
+                if percentage >= grade_obj.min_score:
+                    return grade_obj.grade
+
+            # If no grade matches, return the lowest grade
+            lowest_grade = grade_objects.last()
+            return lowest_grade.grade if lowest_grade else None
+
+        except Exception as e:
+            logger.error(f"Error getting grade for {self.name}: {str(e)}")
+            return None
+
     def __str__(self):
         return f"{self.name} ({self.get_grading_type_display()})"
 
@@ -3126,10 +3154,25 @@ class NurseryTermReport(BaseTermReport, models.Model):
         skip_recalculation = kwargs.pop("skip_recalculation", False)
 
         if not skip_recalculation:
+            # Calculate metrics first
             self.calculate_metrics()
-            self.calculate_class_position()
 
+            # Auto-calculate next term begins if not set
+            if not self.next_term_begins:
+                self.next_term_begins = self.calculate_next_term_begins()
+
+        # ✅ Save FIRST to get created_at and id
+        is_new = self.pk is None
         super().save(*args, **kwargs)
+
+        # ✅ Calculate position AFTER save (when created_at exists)
+        if not skip_recalculation and self.overall_percentage is not None:
+            self.calculate_class_position()
+            # Save again only if position was calculated
+            if self.class_position is not None:
+                super().save(
+                    update_fields=["class_position", "total_students_in_class"]
+                )
 
     def calculate_next_term_begins(self):
         """Calculate next term begin date from academic calendar"""
@@ -3141,9 +3184,7 @@ class NurseryTermReport(BaseTermReport, models.Model):
                 return None
 
             # Get current term from exam session
-            current_term = (
-                current_exam_session.term_object
-            )  # or however you access the term
+            current_term = current_exam_session.term  # or however you access the term
 
             if not current_term:
                 return None
@@ -3192,20 +3233,6 @@ class NurseryTermReport(BaseTermReport, models.Model):
             logger.error(f"Error calculating next term begins: {e}")
             return None
 
-    def save(self, *args, **kwargs):
-        """Save and calculate metrics"""
-        skip_recalculation = kwargs.pop("skip_recalculation", False)
-
-        if not skip_recalculation:
-            self.calculate_metrics()
-            self.calculate_class_position()
-
-            # ADD THIS: Auto-calculate next term begins if not set
-            if not self.next_term_begins:
-                self.next_term_begins = self.calculate_next_term_begins()
-
-        super().save(*args, **kwargs)
-
     def calculate_metrics(self):
         """Calculate consolidated metrics from individual subject results"""
         from django.db.models import Sum, Count
@@ -3238,6 +3265,24 @@ class NurseryTermReport(BaseTermReport, models.Model):
 
     def calculate_class_position(self):
         """Calculate class position among peers"""
+
+        # ✅ FIX: Skip if overall_percentage or created_at is None
+        if self.overall_percentage is None:
+            logger.warning(
+                f"⚠️ overall_percentage is None for report {self.id}, skipping position calculation"
+            )
+            self.class_position = None
+            self.total_students_in_class = 0
+            return
+
+        if self.created_at is None:
+            logger.warning(
+                f"⚠️ created_at is None for report {self.id}, skipping position calculation"
+            )
+            self.class_position = None
+            self.total_students_in_class = 0
+            return
+
         # Get all reports for same class and exam session
         same_class_reports = NurseryTermReport.objects.filter(
             exam_session=self.exam_session,
@@ -3245,6 +3290,9 @@ class NurseryTermReport(BaseTermReport, models.Model):
             student__education_level=self.student.education_level,
             status__in=["APPROVED", "PUBLISHED"],  # Only count published results
         ).exclude(id=self.id)
+
+        # ✅ FIX: Exclude reports with None overall_percentage
+        same_class_reports = same_class_reports.exclude(overall_percentage__isnull=True)
 
         if same_class_reports.exists():
             # Count students with higher percentage
@@ -3263,14 +3311,14 @@ class NurseryTermReport(BaseTermReport, models.Model):
                 same_class_reports.count() + 1
             )  # +1 for current student
 
-            print(
+            logger.info(
                 f"✅ Position calculated: {self.class_position}/{self.total_students_in_class}"
             )
         else:
             # This is the only student
             self.class_position = 1
             self.total_students_in_class = 1
-            print(f"⚠️ Only student in class")
+            logger.info(f"⚠️ Only student in class")
 
     # IMPORTANT: Make sure this is called when subject results are saved
     def update_from_subject_results(self):
@@ -3458,12 +3506,36 @@ class NurseryResult(models.Model):
         """
         return self.percentage
 
+    # In backend/result/models.py - NurseryResult class
+
     def save(self, *args, **kwargs):
-        self.calculate_percentage()
-        self.determine_grade()
-        self.calculate_subject_position()
+        # Calculate percentage first
+        if self.mark_obtained is not None and self.max_marks_obtainable:
+            self.percentage = (self.mark_obtained / self.max_marks_obtainable) * 100
+        else:
+            self.percentage = None
+
+        # Determine grade based on percentage
+        if self.percentage is not None and self.grading_system:
+            try:
+                self.grade = self.grading_system.get_grade(self.percentage)
+                self.is_passed = self.percentage >= self.grading_system.pass_mark
+            except AttributeError:
+                logger.error(
+                    f"GradingSystem {self.grading_system.id} missing get_grade method"
+                )
+                self.grade = None
+                self.is_passed = False
+
+        # Save first to get created_at timestamp
+        is_new = self.pk is None
         super().save(*args, **kwargs)
-        self.update_term_report()
+
+        # Calculate position AFTER save (when percentage and created_at exist)
+        if self.percentage is not None and not is_new:
+            self.calculate_subject_position()
+            if self.subject_position is not None:
+                super().save(update_fields=["subject_position"])
 
     def update_term_report(self):
         """Update or create the consolidated term report"""
@@ -3511,46 +3583,44 @@ class NurseryResult(models.Model):
             self.is_passed = False
 
     def calculate_subject_position(self):
-        """Calculate position in this subject among approved/published results"""
-        # Get all results for this subject and exam session in the same class
-        # ✅ Only compare against APPROVED and PUBLISHED results
-        class_results = self.__class__.objects.filter(
+        """Calculate the student's position in the subject for this exam session"""
+
+        # ✅ FIX: Skip calculation if percentage is not yet calculated
+        if self.percentage is None:
+            logger.warning(
+                f"⚠️ Percentage is None for result {self.id}, skipping position calculation"
+            )
+            self.subject_position = None
+            return
+
+        # ✅ FIX: Skip calculation if created_at is None (new unsaved instance)
+        if self.created_at is None:
+            logger.warning(
+                f"⚠️ created_at is None for result {self.id}, skipping position calculation"
+            )
+            self.subject_position = None
+            return
+
+        # Get all results for the same subject, exam session, and education level
+        class_results = NurseryResult.objects.filter(
             subject=self.subject,
             exam_session=self.exam_session,
-            student__student_class=self.student.student_class,
-            status__in=["APPROVED", "PUBLISHED"],  # ✅ Removed DRAFT
-        ).exclude(id=self.id)
+            student__education_level="NURSERY",
+        ).exclude(pk=self.pk)
 
-        if class_results.exists():
-            # Count how many students scored higher
-            higher_scorers = class_results.filter(
-                percentage__gt=self.percentage
-            ).count()
+        # ✅ FIX: Exclude results with None percentage
+        class_results = class_results.exclude(percentage__isnull=True)
 
-            # Count students with same percentage but created earlier (tie-breaker)
-            same_score_earlier = class_results.filter(
-                percentage=self.percentage, created_at__lt=self.created_at
-            ).count()
+        # Count how many students scored higher
+        higher_scores = class_results.filter(percentage__gt=self.percentage).count()
 
-            self.subject_position = higher_scorers + same_score_earlier + 1
+        # Count students with same score but created earlier (for consistent tie-breaking)
+        same_score_earlier = class_results.filter(
+            percentage=self.percentage, created_at__lt=self.created_at
+        ).count()
 
-            print(
-                f"✅ Subject position calculated: {self.subject_position} for {self.subject.name}"
-            )
-        else:
-            # This is the only student with approved/published result
-            self.subject_position = 1
-            print(f"✅ Only student in subject: position 1")
-
-            if class_results.exists():
-                # Get all percentages including current one
-                all_percentages = list(
-                    class_results.values_list("percentage", flat=True)
-                ) + [self.percentage]
-                all_percentages.sort(reverse=True)
-                self.subject_position = all_percentages.index(self.percentage) + 1
-            else:
-                self.subject_position = 1
+        # Position is: (students with higher scores) + (ties created before this) + 1
+        self.subject_position = higher_scores + same_score_earlier + 1
 
     def update_term_report(self):
         """Update or create the consolidated term report"""

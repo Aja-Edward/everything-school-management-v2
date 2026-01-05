@@ -15,7 +15,6 @@ import {
   SeniorSecondaryStandardResult, 
   StudentTermResult,
   TeacherAssignment,
-  // SeniorSecondarySessionStandardResultBreakdown
 } from '../types/types';
 
 interface PaginatedResponse<T> {
@@ -66,12 +65,13 @@ export interface FilterParams {
   page?: number;
   page_size?: number;
   student_class?: string;
+  fetch_all?: boolean; // NEW: Control whether to fetch all pages
   [key: string]: any;
 }
-
 export interface ResultQueryParams extends FilterParams {
   page?: number;
   page_size?: number;
+  fetch_all?: boolean;
 }
 
 export interface TranscriptOptions {
@@ -85,19 +85,33 @@ class ResultService {
   private baseURL = '/api/results';
   private cache = new Map<string, {data: any; timestamp: number}>();
   private CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+  private DEFAULT_PAGE_SIZE = 50; // Reduced from 100
 
   // ===== CACHE MANAGEMENT =====
+   clearCache(keyPattern?: string) {
+    if (keyPattern) {
+      Array.from(this.cache.keys())
+        .filter(key => key.includes(keyPattern))
+        .forEach(key => this.cache.delete(key));
+    } else {
+      this.cache.clear();
+    }
+  }
   
-  async getCachedOrFetch(key: string, fetcher: () => Promise<any>) {
+  async getCachedOrFetch<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
     const cached = this.cache.get(key);
     if (cached && Date.now() - cached.timestamp < this.CACHE_DURATION) {
-      return cached.data;
+      console.log(`✅ Cache hit for key: ${key}`);
+      return cached.data as T;
     }
     
+    console.log(`🔄 Cache miss for key: ${key}, fetching...`);
     const data = await fetcher();
     this.cache.set(key, { data, timestamp: Date.now() });
     return data;
   }
+
+  // ===== HELPER METHODS =====
 
   // ===== HELPER METHODS =====
 
@@ -106,7 +120,6 @@ class ResultService {
     
     const examSession = report.exam_session;
     
-    // Case 1: exam_session is just an ID (string/number)
     if (typeof examSession === 'string' || typeof examSession === 'number') {
       return {
         id: examSession.toString(),
@@ -120,14 +133,11 @@ class ResultService {
       } as AcademicSession;
     }
     
-    // Case 2: exam_session is an object
     if (examSession && typeof examSession === 'object') {
-      // Nested academic_session object
       if (examSession.academic_session && typeof examSession.academic_session === 'object') {
         return examSession.academic_session as AcademicSession;
       }
       
-      // academic_session as ID with name
       if (examSession.academic_session_name) {
         return {
           id: examSession.academic_session?.toString() || '',
@@ -142,7 +152,6 @@ class ResultService {
       }
     }
     
-    // Case 3: Direct academic_session field on report
     if (report.academic_session) {
       if (typeof report.academic_session === 'object') {
         return report.academic_session;
@@ -174,7 +183,63 @@ class ResultService {
   }
 
   /**
-   * Helper method to fetch ALL pages from a paginated endpoint
+   * ⚡ OPTIMIZED: Fetch with pagination control
+   * By default, only fetches the first page
+   * Set fetch_all: true to get all pages (use sparingly!)
+   */
+  private async fetchWithPagination<T>(
+    endpoint: string,
+    params: ResultQueryParams = {}
+  ): Promise<{ results: T[], total: number, hasMore: boolean }> {
+    const { fetch_all = false, page = 1, page_size = this.DEFAULT_PAGE_SIZE, ...otherParams } = params;
+    
+    // Generate cache key
+    const cacheKey = `${endpoint}_${JSON.stringify({ page, page_size, ...otherParams })}`;
+    
+    if (fetch_all) {
+      // Legacy behavior: fetch all pages
+      const allResults = await this.fetchAllPages<T>(endpoint, params);
+      return {
+        results: allResults,
+        total: allResults.length,
+        hasMore: false
+      };
+    }
+    
+    // NEW: Fetch single page with caching
+    return this.getCachedOrFetch(cacheKey, async () => {
+      console.log(`📄 Fetching page ${page} from ${endpoint}...`);
+      
+      const response = await api.get(endpoint, {
+        ...otherParams,
+        page,
+        page_size
+      });
+      
+      if (response && typeof response === 'object') {
+        if ('results' in response && Array.isArray(response.results)) {
+          const paginatedResponse = response as PaginatedResponse<T>;
+          return {
+            results: paginatedResponse.results,
+            total: paginatedResponse.count || paginatedResponse.results.length,
+            hasMore: !!paginatedResponse.next
+          };
+        } else if (Array.isArray(response)) {
+          return {
+            results: response as T[],
+            total: response.length,
+            hasMore: false
+          };
+        }
+      }
+      
+      return { results: [], total: 0, hasMore: false };
+    });
+  }
+
+  /**
+   * Legacy method - kept for backward compatibility
+   * ⚠️ WARNING: This can be VERY slow - use fetchWithPagination instead
    */
   private async fetchAllPages<T>(
     endpoint: string,
@@ -184,7 +249,7 @@ class ResultService {
     let currentPage = 1;
     let hasMore = true;
     
-    console.log(`🔄 Fetching all pages from ${endpoint}...`);
+    console.warn(`⚠️ fetchAllPages called for ${endpoint} - this may be slow!`);
     
     while (hasMore) {
       try {
@@ -194,27 +259,16 @@ class ResultService {
           page_size: params.page_size || 100
         });
         
-        // Handle both paginated and non-paginated responses
         if (response && typeof response === 'object') {
-          // Paginated response
           if ('results' in response && Array.isArray(response.results)) {
             const paginatedResponse = response as PaginatedResponse<T>;
-            const pageResults = paginatedResponse.results;
-            allResults = [...allResults, ...pageResults];
-            
-            console.log(`📄 Page ${currentPage}: ${pageResults.length} items (Total so far: ${allResults.length}/${paginatedResponse.count || '?'})`);
-            
+            allResults = [...allResults, ...paginatedResponse.results];
             hasMore = !!paginatedResponse.next;
             currentPage++;
-          } 
-          // Non-paginated array response
-          else if (Array.isArray(response)) {
+          } else if (Array.isArray(response)) {
             allResults = response as T[];
             hasMore = false;
-            console.log(`📄 Got ${allResults.length} items (non-paginated)`);
-          }
-          // Single page with no pagination
-          else {
+          } else {
             allResults = [response as T];
             hasMore = false;
           }
@@ -231,15 +285,12 @@ class ResultService {
       }
     }
     
-    console.log(`✅ Fetched ${allResults.length} total items from ${endpoint}`);
     return allResults;
   }
 
   // ===== DATA TRANSFORMATION METHODS =====
 
   private transformNurseryResults(results: NurseryResultData[]): StandardResult[] {
-    console.log("Transforming Nursery Results:", results.length);
-
     return results.map((result): StandardResult => ({
       id: result.id,
       student: result.student,
@@ -247,31 +298,17 @@ class ResultService {
       academic_session: this.extractSessionInfo(result),
       education_level: 'NURSERY',
       grading_system: result.grading_system,
-      
-      // Scores
       total_score: result.mark_obtained,
       percentage: result.percentage,
       grade: result.grade,
       grade_point: result.grade_point,
       is_passed: result.is_passed,
-      
-      // Position
       position: result.subject_position ?? result.position,
-      
-      // Exam score
       exam_score: result.mark_obtained,
-      
-      // Remarks
       teacher_remark: result.academic_comment || '',
-      
-      // Status
       status: result.status,
-      
-      // Tracking
       created_at: result.created_at,
       updated_at: result.updated_at,
-      
-      // Breakdown
       breakdown: {
         max_marks_obtainable: result.max_marks_obtainable,
         mark_obtained: result.mark_obtained,
@@ -284,7 +321,6 @@ class ResultService {
   }
 
   private transformPrimaryResults(results: PrimaryResultData[]): StandardResult[] {
-    console.log("Transforming Primary Results:", results.length);
     return results.map((result): StandardResult => ({
       id: result.id,
       student: result.student,
@@ -327,7 +363,6 @@ class ResultService {
   }
 
   private transformJuniorSecondaryResults(results: JuniorSecondaryResultData[]): StandardResult[] {
-    console.log("Transforming Junior Secondary Results:", results.length);
     return results.map((result): StandardResult => ({
       id: result.id,
       student: result.student,
@@ -368,147 +403,125 @@ class ResultService {
       updated_at: result.updated_at,
     }));
   }
-
  // For term results - use SeniorSecondaryTermResultBreakdown
 private transformSeniorSecondaryResults(results: SeniorSecondaryResultData[]): StandardResult[] {
-  console.log("Transforming Senior Secondary Results:", results.length);
-  return results.map((result): SeniorSecondaryStandardResult => ({
-    id: result.id,
-    student: result.student,
-    subject: result.subject,
-    academic_session: this.extractSessionInfo(result),
-    education_level: 'SENIOR_SECONDARY' as const,
-    stream: result.stream,
-    grading_system: result.grading_system,
-    total_score: result.total_score,
-    percentage: result.percentage,
-    grade: result.grade,
-    grade_point: result.grade_point,
-    is_passed: result.is_passed,
-    first_test_score: result.first_test_score,
-    second_test_score: result.second_test_score,
-    third_test_score: result.third_test_score,
-    exam_score: result.exam_score,
-    breakdown: {
+    return results.map((result): SeniorSecondaryStandardResult => ({
+      id: result.id,
+      student: result.student,
+      subject: result.subject,
+      academic_session: this.extractSessionInfo(result),
+      education_level: 'SENIOR_SECONDARY' as const,
+      stream: result.stream,
+      grading_system: result.grading_system,
+      total_score: result.total_score,
+      percentage: result.percentage,
+      grade: result.grade,
+      grade_point: result.grade_point,
+      is_passed: result.is_passed,
       first_test_score: result.first_test_score,
       second_test_score: result.second_test_score,
       third_test_score: result.third_test_score,
       exam_score: result.exam_score,
-    },
-    class_average: result.class_average,
-    highest_in_class: result.highest_in_class,
-    lowest_in_class: result.lowest_in_class,
-    position: result.subject_position,
-    status: result.status,
-    teacher_remark: result.teacher_remark || '',
-    created_at: result.created_at,
-    updated_at: result.updated_at,
-    exam_session: result.exam_session,
-  }));
-}
+      breakdown: {
+        first_test_score: result.first_test_score,
+        second_test_score: result.second_test_score,
+        third_test_score: result.third_test_score,
+        exam_score: result.exam_score,
+      },
+      class_average: result.class_average,
+      highest_in_class: result.highest_in_class,
+      lowest_in_class: result.lowest_in_class,
+      position: result.subject_position,
+      status: result.status,
+      teacher_remark: result.teacher_remark || '',
+      created_at: result.created_at,
+      updated_at: result.updated_at,
+      exam_session: result.exam_session,
+    }));
+  }
 
 // For session results - use SeniorSecondarySessionResultBreakdown
 private transformSeniorSessionResults(results: SeniorSecondarySessionResultData[]): StandardResult[] {
-  console.log("Transforming Senior Session Results:", results.length);
-  return results.map((result): SeniorSecondaryStandardResult => ({
-    id: result.id,
-    student: result.student,
-    subject: result.subject,
-    academic_session: this.extractSessionInfo(result),
-    education_level: 'SENIOR_SECONDARY' as const,
-    stream: result.stream,
-    grading_system: result.grading_system || {
-      id: 'default',
-      name: 'Default Grading',
-      grading_type: 'PERCENTAGE',
-      min_score: 0,
-      max_score: 100,
-      pass_mark: 40,
-    },
-    total_score: result.obtained,
-    percentage: (result.obtained / result.obtainable) * 100,
-    grade: '',
-    is_passed: result.obtained >= (result.obtainable * 0.4),
-    exam_score: result.obtained,
-    breakdown: {
-      first_term_score: result.first_term_score,
-      second_term_score: result.second_term_score,
-      third_term_score: result.third_term_score,
-      average_for_year: result.average_for_year,
-    },
-    class_average: result.class_average,
-    highest_in_class: result.highest_in_class,
-    lowest_in_class: result.lowest_in_class,
-    position: result.subject_position,
-    status: result.status,
-    teacher_remark: result.teacher_remark || '',
-    created_at: result.created_at,
-    updated_at: result.updated_at,
-  }));
-}
+    return results.map((result): SeniorSecondaryStandardResult => ({
+      id: result.id,
+      student: result.student,
+      subject: result.subject,
+      academic_session: this.extractSessionInfo(result),
+      education_level: 'SENIOR_SECONDARY' as const,
+      stream: result.stream,
+      grading_system: result.grading_system || {
+        id: 'default',
+        name: 'Default Grading',
+        grading_type: 'PERCENTAGE',
+        min_score: 0,
+        max_score: 100,
+        pass_mark: 40,
+      },
+      total_score: result.obtained,
+      percentage: (result.obtained / result.obtainable) * 100,
+      grade: '',
+      is_passed: result.obtained >= (result.obtainable * 0.4),
+      exam_score: result.obtained,
+      breakdown: {
+        first_term_score: result.first_term_score,
+        second_term_score: result.second_term_score,
+        third_term_score: result.third_term_score,
+        average_for_year: result.average_for_year,
+      },
+      class_average: result.class_average,
+      highest_in_class: result.highest_in_class,
+      lowest_in_class: result.lowest_in_class,
+      position: result.subject_position,
+      status: result.status,
+      teacher_remark: result.teacher_remark || '',
+      created_at: result.created_at,
+      updated_at: result.updated_at,
+    }));
+  }
+
 
   // ===== CORE API METHODS WITH PAGINATION =====
 
-  async getNurseryResults(params?: ResultQueryParams): Promise<NurseryResultData[]> {
-    try {
-      return await this.fetchAllPages<NurseryResultData>(
-        `${this.baseURL}/nursery/results/`,
-        params
-      );
-    } catch (error) {
-      console.error('Error fetching nursery results:', error);
-      return [];
-    }
+ async getNurseryResults(params?: ResultQueryParams): Promise<NurseryResultData[]> {
+    const { results } = await this.fetchWithPagination<NurseryResultData>(
+      `${this.baseURL}/nursery/results/`,
+      params
+    );
+    return results;
   }
 
+
   async getPrimaryResults(params?: ResultQueryParams): Promise<PrimaryResultData[]> {
-    try {
-      return await this.fetchAllPages<PrimaryResultData>(
-        `${this.baseURL}/primary/results/`,
-        params
-      );
-    } catch (error) {
-      console.error('Error fetching primary results:', error);
-      return [];
-    }
+    const { results } = await this.fetchWithPagination<PrimaryResultData>(
+      `${this.baseURL}/primary/results/`,
+      params
+    );
+    return results;
   }
 
   async getJuniorSecondaryResults(params?: ResultQueryParams): Promise<JuniorSecondaryResultData[]> {
-    try {
-      return await this.fetchAllPages<JuniorSecondaryResultData>(
-        `${this.baseURL}/junior-secondary/results/`,
-        params
-      );
-    } catch (error) {
-      console.error('Error fetching junior secondary results:', error);
-      return [];
-    }
+    const { results } = await this.fetchWithPagination<JuniorSecondaryResultData>(
+      `${this.baseURL}/junior-secondary/results/`,
+      params
+    );
+    return results;
   }
 
   async getSeniorSecondaryResults(params?: ResultQueryParams): Promise<SeniorSecondaryResultData[]> {
-    try {
-      return await this.fetchAllPages<SeniorSecondaryResultData>(
-        `${this.baseURL}/senior-secondary/results/`,
-        params
-      );
-    } catch (error) {
-      console.error('Error fetching senior secondary results:', error);
-      return [];
-    }
+    const { results } = await this.fetchWithPagination<SeniorSecondaryResultData>(
+      `${this.baseURL}/senior-secondary/results/`,
+      params
+    );
+    return results;
   }
 
   async getSeniorSecondarySessionResults(params?: ResultQueryParams): Promise<SeniorSecondarySessionResultData[]> {
-    try {
-      return await this.fetchAllPages<SeniorSecondarySessionResultData>(
-        `${this.baseURL}/senior-secondary/session-results/`,
-        params
-      );
-    } catch (error) {
-      console.error('Error fetching senior secondary session results:', error);
-      return [];
-    }
+    const { results } = await this.fetchWithPagination<SeniorSecondarySessionResultData>(
+      `${this.baseURL}/senior-secondary/session-results/`,
+      params
+    );
+    return results;
   }
-
   // ===== TERM REPORT METHODS =====
 
   async getNurseryTermReports(params?: ResultQueryParams): Promise<any[]> {
@@ -786,10 +799,8 @@ private transformSeniorSessionResults(results: SeniorSecondarySessionResultData[
   async getStudentResults(params: FilterParams): Promise<StandardResult[]> {
     const { education_level, result_type = 'termly', student } = params;
 
-    console.log('getStudentResults called with params:', params);
-
     if (!education_level) {
-      console.warn('No education_level specified in getStudentResults, returning empty array');
+      console.warn('No education_level specified in getStudentResults');
       return [];
     }
 
@@ -827,17 +838,12 @@ private transformSeniorSessionResults(results: SeniorSecondarySessionResultData[
           return [];
       }
 
-      console.log('Transformed results:', results);
-
-      // Additional client-side filtering by student if needed
       if (student && results.length > 0) {
         const filtered = results.filter(result => {
           if (!result || !result.student) return false;
-          
           const resultStudentId = typeof result.student === 'object' ? result.student.id : result.student;
           return resultStudentId?.toString() === student?.toString();
         });
-        console.log('Client-side filtered results:', filtered);
         return filtered;
       }
 
@@ -1486,38 +1492,34 @@ private transformSeniorSessionResults(results: SeniorSecondarySessionResultData[
 
   async getExamSessions(params?: FilterParams): Promise<ExamSessionInfo[]> {
     try {
-      const response = await api.get(`${this.baseURL}/exam-sessions/`, { params });
-      console.log("📦 Exam sessions raw response:", response);
-      
-      let sessions: ExamSessionInfo[] = [];
-      
-      if (Array.isArray(response)) {
-        sessions = response;
-      } else if (response?.results && Array.isArray(response.results)) {
-        sessions = response.results;
-      } else if (response?.data && Array.isArray(response.data)) {
-        sessions = response.data;
-      } else if (typeof response === 'object' && response !== null) {
-        sessions = [response];
-      }
-      
-      console.log("✅ Processed sessions:", sessions.length, "items");
-      
-      if (sessions.length === 0) {
-        throw new Error('No exam sessions available. Please contact your administrator.');
-      }
-      
-      return sessions;
-      
+      const cacheKey = `exam-sessions_${JSON.stringify(params || {})}`;
+      return this.getCachedOrFetch(cacheKey, async () => {
+        const response = await api.get(`${this.baseURL}/exam-sessions/`, { params });
+        
+        let sessions: ExamSessionInfo[] = [];
+        
+        if (Array.isArray(response)) {
+          sessions = response;
+        } else if (response?.results && Array.isArray(response.results)) {
+          sessions = response.results;
+        } else if (response?.data && Array.isArray(response.data)) {
+          sessions = response.data;
+        } else if (typeof response === 'object' && response !== null) {
+          sessions = [response];
+        }
+        
+        if (sessions.length === 0) {
+          throw new Error('No exam sessions available');
+        }
+        
+        return sessions;
+      });
     } catch (error: any) {
       console.error('❌ Error fetching exam sessions:', error);
-      throw new Error(
-        error.response?.data?.message || 
-        error.message || 
-        'Failed to fetch exam sessions'
-      );
+      throw new Error(error.response?.data?.message || error.message || 'Failed to fetch exam sessions');
     }
   }
+
 
   async getClassStatistics(educationLevel: string, params?: {
     exam_session?: string;

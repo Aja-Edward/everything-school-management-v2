@@ -992,7 +992,6 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
             logger.error(f"Error getting next term begins: {e}")
             return "To Be Announced"
 
-
 class PrimaryReportGenerator(ReportGenerator):
     """Generate reports for Primary students"""
 
@@ -1237,7 +1236,6 @@ class PrimaryReportGenerator(ReportGenerator):
             return JsonResponse(
                 {"error": "Failed to generate report", "detail": str(e)}, status=500
             )
-
 
 class NurseryReportGenerator(ReportGenerator):
     """Generate reports for Nursery students"""
@@ -1488,7 +1486,6 @@ class NurseryReportGenerator(ReportGenerator):
             return JsonResponse(
                 {"error": "Failed to generate report", "detail": str(e)}, status=500
             )
-
 
 def get_report_generator(education_level, request=None):
     """Factory function to get appropriate report generator"""

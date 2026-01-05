@@ -15,7 +15,7 @@ from .models import (
     AcademicCalendar,
 )
 
-# ✅ Import Subject from subject app
+# goodImport Subject from subject app
 from subject.models import Subject
 from .serializers import (
     AcademicSessionSerializer,
@@ -39,7 +39,7 @@ class AcademicSessionViewSet(viewsets.ModelViewSet):
     ordering_fields = ["start_date", "end_date", "name", "created_at"]
     ordering = ["-start_date"]
 
-    # ✅ Get current session
+    # goodGet current session
     @action(detail=False, methods=["get"])
     def current(self, request):
         """Get the currently active academic session"""
@@ -52,7 +52,7 @@ class AcademicSessionViewSet(viewsets.ModelViewSet):
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    # ✅ Set current session
+    # goodSet current session
     @action(detail=True, methods=["post"])
     def set_current(self, request, pk=None):
         """Set this session as the current active session"""
@@ -74,7 +74,7 @@ class AcademicSessionViewSet(viewsets.ModelViewSet):
             }
         )
 
-    # ✅ Get terms for a session
+    # goodGet terms for a session
     @action(detail=True, methods=["get"])
     def terms(self, request, pk=None):
         """Get all terms for this academic session"""
@@ -83,7 +83,7 @@ class AcademicSessionViewSet(viewsets.ModelViewSet):
         serializer = TermSerializer(terms, many=True)
         return Response(serializer.data)
 
-    # ✅ Get statistics
+    # goodGet statistics
     @action(detail=True, methods=["get"])
     def statistics(self, request, pk=None):
         """Get statistics for this academic session"""
@@ -98,7 +98,7 @@ class AcademicSessionViewSet(viewsets.ModelViewSet):
         }
         return Response(stats)
 
-    # ✅ Auto-set first session as current
+    # goodAuto-set first session as current
     def perform_create(self, serializer):
         """Handle creation with current session logic"""
         if serializer.validated_data.get("is_current", False):
@@ -112,7 +112,7 @@ class AcademicSessionViewSet(viewsets.ModelViewSet):
             session.is_active = True
             session.save()
 
-    # ✅ Ensure only one current session
+    # goodEnsure only one current session
     def perform_update(self, serializer):
         """Handle updates with current session logic"""
         if serializer.validated_data.get("is_current", False):

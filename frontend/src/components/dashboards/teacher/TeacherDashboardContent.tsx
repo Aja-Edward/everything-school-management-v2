@@ -22,6 +22,7 @@ interface TeacherDashboardContentProps {
   dashboardData: any;
   onRefresh: () => void;
   error?: string | null;
+  isLoadingSecondaryData?: boolean;
 }
 
 const TeacherDashboardContent: React.FC<TeacherDashboardContentProps> = ({ 

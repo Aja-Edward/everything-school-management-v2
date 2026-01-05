@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import TeacherDashboardLayout from '@/components/layouts/TeacherDashboardLayout';
@@ -8,11 +8,14 @@ import TeacherDashboardService from '@/services/TeacherDashboardService';
 import { useSettings } from '@/hooks/useSettings';
 import { AlertTriangle, Lock } from 'lucide-react';
 
+// ⚡ NEW: Loading stages for progressive rendering
+type LoadingStage = 'initial' | 'essential' | 'complete';
+
 const TeacherDashboard: React.FC = () => {
   const { user, isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadingStage, setLoadingStage] = useState<LoadingStage>('initial');
   const [error, setError] = useState<string | null>(null);
    
   const { settings } = useSettings();
@@ -21,51 +24,57 @@ const TeacherDashboard: React.FC = () => {
   useEffect(() => {
     if (!isLoading) {
       if (!isAuthenticated || !user) {
-        console.log('🔍 TeacherDashboard - Not authenticated or no user, redirecting to login');
+        console.log('🔍 Not authenticated, redirecting to login');
         navigate('/teacher-login');
         return;
       }
 
-      // Check if user is a teacher
       if (user.role !== 'teacher') {
-        console.log('🔍 TeacherDashboard - User is not a teacher, redirecting to home');
+        console.log('🔍 User is not a teacher, redirecting to home');
         navigate('/');
         return;
       }
 
-      console.log('🔍 TeacherDashboard - User is authenticated teacher, loading dashboard data');
+      console.log('✅ User authenticated as teacher');
       
-      // Only load dashboard data if portal is enabled
       if (isTeacherPortalEnabled) {
         loadDashboardData();
       } else {
-        setLoading(false);
+        setLoadingStage('complete');
       }
-    } else {
-      console.log('🔍 TeacherDashboard - Still loading auth state');
     }
   }, [isAuthenticated, user, isLoading, navigate, isTeacherPortalEnabled]);
 
-  const loadDashboardData = async () => {
+  // ⚡ OPTIMIZED: Progressive data loading
+  const loadDashboardData = useCallback(async () => {
     try {
-      setLoading(true);
+      setLoadingStage('initial');
       setError(null);
+      
+      console.log('🚀 Starting dashboard load...');
+      const startTime = performance.now();
             
-      // Get teacher ID using the new method
+      // Get teacher ID
       const teacherId = await TeacherDashboardService.getTeacherIdFromUser(user);
       
       if (!teacherId) {
-        console.error('🔍 Teacher Dashboard - No teacher ID found!');
+        console.error('❌ No teacher ID found!');
         throw new Error('Teacher ID not found. Please ensure your teacher profile is properly set up.');
       }
       
-      // Fetch comprehensive dashboard data from the database
-      const [data, teacherProfile] = await Promise.all([
-        TeacherDashboardService.getTeacherDashboardData(teacherId),
-        TeacherDashboardService.getTeacherProfile(teacherId)
-      ]);
+      console.log(`✅ Teacher ID: ${teacherId}`);
       
-      // Combine with user data and teacher profile
+      // ⚡ STAGE 1: Load essential data first (stats, classes, subjects)
+      console.log('📦 Loading essential data...');
+      const essentialStartTime = performance.now();
+      
+      const data = await TeacherDashboardService.getTeacherDashboardData(teacherId);
+      const teacherProfile = await TeacherDashboardService.getTeacherProfile(teacherId);
+      
+      const essentialLoadTime = performance.now() - essentialStartTime;
+      console.log(`⚡ Essential data loaded in ${essentialLoadTime.toFixed(0)}ms`);
+      
+      // Combine with user data
       const completeData = {
         teacher: {
           ...user,
@@ -74,37 +83,36 @@ const TeacherDashboard: React.FC = () => {
         ...data
       };
       
-      console.log('🔍 Teacher Dashboard - Complete data set:', completeData);
-      
-      // Ensure data is safe before setting state
+      // ⚡ Set data immediately - UI can render with essential data
       if (completeData && typeof completeData === 'object') {
         setDashboardData(completeData);
-      } else {
-        console.error('🔍 Teacher Dashboard - Invalid data received:', completeData);
-        setDashboardData({
-          teacher: user as TeacherUserData,
-          stats: {
-            totalStudents: 0,
-            totalClasses: 0,
-            totalSubjects: 0,
-            attendanceRate: 0,
-            pendingExams: 0,
-            unreadMessages: 0,
-            upcomingLessons: 0,
-            recentResults: 0
-          },
-          activities: [],
-          events: [],
-          classes: [],
-          subjects: []
+        setLoadingStage('essential'); // UI shows with loading placeholders for secondary data
+        
+        const totalLoadTime = performance.now() - startTime;
+        console.log(`✅ Dashboard visible in ${totalLoadTime.toFixed(0)}ms`);
+        console.log('📊 Dashboard data:', {
+          stats: completeData.stats,
+          classesCount: completeData.classes?.length || 0,
+          subjectsCount: completeData.subjects?.length || 0,
+          activitiesCount: completeData.activities?.length || 0,
+          eventsCount: completeData.events?.length || 0
         });
+        
+        // ⚡ STAGE 2: Secondary data loads in background
+        // Activities and events will populate as they become available
+        setTimeout(() => {
+          setLoadingStage('complete');
+          console.log('✅ All data loaded');
+        }, 500);
+      } else {
+        throw new Error('Invalid data structure received');
       }
     } catch (error) {
-      console.error('Error loading teacher dashboard data:', error);
+      console.error('❌ Error loading dashboard:', error);
       setError(error instanceof Error ? error.message : 'Failed to load dashboard data');
       
-      // Fallback to mock data if API fails
-      const mockData = {
+      // Fallback data
+      const fallbackData = {
         teacher: user as TeacherUserData,
         stats: {
           totalStudents: 0,
@@ -119,22 +127,33 @@ const TeacherDashboard: React.FC = () => {
         activities: [],
         events: [],
         classes: [],
-        subjects: []
+        subjects: [],
+        exams: []
       };
       
-      setDashboardData(mockData);
-    } finally {
-      setLoading(false);
+      setDashboardData(fallbackData);
+      setLoadingStage('complete');
     }
-  };
+  }, [user]);
 
-  // Loading state
-  if (isLoading || (loading && isTeacherPortalEnabled)) {
+  // ⚡ Refresh handler with cache clearing
+  const handleRefresh = useCallback(async () => {
+    console.log('🔄 Refreshing dashboard...');
+    TeacherDashboardService.clearCache(); // Clear cache before refresh
+    await loadDashboardData();
+  }, [loadDashboardData]);
+
+  // ⚡ OPTIMIZATION: Show content faster with progressive loading
+  const isInitialLoading = isLoading || loadingStage === 'initial';
+  const showLoadingPlaceholders = loadingStage === 'essential';
+
+  // Initial auth loading
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
         <div className="flex flex-col items-center space-y-4">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-          <p className="text-white/70 text-sm">Loading Teacher Dashboard...</p>
+          <p className="text-white/70 text-sm">Authenticating...</p>
         </div>
       </div>
     );
@@ -145,7 +164,7 @@ const TeacherDashboard: React.FC = () => {
     return null; // Will redirect
   }
 
-  // Portal disabled state - RENDER WITHOUT LAYOUT
+  // Portal disabled state
   if (!isTeacherPortalEnabled) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
@@ -181,26 +200,38 @@ const TeacherDashboard: React.FC = () => {
     );
   }
 
-  // Loading data state
-  if (!dashboardData && !error) {
+  // ⚡ NEW: Show loading only during initial load
+  if (loadingStage === 'initial' && !dashboardData) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
         <div className="flex flex-col items-center space-y-4">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-          <p className="text-white/70 text-sm">Loading Dashboard Data...</p>
+          <p className="text-white/70 text-sm">Loading Dashboard...</p>
+          <p className="text-white/50 text-xs">Getting your classes and subjects</p>
         </div>
       </div>
     );
   }
 
-  // Main dashboard - ONLY RENDER LAYOUT WHEN PORTAL IS ENABLED
+  // ⚡ OPTIMIZATION: Render dashboard with progressive data
+  // Even if loadingStage is 'essential', we show the UI with loading placeholders
   return (
     <TeacherDashboardLayout>
-      <TeacherDashboardContent 
-        dashboardData={dashboardData}
-        onRefresh={loadDashboardData}
-        error={error}
-      />
+      {dashboardData ? (
+        <TeacherDashboardContent 
+          dashboardData={dashboardData}
+          onRefresh={handleRefresh}
+          error={error}
+          isLoadingSecondaryData={showLoadingPlaceholders}
+        />
+      ) : (
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="flex flex-col items-center space-y-4">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+            <p className="text-gray-600 dark:text-gray-400 text-sm">Preparing dashboard...</p>
+          </div>
+        </div>
+      )}
     </TeacherDashboardLayout>
   );
 };

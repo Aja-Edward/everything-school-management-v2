@@ -8,7 +8,7 @@ from .models import (
     AcademicCalendar,
 )
 
-# ✅ Import Subject from subject app
+# goodImport Subject from subject app
 from subject.models import Subject
 
 
