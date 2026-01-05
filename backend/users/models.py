@@ -153,6 +153,13 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
             return f"{self.first_name} {self.middle_name} {self.last_name}"
         return f"{self.first_name} {self.last_name}"
 
+    def get_full_name(self):
+        """
+        Return the full name (implements Django's User interface).
+        This is what serializers with source="user.get_full_name" will call.
+        """
+        return self.full_name  # Uses the property above
+
     @property
     def short_name(self):
         """
