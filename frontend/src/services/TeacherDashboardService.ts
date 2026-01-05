@@ -588,9 +588,7 @@ class TeacherDashboardService {
   // Get students for a specific classroom
   async getStudentsForClass(classroomId: number) {
     try {
-      // Note: Backend mounts classroom urls at /api/classrooms/, and within it defines
-      // "classrooms/<int:classroom_id>/students/", so the full path is:
-      // /api/classrooms/classrooms/:classroom_id/students/
+      
       const response = await api.get(`/api/classrooms/classrooms/${classroomId}/students/`);
       // api.get returns parsed JSON directly. Handle array or paginated/object shapes defensively.
       if (Array.isArray(response)) return response;
