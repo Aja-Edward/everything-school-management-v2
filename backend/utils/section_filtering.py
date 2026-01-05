@@ -1199,7 +1199,9 @@ class SectionFilterMixin:
 
                 # Filter teachers who are assigned to classrooms in allowed sections
                 filtered = queryset.filter(
-                    Q(classroomteacherassignment__classroom__in=allowed_classrooms)
+                    Q(
+                        classroom_assignments__classroom__in=allowed_classrooms
+                    )  # ✅ Correct field name
                     | Q(assigned_classes__in=allowed_classrooms)
                 ).distinct()
 
