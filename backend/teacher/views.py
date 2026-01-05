@@ -171,8 +171,25 @@ class TeacherViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         )
 
         # 🟦 Special case: Teachers can only see their own profile
-        # BUT: Allow retrieve action (getting by ID) if it's their own teacher record
-        if hasattr(user, "teacher") and not user.is_staff and not user.is_superuser:
+        # Check if user is a teacher by checking if they have a teacher record
+        # Use try/except instead of hasattr to be more reliable
+        is_teacher = False
+        teacher_id = None
+
+        try:
+            # Try to get the teacher record for this user
+            teacher = Teacher.objects.get(user=user)
+            is_teacher = True
+            teacher_id = teacher.id
+            logger.info(
+                f"[TeacherViewSet] User {user.id} is a teacher with ID {teacher_id}"
+            )
+        except Teacher.DoesNotExist:
+            logger.info(f"[TeacherViewSet] User {user.id} is not a teacher")
+            pass
+
+        # Apply teacher restrictions
+        if is_teacher and not user.is_staff and not user.is_superuser:
             # For list actions, restrict to self
             if self.action == "list":
                 queryset = queryset.filter(user=user)
@@ -182,15 +199,25 @@ class TeacherViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
             # For retrieve action, allow if the teacher ID matches
             elif self.action == "retrieve":
                 # Get the teacher ID from URL kwargs
-                teacher_id = self.kwargs.get("pk")
-                if teacher_id:
-                    # Only allow if requesting their own teacher record
-                    queryset = queryset.filter(
-                        models.Q(id=teacher_id, user=user) | models.Q(user=user)
-                    )
-                    logger.info(
-                        f"[TeacherViewSet] Teacher user - allowing retrieve of own record"
-                    )
+                requested_teacher_id = self.kwargs.get("pk")
+                if requested_teacher_id:
+                    try:
+                        requested_teacher_id = int(requested_teacher_id)
+                        # Only allow if requesting their own teacher record
+                        if requested_teacher_id == teacher_id:
+                            # Allow - they're requesting their own record
+                            queryset = queryset.filter(id=teacher_id)
+                            logger.info(
+                                f"[TeacherViewSet] Teacher user - allowing retrieve of own record (ID: {teacher_id})"
+                            )
+                        else:
+                            # Not their own record - deny
+                            queryset = queryset.none()
+                            logger.info(
+                                f"[TeacherViewSet] Teacher user - denying retrieve of other teacher (requested: {requested_teacher_id}, own: {teacher_id})"
+                            )
+                    except (ValueError, TypeError):
+                        queryset = queryset.filter(user=user)
                 else:
                     queryset = queryset.filter(user=user)
 
