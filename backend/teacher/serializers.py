@@ -310,74 +310,126 @@ class TeacherSerializer(serializers.ModelSerializer):
 
         return subjects
 
+    # def get_classroom_assignments(self, obj):
+    #     """Returns the classroom assignments for this teacher in the format expected by the frontend."""
+    #     from classroom.models import ClassroomTeacherAssignment
+
+    #     # Fix: Use correct field names - academic_session not academic_year
+    #     assignments = ClassroomTeacherAssignment.objects.filter(
+    #         teacher=obj, is_active=True
+    #     ).select_related(
+    #         "classroom",
+    #         "classroom__section",
+    #         "classroom__section__grade_level",
+    #         "classroom__academic_session",  # Changed from academic_year
+    #         "classroom__term",
+    #         "subject",
+    #     )
+
+    #     classroom_assignments = []
+    #     for assignment in assignments:
+    #         classroom = assignment.classroom
+    #         section = classroom.section
+    #         grade_level = section.grade_level
+
+    #         student_count = classroom.current_enrollment
+
+    #         assignment_data = {
+    #             "id": assignment.id,
+    #             "classroom_name": classroom.name,
+    #             "classroom_id": classroom.id,
+    #             "section_id": section.id,
+    #             "section_name": section.name,
+    #             "grade_level_id": grade_level.id,
+    #             "grade_level_name": grade_level.name,
+    #             "education_level": grade_level.education_level,
+    #             "academic_session": (
+    #                 classroom.academic_session.name
+    #                 if classroom.academic_session
+    #                 else "N/A"
+    #             ),
+    #             "term": (
+    #                 classroom.term.get_name_display()
+    #                 if hasattr(classroom.term, "get_name_display")
+    #                 else str(classroom.term)
+    #             ),
+    #             "subject_id": assignment.subject.id,
+    #             "subject_name": assignment.subject.name,
+    #             "subject_code": assignment.subject.code,
+    #             "assigned_date": (
+    #                 assignment.assigned_date.isoformat()
+    #                 if assignment.assigned_date
+    #                 else None
+    #             ),
+    #             "room_number": classroom.room_number or "",
+    #             "student_count": student_count,
+    #             "max_capacity": classroom.max_capacity,
+    #             "is_primary_teacher": assignment.is_primary_teacher,
+    #             "periods_per_week": assignment.periods_per_week,
+    #         }
+
+    #         # Add stream information if available (for Senior Secondary)
+    #         if hasattr(classroom, "stream") and classroom.stream:
+    #             assignment_data["stream_name"] = classroom.stream.name
+    #             assignment_data["stream_type"] = (
+    #                 classroom.stream.get_stream_type_display()
+    #             )
+
+    #         classroom_assignments.append(assignment_data)
+
+    #     return classroom_assignments
     def get_classroom_assignments(self, obj):
-        """Returns the classroom assignments for this teacher in the format expected by the frontend."""
-        from classroom.models import ClassroomTeacherAssignment
+        """Get classroom assignments with optimized queries"""
+        try:
+            assignments = (
+                obj.classroom_assignments.select_related(
+                    "classroom", "classroom__section", "subject"
+                )
+                .prefetch_related(
+                    "classroom__students"  # Prefetch students to avoid N+1
+                )
+                .all()
+            )
 
-        # Fix: Use correct field names - academic_session not academic_year
-        assignments = ClassroomTeacherAssignment.objects.filter(
-            teacher=obj, is_active=True
-        ).select_related(
-            "classroom",
-            "classroom__section",
-            "classroom__section__grade_level",
-            "classroom__academic_session",  # Changed from academic_year
-            "classroom__term",
-            "subject",
-        )
+            result = []
+            for assignment in assignments:
+                classroom = assignment.classroom
 
-        classroom_assignments = []
-        for assignment in assignments:
-            classroom = assignment.classroom
-            section = classroom.section
-            grade_level = section.grade_level
-
-            student_count = classroom.current_enrollment
-
-            assignment_data = {
-                "id": assignment.id,
-                "classroom_name": classroom.name,
-                "classroom_id": classroom.id,
-                "section_id": section.id,
-                "section_name": section.name,
-                "grade_level_id": grade_level.id,
-                "grade_level_name": grade_level.name,
-                "education_level": grade_level.education_level,
-                "academic_session": (
-                    classroom.academic_session.name
-                    if classroom.academic_session
-                    else "N/A"
-                ),
-                "term": (
-                    classroom.term.get_name_display()
-                    if hasattr(classroom.term, "get_name_display")
-                    else str(classroom.term)
-                ),
-                "subject_id": assignment.subject.id,
-                "subject_name": assignment.subject.name,
-                "subject_code": assignment.subject.code,
-                "assigned_date": (
-                    assignment.assigned_date.isoformat()
-                    if assignment.assigned_date
-                    else None
-                ),
-                "room_number": classroom.room_number or "",
-                "student_count": student_count,
-                "max_capacity": classroom.max_capacity,
-                "is_primary_teacher": assignment.is_primary_teacher,
-                "periods_per_week": assignment.periods_per_week,
-            }
-
-            # Add stream information if available (for Senior Secondary)
-            if hasattr(classroom, "stream") and classroom.stream:
-                assignment_data["stream_name"] = classroom.stream.name
-                assignment_data["stream_type"] = (
-                    classroom.stream.get_stream_type_display()
+                # Use prefetched students count instead of current_enrollment property
+                student_count = (
+                    classroom.students.count() if hasattr(classroom, "students") else 0
                 )
 
-            classroom_assignments.append(assignment_data)
+                result.append(
+                    {
+                        "id": assignment.id,
+                        "classroom_id": classroom.id,
+                        "classroom_name": classroom.name,
+                        "section_id": (
+                            classroom.section.id if classroom.section else None
+                        ),
+                        "section_name": (
+                            classroom.section.name if classroom.section else ""
+                        ),
+                        "subject_id": (
+                            assignment.subject.id if assignment.subject else None
+                        ),
+                        "subject_name": (
+                            assignment.subject.name if assignment.subject else ""
+                        ),
+                        "subject_code": (
+                            assignment.subject.code if assignment.subject else ""
+                        ),
+                        "student_count": student_count,
+                        "is_primary_teacher": assignment.is_primary_teacher,
+                        "periods_per_week": assignment.periods_per_week,
+                    }
+                )
 
-        return classroom_assignments
+            return result
+        except Exception as e:
+            logger.error(f"Error getting classroom assignments: {e}")
+            return []
 
         # In teachers/serializers.py - Updated create() method
 
