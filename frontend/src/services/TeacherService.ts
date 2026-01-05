@@ -255,15 +255,16 @@ class TeacherService {
   }
 
   // Get teacher by user ID
-  async getTeacherByUserId(userId: number): Promise<Teacher | null> {
-    try {
-      const response = await api.get(`/api/teachers/teachers/by-user/${userId}/`);
-      return response;
-    } catch (error) {
-      console.log('Teacher not found by user ID:', userId, error);
-      return null;
-    }
+  async getTeacherByUserId(userId: number) {
+  try {
+    console.log('🔍 TeacherService.getTeacherByUserId - userId:', userId);
+    const response = await api.get(`/api/teachers/teachers/by-user/${userId}/`);
+    return response;
+  } catch (error: any) {
+    console.error('Teacher not found by user ID:', userId, error);
+    throw error;
   }
+}
 
   // Create teacher
   async createTeacher(data: CreateTeacherData): Promise<Teacher> {

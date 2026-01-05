@@ -1,3 +1,4 @@
+from django.db.models import Prefetch, Count, Q
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -170,9 +171,28 @@ class TeacherViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         )
 
         # 🟦 Special case: Teachers can only see their own profile
+        # BUT: Allow retrieve action (getting by ID) if it's their own teacher record
         if hasattr(user, "teacher") and not user.is_staff and not user.is_superuser:
-            queryset = queryset.filter(user=user)
-            logger.info(f"[TeacherViewSet] Teacher user - restricted to self")
+            # For list actions, restrict to self
+            if self.action == "list":
+                queryset = queryset.filter(user=user)
+                logger.info(
+                    f"[TeacherViewSet] Teacher user - restricted to self for list"
+                )
+            # For retrieve action, allow if the teacher ID matches
+            elif self.action == "retrieve":
+                # Get the teacher ID from URL kwargs
+                teacher_id = self.kwargs.get("pk")
+                if teacher_id:
+                    # Only allow if requesting their own teacher record
+                    queryset = queryset.filter(
+                        models.Q(id=teacher_id, user=user) | models.Q(user=user)
+                    )
+                    logger.info(
+                        f"[TeacherViewSet] Teacher user - allowing retrieve of own record"
+                    )
+                else:
+                    queryset = queryset.filter(user=user)
 
         # Apply search filter
         search = self.request.query_params.get("search")
@@ -201,6 +221,60 @@ class TeacherViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
 
         logger.info(f"[TeacherViewSet] Final queryset count: {queryset.count()}")
         return queryset
+
+    @action(detail=False, methods=["get"], url_path="by-user/(?P<user_id>[^/.]+)")
+    def by_user(self, request, user_id=None):
+        """
+        Get teacher by user ID.
+        Teachers can only access their own profile.
+        Admins/staff can access any teacher.
+        """
+        user = request.user
+
+        # Convert user_id to int
+        try:
+            user_id = int(user_id)
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "Invalid user ID"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Teachers can only access their own profile
+        if hasattr(user, "teacher") and not user.is_staff and not user.is_superuser:
+            if user.id != user_id:
+                return Response(
+                    {"error": "You can only access your own profile"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+        # Get the teacher
+        try:
+            teacher = Teacher.objects.select_related("user").get(user_id=user_id)
+            serializer = self.get_serializer(teacher)
+            return Response(serializer.data)
+        except Teacher.DoesNotExist:
+            return Response(
+                {"error": f"No teacher found for user ID {user_id}"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+    @action(detail=False, methods=["get"], url_path="me")
+    def me(self, request):
+        """
+        Get the current user's teacher profile.
+        Only works for teacher users.
+        """
+        user = request.user
+
+        if not hasattr(user, "teacher"):
+            return Response(
+                {"error": "Current user is not a teacher"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        teacher = user.teacher
+        serializer = self.get_serializer(teacher)
+        return Response(serializer.data)
 
     def create(self, request, *args, **kwargs):
         """Override create to include generated credentials in response"""
