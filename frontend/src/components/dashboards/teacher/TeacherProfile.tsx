@@ -1,12 +1,10 @@
-import React, { useState, useEffect, lazy, Suspense } from "react";
+import React, { useState, useEffect } from "react";
 import { User, Award, GraduationCap, Edit, BookOpen, TrendingUp, Users, Camera, Save, X, CheckCircle, AlertCircle, Briefcase, FileText, Share2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { TeacherUserData } from "@/types/types";
 import TeacherService from "@/services/TeacherService";
-
-// Lazy load heavy components
-const AssignmentManagement = lazy(() => import("./AssignmentManagement"));
-const SignatureRemarksManagement = lazy(() => import("./SignatureRemarksManagement"));
+import AssignmentManagement from "./AssignmentManagement";
+import SignatureRemarksManagement from "./SignatureRemarksManagement";
 
 interface TeacherProfileProps {
   onRefresh?: () => void;
@@ -17,13 +15,6 @@ interface ProfileTab {
   name: string;
   icon: React.ComponentType<any>;
 }
-
-// Loading spinner component
-const TabLoadingSpinner = () => (
-  <div className="flex items-center justify-center py-12">
-    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-  </div>
-);
 
 const TeacherProfile: React.FC<TeacherProfileProps> = ({ onRefresh }) => {
   const { user } = useAuth();
@@ -63,45 +54,42 @@ const TeacherProfile: React.FC<TeacherProfileProps> = ({ onRefresh }) => {
     loadProfileData();
   }, []);
 
-  // Optimized teacher ID resolution
-  const getTeacherId = async (): Promise<number> => {
-    // Try direct access first (fastest)
-    if (teacherData?.id) {
-      return Number(teacherData.id);
-    }
-    
-    if ((user as any)?.teacher_data?.id) {
-      return (user as any).teacher_data.id;
-    }
-
-    // Only do API lookup as last resort
-    if (user?.id) {
-      const teachersResponse = await TeacherService.getTeachers({ 
-        search: user.email || user.username 
-      });
-      
-      if (teachersResponse.results && teachersResponse.results.length > 0) {
-        const teacher = teachersResponse.results.find((t: any) => 
-          t.user?.id === user.id || t.user?.email === user.email
-        );
-        
-        if (teacher?.id) {
-          return teacher.id;
-        }
-      }
-    }
-
-    throw new Error("Teacher ID not found. Please ensure your teacher profile is properly set up.");
-  };
-
   const loadProfileData = async () => {
     try {
       setIsLoading(true);
       setError(null);
       
-      const teacherId = await getTeacherId();
-      const response = await TeacherService.getTeacher(teacherId);
+      let teacherId = null;
       
+      if ((user as any)?.teacher_data?.id) {
+        teacherId = (user as any).teacher_data.id;
+      } else if (teacherData?.id) {
+        teacherId = teacherData.id;
+      } else if (user?.id) {
+        try {
+          const teachersResponse = await TeacherService.getTeachers({ 
+            search: user.email || user.username 
+          });
+          
+          if (teachersResponse.results && teachersResponse.results.length > 0) {
+            const teacher = teachersResponse.results.find((t: any) => 
+              t.user?.id === user.id || t.user?.email === user.email
+            );
+            
+            if (teacher) {
+              teacherId = teacher.id;
+            }
+          }
+        } catch (error) {
+          console.warn('Failed to find teacher by user lookup:', error);
+        }
+      }
+      
+      if (!teacherId) {
+        throw new Error("Teacher ID not found. Please ensure your teacher profile is properly set up.");
+      }
+
+      const response = await TeacherService.getTeacher(teacherId);
       setProfileData(response);
       
       const responseData = response as any;
@@ -116,7 +104,7 @@ const TeacherProfile: React.FC<TeacherProfileProps> = ({ onRefresh }) => {
         bio: responseData.bio || responseData.user?.bio || "",
         date_of_birth: responseData.date_of_birth || ""
       });
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Error loading profile data:", error);
       setError(error instanceof Error ? error.message : "Failed to load profile data");
     } finally {
@@ -129,7 +117,18 @@ const TeacherProfile: React.FC<TeacherProfileProps> = ({ onRefresh }) => {
       setIsLoading(true);
       setError(null);
       
-      const teacherId = await getTeacherId();
+      let teacherId = null;
+      if ((user as any)?.teacher_data?.id) {
+        teacherId = (user as any).teacher_data.id;
+      } else if (teacherData?.id) {
+        teacherId = teacherData.id;
+      } else if (profileData?.id) {
+        teacherId = profileData.id;
+      }
+
+      if (!teacherId) {
+        throw new Error("Teacher ID not found");
+      }
 
       const updateData = {
         user: {
@@ -169,7 +168,7 @@ const TeacherProfile: React.FC<TeacherProfileProps> = ({ onRefresh }) => {
       }
       
       setTimeout(() => setSuccessMessage(null), 3000);
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Error updating profile:", error);
       setError(error instanceof Error ? error.message : "Failed to update profile");
     } finally {
