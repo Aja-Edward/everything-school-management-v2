@@ -39,12 +39,12 @@ export interface TeacherClassData {
   name: string;
   section_id: number;
   section_name: string;
-  grade_level_id: number;
+  grade_level_id: number; // Add grade_level_id
   grade_level_name: string;
   education_level: string;
   student_count: number;
   max_capacity: number;
-  subject_id: number;
+  subject_id: number; // Add subject_id
   subject_name: string;
   subject_code: string;
   room_number: string;
@@ -73,93 +73,132 @@ export interface TeacherSubjectData {
 }
 
 class TeacherDashboardService {
-  private cache = new Map<string, { data: any; timestamp: number }>();
-  private CACHE_DURATION = 3 * 60 * 1000; // 3 minutes
-
-  // ⚡ NEW: Cache helper
-  private getCached<T>(key: string): T | null {
-    const cached = this.cache.get(key);
-    if (cached && Date.now() - cached.timestamp < this.CACHE_DURATION) {
-      console.log(`✅ Cache hit: ${key}`);
-      return cached.data as T;
-    }
-    return null;
-  }
-
-  private setCache(key: string, data: any): void {
-    this.cache.set(key, { data, timestamp: Date.now() });
-  }
-
-  clearCache(): void {
-    this.cache.clear();
-  }
-
-  // ⚡ OPTIMIZED: Get basic stats without expensive calls
+  // Get teacher dashboard statistics
   async getTeacherDashboardStats(teacherId: number): Promise<TeacherDashboardStats> {
     try {
-      const cacheKey = `stats_${teacherId}`;
-      const cached = this.getCached<TeacherDashboardStats>(cacheKey);
-      if (cached) return cached;
-
-      console.log('📊 Fetching teacher stats...');
+      console.log('🔍 TeacherDashboardService.getTeacherDashboardStats - STAT - teacherId:', teacherId);
       
       // Get teacher's classroom assignments
       const teacherResponse = await TeacherService.getTeacher(teacherId);
+      // console.log('🔍 TeacherDashboardService.getTeacherDashboardStats - teacherResponse:', teacherResponse);
+      
       const classroomAssignments = teacherResponse.classroom_assignments || [];
+      console.log('🔍 TeacherDashboardService.getTeacherDashboardStats - classroomAssignments:', classroomAssignments);
       
-      // Calculate totals from assignments (fast)
-      const totalStudents = (() => {
-        if (typeof (teacherResponse as any).total_students === 'number') {
-          return (teacherResponse as any).total_students;
-        }
-        const seen = new Set<number>();
-        let sum = 0;
-        classroomAssignments.forEach((a: any) => {
-          if (a && typeof a.classroom_id === 'number' && !seen.has(a.classroom_id)) {
-            seen.add(a.classroom_id);
-            sum += a.student_count || 0;
-          }
-        });
-        return sum;
-      })();
+      // Calculate total students
+      // Prefer backend-provided aggregates if available, else compute from assignments
+      const totalStudents = (typeof (teacherResponse as any).total_students === 'number'
+        ? (teacherResponse as any).total_students
+        : (() => {
+            // Avoid double counting: sum unique classrooms' student_count
+            const seen = new Set<number>();
+            let sum = 0;
+            classroomAssignments.forEach((a: any) => {
+              if (a && typeof a.classroom_id === 'number' && !seen.has(a.classroom_id)) {
+                seen.add(a.classroom_id);
+                sum += a.student_count || 0;
+              }
+            });
+            return sum;
+          })());
+      console.log('🔍 TeacherDashboardService.getTeacherDashboardStats - totalStudents:', totalStudents);
       
+      // Calculate total classes
+      // Unique classrooms count
       const totalClasses = (() => {
-        const ids = new Set<number>();
-        classroomAssignments.forEach((a: any) => {
-          if (a && typeof a.classroom_id === 'number') ids.add(a.classroom_id);
-        });
-        return ids.size || classroomAssignments.length;
-      })();
-      
-      const totalSubjects = (() => {
-        if (typeof (teacherResponse as any).total_subjects === 'number') {
-          return (teacherResponse as any).total_subjects;
+        try {
+          const ids = new Set<number>();
+          classroomAssignments.forEach((a: any) => {
+            if (a && typeof a.classroom_id === 'number') ids.add(a.classroom_id);
+          });
+          return ids.size || classroomAssignments.length;
+        } catch (_e) {
+          return classroomAssignments.length;
         }
-        const uniqueSubjects = new Set(
-          classroomAssignments.map((assignment: any) => assignment.subject_name).filter(Boolean)
-        );
-        return uniqueSubjects.size;
       })();
+      console.log('🔍 TeacherDashboardService.getTeacherDashboardStats - totalClasses:', totalClasses);
       
-      // ⚡ OPTIMIZATION: Fetch lightweight data only
-      const stats: TeacherDashboardStats = {
+      // Calculate total subjects
+      const totalSubjects = (typeof (teacherResponse as any).total_subjects === 'number'
+        ? (teacherResponse as any).total_subjects
+        : (() => {
+            const uniqueSubjects = new Set(
+              classroomAssignments.map((assignment: any) => assignment.subject_name).filter(Boolean)
+            );
+            return uniqueSubjects.size;
+          })());
+      console.log('🔍 TeacherDashboardService.getTeacherDashboardStats - totalSubjects:', totalSubjects);
+      
+      // Get attendance rate for the current month
+      const currentDate = new Date();
+      const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+      const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+      
+      console.log('🔍 TeacherDashboardService.getTeacherDashboardStats - About to call getAttendance');
+      const attendanceResponse = await getAttendance({
+        teacher: teacherId,
+        date__gte: startOfMonth.toISOString().split('T')[0],
+        date__lte: endOfMonth.toISOString().split('T')[0]
+      });
+      console.log('🔍 TeacherDashboardService.getTeacherDashboardStats - getAttendance response:', attendanceResponse);
+      
+      let attendanceRate = 0;
+      if (attendanceResponse && attendanceResponse.length > 0) {
+        const totalRecords = attendanceResponse.length;
+        const presentRecords = attendanceResponse.filter((record: any) => record.status === 'P').length;
+        attendanceRate = totalRecords > 0 ? Math.round((presentRecords / totalRecords) * 100) : 0;
+      }
+      
+      // Get pending exams (lessons that are scheduled but not completed)
+      const pendingExamsResponse = await LessonService.getLessons({
+        teacher_id: teacherId,
+        status_filter: 'scheduled',
+        date_from: new Date().toISOString().split('T')[0]
+      });
+      
+      const pendingExams = pendingExamsResponse?.length || 0;
+      
+      // Get upcoming lessons
+      const upcomingLessonsResponse = await LessonService.getLessons({
+        teacher_id: teacherId,
+        date_from: new Date().toISOString().split('T')[0],
+        status_filter: 'scheduled'
+      });
+      
+      const upcomingLessons = upcomingLessonsResponse?.length || 0;
+      
+      // Get recent results count (using term results for now)
+      console.log('🔍 TeacherDashboardService.getTeacherDashboardStats - About to call ResultService.getTermResults');
+      const recentResultsResponse = await ResultService.getTermResults({
+        // Note: created_at__gte is not supported, using default behavior
+      });
+      console.log('🔍 TeacherDashboardService.getTeacherDashboardStats - ResultService.getTermResults response:', recentResultsResponse);
+      
+      const recentResults = recentResultsResponse?.length || 0;
+      
+      // Mock unread messages (this would need a messaging service)
+      const unreadMessages = 0;
+      
+      const stats = {
         totalStudents,
         totalClasses,
         totalSubjects,
-        attendanceRate: 0,
-        pendingExams: 0,
-        unreadMessages: 0,
-        upcomingLessons: 0,
-        recentResults: 0
+        attendanceRate,
+        pendingExams,
+        unreadMessages,
+        upcomingLessons,
+        recentResults
       };
-
-      // ⚡ Load secondary stats asynchronously (non-blocking)
-      this.loadSecondaryStats(teacherId, stats);
-
-      this.setCache(cacheKey, stats);
+      
+      console.log('🔍 TeacherDashboardService.getTeacherDashboardStats - RETURNING stats:', stats);
       return stats;
     } catch (error: any) {
-      console.error('❌ Error fetching teacher stats:', error);
+      console.error('🔍 TeacherDashboardService.getTeacherDashboardStats - ERROR:', error);
+      console.error('🔍 TeacherDashboardService.getTeacherDashboardStats - Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
       return {
         totalStudents: 0,
         totalClasses: 0,
@@ -173,104 +212,22 @@ class TeacherDashboardService {
     }
   }
 
-  // ⚡ NEW: Load secondary stats in background
-  private async loadSecondaryStats(teacherId: number, stats: TeacherDashboardStats): Promise<void> {
+  // Get teacher's recent activities
+  async getTeacherRecentActivities(teacherId: number): Promise<TeacherRecentActivity[]> {
     try {
-      // Run these in parallel but don't block main stats
-      const [attendanceResponse, upcomingLessonsResponse] = await Promise.allSettled([
-        this.getAttendanceRate(teacherId),
-        this.getUpcomingLessonsCount(teacherId)
-      ]);
-
-      if (attendanceResponse.status === 'fulfilled') {
-        stats.attendanceRate = attendanceResponse.value;
-      }
-
-      if (upcomingLessonsResponse.status === 'fulfilled') {
-        stats.upcomingLessons = upcomingLessonsResponse.value;
-        stats.pendingExams = upcomingLessonsResponse.value; // Same for now
-      }
-
-      // ⚡ Note: recentResults removed from initial load - too expensive
-    } catch (error) {
-      console.warn('⚠️ Error loading secondary stats:', error);
-    }
-  }
-
-  // ⚡ NEW: Lightweight attendance rate calculation
-  private async getAttendanceRate(teacherId: number): Promise<number> {
-    try {
-      const currentDate = new Date();
-      const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-      const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+      const activities: TeacherRecentActivity[] = [];
       
+      // Get recent attendance records
       const attendanceResponse = await getAttendance({
         teacher: teacherId,
-        date__gte: startOfMonth.toISOString().split('T')[0],
-        date__lte: endOfMonth.toISOString().split('T')[0],
-        page_size: 100 // Limit to 100 records
+        date__gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        ordering: '-date'
       });
       
       if (attendanceResponse && attendanceResponse.length > 0) {
-        const totalRecords = attendanceResponse.length;
-        const presentRecords = attendanceResponse.filter((record: any) => record.status === 'P').length;
-        return totalRecords > 0 ? Math.round((presentRecords / totalRecords) * 100) : 0;
-      }
-      
-      return 0;
-    } catch (error) {
-      console.warn('⚠️ Could not fetch attendance rate:', error);
-      return 0;
-    }
-  }
-
-  // ⚡ NEW: Lightweight upcoming lessons count
-  private async getUpcomingLessonsCount(teacherId: number): Promise<number> {
-    try {
-      const response = await LessonService.getLessons({
-        teacher_id: teacherId,
-        status_filter: 'scheduled',
-        date_from: new Date().toISOString().split('T')[0],
-        page_size: 10 // Only need count
-      });
-      
-      return response?.length || 0;
-    } catch (error) {
-      console.warn('⚠️ Could not fetch upcoming lessons:', error);
-      return 0;
-    }
-  }
-
-  // ⚡ OPTIMIZED: Lazy load recent activities
-  async getTeacherRecentActivities(teacherId: number, limit: number = 5): Promise<TeacherRecentActivity[]> {
-    try {
-      const cacheKey = `activities_${teacherId}_${limit}`;
-      const cached = this.getCached<TeacherRecentActivity[]>(cacheKey);
-      if (cached) return cached;
-
-      console.log('📋 Fetching recent activities...');
-      const activities: TeacherRecentActivity[] = [];
-      
-      // ⚡ OPTIMIZATION: Fetch with strict limits
-      const [attendanceResponse, lessonsResponse] = await Promise.allSettled([
-        getAttendance({
-          teacher: teacherId,
-          date__gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          ordering: '-date',
-          page_size: limit
-        }),
-        LessonService.getLessons({
-          teacher_id: teacherId,
-          ordering: '-created_at',
-          page_size: limit
-        })
-      ]);
-      
-      // Process attendance
-      if (attendanceResponse.status === 'fulfilled' && attendanceResponse.value?.length > 0) {
-        const latestAttendance = attendanceResponse.value[0];
-        const presentCount = attendanceResponse.value.filter((record: any) => record.status === 'P').length;
-        const absentCount = attendanceResponse.value.filter((record: any) => record.status === 'A').length;
+        const latestAttendance = attendanceResponse[0];
+        const presentCount = attendanceResponse.filter((record: any) => record.status === 'P').length;
+        const absentCount = attendanceResponse.filter((record: any) => record.status === 'A').length;
         
         activities.push({
           id: latestAttendance.id,
@@ -282,9 +239,14 @@ class TeacherDashboardService {
         });
       }
       
-      // Process lessons
-      if (lessonsResponse.status === 'fulfilled' && lessonsResponse.value?.length > 0) {
-        const recentLesson = lessonsResponse.value[0];
+      // Get recent lessons
+      const lessonsResponse = await LessonService.getLessons({
+        teacher_id: teacherId,
+        ordering: '-created_at'
+      });
+      
+      if (lessonsResponse && lessonsResponse.length > 0) {
+        const recentLesson = lessonsResponse[0];
         activities.push({
           id: recentLesson.id,
           type: 'lesson',
@@ -295,36 +257,42 @@ class TeacherDashboardService {
         });
       }
       
-      // Sort by timestamp
-      const sorted = activities.sort((a, b) => 
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-      ).slice(0, limit);
-
-      this.setCache(cacheKey, sorted);
-      return sorted;
+      // Get recent results (using term results for now)
+      const resultsResponse = await ResultService.getTermResults({
+        // Note: ordering is not supported in getTermResults
+      });
+      
+      if (resultsResponse && resultsResponse.length > 0) {
+        const recentResult = resultsResponse[0];
+        activities.push({
+          id: recentResult.id,
+          type: 'result',
+          title: 'Updated results',
+          description: `${recentResult.subject_name} - ${recentResult.student_count || 0} students`,
+          time: this.getTimeAgo(new Date(recentResult.created_at)),
+          timestamp: recentResult.created_at
+        });
+      }
+      
+      // Sort activities by timestamp (most recent first)
+      return activities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     } catch (error: any) {
-      console.error('❌ Error fetching recent activities:', error);
+      console.error('Error fetching teacher recent activities:', error);
       return [];
     }
   }
 
-  // ⚡ OPTIMIZED: Lazy load upcoming events
-  async getTeacherUpcomingEvents(teacherId: number, limit: number = 10): Promise<TeacherUpcomingEvent[]> {
+  // Get teacher's upcoming events
+  async getTeacherUpcomingEvents(teacherId: number): Promise<TeacherUpcomingEvent[]> {
     try {
-      const cacheKey = `events_${teacherId}_${limit}`;
-      const cached = this.getCached<TeacherUpcomingEvent[]>(cacheKey);
-      if (cached) return cached;
-
-      console.log('📅 Fetching upcoming events...');
       const events: TeacherUpcomingEvent[] = [];
       
-      // ⚡ OPTIMIZATION: Single call with limit
+      // Get upcoming lessons
       const upcomingLessonsResponse = await LessonService.getLessons({
         teacher_id: teacherId,
         date_from: new Date().toISOString().split('T')[0],
         status_filter: 'scheduled',
-        ordering: 'date',
-        page_size: limit
+        ordering: 'date'
       });
       
       if (upcomingLessonsResponse && upcomingLessonsResponse.length > 0) {
@@ -333,51 +301,65 @@ class TeacherDashboardService {
             id: lesson.id,
             title: `${lesson.subject_name} - ${lesson.classroom_name}`,
             time: this.formatEventTime(lesson.date, lesson.start_time),
-            type: lesson.lesson_type === 'exam' ? 'exam' : 'lesson',
+            type: 'lesson',
             date: lesson.date,
-            description: `${lesson.lesson_type === 'exam' ? 'Exam' : 'Lesson'} scheduled for ${lesson.classroom_name}`
+            description: `Lesson scheduled for ${lesson.classroom_name}`
           });
         });
       }
       
-      // Sort by date
-      const sorted = events.sort((a, b) => 
-        new Date(a.date).getTime() - new Date(b.date).getTime()
-      ).slice(0, limit);
-
-      this.setCache(cacheKey, sorted);
-      return sorted;
+      // Get upcoming exams (lessons with exam type)
+      const upcomingExamsResponse = await LessonService.getLessons({
+        teacher_id: teacherId,
+        date_from: new Date().toISOString().split('T')[0],
+        lesson_type: 'exam',
+        status_filter: 'scheduled',
+        ordering: 'date'
+      });
+      
+      if (upcomingExamsResponse && upcomingExamsResponse.length > 0) {
+        upcomingExamsResponse.forEach((exam: any) => {
+          events.push({
+            id: exam.id,
+            title: `${exam.subject_name} Test - ${exam.classroom_name}`,
+            time: this.formatEventTime(exam.date, exam.start_time),
+            type: 'exam',
+            date: exam.date,
+            description: `Exam scheduled for ${exam.classroom_name}`
+          });
+        });
+      }
+      
+      // Sort events by date (earliest first)
+      return events.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     } catch (error: any) {
-      console.error('❌ Error fetching upcoming events:', error);
+      console.error('Error fetching teacher upcoming events:', error);
       return [];
     }
   }
 
-  // ⚡ OPTIMIZED: Get teacher's assigned classes (cached)
+  // Get teacher's assigned classes
   async getTeacherClasses(teacherId: number): Promise<TeacherClassData[]> {
     try {
-      const cacheKey = `classes_${teacherId}`;
-      const cached = this.getCached<TeacherClassData[]>(cacheKey);
-      if (cached) return cached;
-
-      console.log('🏫 Fetching teacher classes...');
       const teacherResponse = await TeacherService.getTeacher(teacherId);
       const classroomAssignments = teacherResponse.classroom_assignments || [];
       
-      // Group assignments by classroom AND subject
+      // Group assignments by classroom AND subject to handle same subject across multiple grade levels
       const assignmentGroups = new Map();
       
       classroomAssignments.forEach((assignment: any) => {
+        // Create a unique key combining classroom and subject
         const uniqueKey = `${assignment.classroom_id}_${assignment.subject_id || assignment.subject?.id}`;
         
         if (!assignmentGroups.has(uniqueKey)) {
-          assignmentGroups.set(uniqueKey, {
-            id: assignment.classroom_id,
-            classroom_id: assignment.classroom_id,
+                  // Initialize assignment data
+        assignmentGroups.set(uniqueKey, {
+          id: assignment.classroom_id, // Use classroom ID for unique identification
+          classroom_id: assignment.classroom_id,
             name: assignment.classroom_name,
             section_id: assignment.section_id,
             section_name: assignment.section_name,
-            grade_level_id: assignment.grade_level_id,
+            grade_level_id: assignment.grade_level_id, // Add grade_level_id
             grade_level_name: assignment.grade_level_name,
             education_level: assignment.education_level,
             student_count: assignment.student_count,
@@ -387,6 +369,7 @@ class TeacherDashboardService {
             periods_per_week: assignment.periods_per_week,
             stream_name: assignment.stream_name,
             stream_type: assignment.stream_type,
+            // Single subject for this assignment
             subject: {
               id: assignment.subject_id || assignment.subject?.id,
               name: assignment.subject_name,
@@ -398,18 +381,18 @@ class TeacherDashboardService {
         }
       });
       
-      // Transform to TeacherClassData
-      const classes = Array.from(assignmentGroups.values()).map((assignment: any) => ({
+      // Transform to match TeacherClassData interface
+      return Array.from(assignmentGroups.values()).map((assignment: any) => ({
         id: assignment.id,
         name: assignment.name,
         section_id: assignment.section_id,
         section_name: assignment.section_name,
-        grade_level_id: assignment.grade_level_id,
+        grade_level_id: assignment.grade_level_id, // Add grade_level_id
         grade_level_name: assignment.grade_level_name,
         education_level: assignment.education_level,
         student_count: assignment.student_count,
         max_capacity: assignment.max_capacity,
-        subject_id: assignment.subject.id,
+        subject_id: assignment.subject.id, // Add subject_id
         subject_name: assignment.subject.name,
         subject_code: assignment.subject.code,
         room_number: assignment.room_number,
@@ -417,13 +400,11 @@ class TeacherDashboardService {
         periods_per_week: assignment.periods_per_week,
         stream_name: assignment.stream_name,
         stream_type: assignment.stream_type,
+        // Add the single subject for display
         all_subjects: [assignment.subject]
       }));
-
-      this.setCache(cacheKey, classes);
-      return classes;
     } catch (error: any) {
-      console.error('❌ Error fetching teacher classes:', error);
+      console.error('Error fetching teacher classes:', error);
       return [];
     }
   }
@@ -431,90 +412,114 @@ class TeacherDashboardService {
   // Get teacher ID from user data or fetch teacher profile
   async getTeacherIdFromUser(user: any): Promise<number | null> {
     try {
-      // 1) Direct mapping
+      // 1) Direct mapping on user object if present
+      // First, try to get teacher ID from user data structure
       let teacherId = (user as any)?.teacher_data?.id;
+      
       if (teacherId) {
-        console.log('✅ Found teacher ID from teacher_data.id:', teacherId);
+        console.log('🔍 TeacherDashboardService.getTeacherIdFromUser - Found teacher ID from teacher_data.id:', teacherId);
         return Number(teacherId);
       }
       
+      // Also check profile.teacher_data
       teacherId = (user as any)?.profile?.teacher_data?.id;
       if (teacherId) {
-        console.log('✅ Found teacher ID from profile.teacher_data.id:', teacherId);
+        console.log('🔍 TeacherDashboardService.getTeacherIdFromUser - Found teacher ID from profile.teacher_data.id:', teacherId);
         return Number(teacherId);
       }
       
-      // 2) Direct backend lookup
+      // 2) Try direct backend endpoint by user id first (strongest signal)
       const userId = user?.id;
       if (userId) {
-        console.log('🔍 Trying direct teacher lookup by user ID:', userId);
+        console.log('🔍 TeacherDashboardService.getTeacherIdFromUser - Trying direct teacher lookup by user ID:', userId);
         try {
           const directTeacherResponse = await TeacherService.getTeacherByUserId(userId);
           if (directTeacherResponse && directTeacherResponse.id) {
-            console.log('✅ Found teacher by direct lookup:', directTeacherResponse.id);
+            console.log('🔍 TeacherDashboardService.getTeacherIdFromUser - Found teacher by direct lookup:', directTeacherResponse.id);
             return Number(directTeacherResponse.id);
           }
         } catch (directError) {
-          console.log('⚠️ Direct lookup failed:', directError);
+          console.log('🔍 TeacherDashboardService.getTeacherIdFromUser - Direct lookup failed:', directError);
         }
 
-        // 3) Fallback search
-        console.log('🔍 Fallback search by email/username');
+        // 3) Fallback: search by email or username
+        console.log('🔍 TeacherDashboardService.getTeacherIdFromUser - Fallback search by email/username');
         const teachersResponse = await TeacherService.getTeachers({ 
           search: user?.email || user?.username 
         });
-        
         if (teachersResponse.results && teachersResponse.results.length > 0) {
           const teacher = teachersResponse.results.find((t: any) => 
             t.user?.id === userId || t.user?.email === user?.email || t.username === user?.username
           );
           if (teacher?.id) {
-            console.log('✅ Found teacher via search:', teacher.id);
+            console.log('🔍 TeacherDashboardService.getTeacherIdFromUser - Found teacher via search:', teacher.id);
             return Number(teacher.id);
           }
         }
+
+        // 4) Last resort: broad scan to match by user.id/email
+        if (teachersResponse.results && teachersResponse.results.length > 0) {
+          const byId = teachersResponse.results.find((t: any) => t.user?.id === userId);
+          if (byId?.id) return Number(byId.id);
+          const byEmail = teachersResponse.results.find((t: any) => t.user?.email === user?.email);
+          if (byEmail?.id) return Number(byEmail.id);
+        }
       }
       
-      console.log('❌ No teacher ID found');
+      console.log('🔍 TeacherDashboardService.getTeacherIdFromUser - No teacher ID found');
       return null;
     } catch (error: any) {
-      console.error('❌ Error getting teacher ID from user:', error);
+      console.error('Error getting teacher ID from user:', error);
       return null;
     }
   }
 
-  // ⚡ OPTIMIZED: Get teacher's assigned subjects (cached)
+  // Get teacher's assigned subjects
   async getTeacherSubjects(teacherId: number): Promise<TeacherSubjectData[]> {
     try {
-      const cacheKey = `subjects_${teacherId}`;
-      const cached = this.getCached<TeacherSubjectData[]>(cacheKey);
-      if (cached) return cached;
-
-      console.log('📚 Fetching teacher subjects...');
       const teacherResponse = await TeacherService.getTeacher(teacherId);
       const classroomAssignments = teacherResponse.classroom_assignments || [];
       
-      // Group by subject
+      console.log('🔍 getTeacherSubjects - teacherResponse:', teacherResponse);
+      console.log('🔍 getTeacherSubjects - classroomAssignments:', classroomAssignments);
+      
+      // Group assignments by SUBJECT to show all classes for each subject
       const subjectMap = new Map();
       
       classroomAssignments.forEach((assignment: any) => {
+        console.log('🔍 Processing assignment:', assignment);
+        console.log('🔍 Assignment details:', {
+          id: assignment.id,
+          classroom_name: assignment.classroom_name,
+          classroom_id: assignment.classroom_id,
+          subject_id: assignment.subject_id,
+          subject_name: assignment.subject_name,
+          subject_code: assignment.subject_code,
+          grade_level: assignment.grade_level_name,
+          section: assignment.section_name
+        });
+        
         const subjectId = assignment.subject_id;
         const subjectName = assignment.subject_name;
+        console.log('🔍 Subject ID:', subjectId, 'Subject Name:', subjectName);
         
         if (!subjectId) {
           console.warn('⚠️ Assignment missing subject_id:', assignment);
-          return;
+          return; // Skip assignments without subject_id
         }
         
         if (!subjectMap.has(subjectId)) {
+          // Initialize new subject
           subjectMap.set(subjectId, {
             id: subjectId,
             name: subjectName,
             code: assignment.subject_code || '',
             assignments: []
           });
+          console.log('🔍 Added new subject to map:', subjectId, subjectName);
         }
         
+        // Add classroom assignment details to this subject
         const subject = subjectMap.get(subjectId);
         subject.assignments.push({
           id: assignment.id,
@@ -530,33 +535,37 @@ class TeacherDashboardService {
         });
       });
       
-      const subjects = Array.from(subjectMap.values());
-      this.setCache(cacheKey, subjects);
-      return subjects;
+      const result = Array.from(subjectMap.values());
+      console.log('🔍 getTeacherSubjects - Final result:', result);
+      
+      // Transform to match TeacherSubjectData interface
+      return result;
     } catch (error: any) {
-      console.error('❌ Error fetching teacher subjects:', error);
+      console.error('Error fetching teacher subjects:', error);
       return [];
     }
   }
 
-  // Helper functions
+  // Helper function to format time ago
   private getTimeAgo(date: Date): string {
     const now = new Date();
     const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
     
-    if (diffInSeconds < 60) return 'Just now';
-    if (diffInSeconds < 3600) {
+    if (diffInSeconds < 60) {
+      return 'Just now';
+    } else if (diffInSeconds < 3600) {
       const minutes = Math.floor(diffInSeconds / 60);
       return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
-    }
-    if (diffInSeconds < 86400) {
+    } else if (diffInSeconds < 86400) {
       const hours = Math.floor(diffInSeconds / 3600);
       return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+    } else {
+      const days = Math.floor(diffInSeconds / 86400);
+      return `${days} day${days > 1 ? 's' : ''} ago`;
     }
-    const days = Math.floor(diffInSeconds / 86400);
-    return `${days} day${days > 1 ? 's' : ''} ago`;
   }
 
+  // Helper function to format event time
   private formatEventTime(date: string, time?: string): string {
     const eventDate = new Date(date);
     const today = new Date();
@@ -576,57 +585,46 @@ class TeacherDashboardService {
     }
   }
 
+  // Get students for a specific classroom
   async getStudentsForClass(classroomId: number) {
     try {
-      const cacheKey = `students_${classroomId}`;
-      const cached = this.getCached<any[]>(cacheKey);
-      if (cached) return cached;
-
+      // Note: Backend mounts classroom urls at /api/classrooms/, and within it defines
+      // "classrooms/<int:classroom_id>/students/", so the full path is:
+      // /api/classrooms/classrooms/:classroom_id/students/
       const response = await api.get(`/api/classrooms/classrooms/${classroomId}/students/`);
-      
-      let students = [];
-      if (Array.isArray(response)) students = response;
-      else if (Array.isArray((response as any).results)) students = (response as any).results;
-      else if (Array.isArray((response as any).data)) students = (response as any).data;
-
-      this.setCache(cacheKey, students);
-      return students;
+      // api.get returns parsed JSON directly. Handle array or paginated/object shapes defensively.
+      if (Array.isArray(response)) return response;
+      if (response && Array.isArray((response as any).results)) return (response as any).results;
+      if (response && Array.isArray((response as any).data)) return (response as any).data;
+      return [];
     } catch (error) {
-      console.error('❌ Error fetching students for class:', error);
+      console.error('Error fetching students for class:', error);
       throw error;
     }
   }
 
-  // ⚡ CRITICAL OPTIMIZATION: Progressive data loading
+  // Get comprehensive teacher dashboard data
   async getTeacherDashboardData(teacherId: number) {
     try {
-      console.log('🚀 Loading dashboard data progressively...');
-      
-      // ⚡ STAGE 1: Load critical data first (FAST)
-      const [stats, classes, subjects] = await Promise.all([
+      const [stats, activities, events, classes, subjects, exams] = await Promise.all([
         this.getTeacherDashboardStats(teacherId),
+        this.getTeacherRecentActivities(teacherId),
+        this.getTeacherUpcomingEvents(teacherId),
         this.getTeacherClasses(teacherId),
-        this.getTeacherSubjects(teacherId)
+        this.getTeacherSubjects(teacherId),
+        ExamService.getExamsByTeacher(teacherId)
       ]);
 
-      console.log('✅ Stage 1 complete (critical data loaded)');
-
-      // Return immediately with essential data
-      const essentialData = {
+      return {
         stats,
+        activities,
+        events,
         classes,
         subjects,
-        activities: [], // Will load later
-        events: [], // Will load later
-        exams: [] // Will load later
+        exams: Array.isArray(exams) ? exams : []
       };
-
-      // ⚡ STAGE 2: Load secondary data in background (NON-BLOCKING)
-      this.loadSecondaryDashboardData(teacherId, essentialData);
-
-      return essentialData;
     } catch (error: any) {
-      console.error('❌ Error fetching teacher dashboard data:', error);
+      console.error('Error fetching teacher dashboard data:', error);
       return {
         stats: {
           totalStudents: 0,
@@ -641,52 +639,18 @@ class TeacherDashboardService {
         activities: [],
         events: [],
         classes: [],
-        subjects: [],
-        exams: []
+        subjects: []
       };
     }
   }
 
-  // ⚡ NEW: Load secondary data asynchronously
-  private async loadSecondaryDashboardData(teacherId: number, dataObject: any): Promise<void> {
-    try {
-      console.log('🔄 Loading secondary data...');
-      
-      const [activities, events, exams] = await Promise.allSettled([
-        this.getTeacherRecentActivities(teacherId, 5),
-        this.getTeacherUpcomingEvents(teacherId, 10),
-        ExamService.getExamsByTeacher(teacherId).catch(() => [])
-      ]);
-
-      if (activities.status === 'fulfilled') {
-        dataObject.activities = activities.value;
-      }
-
-      if (events.status === 'fulfilled') {
-        dataObject.events = events.value;
-      }
-
-      if (exams.status === 'fulfilled') {
-        dataObject.exams = Array.isArray(exams.value) ? exams.value : [];
-      }
-
-      console.log('✅ Secondary data loaded');
-    } catch (error) {
-      console.warn('⚠️ Error loading secondary data:', error);
-    }
-  }
-
+  // Get teacher profile data
   async getTeacherProfile(teacherId: number) {
     try {
-      const cacheKey = `profile_${teacherId}`;
-      const cached = this.getCached<any>(cacheKey);
-      if (cached) return cached;
-
       const teacherResponse = await TeacherService.getTeacher(teacherId);
-      this.setCache(cacheKey, teacherResponse);
       return teacherResponse;
     } catch (error) {
-      console.error('❌ Error fetching teacher profile:', error);
+      console.error('Error fetching teacher profile:', error);
       return null;
     }
   }
