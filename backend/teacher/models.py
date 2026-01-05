@@ -37,6 +37,10 @@ class Teacher(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    signature_url = models.URLField(
+        blank=True, null=True, verbose_name="Digital Signature URL"
+    )
+    signature_uploaded_at = models.DateTimeField(blank=True, null=True)
 
     def __str__(self):
         return f"{self.user.full_name} ({self.employee_id})"

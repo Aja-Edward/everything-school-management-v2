@@ -1,4 +1,3 @@
-from django.db.models import Prefetch, Count, Q
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -161,6 +160,7 @@ class TeacherViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         Then apply additional search/filter parameters.
         """
         # 🔥 CRITICAL: Let AutoSectionFilterMixin handle section filtering
+        # This calls the mixin's get_queryset() which applies section filters
         queryset = super().get_queryset()
 
         user = self.request.user
@@ -168,34 +168,6 @@ class TeacherViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         logger.info(
             f"[TeacherViewSet] After mixin filtering: {queryset.count()} teachers"
         )
-
-        if self.action == "list" or self.action == "retrieve":
-            from classroom.models import Classroom, ClassroomTeacherAssignment
-
-            # Annotate classrooms with student counts to avoid N+1 queries
-            classrooms_with_counts = Classroom.objects.annotate(
-                student_count=Count(
-                    "studentenrollment",
-                    filter=Q(studentenrollment__is_active=True),
-                    distinct=True,
-                )
-            ).select_related(
-                "section", "section__grade_level", "academic_session", "term"
-            )
-
-            # Prefetch classroom assignments with all related data
-            queryset = queryset.prefetch_related(
-                Prefetch(
-                    "classroom_assignments",
-                    queryset=ClassroomTeacherAssignment.objects.filter(is_active=True)
-                    .select_related("subject")
-                    .prefetch_related(
-                        Prefetch("classroom", queryset=classrooms_with_counts)
-                    ),
-                )
-            )
-
-            logger.info("[TeacherViewSet] Applied classroom prefetch optimization")
 
         # 🟦 Special case: Teachers can only see their own profile
         if hasattr(user, "teacher") and not user.is_staff and not user.is_superuser:

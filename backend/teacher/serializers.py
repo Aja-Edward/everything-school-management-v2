@@ -314,25 +314,17 @@ class TeacherSerializer(serializers.ModelSerializer):
         """Returns the classroom assignments for this teacher in the format expected by the frontend."""
         from classroom.models import ClassroomTeacherAssignment
 
-        # ✅ Check for 'classroom_assignments' in prefetch cache
-        if (
-            hasattr(obj, "_prefetched_objects_cache")
-            and "classroom_assignments" in obj._prefetched_objects_cache
-        ):
-            # Use prefetched data
-            assignments = obj.classroom_assignments.all()
-        else:
-            # Fallback: fetch with select_related (for cases without prefetch)
-            assignments = ClassroomTeacherAssignment.objects.filter(
-                teacher=obj, is_active=True
-            ).select_related(
-                "classroom",
-                "classroom__section",
-                "classroom__section__grade_level",
-                "classroom__academic_session",
-                "classroom__term",
-                "subject",
-            )
+        # Fix: Use correct field names - academic_session not academic_year
+        assignments = ClassroomTeacherAssignment.objects.filter(
+            teacher=obj, is_active=True
+        ).select_related(
+            "classroom",
+            "classroom__section",
+            "classroom__section__grade_level",
+            "classroom__academic_session",  # Changed from academic_year
+            "classroom__term",
+            "subject",
+        )
 
         classroom_assignments = []
         for assignment in assignments:
@@ -340,11 +332,7 @@ class TeacherSerializer(serializers.ModelSerializer):
             section = classroom.section
             grade_level = section.grade_level
 
-            # Use annotated student_count if available (from prefetch), otherwise use property
-            if hasattr(classroom, "student_count"):
-                student_count = classroom.student_count
-            else:
-                student_count = classroom.current_enrollment
+            student_count = classroom.current_enrollment
 
             assignment_data = {
                 "id": assignment.id,
@@ -398,6 +386,7 @@ class TeacherSerializer(serializers.ModelSerializer):
         print(f"Validated data keys BEFORE popping: {list(validated_data.keys())}")
 
         # CRITICAL: Pop ALL user-related fields FIRST before creating teacher
+        # These are NOT Teacher model fields, only for User creation
         first_name = validated_data.pop("first_name", None) or validated_data.pop(
             "user_first_name", None
         )
@@ -447,17 +436,21 @@ class TeacherSerializer(serializers.ModelSerializer):
 
         user = None
         try:
-            # 🔥 FIXED: Use the utility function instead of hardcoded "GTS"
-            from utils import generate_unique_username
+            from datetime import datetime
+
+            current_date = datetime.now()
+            month = current_date.strftime("%b").upper()
+            year = str(current_date.year)[-2:]
 
             employee_id = validated_data.get("employee_id", "EMP001")
+            username = f"TCH/GTS/{month}/{year}/{employee_id}"
 
-            # Generate username using the utility function - it will fetch school_code from database
-            username = generate_unique_username(role="teacher", employee_id=employee_id)
+            counter = 1
+            original_username = username
+            while User.objects.filter(username=username).exists():
+                username = f"{original_username}_{counter}"
+                counter += 1
 
-            print(f"✅ Generated username: {username}")
-
-            # Check if user with this email already exists
             if User.objects.filter(email=email).exists():
                 raise serializers.ValidationError(
                     f"A user with email {email} already exists"
@@ -472,7 +465,7 @@ class TeacherSerializer(serializers.ModelSerializer):
                 role="teacher",
                 is_active=True,
             )
-            print(f"✅ Created user: {user.username} with ID: {user.id}")
+            print(f"goodCreated user: {user.username} with ID: {user.id}")
 
             # Create user profile if needed
             if bio or profile_date_of_birth:
@@ -485,7 +478,7 @@ class TeacherSerializer(serializers.ModelSerializer):
                     if profile_date_of_birth:
                         user_profile.date_of_birth = profile_date_of_birth
                     user_profile.save()
-                    print(f"✅ Created user profile")
+                    print(f"goodCreated user profile")
                 except Exception as e:
                     print(f"⚠️  Warning: Could not create user profile: {e}")
 
@@ -503,6 +496,7 @@ class TeacherSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(f"Error creating user: {str(e)}")
 
         try:
+            # Make absolutely sure no user fields are left in validated_data
             print(
                 f"Final validated_data keys before Teacher.objects.create(): {list(validated_data.keys())}"
             )
@@ -514,13 +508,17 @@ class TeacherSerializer(serializers.ModelSerializer):
                 is_active=True,
                 **validated_data,
             )
-            print(f"✅ Created teacher object with ID: {teacher.id}")
+            print(f"goodCreated teacher object with ID: {teacher.id}")
+            print(f"goodTeacher is_active: {teacher.is_active}")
+            print(f"goodTeacher user: {teacher.user}")
 
             # Verify it was actually saved
             verify = Teacher.objects.filter(id=teacher.id).first()
             print(
-                f"✅ Verification query successful - teacher {teacher.id} found in database"
+                f"goodVerification query successful - teacher {teacher.id} found in database"
             )
+            assert verify is not None, "Teacher not found after creation!"
+            assert verify.user_id == user.id, "User ID mismatch!"
 
             # Create assignments if provided
             if assignments or subjects:
@@ -530,9 +528,19 @@ class TeacherSerializer(serializers.ModelSerializer):
 
         except TypeError as e:
             print(f"❌ TypeError creating teacher: {e}")
+            print(
+                f"❌ This means validated_data still contains fields not on Teacher model"
+            )
+            print(f"❌ Remaining validated_data: {validated_data}")
+            import traceback
+
+            print(traceback.format_exc())
+
+            # Clean up user if teacher creation failed
             if user:
                 print(f"🧹 Cleaning up user {user.id}")
                 user.delete()
+
             raise serializers.ValidationError(f"Error creating teacher: {str(e)}")
 
         except Exception as e:
@@ -540,9 +548,12 @@ class TeacherSerializer(serializers.ModelSerializer):
             import traceback
 
             print(traceback.format_exc())
+
+            # Clean up user if teacher creation failed
             if user:
                 print(f"🧹 Cleaning up user {user.id}")
                 user.delete()
+
             raise serializers.ValidationError(f"Error creating teacher: {str(e)}")
 
     def update(self, instance, validated_data):
