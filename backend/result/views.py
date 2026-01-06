@@ -420,247 +420,6 @@ class ScoringConfigurationViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet)
         return Response(ScoringConfigurationSerializer(config).data)
 
 
-# ===== MIXIN FOR COMMON RESULT OPERATIONS =====
-# class BaseResultViewSetMixin:
-#     """Common methods for all result viewsets"""
-
-#     def get_teacher_queryset(self, user, queryset):
-#         """Get filtered queryset for teachers"""
-#         try:
-#             Teacher = apps.get_model("teacher", "Teacher")
-#             Classroom = apps.get_model("classroom", "Classroom")
-#             StudentEnrollment = apps.get_model("classroom", "StudentEnrollment")
-#             ClassroomTeacherAssignment = apps.get_model(
-#                 "classroom", "ClassroomTeacherAssignment"
-#             )
-
-#             teacher = Teacher.objects.get(user=user)
-
-#             assigned_classrooms = Classroom.objects.filter(
-#                 Q(class_teacher=teacher)
-#                 | Q(classroomteacherassignment__teacher=teacher)
-#             ).distinct()
-
-#             classroom_education_levels = list(
-#                 assigned_classrooms.values_list(
-#                     "grade_level__education_level", flat=True
-#                 ).distinct()
-#             )
-
-#             is_classroom_teacher = any(
-#                 level in [NURSERY, PRIMARY] for level in classroom_education_levels
-#             )
-
-#             student_ids = StudentEnrollment.objects.filter(
-#                 classroom__in=assigned_classrooms, is_active=True
-#             ).values_list("student_id", flat=True)
-
-#             if is_classroom_teacher:
-#                 filtered = queryset.filter(student_id__in=student_ids)
-#                 logger.info(f"Classroom teacher can see {filtered.count()} results")
-#                 return filtered
-#             else:
-#                 teacher_assignments = ClassroomTeacherAssignment.objects.filter(
-#                     teacher=teacher
-#                 ).select_related("subject")
-
-#                 assigned_subject_ids = list(
-#                     teacher_assignments.exclude(subject__isnull=True)
-#                     .values_list("subject_id", flat=True)
-#                     .distinct()
-#                 )
-
-#                 if not assigned_subject_ids:
-#                     logger.warning(
-#                         f"Subject teacher {user.username} has no assigned subjects"
-#                     )
-#                     return queryset.none()
-
-#                 filtered = queryset.filter(
-#                     subject_id__in=assigned_subject_ids, student_id__in=student_ids
-#                 )
-#                 logger.info(f"Subject teacher can see {filtered.count()} results")
-#                 return filtered
-
-#         except Exception as e:
-#             logger.error(f"Error filtering for teacher: {str(e)}", exc_info=True)
-#             return queryset.none()
-
-#     def handle_create(
-#         self, request, education_level, serializer_class, result_serializer_class
-#     ):
-#         """Common create logic for all result types"""
-#         try:
-#             with transaction.atomic():
-#                 data = (
-#                     request.data.copy()
-#                     if hasattr(request.data, "copy")
-#                     else dict(request.data)
-#                 )
-#                 student_id = data.get("student")
-
-#                 if student_id:
-#                     student = Student.objects.get(id=student_id)
-#                     if student.education_level != education_level:
-#                         return Response(
-#                             {
-#                                 "error": f"Student's education level is {student.education_level}, expected {education_level}."
-#                             },
-#                             status=status.HTTP_400_BAD_REQUEST,
-#                         )
-
-#                 data["entered_by"] = request.user.id
-#                 serializer = serializer_class(data=data)
-#                 serializer.is_valid(raise_exception=True)
-#                 result = serializer.save()
-
-#                 detailed_serializer = result_serializer_class(result)
-#                 return Response(
-#                     detailed_serializer.data, status=status.HTTP_201_CREATED
-#                 )
-
-#         except Student.DoesNotExist:
-#             return Response(
-#                 {"error": "Student not found"}, status=status.HTTP_404_NOT_FOUND
-#             )
-#         except Exception as e:
-#             logger.error(f"Failed to create result: {str(e)}", exc_info=True)
-#             return Response(
-#                 {"error": f"Failed to create result: {str(e)}"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#     def handle_update(
-#         self, request, instance, serializer_class, result_serializer_class, **kwargs
-#     ):
-#         """Common update logic for all result types"""
-#         try:
-#             with transaction.atomic():
-#                 if instance.status == PUBLISHED and not check_user_permission(
-#                     request.user, "results.change_published_results"
-#                 ):
-#                     return Response(
-#                         {
-#                             "error": "You don't have permission to modify published results"
-#                         },
-#                         status=status.HTTP_403_FORBIDDEN,
-#                     )
-
-#                 data = (
-#                     request.data.copy()
-#                     if hasattr(request.data, "copy")
-#                     else dict(request.data)
-#                 )
-#                 serializer = serializer_class(
-#                     instance, data=data, partial=kwargs.get("partial", False)
-#                 )
-#                 serializer.is_valid(raise_exception=True)
-#                 result = serializer.save()
-
-#                 detailed_serializer = result_serializer_class(result)
-#                 return Response(detailed_serializer.data)
-
-#         except Exception as e:
-#             logger.error(f"Failed to update result: {str(e)}", exc_info=True)
-#             return Response(
-#                 {"error": f"Failed to update result: {str(e)}"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#     def _prepare_request_data_copy(self, request):
-#         """Create a mutable copy of request data"""
-#         if hasattr(request.data, "_mutable"):
-#             request.data._mutable = True
-#             return request.data
-#         return (
-#             request.data.copy() if hasattr(request.data, "copy") else dict(request.data)
-#         )
-
-#     def handle_approve(self, request, result, serializer_class):
-#         """Common approve logic"""
-#         user_role = self.get_user_role()
-#         allowed_roles = ["admin", "superadmin", "principal", "senior_secondary_admin"]
-
-#         if user_role not in allowed_roles and not check_user_permission(
-#             request.user, "results.can_approve_results"
-#         ):
-#             return Response(
-#                 {"error": "You don't have permission to approve results"},
-#                 status=status.HTTP_403_FORBIDDEN,
-#             )
-
-#         try:
-#             with transaction.atomic():
-#                 if result.status == PUBLISHED:
-#                     return Response(
-#                         {"error": "Cannot approve a published result"},
-#                         status=status.HTTP_400_BAD_REQUEST,
-#                     )
-
-#                 if not getattr(result, "total_score", None) and result.total_score != 0:
-#                     return Response(
-#                         {"error": "Cannot approve result with invalid scores"},
-#                         status=status.HTTP_400_BAD_REQUEST,
-#                     )
-
-#                 if result.status not in [DRAFT, SUBMITTED]:
-#                     return Response(
-#                         {
-#                             "error": "Invalid status transition",
-#                             "detail": f"Cannot approve result with status '{result.status}'. Only DRAFT or SUBMITTED results can be approved.",
-#                         },
-#                         status=status.HTTP_400_BAD_REQUEST,
-#                     )
-
-#                 result.status = APPROVED
-#                 result.approved_by = request.user
-#                 result.approved_date = timezone.now()
-#                 result.save(update_fields=["status", "approved_by", "approved_date"])
-
-#                 return Response(serializer_class(result).data)
-
-#         except Exception as e:
-#             logger.error(f"Error approving result: {str(e)}", exc_info=True)
-#             return Response(
-#                 {"error": f"Error approving result: {str(e)}"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#     def handle_publish(self, request, result, serializer_class):
-#         """Common publish logic"""
-#         user_role = self.get_user_role()
-#         allowed_roles = ["admin", "superadmin", "principal", "senior_secondary_admin"]
-
-#         if user_role not in allowed_roles and not check_user_permission(
-#             request.user, "results.can_publish_results"
-#         ):
-#             return Response(
-#                 {"error": "You don't have permission to publish results"},
-#                 status=status.HTTP_403_FORBIDDEN,
-#             )
-
-#         try:
-#             with transaction.atomic():
-#                 if result.status == PUBLISHED:
-#                     return Response(
-#                         {"error": "Result is already published"},
-#                         status=status.HTTP_400_BAD_REQUEST,
-#                     )
-
-#                 result.status = PUBLISHED
-#                 result.published_by = request.user
-#                 result.published_date = timezone.now()
-#                 result.save(update_fields=["status", "published_by", "published_date"])
-
-#                 return Response(serializer_class(result).data)
-
-#         except Exception as e:
-#             logger.error(f"Error publishing result: {str(e)}", exc_info=True)
-#             return Response(
-#                 {"error": f"Error publishing result: {str(e)}"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
 class BaseResultViewSetMixin:
     """Common methods for all result viewsets"""
 
@@ -681,7 +440,7 @@ class BaseResultViewSetMixin:
                 | Q(classroomteacherassignment__teacher=teacher)
             ).distinct()
 
-            # ✅ FIXED: Changed from "grade_level__education_level" to "section__grade_level__education_level"
+            # ✅ FIXED: Changed from "section__grade_level__education_level" to "section__grade_level__education_level"
             classroom_education_levels = list(
                 assigned_classrooms.values_list(
                     "section__grade_level__education_level", flat=True
@@ -1319,7 +1078,7 @@ class SeniorSecondarySessionResultViewSet(
 
             classroom_education_levels = list(
                 assigned_classrooms.values_list(
-                    "grade_level__education_level", flat=True
+                    "section__grade_level__education_level", flat=True
                 ).distinct()
             )
 
@@ -2158,7 +1917,7 @@ class JuniorSecondaryResultViewSet(
 
                 classroom_education_levels = list(
                     assigned_classrooms.values_list(
-                        "grade_level__education_level", flat=True
+                        "section__grade_level__education_level", flat=True
                     ).distinct()
                 )
 
@@ -2696,7 +2455,7 @@ class JuniorSecondaryTermReportViewSet(
 
                 classroom_education_levels = list(
                     assigned_classrooms.values_list(
-                        "grade_level__education_level", flat=True
+                        "section__grade_level__education_level", flat=True
                     ).distinct()
                 )
 
@@ -3244,7 +3003,7 @@ class PrimaryResultViewSet(
 
                 classroom_education_levels = list(
                     assigned_classrooms.values_list(
-                        "grade_level__education_level", flat=True
+                        "section__grade_level__education_level", flat=True
                     ).distinct()
                 )
 
@@ -3752,7 +3511,7 @@ class PrimaryTermReportViewSet(
 
                 classroom_education_levels = list(
                     assigned_classrooms.values_list(
-                        "grade_level__education_level", flat=True
+                        "section__grade_level__education_level", flat=True
                     ).distinct()
                 )
 
@@ -4273,7 +4032,7 @@ class NurseryResultViewSet(
 
                 classroom_education_levels = list(
                     assigned_classrooms.values_list(
-                        "grade_level__education_level", flat=True
+                        "section__grade_level__education_level", flat=True
                     ).distinct()
                 )
 
@@ -4856,7 +4615,7 @@ class NurseryTermReportViewSet(
 
                 classroom_education_levels = list(
                     assigned_classrooms.values_list(
-                        "grade_level__education_level", flat=True
+                        "section__grade_level__education_level", flat=True
                     ).distinct()
                 )
 
