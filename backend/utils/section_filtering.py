@@ -264,7 +264,7 @@ class SectionFilterMixin:
         """
         🔥 Automatically apply section-based filtering to any queryset.
         This is the core method that enforces section restrictions.
-        FIXED: Multiple safety checks for superadmin/staff
+        FIXED: Multiple safety checks for superadmin/staff + teacher role handling
         """
         user = self.request.user
 
@@ -307,7 +307,18 @@ class SectionFilterMixin:
             return queryset
 
         # ============================================
-        # Apply filtering for non-admin users
+        # CRITICAL: Teacher role accessing Teacher model
+        # Teachers should only see their own profile - this is handled in TeacherViewSet
+        # So we skip filtering here and return the full queryset
+        # ============================================
+        if role == "teacher" and model_name == "Teacher":
+            logger.info(
+                f"⏭️ Teacher role accessing Teacher model - no filtering (handled in TeacherViewSet)"
+            )
+            return queryset
+
+        # ============================================
+        # Apply filtering for section admins and other non-admin users
         # ============================================
 
         # Get user's allowed education levels
@@ -341,8 +352,9 @@ class SectionFilterMixin:
                 )
                 return filtered
 
-            # 🔥 FIX: TEACHER MODELS
+            # 🔥 FIXED: TEACHER MODELS
             elif model_name == "Teacher":
+                # This branch is only reached by section admins (teacher role exits early above)
                 from classroom.models import Classroom
 
                 # Get classrooms in allowed education levels (via section)
@@ -351,15 +363,35 @@ class SectionFilterMixin:
                 )
 
                 # Filter teachers who are assigned to classrooms in allowed sections
-                filtered = queryset.filter(
-                    Q(classroomteacherassignment__classroom__in=allowed_classrooms)
-                    | Q(assigned_classes__in=allowed_classrooms)
-                ).distinct()
+                # FIXED: Use correct field name 'classroom_assignments' (with 's')
+                try:
+                    filtered = queryset.filter(
+                        Q(classroom_assignments__classroom__in=allowed_classrooms)
+                        | Q(assigned_classes__in=allowed_classrooms)
+                    ).distinct()
 
-                logger.info(
-                    f"✅ Filtered Teachers: {filtered.count()} of {queryset.count()}"
-                )
-                return filtered
+                    logger.info(
+                        f"✅ Filtered Teachers: {filtered.count()} of {queryset.count()}"
+                    )
+                    return filtered
+                except Exception as e:
+                    logger.error(f"❌ Error filtering teachers by classrooms: {e}")
+                    # Try alternative: filter by lessons
+                    try:
+                        filtered = queryset.filter(
+                            lessons__classroom__in=allowed_classrooms
+                        ).distinct()
+                        logger.info(
+                            f"✅ Filtered Teachers (via lessons): {filtered.count()} of {queryset.count()}"
+                        )
+                        return filtered
+                    except Exception as e2:
+                        logger.error(f"❌ Error filtering teachers by lessons: {e2}")
+                        # For section admins, return empty on error (restrictive)
+                        logger.warning(
+                            f"⚠️ Returning empty queryset for Teacher due to errors"
+                        )
+                        return queryset.none()
 
             # 🔥 FIX: PARENT MODELS
             elif model_name == "ParentProfile":
@@ -403,33 +435,56 @@ class SectionFilterMixin:
 
             # ENROLLMENT MODELS
             elif model_name == "StudentEnrollment":
-                return queryset.filter(
+                filtered = queryset.filter(
                     student__education_level__in=allowed_education_levels
                 )
+                logger.info(
+                    f"✅ Filtered Enrollments: {filtered.count()} of {queryset.count()}"
+                )
+                return filtered
 
             # SUBJECT MODELS
             elif model_name == "Subject":
-                return queryset.filter(education_level__in=allowed_education_levels)
+                filtered = queryset.filter(education_level__in=allowed_education_levels)
+                logger.info(
+                    f"✅ Filtered Subjects: {filtered.count()} of {queryset.count()}"
+                )
+                return filtered
 
             # GRADE LEVEL MODELS
             elif model_name == "GradeLevel":
-                return queryset.filter(education_level__in=allowed_education_levels)
+                filtered = queryset.filter(education_level__in=allowed_education_levels)
+                logger.info(
+                    f"✅ Filtered GradeLevels: {filtered.count()} of {queryset.count()}"
+                )
+                return filtered
 
             # SECTION MODELS
             elif model_name == "Section":
-                return queryset.filter(
+                filtered = queryset.filter(
                     grade_level__education_level__in=allowed_education_levels
                 )
+                logger.info(
+                    f"✅ Filtered Sections: {filtered.count()} of {queryset.count()}"
+                )
+                return filtered
 
             # EXAM/RESULT MODELS
             elif model_name in ["ExamSession", "Exam"]:
                 if hasattr(queryset.model, "education_level"):
-                    return queryset.filter(education_level__in=allowed_education_levels)
+                    filtered = queryset.filter(
+                        education_level__in=allowed_education_levels
+                    )
                 elif hasattr(queryset.model, "grade_level"):
-                    return queryset.filter(
+                    filtered = queryset.filter(
                         grade_level__education_level__in=allowed_education_levels
                     )
-                return queryset
+                else:
+                    filtered = queryset
+                logger.info(
+                    f"✅ Filtered {model_name}: {filtered.count()} of {queryset.count()}"
+                )
+                return filtered
 
             # SENIOR SECONDARY RESULTS
             elif model_name in [
@@ -481,33 +536,55 @@ class SectionFilterMixin:
 
             # ATTENDANCE MODELS
             elif model_name == "Attendance":
-                return queryset.filter(
+                filtered = queryset.filter(
                     student__education_level__in=allowed_education_levels
                 )
+                logger.info(
+                    f"✅ Filtered Attendance: {filtered.count()} of {queryset.count()}"
+                )
+                return filtered
 
             # TIMETABLE MODELS
             elif model_name == "Timetable":
-                return queryset.filter(
+                filtered = queryset.filter(
                     classroom__section__grade_level__education_level__in=allowed_education_levels
                 )
+                logger.info(
+                    f"✅ Filtered Timetables: {filtered.count()} of {queryset.count()}"
+                )
+                return filtered
 
             # DEFAULT: Try common foreign key relationships
             else:
                 # Try student relationship
                 if hasattr(queryset.model, "student"):
-                    return queryset.filter(
+                    filtered = queryset.filter(
                         student__education_level__in=allowed_education_levels
                     )
+                    logger.info(
+                        f"✅ Filtered {model_name} (via student): {filtered.count()}"
+                    )
+                    return filtered
 
                 # Try classroom relationship (via section)
                 elif hasattr(queryset.model, "classroom"):
-                    return queryset.filter(
+                    filtered = queryset.filter(
                         classroom__section__grade_level__education_level__in=allowed_education_levels
                     )
+                    logger.info(
+                        f"✅ Filtered {model_name} (via classroom): {filtered.count()}"
+                    )
+                    return filtered
 
                 # Try education_level field directly
                 elif hasattr(queryset.model, "education_level"):
-                    return queryset.filter(education_level__in=allowed_education_levels)
+                    filtered = queryset.filter(
+                        education_level__in=allowed_education_levels
+                    )
+                    logger.info(
+                        f"✅ Filtered {model_name} (via education_level): {filtered.count()}"
+                    )
+                    return filtered
 
                 # Return unfiltered for unknown models (changed from .none() for safety)
                 logger.warning(
@@ -520,8 +597,9 @@ class SectionFilterMixin:
                 f"❌ Error applying section filters on {model_name}: {str(e)}",
                 exc_info=True,
             )
-            # On error, return unfiltered queryset (safer for admins)
-            return queryset
+            # On error, return empty queryset for non-admins (more secure)
+            logger.warning(f"⚠️ Returning empty queryset due to error")
+            return queryset.none()
 
     def filter_students_by_section_access(self, queryset):
         """Filter students based on user's role and section"""
