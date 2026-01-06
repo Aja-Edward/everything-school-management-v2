@@ -598,14 +598,17 @@ const EnhancedResultsManagement: React.FC = () => {
   };
 
   const getOverallGrade = (student: StudentResult): string => {
-    // First check if overall_grade is already set
-    if ((student as any).overall_grade && (student as any).overall_grade !== 'N/A') {
-      return (student as any).overall_grade;
+    // For subject results in subject-results view, ALWAYS use the grade from the subject_result first
+    if (viewMode === 'subject-results' && student.subject_results?.[0]?.grade) {
+      const grade = student.subject_results[0].grade;
+      if (grade && grade !== 'N/A') {
+        return grade;
+      }
     }
     
-    // For subject results in subject-results view, use the grade from the subject_result
-    if (viewMode === 'subject-results' && student.subject_results?.[0]?.grade) {
-      return student.subject_results[0].grade;
+    // Then check if overall_grade is already set (for term reports)
+    if ((student as any).overall_grade && (student as any).overall_grade !== 'N/A') {
+      return (student as any).overall_grade;
     }
     
     // Fall back to calculating from average_score
