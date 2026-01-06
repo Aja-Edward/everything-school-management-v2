@@ -1144,6 +1144,7 @@ class SectionFilterMixin:
 
         # Skip filtering for superusers and staff
         if user.is_superuser or user.is_staff:
+            logger.info(f"✅ Super admin - no filtering on {queryset.model.__name__}")
             return queryset
 
         # Get model name
@@ -1153,53 +1154,79 @@ class SectionFilterMixin:
         allowed_levels = self.get_user_education_level_access()
 
         if not allowed_levels:
+            logger.info(f"⚠️ No education level access for user {user.username}")
             return queryset
+
+        logger.info(f"🔒 Restricting {model_name} to: {allowed_levels}")
 
         # Apply filtering based on model type
         try:
             # For models with direct education_level field
             if hasattr(queryset.model, "education_level"):
                 queryset = queryset.filter(education_level__in=allowed_levels)
+                logger.info(f"✅ Filtered {model_name} by education_level field")
 
             # For Classroom model (has section -> grade_level -> education_level)
             elif model_name == "Classroom":
-                # Classroom has: section (FK) -> section.grade_level (FK) -> grade_level.education_level
                 queryset = queryset.filter(
                     section__grade_level__education_level__in=allowed_levels
                 )
+                logger.info(
+                    f"✅ Filtered {model_name} by section__grade_level__education_level"
+                )
 
-            # For models with grade_level field (like GradeLevel itself)
-            elif hasattr(queryset.model, "grade_level"):
-                # Check if it's a direct field or FK
-                field = queryset.model._meta.get_field("grade_level")
-                if field.is_relation:
-                    # It's a FK, need to go through it
-                    queryset = queryset.filter(
-                        grade_level__education_level__in=allowed_levels
+            # For Teacher model - CORRECTED based on actual fields
+            elif model_name == "Teacher":
+                # Available fields: assigned_classes, classroom_assignments, primary_classes, subject_allocations
+                # Build Q object for multiple possible relationships
+                filters = Q()
+
+                # Try assigned_classes (if it's a related name for a FK or M2M)
+                if hasattr(queryset.model, "assigned_classes"):
+                    filters |= Q(
+                        assigned_classes__section__grade_level__education_level__in=allowed_levels
                     )
+
+                # Try classroom_assignments
+                if hasattr(queryset.model, "classroom_assignments"):
+                    filters |= Q(
+                        classroom_assignments__classroom__section__grade_level__education_level__in=allowed_levels
+                    )
+
+                # Try primary_classes (for class teachers)
+                if hasattr(queryset.model, "primary_classes"):
+                    filters |= Q(
+                        primary_classes__section__grade_level__education_level__in=allowed_levels
+                    )
+
+                # Try subject_allocations
+                if hasattr(queryset.model, "subject_allocations"):
+                    filters |= Q(
+                        subject_allocations__classroom__section__grade_level__education_level__in=allowed_levels
+                    )
+
+                # Apply filters if any were built
+                if filters:
+                    queryset = queryset.filter(filters).distinct()
+                    logger.info(f"✅ Filtered {model_name} by classroom relationships")
                 else:
-                    # Direct field
-                    queryset = queryset.filter(grade_level__in=allowed_levels)
+                    # If no relationships found, return empty queryset for non-admin teachers
+                    logger.warning(
+                        f"⚠️ No classroom relationships found for Teacher model"
+                    )
+                    queryset = queryset.none()
 
             # For Section model (has grade_level FK)
             elif model_name == "Section":
                 queryset = queryset.filter(
                     grade_level__education_level__in=allowed_levels
                 )
+                logger.info(f"✅ Filtered {model_name} by grade_level__education_level")
 
-            # For Teacher model (may have related classrooms/sections)
-            elif model_name == "Teacher":
-                # Teachers might be assigned through ClassroomTeacherAssignment or similar
-                # Filter by teachers who teach in allowed education levels
-                # This depends on your model structure - adjust as needed
-                queryset = queryset.filter(
-                    Q(
-                        teacher_assignments__section__grade_level__education_level__in=allowed_levels
-                    )
-                    | Q(
-                        classroomteacherassignment__classroom__section__grade_level__education_level__in=allowed_levels
-                    )
-                ).distinct()
+            # For GradeLevel model
+            elif model_name == "GradeLevel":
+                queryset = queryset.filter(education_level__in=allowed_levels)
+                logger.info(f"✅ Filtered {model_name} by education_level")
 
             # For Student model
             elif model_name == "Student":
@@ -1207,8 +1234,9 @@ class SectionFilterMixin:
                 queryset = queryset.filter(
                     studentenrollment__section__grade_level__education_level__in=allowed_levels
                 ).distinct()
+                logger.info(f"✅ Filtered {model_name} by enrollments")
 
-            # For Subject model (might have grade level or education level)
+            # For Subject model
             elif model_name == "Subject":
                 if hasattr(queryset.model, "education_level"):
                     queryset = queryset.filter(education_level__in=allowed_levels)
@@ -1217,14 +1245,27 @@ class SectionFilterMixin:
                     queryset = queryset.filter(
                         grade_levels__education_level__in=allowed_levels
                     ).distinct()
+                logger.info(f"✅ Filtered {model_name} by education_level")
+
+            # For models with grade_level FK
+            elif hasattr(queryset.model, "grade_level"):
+                field = queryset.model._meta.get_field("grade_level")
+                if field.is_relation:
+                    queryset = queryset.filter(
+                        grade_level__education_level__in=allowed_levels
+                    )
+                    logger.info(
+                        f"✅ Filtered {model_name} by grade_level__education_level"
+                    )
 
             logger.info(
-                f"✅ Filtered {model_name}: {queryset.count()} records for levels {allowed_levels}"
+                f"✅ Filtered {model_name}: {queryset.count()} of original records"
             )
 
         except Exception as e:
             logger.error(f"❌ Error filtering {model_name} for {role}: {str(e)}")
-            # Return original queryset on error to avoid breaking the app
+            # For safety, return empty queryset on error for non-admins
+            # This prevents showing unauthorized data
             return queryset.model.objects.none()
 
         return queryset
