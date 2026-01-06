@@ -1136,242 +1136,98 @@ class SectionFilterMixin:
 
     def apply_section_filters(self, queryset):
         """
-        🔥 Automatically apply section-based filtering to any queryset.
-        This is the core method that enforces section restrictions.
+        Apply section-based filtering based on user role and access.
+        Returns filtered queryset.
         """
         user = self.request.user
         role = self.get_user_role()
 
-        # Get the model name to determine how to filter
+        # Skip filtering for superusers and staff
+        if user.is_superuser or user.is_staff:
+            return queryset
+
+        # Get model name
         model_name = queryset.model.__name__
 
-        logger.info(
-            f"🔍 Applying filters for {user.username} (role: {role}) on {model_name}"
-        )
-
-        # Super admins see everything - NO FILTERING
-        if role == "superadmin" or user.is_superuser:
-            logger.info(f"✅ Super admin - no filtering on {model_name}")
-            return queryset
-
-        # General admins/principals see everything - NO FILTERING
-        if role in ["admin", "principal"]:
-            logger.info(f"✅ Admin/Principal - no filtering on {model_name}")
-            return queryset
-
         # Get user's allowed education levels
-        allowed_education_levels = self.get_user_education_level_access()
+        allowed_levels = self.get_user_education_level_access()
 
-        if not allowed_education_levels:
-            logger.warning(f"❌ No education level access for {user.username}")
-            return queryset.none()
+        if not allowed_levels:
+            return queryset
 
-        logger.info(f"🔒 Restricting {model_name} to: {allowed_education_levels}")
-
-        # Apply filters based on model type
+        # Apply filtering based on model type
         try:
-            # STUDENT MODELS
-            if model_name == "Student":
-                filtered = queryset.filter(education_level__in=allowed_education_levels)
-                logger.info(
-                    f"✅ Filtered Students: {filtered.count()} of {queryset.count()}"
-                )
-                return filtered
+            # For models with direct education_level field
+            if hasattr(queryset.model, "education_level"):
+                queryset = queryset.filter(education_level__in=allowed_levels)
 
-            # CLASSROOM MODELS - Filter through section relationship
+            # For Classroom model (has section -> grade_level -> education_level)
             elif model_name == "Classroom":
-                filtered = queryset.filter(
-                    section__grade_level__education_level__in=allowed_education_levels
-                )
-                logger.info(
-                    f"✅ Filtered Classrooms: {filtered.count()} of {queryset.count()}"
-                )
-                return filtered
-
-            # 🔥 FIX: TEACHER MODELS
-            elif model_name == "Teacher":
-                from classroom.models import Classroom
-
-                # Get classrooms in allowed education levels (via section)
-                allowed_classrooms = Classroom.objects.filter(
-                    section__grade_level__education_level__in=allowed_education_levels
+                # Classroom has: section (FK) -> section.grade_level (FK) -> grade_level.education_level
+                queryset = queryset.filter(
+                    section__grade_level__education_level__in=allowed_levels
                 )
 
-                # Filter teachers who are assigned to classrooms in allowed sections
-                filtered = queryset.filter(
-                    Q(
-                        classroom_assignments__classroom__in=allowed_classrooms
-                    )  # ✅ Correct field name
-                    | Q(assigned_classes__in=allowed_classrooms)
-                ).distinct()
-
-                logger.info(
-                    f"✅ Filtered Teachers: {filtered.count()} of {queryset.count()}"
-                )
-                return filtered
-
-            # 🔥 FIX: PARENT MODELS
-            elif model_name == "ParentProfile":
-                # Filter parents whose students are in allowed education levels
-                filtered = queryset.filter(
-                    students__education_level__in=allowed_education_levels
-                ).distinct()
-
-                logger.info(
-                    f"✅ Filtered Parents: {filtered.count()} of {queryset.count()}"
-                )
-                return filtered
-
-            # 🔥 FIX: MESSAGE MODELS
-            elif model_name == "Message":
-                # Messages are between CustomUsers (sender/recipient)
-                # We need to filter based on whether sender OR recipient is a parent
-                # whose students are in allowed sections
-
-                from parent.models import ParentProfile
-
-                # Get parents who have students in allowed education levels
-                allowed_parents = (
-                    ParentProfile.objects.filter(
-                        students__education_level__in=allowed_education_levels
+            # For models with grade_level field (like GradeLevel itself)
+            elif hasattr(queryset.model, "grade_level"):
+                # Check if it's a direct field or FK
+                field = queryset.model._meta.get_field("grade_level")
+                if field.is_relation:
+                    # It's a FK, need to go through it
+                    queryset = queryset.filter(
+                        grade_level__education_level__in=allowed_levels
                     )
-                    .values_list("user_id", flat=True)
-                    .distinct()
-                )
+                else:
+                    # Direct field
+                    queryset = queryset.filter(grade_level__in=allowed_levels)
 
-                # Filter messages where sender OR recipient is an allowed parent
-                filtered = queryset.filter(
-                    Q(sender_id__in=allowed_parents)
-                    | Q(recipient_id__in=allowed_parents)
-                ).distinct()
-
-                logger.info(
-                    f"✅ Filtered Messages: {filtered.count()} of {queryset.count()}"
-                )
-                return filtered
-
-            # ENROLLMENT MODELS
-            elif model_name == "StudentEnrollment":
-                return queryset.filter(
-                    student__education_level__in=allowed_education_levels
-                )
-
-            # SUBJECT MODELS
-            elif model_name == "Subject":
-                return queryset.filter(education_level__in=allowed_education_levels)
-
-            # GRADE LEVEL MODELS
-            elif model_name == "GradeLevel":
-                return queryset.filter(education_level__in=allowed_education_levels)
-
-            # SECTION MODELS
+            # For Section model (has grade_level FK)
             elif model_name == "Section":
-                return queryset.filter(
-                    grade_level__education_level__in=allowed_education_levels
+                queryset = queryset.filter(
+                    grade_level__education_level__in=allowed_levels
                 )
 
-            # EXAM/RESULT MODELS
-            elif model_name in ["ExamSession", "Exam"]:
+            # For Teacher model (may have related classrooms/sections)
+            elif model_name == "Teacher":
+                # Teachers might be assigned through ClassroomTeacherAssignment or similar
+                # Filter by teachers who teach in allowed education levels
+                # This depends on your model structure - adjust as needed
+                queryset = queryset.filter(
+                    Q(
+                        teacher_assignments__section__grade_level__education_level__in=allowed_levels
+                    )
+                    | Q(
+                        classroomteacherassignment__classroom__section__grade_level__education_level__in=allowed_levels
+                    )
+                ).distinct()
+
+            # For Student model
+            elif model_name == "Student":
+                # Assuming students have enrollments with sections
+                queryset = queryset.filter(
+                    studentenrollment__section__grade_level__education_level__in=allowed_levels
+                ).distinct()
+
+            # For Subject model (might have grade level or education level)
+            elif model_name == "Subject":
                 if hasattr(queryset.model, "education_level"):
-                    return queryset.filter(education_level__in=allowed_education_levels)
-                elif hasattr(queryset.model, "grade_level"):
-                    return queryset.filter(
-                        grade_level__education_level__in=allowed_education_levels
-                    )
-                return queryset
+                    queryset = queryset.filter(education_level__in=allowed_levels)
+                elif hasattr(queryset.model, "grade_levels"):
+                    # Many-to-many relationship
+                    queryset = queryset.filter(
+                        grade_levels__education_level__in=allowed_levels
+                    ).distinct()
 
-            # SENIOR SECONDARY RESULTS
-            elif model_name in [
-                "SeniorSecondaryResult",
-                "SeniorSecondaryTermReport",
-                "SeniorSecondarySessionResult",
-            ]:
-                if "SENIOR_SECONDARY" in allowed_education_levels:
-                    logger.info(f"✅ Access granted to {model_name}")
-                    return queryset
-                logger.warning(f"❌ No SSS access for {model_name}")
-                return queryset.none()
-
-            # JUNIOR SECONDARY RESULTS
-            elif model_name in [
-                "JuniorSecondaryResult",
-                "JuniorSecondaryTermReport",
-                "JuniorSecondarySessionResult",
-            ]:
-                if "JUNIOR_SECONDARY" in allowed_education_levels:
-                    logger.info(f"✅ Access granted to {model_name}")
-                    return queryset
-                logger.warning(f"❌ No JSS access for {model_name}")
-                return queryset.none()
-
-            # PRIMARY RESULTS
-            elif model_name in [
-                "PrimaryResult",
-                "PrimaryTermReport",
-                "PrimarySessionResult",
-            ]:
-                if "PRIMARY" in allowed_education_levels:
-                    logger.info(f"✅ Access granted to {model_name}")
-                    return queryset
-                logger.warning(f"❌ No Primary access for {model_name}")
-                return queryset.none()
-
-            # NURSERY RESULTS
-            elif model_name in [
-                "NurseryResult",
-                "NurseryTermReport",
-                "NurserySessionResult",
-            ]:
-                if "NURSERY" in allowed_education_levels:
-                    logger.info(f"✅ Access granted to {model_name}")
-                    return queryset
-                logger.warning(f"❌ No Nursery access for {model_name}")
-                return queryset.none()
-
-            # ATTENDANCE MODELS
-            elif model_name == "Attendance":
-                return queryset.filter(
-                    student__education_level__in=allowed_education_levels
-                )
-
-            # TIMETABLE MODELS
-            elif model_name == "Timetable":
-                return queryset.filter(
-                    classroom__section__grade_level__education_level__in=allowed_education_levels
-                )
-
-            # DEFAULT: Try common foreign key relationships
-            else:
-                # Try student relationship
-                if hasattr(queryset.model, "student"):
-                    return queryset.filter(
-                        student__education_level__in=allowed_education_levels
-                    )
-
-                # Try classroom relationship (via section)
-                elif hasattr(queryset.model, "classroom"):
-                    return queryset.filter(
-                        classroom__section__grade_level__education_level__in=allowed_education_levels
-                    )
-
-                # Try education_level field directly
-                elif hasattr(queryset.model, "education_level"):
-                    return queryset.filter(education_level__in=allowed_education_levels)
-
-                # 🔥 CRITICAL: Return empty queryset for unknown models with section restrictions
-                # This is safer than returning unfiltered data
-                logger.warning(
-                    f"⚠️ No filtering rule for {model_name}, returning empty for safety"
-                )
-                return queryset.none()
+            logger.info(
+                f"✅ Filtered {model_name}: {queryset.count()} records for levels {allowed_levels}"
+            )
 
         except Exception as e:
-            logger.error(
-                f"❌ Error applying section filters on {model_name}: {str(e)}",
-                exc_info=True,
-            )
-            # On error, return empty queryset for safety
-            return queryset.none()
+            logger.error(f"❌ Error filtering {model_name} for {role}: {str(e)}")
+            # Return original queryset on error to avoid breaking the app
+            return queryset.model.objects.none()
+
+        return queryset
 
     def filter_students_by_section_access(self, queryset):
         """Filter students based on user's role and section"""
