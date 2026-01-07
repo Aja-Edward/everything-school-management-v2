@@ -1289,7 +1289,7 @@ private transformSeniorSessionResults(results: SeniorSecondarySessionResultData[
       data
     });
   
-    const response = await api.put(endpoint, data);
+    const response = await api.patch(endpoint, data);
     console.log('📥 ResultService.updateStudentResult RESPONSE:', response);
     return response;
   }
