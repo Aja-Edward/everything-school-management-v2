@@ -440,7 +440,7 @@ class BaseResultViewSetMixin:
                 | Q(classroomteacherassignment__teacher=teacher)
             ).distinct()
 
-            # ✅ FIXED: Changed from "section__grade_level__education_level" to "section__grade_level__education_level"
+            # ✅ FIXED: Changed from "grade_level__education_level" to "section__grade_level__education_level"
             classroom_education_levels = list(
                 assigned_classrooms.values_list(
                     "section__grade_level__education_level", flat=True
@@ -1078,7 +1078,7 @@ class SeniorSecondarySessionResultViewSet(
 
             classroom_education_levels = list(
                 assigned_classrooms.values_list(
-                    "section__grade_level__education_level", flat=True
+                    "grade_level__education_level", flat=True
                 ).distinct()
             )
 
@@ -1136,15 +1136,13 @@ class SeniorSecondarySessionResultViewSet(
         try:
             with transaction.atomic():
                 student_id = data.get("student")
-                expected_level = None
                 if student_id:
                     try:
                         student = Student.objects.get(id=student_id)
-                        expected_level = student.education_level
-                        if expected_level != "SENIOR_SECONDARY":
+                        if student.education_level != "SENIOR_SECONDARY":
                             return Response(
                                 {
-                                    "error": f"Student's education level is {expected_level}, "
+                                    "error": f"Student's education level is {student.education_level}, "
                                     f"expected SENIOR_SECONDARY."
                                 },
                                 status=status.HTTP_400_BAD_REQUEST,
@@ -1919,7 +1917,7 @@ class JuniorSecondaryResultViewSet(
 
                 classroom_education_levels = list(
                     assigned_classrooms.values_list(
-                        "section__grade_level__education_level", flat=True
+                        "grade_level__education_level", flat=True
                     ).distinct()
                 )
 
@@ -2026,7 +2024,6 @@ class JuniorSecondaryResultViewSet(
         try:
             with transaction.atomic():
                 student_id = request.data.get("student")
-                expected_level = None
                 if student_id:
                     student = Student.objects.get(id=student_id)
                     expected_level = student.education_level
@@ -2063,7 +2060,6 @@ class JuniorSecondaryResultViewSet(
         try:
             with transaction.atomic():
                 student_id = request.data.get("student")
-                expected_level = None
                 if student_id:
                     student = Student.objects.get(id=student_id)
                     expected_level = student.education_level
@@ -2459,7 +2455,7 @@ class JuniorSecondaryTermReportViewSet(
 
                 classroom_education_levels = list(
                     assigned_classrooms.values_list(
-                        "section__grade_level__education_level", flat=True
+                        "grade_level__education_level", flat=True
                     ).distinct()
                 )
 
@@ -3007,7 +3003,7 @@ class PrimaryResultViewSet(
 
                 classroom_education_levels = list(
                     assigned_classrooms.values_list(
-                        "section__grade_level__education_level", flat=True
+                        "grade_level__education_level", flat=True
                     ).distinct()
                 )
 
@@ -3515,7 +3511,7 @@ class PrimaryTermReportViewSet(
 
                 classroom_education_levels = list(
                     assigned_classrooms.values_list(
-                        "section__grade_level__education_level", flat=True
+                        "grade_level__education_level", flat=True
                     ).distinct()
                 )
 
@@ -4036,7 +4032,7 @@ class NurseryResultViewSet(
 
                 classroom_education_levels = list(
                     assigned_classrooms.values_list(
-                        "section__grade_level__education_level", flat=True
+                        "grade_level__education_level", flat=True
                     ).distinct()
                 )
 
@@ -4142,6 +4138,11 @@ class NurseryResultViewSet(
     def create(self, request, *args, **kwargs):
         try:
             with transaction.atomic():
+                # ✅ ADD THIS DEBUG LOGGING
+                logger.info("=" * 80)
+                logger.info("🔍 NURSERY RESULT CREATE - DEBUGGING")
+                logger.info(f"📦 Full request.data: {request.data}")
+                logger.info(f"📦 request.data type: {type(request.data)}")
 
                 # Check each field individually
                 for field in [
@@ -4614,7 +4615,7 @@ class NurseryTermReportViewSet(
 
                 classroom_education_levels = list(
                     assigned_classrooms.values_list(
-                        "section__grade_level__education_level", flat=True
+                        "grade_level__education_level", flat=True
                     ).distinct()
                 )
 
