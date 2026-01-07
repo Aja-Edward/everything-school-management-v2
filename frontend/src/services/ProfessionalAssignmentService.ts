@@ -61,7 +61,7 @@ class ProfessionalAssignmentService {
       });
       
       // ✅ FIXED: Remove duplicate /api
-      const url = `https://school-management-project-qpox.onrender.com${this.baseUrl}/update-remark/`;
+      const url = `https://school-project-with-edward.onrender.com${this.baseUrl}/update-remark/`;
       console.log('🌐 POST request to:', url);
       console.log('📤 Request data:', data);
       console.log('📋 Request headers:', headers);
@@ -158,7 +158,7 @@ class ProfessionalAssignmentService {
     // Send array as JSON string within FormData
     formData.append('term_report_ids', JSON.stringify(data.term_report_ids));
     
-    const url = `https://school-management-project-qpox.onrender.com${this.baseUrl}/apply-signature/`;
+    const url = `https://school-project-with-edward.onrender.com${this.baseUrl}/apply-signature/`;
     console.log('🌐 POST request to:', url);
     console.log('📤 Request data:', data);
     
@@ -249,7 +249,7 @@ class ProfessionalAssignmentService {
       });
       
       // ✅ FIXED: Remove duplicate /api
-      const url = `https://school-management-project-qpox.onrender.com${this.headTeacherUrl}/update-head-remark/`;
+      const url = `https://school-project-with-edward.onrender.com${this.headTeacherUrl}/update-head-remark/`;
       console.log('🌐 POST request to:', url);
       console.log('📤 Request data:', data);
       
@@ -347,7 +347,7 @@ class ProfessionalAssignmentService {
       });
       
       // ✅ FIXED: Remove duplicate /api
-      const url = `https://school-management-project-qpox.onrender.com${this.headTeacherUrl}/apply-head-signature/`;
+      const url = `https://school-project-with-edward.onrender.com${this.headTeacherUrl}/apply-head-signature/`;
       console.log('🌐 POST request to:', url);
       console.log('📤 Request data:', data);
       

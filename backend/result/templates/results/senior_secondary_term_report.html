@@ -58,6 +58,9 @@ body {
 .school-info {
     text-align: center;
 }
+.school-logo h1{
+    font-weight: 900;
+}
 
 .school-name {
     font-size: 18pt;
@@ -332,6 +335,7 @@ tbody tr:nth-child(even) {
     {% endif %}
 
     <div class="school-info">
+        <h1>المدرسة القلم الموفق الدولية</h1>
         <div class="school-name">{{ school.name|upper }}</div>
         <div class="school-address">{{ school.address }}</div>
         <div class="school-contact">{{ school.phone }} | {{ school.email }}</div>
