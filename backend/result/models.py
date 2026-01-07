@@ -46,35 +46,28 @@ class GradingSystem(models.Model):
         verbose_name_plural = "Grading Systems"
 
     def get_grade(self, percentage):
-        """
-        Get the grade letter based on percentage score.
-        Returns the grade from the associated Grade that matches the percentage.
-        """
         if percentage is None:
             return None
 
         try:
-            # ✅ FIXED: Use 'grades' instead of 'grade_ranges'
             grade_objects = self.grades.all().order_by("-min_score")
 
             if not grade_objects.exists():
                 logger.warning(f"⚠️ No grades defined for grading system: {self.name}")
                 return None
 
+            # ✅ FIX: Check both min_score AND max_score
             for grade_obj in grade_objects:
-                if percentage >= grade_obj.min_score:
+                if grade_obj.min_score <= percentage <= grade_obj.max_score:
                     return grade_obj.grade
 
-            # If no grade matches, return the lowest grade
+            # If no exact match, return the lowest grade
             lowest_grade = grade_objects.last()
             return lowest_grade.grade if lowest_grade else None
 
         except Exception as e:
             logger.error(f"Error getting grade for {self.name}: {str(e)}")
             return None
-
-    def __str__(self):
-        return f"{self.name} ({self.get_grading_type_display()})"
 
 
 class Grade(models.Model):
@@ -3510,32 +3503,56 @@ class NurseryResult(models.Model):
 
     def save(self, *args, **kwargs):
         # Calculate percentage first
-        if self.mark_obtained is not None and self.max_marks_obtainable:
+        if self.mark_obtained is not None and self.max_marks_obtainable > 0:
             self.percentage = (self.mark_obtained / self.max_marks_obtainable) * 100
         else:
-            self.percentage = None
+            self.percentage = 0
 
-        # Determine grade based on percentage
+        # ✅ FIX: Better grade determination with fallback
         if self.percentage is not None and self.grading_system:
             try:
-                self.grade = self.grading_system.get_grade(self.percentage)
-                self.is_passed = self.percentage >= self.grading_system.pass_mark
-            except AttributeError:
-                logger.error(
-                    f"GradingSystem {self.grading_system.id} missing get_grade method"
+                # Try to get grade from grading system
+                calculated_grade = self.grading_system.get_grade(self.percentage)
+
+                if calculated_grade:
+                    self.grade = calculated_grade
+                else:
+                    # Fallback to default grading if no grade found
+                    self.grade = self._get_default_grade(self.percentage)
+
+                self.is_passed = self.percentage >= float(
+                    self.grading_system.pass_mark or 40
                 )
-                self.grade = None
-                self.is_passed = False
+
+            except Exception as e:
+                logger.error(f"Error determining grade: {e}")
+                # Fallback to default grading
+                self.grade = self._get_default_grade(self.percentage)
+                self.is_passed = self.percentage >= 40
 
         # Save first to get created_at timestamp
         is_new = self.pk is None
         super().save(*args, **kwargs)
 
-        # Calculate position AFTER save (when percentage and created_at exist)
+        # Calculate position AFTER save
         if self.percentage is not None and not is_new:
             self.calculate_subject_position()
             if self.subject_position is not None:
                 super().save(update_fields=["subject_position"])
+
+    def _get_default_grade(self, percentage):
+        """Fallback grading system"""
+        if percentage >= 70:
+            return "A"
+        if percentage >= 60:
+            return "B"
+        if percentage >= 50:
+            return "C"
+        if percentage >= 45:
+            return "D"
+        if percentage >= 40:
+            return "E"
+        return "F"
 
     def update_term_report(self):
         """Update or create the consolidated term report"""

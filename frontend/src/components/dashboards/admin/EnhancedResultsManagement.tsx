@@ -156,6 +156,7 @@ const EnhancedResultsManagement: React.FC = () => {
     if (viewMode === 'term-reports') {
       console.log('🔄 Loading ALL TERM REPORTS (with pagination)...');
       
+      // ✅ This will now fetch ALL pages automatically
       const allResults = await ResultService.getTermResults();
       
       console.log(`📊 [Term Reports] Loaded ${allResults.length} total results`);
@@ -232,6 +233,7 @@ const EnhancedResultsManagement: React.FC = () => {
     } else {
       console.log('🔄 Loading ALL SUBJECT RESULTS (with pagination)...');
       
+      // ✅ These will now fetch ALL pages automatically
       const [nursery, primary, junior, senior] = await Promise.all([
         ResultService.getNurseryResults(),
         ResultService.getPrimaryResults(),
@@ -305,21 +307,6 @@ const EnhancedResultsManagement: React.FC = () => {
       percentage = result.percentage || result.total_percentage || totalScore;
     }
     
-    // Calculate overall grade from percentage BEFORE creating subjectResult
-    let overallGrade = 'N/A';
-    const scoreToUse = percentage || totalScore;
-    if (scoreToUse && typeof scoreToUse === 'number' && !isNaN(scoreToUse)) {
-      if (scoreToUse >= 70) overallGrade = 'A';
-      else if (scoreToUse >= 60) overallGrade = 'B';
-      else if (scoreToUse >= 50) overallGrade = 'C';
-      else if (scoreToUse >= 45) overallGrade = 'D';
-      else if (scoreToUse >= 39) overallGrade = 'E';
-      else overallGrade = 'F';
-    }
-    
-    // Use backend grade if available, otherwise use calculated grade
-    const finalGrade = result.grade || overallGrade;
-    
     const subjectResult: any = {
       id: result.id,
       subject: result.subject,
@@ -328,7 +315,7 @@ const EnhancedResultsManagement: React.FC = () => {
       exam_score: examScore,
       total_score: totalScore,
       percentage: percentage,
-      grade: finalGrade,
+      grade: result.grade || 'N/A',
       grade_point: result.grade_point || 0,
       is_passed: result.is_passed,
       status: result.status
@@ -360,7 +347,7 @@ const EnhancedResultsManagement: React.FC = () => {
       updated_at: result.updated_at,
       education_level: educationLevel,
       subject_name: result.subject?.name || 'N/A',
-      overall_grade: finalGrade,
+      overall_grade: result.grade || 'N/A',
     } as any;
   };
 
@@ -598,20 +585,10 @@ const EnhancedResultsManagement: React.FC = () => {
   };
 
   const getOverallGrade = (student: StudentResult): string => {
-    // For subject results in subject-results view, ALWAYS use the grade from the subject_result first
-    if (viewMode === 'subject-results' && student.subject_results?.[0]?.grade) {
-      const grade = student.subject_results[0].grade;
-      if (grade && grade !== 'N/A') {
-        return grade;
-      }
-    }
-    
-    // Then check if overall_grade is already set (for term reports)
-    if ((student as any).overall_grade && (student as any).overall_grade !== 'N/A') {
+    if ((student as any).overall_grade) {
       return (student as any).overall_grade;
     }
     
-    // Fall back to calculating from average_score
     if (!student.average_score || typeof student.average_score !== 'number' || isNaN(student.average_score)) {
       return 'N/A';
     }
