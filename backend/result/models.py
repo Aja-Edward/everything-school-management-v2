@@ -3499,8 +3499,6 @@ class NurseryResult(models.Model):
         """
         return self.percentage
 
-    # In backend/result/models.py - NurseryResult class
-
     def save(self, *args, **kwargs):
         # Calculate percentage first
         if self.mark_obtained is not None and self.max_marks_obtainable > 0:
