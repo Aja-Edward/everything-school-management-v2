@@ -16,12 +16,12 @@ const ResultCreateTab: React.FC<ResultCreateTabProps> = ({
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
       <ResultRecordingForm
-        isOpen={true} // Always true when this tab is active
-        onClose={onClose} // Switch back to results tab
+        isOpen={true} 
+        onClose={onClose} 
         onResultCreated={onResultCreated}
         // onSuccess={onSuccess}
-        editResult={null} // Always null for new records
-        mode="create" // Always create mode for this tab
+        editResult={null} 
+        mode="create" 
       />
     </div>
   );

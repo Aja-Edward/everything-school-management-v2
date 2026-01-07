@@ -2087,9 +2087,12 @@ class JuniorSecondaryResultViewSet(
                         },
                         status=status.HTTP_400_BAD_REQUEST,
                     )
+                partial = kwargs.get("partial", False)
+                if request.method == "PATCH":
+                    partial = True
 
                 serializer = self.get_serializer(
-                    instance, data=request.data, partial=kwargs.get("partial", False)
+                    instance, data=request.data, partial=partial
                 )
                 serializer.is_valid(raise_exception=True)
                 result = serializer.save()
@@ -3210,8 +3213,12 @@ class PrimaryResultViewSet(
                             status=status.HTTP_400_BAD_REQUEST,
                         )
 
+                partial = kwargs.get("partial", False)
+                if request.method == "PATCH":
+                    partial = True
+
                 serializer = self.get_serializer(
-                    instance, data=request.data, partial=kwargs.get("partial", False)
+                    instance, data=request.data, partial=partial
                 )
                 serializer.is_valid(raise_exception=True)
                 result = serializer.save()
@@ -4314,8 +4321,12 @@ class NurseryResultViewSet(
                             status=status.HTTP_400_BAD_REQUEST,
                         )
 
+                partial = kwargs.get("partial", False)
+                if request.method == "PATCH":
+                    partial = True
+
                 serializer = self.get_serializer(
-                    instance, data=request.data, partial=kwargs.get("partial", False)
+                    instance, data=request.data, partial=partial
                 )
                 serializer.is_valid(raise_exception=True)
                 result = serializer.save()
