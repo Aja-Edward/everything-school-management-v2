@@ -2059,11 +2059,27 @@ class JuniorSecondaryResultViewSet(
     def update(self, request, *args, **kwargs):
         try:
             with transaction.atomic():
+                instance = self.get_object()
+
+                # ✅ FIX: Initialize expected_level from instance
+                expected_level = instance.student.education_level
+
                 student_id = request.data.get("student")
                 if student_id:
                     student = Student.objects.get(id=student_id)
-                    expected_level = student.education_level
+                    expected_level = (
+                        student.education_level
+                    )  # Update if student is being changed
 
+                    if expected_level != "JUNIOR_SECONDARY":
+                        return Response(
+                            {
+                                "error": f"Student's education level is {expected_level}, expected JUNIOR_SECONDARY."
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+
+                # ✅ Now expected_level is always defined
                 if expected_level != "JUNIOR_SECONDARY":
                     return Response(
                         {
@@ -2071,7 +2087,7 @@ class JuniorSecondaryResultViewSet(
                         },
                         status=status.HTTP_400_BAD_REQUEST,
                     )
-                instance = self.get_object()
+
                 serializer = self.get_serializer(
                     instance, data=request.data, partial=kwargs.get("partial", False)
                 )
@@ -2080,11 +2096,11 @@ class JuniorSecondaryResultViewSet(
 
                 detailed_serializer = JuniorSecondaryResultSerializer(result)
                 return Response(detailed_serializer.data)
+
         except Student.DoesNotExist:
             return Response(
                 {"error": "Student not found"}, status=status.HTTP_404_NOT_FOUND
             )
-
         except Exception as e:
             logger.error(f"Failed to update result: {str(e)}")
             return Response(
@@ -3169,21 +3185,27 @@ class PrimaryResultViewSet(
             with transaction.atomic():
                 instance = self.get_object()
 
+                # ✅ FIX: Initialize expected_level from instance
+                expected_level = instance.student.education_level
+
                 # Validate student if changed
                 student_id = request.data.get("student")
                 if student_id:
                     try:
                         student = Student.objects.get(id=student_id)
+                        expected_level = (
+                            student.education_level
+                        )  # Update if student is being changed
                     except Student.DoesNotExist:
                         return Response(
                             {"error": "Student not found"},
                             status=status.HTTP_404_NOT_FOUND,
                         )
 
-                    if student.education_level != "PRIMARY":
+                    if expected_level != "PRIMARY":
                         return Response(
                             {
-                                "error": f"Student education level mismatch. Expected PRIMARY but got {student.education_level}."
+                                "error": f"Student education level mismatch. Expected PRIMARY but got {expected_level}."
                             },
                             status=status.HTTP_400_BAD_REQUEST,
                         )
@@ -3199,7 +3221,7 @@ class PrimaryResultViewSet(
         except Exception as e:
             logger.error(f"Failed to update result: {str(e)}")
             return Response(
-                {"error": f"Failed to create result: {str(e)}"},
+                {"error": f"Failed to update result: {str(e)}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -4267,21 +4289,27 @@ class NurseryResultViewSet(
             with transaction.atomic():
                 instance = self.get_object()
 
+                # ✅ FIX: Initialize expected_level from instance
+                expected_level = instance.student.education_level
+
                 # Validate student if changed
                 student_id = request.data.get("student")
                 if student_id:
                     try:
                         student = Student.objects.get(id=student_id)
+                        expected_level = (
+                            student.education_level
+                        )  # Update if student is being changed
                     except Student.DoesNotExist:
                         return Response(
                             {"error": f"Student with id {student_id} does not exist."},
                             status=status.HTTP_400_BAD_REQUEST,
                         )
 
-                    if student.education_level != "NURSERY":
+                    if expected_level != "NURSERY":
                         return Response(
                             {
-                                "error": f"Student education level mismatch. Expected NURSERY but got {student.education_level}."
+                                "error": f"Student education level mismatch. Expected NURSERY but got {expected_level}."
                             },
                             status=status.HTTP_400_BAD_REQUEST,
                         )
