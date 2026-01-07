@@ -538,7 +538,7 @@ tbody tr:hover {
         </div>
         <div class="summary-item">
             <span class="label">Times Absent</span>
-            <span class="value">{{ attendance.times_opened|add:"-attendance.times_present"|default:"0" }}</span>
+             <span class="value">{% widthratio attendance.times_present attendance.times_opened 100 %}%</span>
         </div>
         <div class="summary-item">
             <span class="label">Attendance Rate</span>

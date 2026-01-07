@@ -485,9 +485,9 @@ tbody tr:nth-child(even) {
             <span class="value">{{ attendance.times_present }}</span>
         </div>
         {% if attendance.times_opened > 0 %}
-        <div class="summary-item">
-            <span class="label">Attendance Rate:</span>
-            <span class="value">{{ attendance.times_present|add:"0"|floatformat:0 }}%</span>
+            <div class="summary-item">
+                <span class="label">Attendance Rate:</span>
+                <span class="value">{% widthratio attendance.times_present attendance.times_opened 100 %}%</span>
         </div>
         {% endif %}
         <div class="summary-item mt-20">
