@@ -58,19 +58,62 @@ const TeacherResults: React.FC = () => {
       debugLog += `Subjects loaded: ${subjects.length}\n`;
       console.log('📚 Raw subjects from API:', subjects);
 
+      // Log the complete structure of the first subject
+      if (subjects.length > 0) {
+        console.log('🔍 DETAILED SUBJECT STRUCTURE:', JSON.stringify(subjects[0], null, 2));
+      }
+
       type ExtendedAssignment = TeacherAssignment & { classroom_id?: number | null };
 
       const assignments: ExtendedAssignment[] = subjects.flatMap((subject: any) => {
+        // First, try to determine education level from the teacher's level
+        // Since teacher has level: 'junior_secondary', we can use that
+        const teacherLevel = subject.teacher_level || subject.level;
+        let derivedEducationLevel: EducationLevel | undefined;
+        
+        if (teacherLevel) {
+          const levelStr = String(teacherLevel).toUpperCase();
+          if (levelStr === 'JUNIOR_SECONDARY' || levelStr === 'JUNIOR SECONDARY') {
+            derivedEducationLevel = 'JUNIOR_SECONDARY';
+          } else if (levelStr === 'SENIOR_SECONDARY' || levelStr === 'SENIOR SECONDARY') {
+            derivedEducationLevel = 'SENIOR_SECONDARY';
+          } else if (levelStr === 'PRIMARY') {
+            derivedEducationLevel = 'PRIMARY';
+          } else if (levelStr === 'NURSERY') {
+            derivedEducationLevel = 'NURSERY';
+          }
+        }
+        
+        console.log('🎯 Teacher level detection:', {
+          teacherLevel,
+          derivedEducationLevel,
+          subjectData: subject
+        });
+
         if (!subject.assignments || !Array.isArray(subject.assignments)) {
+          const educationLevel = 
+            subject.education_level || 
+            derivedEducationLevel ||
+            subject.grade_level_education_level ||
+            subject.classroom_education_level ||
+            (subject.grade_level && typeof subject.grade_level === 'object' ? subject.grade_level.education_level : null) ||
+            (subject.classroom && typeof subject.classroom === 'object' ? subject.classroom.education_level : null) ||
+            undefined;
+          
+          console.log('🔍 Creating assignment (no assignments array):', {
+            subjectId: subject.id,
+            subjectName: subject.name,
+            educationLevel,
+            teacherLevel,
+            derivedLevel: derivedEducationLevel
+          });
+          
           return [{
             id: subject.id,
             classroom_name: subject.classroom ?? 'Unknown',
             section_name: subject.section_name ?? subject.section ?? 'Unknown',
             grade_level_name: subject.grade_level_name ?? subject.grade_level ?? 'Unknown',
-            education_level: subject.education_level || 
-                            subject.grade_level_education_level ||
-                            subject.classroom_education_level ||
-                            undefined,
+            education_level: educationLevel,
             subject_name: subject.name ?? subject.subject_name ?? 'Unknown Subject',
             subject_code: subject.code ?? subject.subject_code ?? '',
             subject_id: Number(subject.subject_id || subject.grade_subject_id || subject.id),
@@ -87,35 +130,56 @@ const TeacherResults: React.FC = () => {
           }];
         }
         
-        return subject.assignments.map((assignment: any) => ({
-          id: assignment.id || subject.id,
-          classroom_name: assignment.classroom_name || subject.classroom_name || 'Unknown',
-          section_name: assignment.section_name || subject.section_name || 'Unknown',
-          grade_level_name: assignment.grade_level_name || subject.grade_level_name || 'Unknown',
-          education_level: assignment.education_level || 
-                          assignment.grade_level?.education_level ||
-                          subject.education_level || 
-                          undefined,
-          subject_name: subject.name ?? subject.subject_name ?? 'Unknown Subject',
-          subject_code: subject.code ?? subject.subject_code ?? '',
-          subject_id: Number(assignment.subject_id || assignment.grade_subject_id || subject.subject_id || subject.id),
-          grade_level_id: assignment.grade_level_id || subject.grade_level_id || null,
-          section_id: assignment.section_id || subject.section_id || null,
-          classroom_id: assignment.classroom_id || subject.classroom_id || null,
-          student_count: assignment.student_count || subject.student_count || 0,
-          periods_per_week: assignment.periods_per_week || subject.periods_per_week || 0,
-          teacher: assignment.teacher || subject.teacher || null,
-          grade_level: assignment.grade_level || subject.grade_level || null,
-          section: assignment.section || subject.section || null,
-          academic_year: assignment.academic_year || subject.academic_year || null,
-          is_primary_teacher: assignment.is_primary_teacher ?? subject.is_primary_teacher ?? false,
-        }));
+        return subject.assignments.map((assignment: any) => {
+          const educationLevel = 
+            assignment.education_level || 
+            derivedEducationLevel ||
+            (assignment.grade_level && typeof assignment.grade_level === 'object' ? assignment.grade_level.education_level : null) ||
+            (assignment.classroom && typeof assignment.classroom === 'object' ? assignment.classroom.education_level : null) ||
+            subject.education_level ||
+            subject.grade_level_education_level ||
+            subject.classroom_education_level ||
+            (subject.grade_level && typeof subject.grade_level === 'object' ? subject.grade_level.education_level : null) ||
+            undefined;
+          
+          console.log('🔍 Creating assignment from array:', {
+            assignmentId: assignment.id,
+            classroomName: assignment.classroom_name,
+            subjectName: subject.name,
+            educationLevel,
+            teacherLevel,
+            derivedLevel: derivedEducationLevel,
+            assignmentData: assignment
+          });
+          
+          return {
+            id: assignment.id || subject.id,
+            classroom_name: assignment.classroom_name || subject.classroom_name || 'Unknown',
+            section_name: assignment.section_name || subject.section_name || 'Unknown',
+            grade_level_name: assignment.grade_level_name || subject.grade_level_name || 'Unknown',
+            education_level: educationLevel,
+            subject_name: subject.name ?? subject.subject_name ?? 'Unknown Subject',
+            subject_code: subject.code ?? subject.subject_code ?? '',
+            subject_id: Number(assignment.subject_id || assignment.grade_subject_id || subject.subject_id || subject.id),
+            grade_level_id: assignment.grade_level_id || subject.grade_level_id || null,
+            section_id: assignment.section_id || subject.section_id || null,
+            classroom_id: assignment.classroom_id || subject.classroom_id || null,
+            student_count: assignment.student_count || subject.student_count || 0,
+            periods_per_week: assignment.periods_per_week || subject.periods_per_week || 0,
+            teacher: assignment.teacher || subject.teacher || null,
+            grade_level: assignment.grade_level || subject.grade_level || null,
+            section: assignment.section || subject.section || null,
+            academic_year: assignment.academic_year || subject.academic_year || null,
+            is_primary_teacher: assignment.is_primary_teacher ?? subject.is_primary_teacher ?? false,
+          };
+        });
       });
       
       setTeacherAssignments(assignments as TeacherAssignment[]);
       debugLog += `Created ${assignments.length} assignment entries\n`;
       
-      console.log('📋 All assignments with subject IDs:', assignments.map(a => ({
+      console.log('📋 All assignments after creation:', assignments.map(a => ({
+        id: a.id,
         classroom: a.classroom_name,
         classroom_id: a.classroom_id,
         subject: a.subject_name,
@@ -150,15 +214,40 @@ const TeacherResults: React.FC = () => {
       };
 
       assignments.forEach((assignment) => {
-        if (!assignment.education_level || !assignment.subject_id) return;
+        console.log('🔍 Grouping assignment:', {
+          assignmentId: assignment.id,
+          classroom: assignment.classroom_name,
+          subject: assignment.subject_name,
+          subjectId: assignment.subject_id,
+          educationLevel: assignment.education_level,
+          hasEducationLevel: !!assignment.education_level
+        });
+        
+        if (!assignment.education_level || !assignment.subject_id) {
+          console.warn('⚠️ Skipping assignment - missing education_level or subject_id:', {
+            assignmentId: assignment.id,
+            classroom: assignment.classroom_name,
+            educationLevel: assignment.education_level,
+            subjectId: assignment.subject_id,
+            fullAssignment: assignment
+          });
+          return;
+        }
+        
         if (!subjectIdsByLevel[assignment.education_level].includes(Number(assignment.subject_id))) {
           subjectIdsByLevel[assignment.education_level].push(Number(assignment.subject_id));
+          console.log('✅ Added subject to level:', {
+            level: assignment.education_level,
+            subjectId: assignment.subject_id,
+            currentSubjects: subjectIdsByLevel[assignment.education_level]
+          });
         }
       });
 
       debugLog += `Subjects grouped by level:\n${JSON.stringify(subjectIdsByLevel, null, 2)}\n`;
-      console.log('📊 Subjects grouped by education level:', subjectIdsByLevel);
+      console.log('📊 Final subjects grouped by education level:', subjectIdsByLevel);
 
+      // Rest of the function remains the same...
       const levelEndpoints: Record<EducationLevel, (params?: ResultQueryParams) => Promise<any[]>> = {
         NURSERY: (params) => ResultService.getNurseryResults(params),
         PRIMARY: (params) => ResultService.getPrimaryResults(params),
@@ -217,7 +306,7 @@ const TeacherResults: React.FC = () => {
               console.log(`📦 Raw API response for ${level} subject ${subjectId}:`, results);
               console.log(`📦 Response length:`, results?.length || 0);
               if (results && results.length > 0) {
-                console.log(`📦 First result sample:`, JSON.stringify(results[0], null, 2));
+                console.log(`📦 First result sample:`, results[0]);
               }
               return {
                 results,
@@ -277,74 +366,77 @@ const TeacherResults: React.FC = () => {
             });
           }
           
-          // 🔥 NEW STRATEGY: For secondary levels, trust API filtering
-          const isSecondaryLevel = educationLevel === 'JUNIOR_SECONDARY' || educationLevel === 'SENIOR_SECONDARY';
-          
-          let filteredResults: any[];
-          
-          if (isSecondaryLevel) {
-            console.log(`🎓 Secondary level detected for subject ${subjectId}, using lenient filtering`);
+          let filteredResults = results.filter((result: any) => {
+            if (!result.student || !result.student.id) {
+              console.log(`❌ Rejecting result - no valid student data:`, result);
+              return false;
+            }
             
-            // For secondary: Trust API subject filtering, only do basic validation
-            filteredResults = results.filter((result: any) => {
-              return result.student && result.student.id;
+            const resultClassroomName = (
+              result.student?.student_class_display || 
+              result.student?.student_class || 
+              result.classroom_name ||
+              ''
+            ).trim();
+            
+            const resultClassroomId = Number(
+              result.classroom_id || 
+              result.student?.classroom_id ||
+              result.student?.current_classroom_id ||
+              0
+            );
+            
+            console.log(`🔍 Checking result for subject ${subjectId}:`, {
+              studentName: result.student?.full_name,
+              resultClassroomName,
+              resultClassroomId,
+              teacherClassroomIds: Array.from(teacherClassroomIds),
+              teacherClassroomNames: Array.from(teacherClassroomNamesSet)
             });
             
-            console.log(`✅ Secondary: Accepted ${filteredResults.length} of ${results.length} results for subject ${subjectId}`);
-          } else {
-            // For primary/nursery: Use strict classroom filtering
-            filteredResults = teacherClassroomNamesSet.size === 0 
-              ? results
-              : results.filter((result: any) => {
-                  const resultClassroomName = (
-                    result.student?.student_class_display || 
-                    result.student?.student_class || 
-                    result.classroom_name ||
-                    ''
-                  ).trim();
-                  
-                  const resultClassroomId = Number(
-                    result.classroom_id || 
-                    result.student?.classroom_id ||
-                    result.student?.current_classroom_id ||
-                    0
-                  );
-                  
-                  // Match by classroom ID first
-                  if (teacherClassroomIds.size > 0 && resultClassroomId > 0) {
-                    const matchesById = teacherClassroomIds.has(resultClassroomId);
-                    if (matchesById) {
-                      return true;
-                    }
-                  }
-                  
-                  if (!resultClassroomName) {
-                    return true;
-                  }
-                  
-                  let matchesByName = teacherClassroomNamesSet.has(resultClassroomName);
-                  if (matchesByName) {
-                    return true;
-                  }
-                  
-                  // Flexible matching
-                  for (const teacherClassName of Array.from(teacherClassroomNamesSet)) {
-                    if (teacherClassName.startsWith(resultClassroomName + ' ') || 
-                        teacherClassName === resultClassroomName) {
-                      return true;
-                    }
-                    
-                    const teacherClassBase = teacherClassName.split(' ').slice(0, -1).join(' ');
-                    if (teacherClassBase && resultClassroomName.startsWith(teacherClassBase)) {
-                      return true;
-                    }
-                  }
-                  
-                  return false;
-                });
+            if (teacherClassroomIds.size === 0 && teacherClassroomNamesSet.size === 0) {
+              console.log(`✅ Accepting - no classroom constraints`);
+              return true;
+            }
             
-            console.log(`✅ Primary/Nursery: Filtered from ${results.length} to ${filteredResults.length} results for subject ${subjectId}`);
-          }
+            if (teacherClassroomIds.size > 0 && resultClassroomId > 0) {
+              if (teacherClassroomIds.has(resultClassroomId)) {
+                console.log(`✅ Accepting - classroom ID match: ${resultClassroomId}`);
+                return true;
+              }
+            }
+            
+            if (resultClassroomName && teacherClassroomNamesSet.size > 0) {
+              if (teacherClassroomNamesSet.has(resultClassroomName)) {
+                console.log(`✅ Accepting - exact classroom name match: ${resultClassroomName}`);
+                return true;
+              }
+              
+              for (const teacherClassName of Array.from(teacherClassroomNamesSet)) {
+                if (teacherClassName.startsWith(resultClassroomName + ' ') || 
+                    teacherClassName === resultClassroomName) {
+                  console.log(`✅ Accepting - flexible match: ${resultClassroomName} ~ ${teacherClassName}`);
+                  return true;
+                }
+                
+                const teacherClassBase = teacherClassName.split(' ').slice(0, -1).join(' ');
+                if (teacherClassBase && resultClassroomName.startsWith(teacherClassBase)) {
+                  console.log(`✅ Accepting - base match: ${resultClassroomName} ~ ${teacherClassBase}`);
+                  return true;
+                }
+              }
+            }
+            
+            console.log(`❌ Rejecting - no classroom match`);
+            return false;
+          });
+          
+          console.log(`📊 Filtering summary for ${educationLevel} subject ${subjectId}:`, {
+            totalFromAPI: results.length,
+            afterFiltering: filteredResults.length,
+            teacherClassrooms: Array.from(teacherClassroomNamesSet),
+            teacherClassroomIds: Array.from(teacherClassroomIds)
+          });
           
           allResults.push(...filteredResults);
           debugLog += `✅ Query ${i} returned ${results.length} results (${filteredResults.length} for teacher's classes)\n`;
