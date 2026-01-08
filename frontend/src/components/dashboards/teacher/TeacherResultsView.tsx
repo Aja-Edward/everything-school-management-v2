@@ -213,14 +213,31 @@ const TeacherResults: React.FC = () => {
 
             return levelEndpoints[level as EducationLevel]!({
               subject: String(subjectId),
-            }).then(results => ({
-              results,
-              subjectId,
-              classrooms: subjectAssignments,
-              classroomIds: Array.from(teacherClassroomIdsBySubject.get(subjectId) || []),
-              classroomNames: Array.from(teacherClassroomNamesBySubject.get(subjectId) || []),
-              educationLevel: level as EducationLevel
-            }));
+            }).then(results => {
+              console.log(`📦 Raw API response for ${level} subject ${subjectId}:`, results);
+              console.log(`📦 Response length:`, results?.length || 0);
+              if (results && results.length > 0) {
+                console.log(`📦 First result sample:`, JSON.stringify(results[0], null, 2));
+              }
+              return {
+                results,
+                subjectId,
+                classrooms: subjectAssignments,
+                classroomIds: Array.from(teacherClassroomIdsBySubject.get(subjectId) || []),
+                classroomNames: Array.from(teacherClassroomNamesBySubject.get(subjectId) || []),
+                educationLevel: level as EducationLevel
+              };
+            }).catch(error => {
+              console.error(`❌ Error fetching ${level} results for subject ${subjectId}:`, error);
+              return {
+                results: [],
+                subjectId,
+                classrooms: subjectAssignments,
+                classroomIds: Array.from(teacherClassroomIdsBySubject.get(subjectId) || []),
+                classroomNames: Array.from(teacherClassroomNamesBySubject.get(subjectId) || []),
+                educationLevel: level as EducationLevel
+              };
+            });
           })
         );
 

@@ -380,4 +380,4 @@ class ProfessionalAssignmentService {
   }
 }
 
-export default new ProfessionalAssignmentService();
+export default new ProfessionalAssignmentService(); 
