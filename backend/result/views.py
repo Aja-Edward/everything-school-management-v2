@@ -423,8 +423,73 @@ class ScoringConfigurationViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet)
 class BaseResultViewSetMixin:
     """Common methods for all result viewsets"""
 
+    # def get_teacher_queryset(self, user, queryset):
+    #     """Get filtered queryset for teachers"""
+    #     try:
+    #         Teacher = apps.get_model("teacher", "Teacher")
+    #         Classroom = apps.get_model("classroom", "Classroom")
+    #         StudentEnrollment = apps.get_model("classroom", "StudentEnrollment")
+    #         ClassroomTeacherAssignment = apps.get_model(
+    #             "classroom", "ClassroomTeacherAssignment"
+    #         )
+
+    #         teacher = Teacher.objects.get(user=user)
+
+    #         assigned_classrooms = Classroom.objects.filter(
+    #             Q(class_teacher=teacher)
+    #             | Q(classroomteacherassignment__teacher=teacher)
+    #         ).distinct()
+
+    #         # ✅ FIXED: Changed from "grade_level__education_level" to "section__grade_level__education_level"
+    #         classroom_education_levels = list(
+    #             assigned_classrooms.values_list(
+    #                 "section__grade_level__education_level", flat=True
+    #             ).distinct()
+    #         )
+
+    #         is_classroom_teacher = any(
+    #             level in [NURSERY, PRIMARY] for level in classroom_education_levels
+    #         )
+
+    #         student_ids = StudentEnrollment.objects.filter(
+    #             classroom__in=assigned_classrooms, is_active=True
+    #         ).values_list("student_id", flat=True)
+
+    #         if is_classroom_teacher:
+    #             filtered = queryset.filter(student_id__in=student_ids)
+    #             logger.info(f"Classroom teacher can see {filtered.count()} results")
+    #             return filtered
+    #         else:
+    #             teacher_assignments = ClassroomTeacherAssignment.objects.filter(
+    #                 teacher=teacher
+    #             ).select_related("subject")
+
+    #             assigned_subject_ids = list(
+    #                 teacher_assignments.exclude(subject__isnull=True)
+    #                 .values_list("subject_id", flat=True)
+    #                 .distinct()
+    #             )
+
+    #             if not assigned_subject_ids:
+    #                 logger.warning(
+    #                     f"Subject teacher {user.username} has no assigned subjects"
+    #                 )
+    #                 return queryset.none()
+
+    #             filtered = queryset.filter(
+    #                 subject_id__in=assigned_subject_ids, student_id__in=student_ids
+    #             )
+    #             logger.info(f"Subject teacher can see {filtered.count()} results")
+    #             return filtered
+
+    #     except Exception as e:
+    #         logger.error(f"Error filtering for teacher: {str(e)}", exc_info=True)
+    #         return queryset.none()
+
     def get_teacher_queryset(self, user, queryset):
-        """Get filtered queryset for teachers"""
+        """
+        FIXED: Get filtered queryset for teachers with proper classroom filtering
+        """
         try:
             Teacher = apps.get_model("teacher", "Teacher")
             Classroom = apps.get_model("classroom", "Classroom")
@@ -434,32 +499,66 @@ class BaseResultViewSetMixin:
             )
 
             teacher = Teacher.objects.get(user=user)
+            logger.info(
+                f"🔍 Filtering results for teacher: {user.username} (ID: {teacher.id})"
+            )
 
+            # ✅ FIX 1: Get assigned classrooms
             assigned_classrooms = Classroom.objects.filter(
                 Q(class_teacher=teacher)
                 | Q(classroomteacherassignment__teacher=teacher)
             ).distinct()
 
-            # ✅ FIXED: Changed from "grade_level__education_level" to "section__grade_level__education_level"
+            logger.info(
+                f"📚 Teacher assigned to {assigned_classrooms.count()} classrooms"
+            )
+
+            if not assigned_classrooms.exists():
+                logger.warning(f"❌ Teacher {user.username} has no assigned classrooms")
+                return queryset.none()
+
+            # ✅ FIX 2: Correct path to education_level (removed 'section__')
             classroom_education_levels = list(
                 assigned_classrooms.values_list(
-                    "section__grade_level__education_level", flat=True
+                    "grade_level__education_level", flat=True
                 ).distinct()
             )
 
+            logger.info(f"🎓 Classroom education levels: {classroom_education_levels}")
+
+            # ✅ FIX 3: Determine if classroom teacher (Nursery/Primary)
             is_classroom_teacher = any(
                 level in [NURSERY, PRIMARY] for level in classroom_education_levels
             )
 
-            student_ids = StudentEnrollment.objects.filter(
-                classroom__in=assigned_classrooms, is_active=True
-            ).values_list("student_id", flat=True)
+            logger.info(f"👨‍🏫 Is classroom teacher? {is_classroom_teacher}")
 
+            # ✅ FIX 4: Get ACTIVE student IDs from assigned classrooms
+            student_ids = list(
+                StudentEnrollment.objects.filter(
+                    classroom__in=assigned_classrooms, is_active=True
+                ).values_list("student_id", flat=True)
+            )
+
+            logger.info(f"👥 Students in assigned classrooms: {len(student_ids)}")
+
+            if not student_ids:
+                logger.warning(f"❌ No active students found in teacher's classrooms")
+                return queryset.none()
+
+            # ✅ FIX 5: Filter based on teacher type
             if is_classroom_teacher:
+                # CLASSROOM TEACHERS (Nursery/Primary): See ALL subjects for their students
                 filtered = queryset.filter(student_id__in=student_ids)
-                logger.info(f"Classroom teacher can see {filtered.count()} results")
+                logger.info(
+                    f"✅ Classroom teacher can see {filtered.count()} results "
+                    f"(all subjects for {len(student_ids)} students)"
+                )
                 return filtered
             else:
+                # SUBJECT TEACHERS (Secondary): See ONLY their assigned subjects
+
+                # ✅ FIX 6: Get teacher's subject assignments
                 teacher_assignments = ClassroomTeacherAssignment.objects.filter(
                     teacher=teacher
                 ).select_related("subject")
@@ -470,20 +569,36 @@ class BaseResultViewSetMixin:
                     .distinct()
                 )
 
+                logger.info(f"📖 Teacher assigned subjects: {assigned_subject_ids}")
+
                 if not assigned_subject_ids:
                     logger.warning(
-                        f"Subject teacher {user.username} has no assigned subjects"
+                        f"❌ Subject teacher {user.username} has no assigned subjects"
                     )
                     return queryset.none()
 
+                # ✅ FIX 7: Filter by BOTH subject AND student
+                # This ensures teachers only see results for:
+                # - Subjects they teach
+                # - Students in classrooms they're assigned to
                 filtered = queryset.filter(
                     subject_id__in=assigned_subject_ids, student_id__in=student_ids
                 )
-                logger.info(f"Subject teacher can see {filtered.count()} results")
+
+                logger.info(
+                    f"✅ Subject teacher can see {filtered.count()} results "
+                    f"(subjects {assigned_subject_ids} for {len(student_ids)} students)"
+                )
                 return filtered
 
+        except Teacher.DoesNotExist:
+            logger.error(f"❌ Teacher object not found for user {user.username}")
+            return queryset.none()
         except Exception as e:
-            logger.error(f"Error filtering for teacher: {str(e)}", exc_info=True)
+            logger.error(f"❌ Error filtering for teacher: {str(e)}", exc_info=True)
+            import traceback
+
+            logger.error(traceback.format_exc())
             return queryset.none()
 
     def handle_create(
