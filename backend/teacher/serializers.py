@@ -17,11 +17,8 @@ class TeacherAssignmentSerializer(serializers.ModelSerializer):
         source="classroom.section.name", read_only=True
     )
     subject_name = serializers.CharField(source="subject.name", read_only=True)
-    # education_level = serializers.CharField(
-    #     source="classroom.section.grade_level.education_level", read_only=True
-    # )
     education_level = serializers.CharField(
-        source="classroom.grade_level.education_level", read_only=True
+        source="classroom.section.grade_level.education_level", read_only=True
     )
     classroom_name = serializers.CharField(source="classroom.name", read_only=True)
     # Explicitly define assigned_date to avoid datetime/date coercion issues

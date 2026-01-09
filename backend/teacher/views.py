@@ -423,6 +423,36 @@ class TeacherViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    def retrieve(self, request, *args, **kwargs):
+        """Override retrieve to add education_level to assignments"""
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        data = serializer.data
+
+        # ✅ ADD education_level to each classroom assignment
+        if "classroom_assignments" in data:
+            for assignment in data["classroom_assignments"]:
+                try:
+                    classroom_id = assignment.get("classroom_id")
+                    if classroom_id:
+                        from classroom.models import Classroom
+
+                        classroom = Classroom.objects.select_related("grade_level").get(
+                            id=classroom_id
+                        )
+                        assignment["education_level"] = (
+                            classroom.grade_level.education_level
+                            if hasattr(classroom, "grade_level")
+                            else None
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"Could not get education_level for classroom {classroom_id}: {e}"
+                    )
+                    assignment["education_level"] = None
+
+        return Response(data)
+
 
 class AssignmentRequestViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
     """
