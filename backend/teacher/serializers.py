@@ -7,7 +7,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class TeacherAssignmentSerializer(serializers.ModelSerializer):
+class ClassroomTeacherAssignmentSerializer(serializers.ModelSerializer):
     """Serializer for the new ClassroomTeacherAssignment model"""
 
     grade_level_name = serializers.CharField(
@@ -163,7 +163,9 @@ class TeacherSerializer(serializers.ModelSerializer):
     user = serializers.SerializerMethodField()
 
     # Teacher assignments using the new model
-    teacher_assignments = TeacherAssignmentSerializer(many=True, read_only=True)
+    teacher_assignments = ClassroomTeacherAssignmentSerializer(
+        many=True, read_only=True
+    )
 
     # New classroom assignments field for frontend compatibility
     classroom_assignments = serializers.SerializerMethodField()
