@@ -15,19 +15,11 @@ import {
 
 type ViewMode = 'table' | 'card';
 
-export type NormalizedTeacherAssignment =
-  Omit<TeacherAssignment, 'education_level' | 'subject_id'> & {
-    educationLevel: EducationLevel;
-    subjectId: number;
-  };
-
 const TeacherResults: React.FC = () => {
   const { user, isLoading: authLoading } = useAuth();
   
   const [results, setResults] = useState<StudentResult[]>([]);
- const [teacherAssignments, setTeacherAssignments] =
-  useState<NormalizedTeacherAssignment[]>([]);
-
+  const [teacherAssignments, setTeacherAssignments] = useState<TeacherAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -98,18 +90,18 @@ const TeacherResults: React.FC = () => {
           subjectData: subject
         });
 
-      if (!subject.assignments || !Array.isArray(subject.assignments)) {
-        const educationLevel: EducationLevel | undefined =
-        subject.education_level ??
-        derivedEducationLevel ??
-        subject.grade_level_education_level ??
-        subject.classroom_education_level ??
-        (subject.grade_level && typeof subject.grade_level === 'object'
-        ? subject.grade_level.education_level
-        : undefined) ??
-        (subject.classroom && typeof subject.classroom === 'object'
-        ? subject.classroom.education_level
-        : undefined);
+        if (!subject.assignments || !Array.isArray(subject.assignments)) {
+  const educationLevel: EducationLevel | undefined =
+    subject.education_level ??
+    derivedEducationLevel ??
+    subject.grade_level_education_level ??
+    subject.classroom_education_level ??
+    (subject.grade_level && typeof subject.grade_level === 'object'
+      ? subject.grade_level.education_level
+      : undefined) ??
+    (subject.classroom && typeof subject.classroom === 'object'
+      ? subject.classroom.education_level
+      : undefined);
 
   console.log('🔍 Creating assignment (no assignments array):', {
     subjectId: subject.id,
@@ -142,7 +134,6 @@ const TeacherResults: React.FC = () => {
     },
   ];
 }
-
 
         
         return subject.assignments.map((assignment: any) => {
@@ -190,18 +181,9 @@ const TeacherResults: React.FC = () => {
         });
       });
       
-      const normalizedAssignments: NormalizedTeacherAssignment[] =
-  assignments.map((a): NormalizedTeacherAssignment => ({
-    ...a,
-    educationLevel: a.education_level as EducationLevel,
-    subjectId: Number(a.subject_id),
-  }));
-
-
-    setTeacherAssignments(normalizedAssignments);
-
-      debugLog += `Assignments loaded: ${assignments.length}\n`;
-
+      setTeacherAssignments(assignments as TeacherAssignment[]);
+      debugLog += `Created ${assignments.length} assignment entries\n`;
+      
       console.log('📋 All assignments after creation:', assignments.map(a => ({
         id: a.id,
         classroom: a.classroom_name,
@@ -236,57 +218,68 @@ const TeacherResults: React.FC = () => {
         JUNIOR_SECONDARY: [],
         SENIOR_SECONDARY: [],
       };
-     normalizedAssignments.forEach((assignment) => {
-  if (!assignment.educationLevel || !assignment.subjectId) {
-    console.warn('⚠️ Skipping assignment (normalized):', assignment);
-    return;
-  }
 
-  const level = assignment.educationLevel;
-
-  if (!(level in subjectIdsByLevel)) {
-    console.error('❌ Invalid education level:', level, assignment);
-    return;
-  }
-
-  const subjectId = assignment.subjectId;
-
-  if (!subjectIdsByLevel[level].includes(subjectId)) {
-    subjectIdsByLevel[level].push(subjectId);
-  }
-});
-
-  
-      // assignments.forEach((assignment) => {
-      //   console.log('🔍 Grouping assignment:', {
-      //     assignmentId: assignment.id,
-      //     classroom: assignment.classroom_name,
-      //     subject: assignment.subject_name,
-      //     subjectId: assignment.subject_id,
-      //     educationLevel: assignment.education_level,
-      //     hasEducationLevel: !!assignment.education_level
-      //   });
+      assignments.forEach((assignment) => {
+        console.log('🔍 Grouping assignment:', {
+          assignmentId: assignment.id,
+          classroom: assignment.classroom_name,
+          subject: assignment.subject_name,
+          subjectId: assignment.subject_id,
+          educationLevel: assignment.education_level,
+          hasEducationLevel: !!assignment.education_level
+        });
         
-      //   if (!assignment.education_level || !assignment.subject_id) {
-      //     console.warn('⚠️ Skipping assignment - missing education_level or subject_id:', {
-      //       assignmentId: assignment.id,
-      //       classroom: assignment.classroom_name,
-      //       educationLevel: assignment.education_level,
-      //       subjectId: assignment.subject_id,
-      //       fullAssignment: assignment
-      //     });
-      //     return;
-      //   }
+        // Skip if no subject_id
+        if (!assignment.subject_id) {
+          console.warn('⚠️ Skipping assignment - missing subject_id:', {
+            assignmentId: assignment.id,
+            classroom: assignment.classroom_name,
+            fullAssignment: assignment
+          });
+          return;
+        }
         
-      //   if (!subjectIdsByLevel[assignment.education_level].includes(Number(assignment.subject_id))) {
-      //     subjectIdsByLevel[assignment.education_level].push(Number(assignment.subject_id));
-      //     console.log('✅ Added subject to level:', {
-      //       level: assignment.education_level,
-      //       subjectId: assignment.subject_id,
-      //       currentSubjects: subjectIdsByLevel[assignment.education_level]
-      //     });
-      //   }
-      // });
+        // Use education_level if available, otherwise derive from classroom name
+        let educationLevel = assignment.education_level;
+        
+        if (!educationLevel) {
+          // Derive from classroom name
+          const className = (assignment.classroom_name || '').toUpperCase();
+          if (className.includes('JSS') || className.includes('JUNIOR')) {
+            educationLevel = 'JUNIOR_SECONDARY';
+          } else if (className.includes('SSS') || className.includes('SS ') || className.includes('SENIOR')) {
+            educationLevel = 'SENIOR_SECONDARY';
+          } else if (className.includes('PRIMARY') || /\bP\d/.test(className)) {
+            educationLevel = 'PRIMARY';
+          } else if (className.includes('NURSERY') || className.includes('KG')) {
+            educationLevel = 'NURSERY';
+          }
+          
+          console.log('📍 Derived education level from classroom name:', {
+            assignmentId: assignment.id,
+            classroom: assignment.classroom_name,
+            derivedLevel: educationLevel
+          });
+        }
+        
+        if (!educationLevel) {
+          console.warn('⚠️ Could not determine education level for assignment:', {
+            assignmentId: assignment.id,
+            classroom: assignment.classroom_name,
+            subjectId: assignment.subject_id
+          });
+          return;
+        }
+        
+        if (!subjectIdsByLevel[educationLevel].includes(Number(assignment.subject_id))) {
+          subjectIdsByLevel[educationLevel].push(Number(assignment.subject_id));
+          console.log('✅ Added subject to level:', {
+            level: educationLevel,
+            subjectId: assignment.subject_id,
+            currentSubjects: subjectIdsByLevel[educationLevel]
+          });
+        }
+      });
 
       debugLog += `Subjects grouped by level:\n${JSON.stringify(subjectIdsByLevel, null, 2)}\n`;
       console.log('📊 Final subjects grouped by education level:', subjectIdsByLevel);
@@ -684,15 +677,14 @@ const TeacherResults: React.FC = () => {
   );
 
   const availableSubjects = useMemo(
-  () =>
-    teacherAssignments.map((assignment) => ({
-      id: String(assignment.subjectId),
-      name: String(assignment.subject_name || 'Unknown'),
-      code: String(assignment.subject_code || ''),
-    })),
-  [teacherAssignments]
-);
-
+    () =>
+      teacherAssignments.map((assignment) => ({
+        id: String(assignment.subject_id),
+        name: String(assignment.subject_name || 'Unknown'),
+        code: String(assignment.subject_code || ''),
+      })),
+    [teacherAssignments]
+  );
 
   const filteredResults = useMemo(() => {
     const term = (searchTerm || '').toLowerCase();
