@@ -17,9 +17,8 @@ class TeacherAssignmentSerializer(serializers.ModelSerializer):
         source="classroom.section.name", read_only=True
     )
     subject_name = serializers.CharField(source="subject.name", read_only=True)
-    education_level = serializers.CharField(
-        source="classroom.section.grade_level.education_level", read_only=True
-    )
+    education_level = serializers.SerializerMethodField()
+
     classroom_name = serializers.CharField(source="classroom.name", read_only=True)
     # Explicitly define assigned_date to avoid datetime/date coercion issues
     assigned_date = serializers.SerializerMethodField()
@@ -41,6 +40,12 @@ class TeacherAssignmentSerializer(serializers.ModelSerializer):
             "assigned_date",
             "is_active",
         ]
+
+    def get_education_level(self, obj):
+        try:
+            return obj.classroom.grade_level.education_level
+        except AttributeError:
+            return None
 
     def get_assigned_date(self, obj):
         """Ensure assigned_date is returned as a date string"""

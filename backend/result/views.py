@@ -517,7 +517,7 @@ class BaseResultViewSetMixin:
                 logger.warning(f"❌ Teacher {user.username} has no assigned classrooms")
                 return queryset.none()
 
-            # ✅ FIX 2: Get education levels from classrooms
+            # ✅ FIX 2: Correct path to education_level (removed 'section__')
             classroom_education_levels = list(
                 assigned_classrooms.values_list(
                     "grade_level__education_level", flat=True
@@ -550,27 +550,6 @@ class BaseResultViewSetMixin:
             if is_classroom_teacher:
                 # CLASSROOM TEACHERS (Nursery/Primary): See ALL subjects for their students
                 filtered = queryset.filter(student_id__in=student_ids)
-
-                # ✅ CRITICAL DEBUG: Check if filtering is working
-                logger.info(f"🔍 CLASSROOM TEACHER FILTER:")
-                logger.info(f"   - Queryset before filter: {queryset.count()}")
-                logger.info(
-                    f"   - Student IDs being filtered: {student_ids[:10]}..."
-                )  # First 10
-                logger.info(f"   - Results after filter: {filtered.count()}")
-
-                # ✅ DIAGNOSTIC: Check if any results exist for these students AT ALL
-                all_results_for_students = queryset.filter(student_id__in=student_ids)
-                logger.info(
-                    f"   - Total results in DB for these students: {all_results_for_students.count()}"
-                )
-
-                if all_results_for_students.exists():
-                    sample = all_results_for_students.first()
-                    logger.info(
-                        f"   - Sample result: student_id={sample.student_id}, subject={sample.subject_id}"
-                    )
-
                 logger.info(
                     f"✅ Classroom teacher can see {filtered.count()} results "
                     f"(all subjects for {len(student_ids)} students)"
@@ -599,35 +578,12 @@ class BaseResultViewSetMixin:
                     return queryset.none()
 
                 # ✅ FIX 7: Filter by BOTH subject AND student
+                # This ensures teachers only see results for:
+                # - Subjects they teach
+                # - Students in classrooms they're assigned to
                 filtered = queryset.filter(
                     subject_id__in=assigned_subject_ids, student_id__in=student_ids
                 )
-
-                # ✅ CRITICAL DEBUG: Check if filtering is working
-                logger.info(f"🔍 SUBJECT TEACHER FILTER:")
-                logger.info(f"   - Queryset before filter: {queryset.count()}")
-                logger.info(f"   - Student IDs: {student_ids[:10]}...")  # First 10
-                logger.info(f"   - Subject IDs: {assigned_subject_ids}")
-                logger.info(f"   - Results after filter: {filtered.count()}")
-
-                # ✅ DIAGNOSTIC: Check each filter independently
-                by_student_only = queryset.filter(student_id__in=student_ids)
-                by_subject_only = queryset.filter(subject_id__in=assigned_subject_ids)
-                logger.info(f"   - Results by student only: {by_student_only.count()}")
-                logger.info(f"   - Results by subject only: {by_subject_only.count()}")
-
-                # ✅ Check if results exist with EITHER the student OR subject
-                if by_student_only.exists():
-                    sample = by_student_only.first()
-                    logger.info(
-                        f"   - Sample result for student: student_id={sample.student_id}, subject_id={sample.subject_id}"
-                    )
-
-                if by_subject_only.exists():
-                    sample = by_subject_only.first()
-                    logger.info(
-                        f"   - Sample result for subject: student_id={sample.student_id}, subject_id={sample.subject_id}"
-                    )
 
                 logger.info(
                     f"✅ Subject teacher can see {filtered.count()} results "
