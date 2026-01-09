@@ -384,9 +384,6 @@ class ClassroomTeacherAssignmentSerializer(serializers.ModelSerializer):
     teacher_name = serializers.CharField(
         source="teacher.user.full_name", read_only=True
     )
-    education_level = serializers.CharField(
-        source="classroom.education_level", read_only=True
-    )
     teacher_email = serializers.CharField(source="teacher.user.email", read_only=True)
     teacher_phone = serializers.CharField(source="teacher.phone_number", read_only=True)
     teacher_employee_id = serializers.CharField(
@@ -413,7 +410,6 @@ class ClassroomTeacherAssignmentSerializer(serializers.ModelSerializer):
             "teacher_email",
             "teacher_phone",
             "teacher_employee_id",
-            "education_level",
             "teacher_first_name",
             "teacher_last_name",
             "subject_id",

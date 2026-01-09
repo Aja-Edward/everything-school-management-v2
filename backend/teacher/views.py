@@ -437,14 +437,10 @@ class TeacherViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
                     if classroom_id:
                         from classroom.models import Classroom
 
-                        classroom = Classroom.objects.select_related("grade_level").get(
+                        classroom = Classroom.objects.only("education_level").get(
                             id=classroom_id
                         )
-                        assignment["education_level"] = (
-                            classroom.grade_level.education_level
-                            if hasattr(classroom, "grade_level")
-                            else None
-                        )
+                        assignment["education_level"] = classroom.education_level
                 except Exception as e:
                     logger.warning(
                         f"Could not get education_level for classroom {classroom_id}: {e}"
