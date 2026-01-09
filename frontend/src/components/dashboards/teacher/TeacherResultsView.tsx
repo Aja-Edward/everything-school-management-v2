@@ -32,6 +32,24 @@ const TeacherResults: React.FC = () => {
   const [debugInfo, setDebugInfo] = useState<string>('');
   const [isMobile, setIsMobile] = useState(false);
 
+
+   // Helper function to derive education level from classroom name
+      const deriveEducationLevelFromClassName = (className: string): EducationLevel | undefined => {
+        if (!className) return undefined;
+        const upperName = className.toUpperCase();
+        
+        if (upperName.includes('JSS') || upperName.match(/\bJSS\s*\d/) || upperName.includes('JUNIOR')) {
+          return 'JUNIOR_SECONDARY';
+        } else if (upperName.includes('SSS') || upperName.match(/\bSS\s*\d/) || upperName.includes('SENIOR')) {
+          return 'SENIOR_SECONDARY';
+        } else if (upperName.includes('PRIMARY') || upperName.match(/\bP\s*\d/) || upperName.match(/\bPRIMARY\s*\d/)) {
+          return 'PRIMARY';
+        } else if (upperName.includes('NURSERY') || upperName.includes('KG') || upperName.includes('KINDERGARTEN')) {
+          return 'NURSERY';
+        }
+        return undefined;
+      };
+
   useEffect(() => {
     const checkMobile = () => {
       setIsMobile(window.innerWidth < 768);
@@ -65,9 +83,25 @@ const TeacherResults: React.FC = () => {
 
       type ExtendedAssignment = TeacherAssignment & { classroom_id?: number | null };
 
+      // Helper function to derive education level from classroom name
+      const deriveEducationLevelFromClassName = (className: string): EducationLevel | undefined => {
+        if (!className) return undefined;
+        const upperName = className.toUpperCase();
+        
+        if (upperName.includes('JSS') || upperName.match(/\bJSS\s*\d/) || upperName.includes('JUNIOR')) {
+          return 'JUNIOR_SECONDARY';
+        } else if (upperName.includes('SSS') || upperName.match(/\bSS\s*\d/) || upperName.includes('SENIOR')) {
+          return 'SENIOR_SECONDARY';
+        } else if (upperName.includes('PRIMARY') || upperName.match(/\bP\s*\d/) || upperName.match(/\bPRIMARY\s*\d/)) {
+          return 'PRIMARY';
+        } else if (upperName.includes('NURSERY') || upperName.includes('KG') || upperName.includes('KINDERGARTEN')) {
+          return 'NURSERY';
+        }
+        return undefined;
+      };
+
       const assignments: ExtendedAssignment[] = subjects.flatMap((subject: any) => {
         // First, try to determine education level from the teacher's level
-        // Since teacher has level: 'junior_secondary', we can use that
         const teacherLevel = subject.teacher_level || subject.level;
         let derivedEducationLevel: EducationLevel | undefined;
         
@@ -101,7 +135,8 @@ const TeacherResults: React.FC = () => {
       : undefined) ??
     (subject.classroom && typeof subject.classroom === 'object'
       ? subject.classroom.education_level
-      : undefined);
+      : undefined) ??
+    deriveEducationLevelFromClassName(subject.classroom ?? 'Unknown');
 
   console.log('🔍 Creating assignment (no assignments array):', {
     subjectId: subject.id,
@@ -146,7 +181,7 @@ const TeacherResults: React.FC = () => {
             subject.grade_level_education_level ||
             subject.classroom_education_level ||
             (subject.grade_level && typeof subject.grade_level === 'object' ? subject.grade_level.education_level : null) ||
-            undefined;
+            deriveEducationLevelFromClassName(assignment.classroom_name || '');
           
           console.log('🔍 Creating assignment from array:', {
             assignmentId: assignment.id,
@@ -244,6 +279,7 @@ const TeacherResults: React.FC = () => {
         
         if (!educationLevel) {
           // Derive from classroom name
+          educationLevel = deriveEducationLevelFromClassName(assignment.classroom_name || '') || 'PRIMARY';
           const className = (assignment.classroom_name || '').toUpperCase();
           if (className.includes('JSS') || className.includes('JUNIOR')) {
             educationLevel = 'JUNIOR_SECONDARY';
