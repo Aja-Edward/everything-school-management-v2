@@ -386,7 +386,10 @@ class TeacherSerializer(serializers.ModelSerializer):
         try:
             assignments = (
                 obj.classroom_assignments.select_related(
-                    "classroom", "classroom__section", "subject"
+                    "classroom",
+                    "classroom__section",
+                    "classroom__section__grade_level",
+                    "subject",
                 )
                 .prefetch_related(
                     "classroom__students"  # Prefetch students to avoid N+1
@@ -402,6 +405,10 @@ class TeacherSerializer(serializers.ModelSerializer):
                 student_count = (
                     classroom.students.count() if hasattr(classroom, "students") else 0
                 )
+
+                education_level = None
+                if classroom and classroom.section and classroom.section.grade_level:
+                    education_level = classroom.section.grade_level.education_level
 
                 result.append(
                     {
@@ -423,6 +430,7 @@ class TeacherSerializer(serializers.ModelSerializer):
                         "subject_code": (
                             assignment.subject.code if assignment.subject else ""
                         ),
+                        "education_level": education_level,
                         "student_count": student_count,
                         "is_primary_teacher": assignment.is_primary_teacher,
                         "periods_per_week": assignment.periods_per_week,
