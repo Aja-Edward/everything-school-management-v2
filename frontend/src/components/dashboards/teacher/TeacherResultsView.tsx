@@ -64,6 +64,8 @@ const TeacherResults: React.FC = () => {
   // Replace your loadTeacherData function in TeacherResults.tsx with this simplified version
 // that trusts the backend data instead of doing complex derivations
 
+// Replace your loadTeacherData function with this fixed version
+
 async function loadTeacherData() {
   try {
     setLoading(true);
@@ -75,14 +77,14 @@ async function loadTeacherData() {
     
     if (!teacherId) throw new Error('Teacher ID not found');
 
-    // ✅ Get subjects - education_level is already included in assignments!
+    // Get subjects with assignments
     const subjects = await TeacherDashboardService.getTeacherSubjects(teacherId);
     debugLog += `Subjects loaded: ${subjects.length}\n`;
     console.log('📚 Raw subjects from API:', subjects);
 
     type ExtendedAssignment = TeacherAssignment & { classroom_id?: number | null };
 
-    // ✅ Simply map the assignments - education_level is already there!
+    // ✅ FIX: Map assignments and preserve education_level from API
     const assignments: ExtendedAssignment[] = subjects.flatMap((subject: any) => {
       if (!subject.assignments || !Array.isArray(subject.assignments)) {
         console.warn('⚠️ Subject has no assignments array:', subject);
@@ -90,31 +92,29 @@ async function loadTeacherData() {
       }
       
       return subject.assignments.map((assignment: any) => {
-        // ✅ Use education_level directly from the assignment - no derivation needed!
-        const educationLevel = assignment.education_level;
+        // ✅ Get education_level directly from the API response
+        const educationLevel = assignment.education_level as EducationLevel | undefined;
         
-        if (!educationLevel) {
-          console.warn('⚠️ Assignment missing education_level:', assignment);
-        }
-        
-        console.log('✅ Creating assignment with education_level:', {
+        console.log('✅ Creating assignment:', {
           assignmentId: assignment.id,
           classroom: assignment.classroom_name,
           subject: subject.name,
-          education_level: educationLevel  // ✅ This should be set!
+          education_level: educationLevel,  // Should show JUNIOR_SECONDARY
+          raw_assignment: assignment  // Log full object for debugging
         });
         
+        // ✅ Make sure education_level is preserved!
         return {
           id: assignment.id,
           classroom_name: assignment.classroom_name || 'Unknown',
-          section_name: assignment.section || 'Unknown',
+          section_name: assignment.section_name || assignment.section || 'Unknown',
           grade_level_name: assignment.grade_level || 'Unknown',
-          education_level: educationLevel,  // ✅ Direct from API
+          education_level: educationLevel,  // ✅ This should now have a value!
           subject_name: subject.name || 'Unknown Subject',
           subject_code: subject.code || '',
-          subject_id: Number(assignment.classroom_id ? subject.id : assignment.id),
+          subject_id: Number(subject.id),  // ✅ Use subject.id, not assignment.id
           grade_level_id: null,
-          section_id: null,
+          section_id: assignment.section_id || null,
           classroom_id: assignment.classroom_id || null,
           student_count: assignment.student_count || 0,
           periods_per_week: assignment.periods_per_week || 0,
@@ -122,7 +122,7 @@ async function loadTeacherData() {
           grade_level: null,
           section: null,
           academic_year: null,
-          is_primary_teacher: assignment.is_class_teacher || false,
+          is_primary_teacher: assignment.is_primary_teacher || assignment.is_class_teacher || false,
         };
       });
     });
@@ -130,11 +130,11 @@ async function loadTeacherData() {
     setTeacherAssignments(assignments as TeacherAssignment[]);
     debugLog += `Created ${assignments.length} assignment entries\n`;
     
-    console.log('📋 All assignments with education_level:', assignments.map(a => ({
+    console.log('📋 All assignments after creation:', assignments.map(a => ({
       id: a.id,
       classroom: a.classroom_name,
       subject: a.subject_name,
-      education_level: a.education_level  // ✅ Check this in console!
+      education_level: a.education_level  // ✅ Verify this shows JUNIOR_SECONDARY
     })));
 
     // Get unique subject IDs
@@ -156,7 +156,7 @@ async function loadTeacherData() {
       return;
     }
 
-    // ✅ Group by education_level - now guaranteed to exist!
+    // ✅ Group by education_level - should now work!
     const subjectIdsByLevel: Record<EducationLevel, number[]> = {
       NURSERY: [],
       PRIMARY: [],
@@ -165,13 +165,27 @@ async function loadTeacherData() {
     };
 
     assignments.forEach((assignment) => {
+      console.log('🔍 Grouping assignment:', {
+        assignmentId: assignment.id,
+        classroom: assignment.classroom_name,
+        subject: assignment.subject_name,
+        subjectId: assignment.subject_id,
+        educationLevel: assignment.education_level  // ✅ Should show value here!
+      });
+
       if (!assignment.subject_id) {
-        console.warn('⚠️ Skipping assignment - missing subject_id:', assignment);
+        console.warn('⚠️ Skipping - missing subject_id:', assignment);
         return;
       }
       
       if (!assignment.education_level) {
-        console.warn('⚠️ Skipping assignment - missing education_level:', assignment);
+        console.warn('⚠️ Skipping - missing education_level:', {
+          assignmentId: assignment.id,
+          classroom: assignment.classroom_name,
+          educationLevel: assignment.education_level,
+          subjectId: assignment.subject_id,
+          fullAssignment: assignment
+        });
         return;
       }
       
@@ -188,9 +202,9 @@ async function loadTeacherData() {
     });
 
     debugLog += `Subjects grouped by level:\n${JSON.stringify(subjectIdsByLevel, null, 2)}\n`;
-    console.log('📊 Subjects grouped by education level:', subjectIdsByLevel);
+    console.log('📊 Final subjects grouped by education level:', subjectIdsByLevel);
 
-    // Rest of your function continues the same way...
+    // Now query results by education level
     const levelEndpoints: Record<EducationLevel, (params?: ResultQueryParams) => Promise<any[]>> = {
       NURSERY: (params) => ResultService.getNurseryResults(params),
       PRIMARY: (params) => ResultService.getPrimaryResults(params),
@@ -233,6 +247,7 @@ async function loadTeacherData() {
       }))
     );
 
+    // Fetch results for each education level + subject combination
     const resultPromises = Object.entries(subjectIdsByLevel)
       .filter(([_, ids]) => ids.length > 0)
       .flatMap(([level, ids]) =>
@@ -296,19 +311,16 @@ async function loadTeacherData() {
             0
           );
           
-          // Accept if no constraints
           if (teacherClassroomIds.size === 0 && teacherClassroomNamesSet.size === 0) {
             return true;
           }
           
-          // Check classroom ID match
           if (teacherClassroomIds.size > 0 && resultClassroomId > 0) {
             if (teacherClassroomIds.has(resultClassroomId)) {
               return true;
             }
           }
           
-          // Check classroom name match
           if (resultClassroomName && teacherClassroomNamesSet.has(resultClassroomName)) {
             return true;
           }
@@ -323,7 +335,7 @@ async function loadTeacherData() {
     debugLog += `Total results after filtering: ${allResults.length}\n`;
     console.log('📊 All filtered results:', allResults.length);
   
-    // Normalize results (your existing normalization code)
+    // Normalize results
     const normalized: StudentResult[] = allResults.map((r: any): StudentResult => {
       const studentId = (r.student && r.student.id) || r.student || r.student_id;
       const subjectId = (r.subject && r.subject.id) || r.subject || r.subject_id;
@@ -443,14 +455,15 @@ async function loadTeacherData() {
     setResults(filtered);
     setDebugInfo(debugLog);
     
-    console.log('🎉 FINAL RESULTS:', {
-      total: filtered.length,
-      byLevel: {
+    console.log('🎉 FINAL RESULTS SET:', {
+      totalResults: filtered.length,
+      byEducationLevel: {
         NURSERY: filtered.filter(r => r.education_level === 'NURSERY').length,
         PRIMARY: filtered.filter(r => r.education_level === 'PRIMARY').length,
         JUNIOR_SECONDARY: filtered.filter(r => r.education_level === 'JUNIOR_SECONDARY').length,
         SENIOR_SECONDARY: filtered.filter(r => r.education_level === 'SENIOR_SECONDARY').length,
-      }
+      },
+      sampleResults: filtered.slice(0, 3)
     });
     
   } catch (err) {

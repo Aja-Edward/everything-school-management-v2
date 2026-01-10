@@ -5,6 +5,21 @@ import { LessonService } from './LessonService';
 import ResultService from './ResultService';
 import api from './api';
 
+
+export interface TeacherAssignment {
+  id: number;
+  classroom_id: number;
+  classroom_name: string;
+  section_id: number;
+  section_name: string;
+  subject_id: number;
+  subject_name: string;
+  subject_code: string;
+  education_level: 'NURSERY' | 'PRIMARY' | 'JUNIOR_SECONDARY' | 'SENIOR_SECONDARY';
+  student_count: number;
+  is_primary_teacher: boolean;
+  periods_per_week: number;
+}
 export interface TeacherDashboardStats {
   totalStudents: number;
   totalClasses: number;
@@ -71,6 +86,16 @@ export interface TeacherSubjectData {
     periods_per_week: number;
   }>;
 }
+
+export interface TeacherSubject {
+  id: number;
+  name: string;
+  code: string;
+  subject_id: number;
+  education_level?: 'NURSERY' | 'PRIMARY' | 'JUNIOR_SECONDARY' | 'SENIOR_SECONDARY';
+  assignments: TeacherAssignment[];
+}
+
 
 class TeacherDashboardService {
   // Get teacher dashboard statistics
