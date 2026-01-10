@@ -275,34 +275,40 @@ const TeacherResults: React.FC = () => {
         }
         
         // Use education_level if available, otherwise derive from classroom name
-        let educationLevel = assignment.education_level;
+         let educationLevel: EducationLevel | undefined;
         
-        if (!educationLevel) {
-          // Derive from classroom name
-          educationLevel = deriveEducationLevelFromClassName(assignment.classroom_name || '') || 'PRIMARY';
-          const className = (assignment.classroom_name || '').toUpperCase();
-          if (className.includes('JSS') || className.includes('JUNIOR')) {
-            educationLevel = 'JUNIOR_SECONDARY';
-          } else if (className.includes('SSS') || className.includes('SS ') || className.includes('SENIOR')) {
-            educationLevel = 'SENIOR_SECONDARY';
-          } else if (className.includes('PRIMARY') || /\bP\d/.test(className)) {
-            educationLevel = 'PRIMARY';
-          } else if (className.includes('NURSERY') || className.includes('KG')) {
-            educationLevel = 'NURSERY';
-          }
-          
-          console.log('📍 Derived education level from classroom name:', {
-            assignmentId: assignment.id,
-            classroom: assignment.classroom_name,
-            derivedLevel: educationLevel
-          });
+         const className = (assignment.classroom_name || '').toUpperCase();
+        
+        // Primary derivation from classroom name (most reliable)
+        if (className.includes('JSS') || className.match(/JSS\s*\d/) || className.includes('JUNIOR')) {
+          educationLevel = 'JUNIOR_SECONDARY';
+        } else if (className.includes('SSS') || className.match(/SS\s*\d/) || className.includes('SENIOR')) {
+          educationLevel = 'SENIOR_SECONDARY';
+        } else if (className.includes('PRIMARY') || className.match(/\bP\s*\d/)) {
+          educationLevel = 'PRIMARY';
+        } else if (className.includes('NURSERY') || className.includes('KG') || className.includes('KINDERGARTEN')) {
+          educationLevel = 'NURSERY';
         }
+        
+        // Fallback to API-provided value if derivation failed
+        if (!educationLevel && assignment.education_level) {
+          educationLevel = assignment.education_level;
+        }
+        
+        console.log('📍 Education level determined:', {
+          assignmentId: assignment.id,
+          classroom: assignment.classroom_name,
+          derivedLevel: educationLevel,
+          apiLevel: assignment.education_level,
+          method: educationLevel === assignment.education_level ? 'API' : 'DERIVED'
+        });
         
         if (!educationLevel) {
           console.warn('⚠️ Could not determine education level for assignment:', {
             assignmentId: assignment.id,
             classroom: assignment.classroom_name,
-            subjectId: assignment.subject_id
+            subjectId: assignment.subject_id,
+            className: className
           });
           return;
         }
