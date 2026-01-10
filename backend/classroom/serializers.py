@@ -397,6 +397,11 @@ class ClassroomTeacherAssignmentSerializer(serializers.ModelSerializer):
     )
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     subject_code = serializers.CharField(source="subject.code", read_only=True)
+    education_level = serializers.CharField(
+        source="classroom.grade_level.education_level",
+        read_only=True,
+        allow_null=True,  # In case some classrooms don't have grade_level set
+    )
 
     class Meta:
         model = ClassroomTeacherAssignment
@@ -412,6 +417,7 @@ class ClassroomTeacherAssignmentSerializer(serializers.ModelSerializer):
             "teacher_employee_id",
             "teacher_first_name",
             "teacher_last_name",
+            "education_level",
             "subject_id",
             "subject",
             "subject_name",
