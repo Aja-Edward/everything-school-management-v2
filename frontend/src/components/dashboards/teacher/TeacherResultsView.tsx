@@ -61,645 +61,407 @@ const TeacherResults: React.FC = () => {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  async function loadTeacherData() {
-    try {
-      setLoading(true);
-      setError(null);
-      let debugLog = '';
+  // Replace your loadTeacherData function in TeacherResults.tsx with this simplified version
+// that trusts the backend data instead of doing complex derivations
 
-      const teacherId = await TeacherDashboardService.getTeacherIdFromUser(user as unknown as object);
-      debugLog += `Teacher ID: ${teacherId}\n`;
-      
-      if (!teacherId) throw new Error('Teacher ID not found');
+async function loadTeacherData() {
+  try {
+    setLoading(true);
+    setError(null);
+    let debugLog = '';
 
-      const subjects = await TeacherDashboardService.getTeacherSubjects(teacherId);
-      debugLog += `Subjects loaded: ${subjects.length}\n`;
-      console.log('📚 Raw subjects from API:', subjects);
+    const teacherId = await TeacherDashboardService.getTeacherIdFromUser(user as unknown as object);
+    debugLog += `Teacher ID: ${teacherId}\n`;
+    
+    if (!teacherId) throw new Error('Teacher ID not found');
 
-      // Log the complete structure of the first subject
-      if (subjects.length > 0) {
-        console.log('🔍 DETAILED SUBJECT STRUCTURE:', JSON.stringify(subjects[0], null, 2));
+    // ✅ Get subjects - education_level is already included in assignments!
+    const subjects = await TeacherDashboardService.getTeacherSubjects(teacherId);
+    debugLog += `Subjects loaded: ${subjects.length}\n`;
+    console.log('📚 Raw subjects from API:', subjects);
+
+    type ExtendedAssignment = TeacherAssignment & { classroom_id?: number | null };
+
+    // ✅ Simply map the assignments - education_level is already there!
+    const assignments: ExtendedAssignment[] = subjects.flatMap((subject: any) => {
+      if (!subject.assignments || !Array.isArray(subject.assignments)) {
+        console.warn('⚠️ Subject has no assignments array:', subject);
+        return [];
       }
-
-      type ExtendedAssignment = TeacherAssignment & { classroom_id?: number | null };
-
-      // Helper function to derive education level from classroom name
-      const deriveEducationLevelFromClassName = (className: string): EducationLevel | undefined => {
-        if (!className) return undefined;
-        const upperName = className.toUpperCase();
-        
-        if (upperName.includes('JSS') || upperName.match(/\bJSS\s*\d/) || upperName.includes('JUNIOR')) {
-          return 'JUNIOR_SECONDARY';
-        } else if (upperName.includes('SSS') || upperName.match(/\bSS\s*\d/) || upperName.includes('SENIOR')) {
-          return 'SENIOR_SECONDARY';
-        } else if (upperName.includes('PRIMARY') || upperName.match(/\bP\s*\d/) || upperName.match(/\bPRIMARY\s*\d/)) {
-          return 'PRIMARY';
-        } else if (upperName.includes('NURSERY') || upperName.includes('KG') || upperName.includes('KINDERGARTEN')) {
-          return 'NURSERY';
-        }
-        return undefined;
-      };
-
-      const assignments: ExtendedAssignment[] = subjects.flatMap((subject: any) => {
-        // First, try to determine education level from the teacher's level
-        const teacherLevel = subject.teacher_level || subject.level;
-        let derivedEducationLevel: EducationLevel | undefined;
-        
-        if (teacherLevel) {
-          const levelStr = String(teacherLevel).toUpperCase();
-          if (levelStr === 'JUNIOR_SECONDARY' || levelStr === 'JUNIOR SECONDARY') {
-            derivedEducationLevel = 'JUNIOR_SECONDARY';
-          } else if (levelStr === 'SENIOR_SECONDARY' || levelStr === 'SENIOR SECONDARY') {
-            derivedEducationLevel = 'SENIOR_SECONDARY';
-          } else if (levelStr === 'PRIMARY') {
-            derivedEducationLevel = 'PRIMARY';
-          } else if (levelStr === 'NURSERY') {
-            derivedEducationLevel = 'NURSERY';
-          }
-        }
-        
-        console.log('🎯 Teacher level detection:', {
-          teacherLevel,
-          derivedEducationLevel,
-          subjectData: subject
-        });
-
-        if (!subject.assignments || !Array.isArray(subject.assignments)) {
-  const educationLevel: EducationLevel | undefined =
-    subject.education_level ??
-    derivedEducationLevel ??
-    subject.grade_level_education_level ??
-    subject.classroom_education_level ??
-    (subject.grade_level && typeof subject.grade_level === 'object'
-      ? subject.grade_level.education_level
-      : undefined) ??
-    (subject.classroom && typeof subject.classroom === 'object'
-      ? subject.classroom.education_level
-      : undefined) ??
-    deriveEducationLevelFromClassName(subject.classroom ?? 'Unknown');
-
-  console.log('🔍 Creating assignment (no assignments array):', {
-    subjectId: subject.id,
-    subjectName: subject.name,
-    educationLevel,
-    teacherLevel,
-    derivedLevel: derivedEducationLevel,
-  });
-
-  return [
-    {
-      id: subject.id,
-      classroom_name: subject.classroom ?? 'Unknown',
-      section_name: subject.section_name ?? subject.section ?? 'Unknown',
-      grade_level_name: subject.grade_level_name ?? subject.grade_level ?? 'Unknown',
-      education_level: educationLevel,
-      subject_name: subject.name ?? subject.subject_name ?? 'Unknown Subject',
-      subject_code: subject.code ?? subject.subject_code ?? '',
-      subject_id: Number(subject.subject_id || subject.grade_subject_id || subject.id),
-      grade_level_id: subject.grade_level_id ?? null,
-      section_id: subject.section_id ?? null,
-      classroom_id: subject.classroom_id ?? null,
-      student_count: subject.student_count ?? 0,
-      periods_per_week: subject.periods_per_week ?? 0,
-      teacher: subject.teacher ?? null,
-      grade_level: subject.grade_level ?? null,
-      section: subject.section ?? null,
-      academic_year: subject.academic_year ?? null,
-      is_primary_teacher: subject.is_primary_teacher ?? false,
-    },
-  ];
-}
-
-        
-        return subject.assignments.map((assignment: any) => {
-          const educationLevel = 
-            assignment.education_level || 
-            derivedEducationLevel ||
-            (assignment.grade_level && typeof assignment.grade_level === 'object' ? assignment.grade_level.education_level : null) ||
-            (assignment.classroom && typeof assignment.classroom === 'object' ? assignment.classroom.education_level : null) ||
-            subject.education_level ||
-            subject.grade_level_education_level ||
-            subject.classroom_education_level ||
-            (subject.grade_level && typeof subject.grade_level === 'object' ? subject.grade_level.education_level : null) ||
-            deriveEducationLevelFromClassName(assignment.classroom_name || '');
-          
-          console.log('🔍 Creating assignment from array:', {
-            assignmentId: assignment.id,
-            classroomName: assignment.classroom_name,
-            subjectName: subject.name,
-            educationLevel,
-            teacherLevel,
-            derivedLevel: derivedEducationLevel,
-            assignmentData: assignment
-          });
-          
-          return {
-            id: assignment.id || subject.id,
-            classroom_name: assignment.classroom_name || subject.classroom_name || 'Unknown',
-            section_name: assignment.section_name || subject.section_name || 'Unknown',
-            grade_level_name: assignment.grade_level_name || subject.grade_level_name || 'Unknown',
-            education_level: educationLevel,
-            subject_name: subject.name ?? subject.subject_name ?? 'Unknown Subject',
-            subject_code: subject.code ?? subject.subject_code ?? '',
-            subject_id: Number(assignment.subject_id || assignment.grade_subject_id || subject.subject_id || subject.id),
-            grade_level_id: assignment.grade_level_id || subject.grade_level_id || null,
-            section_id: assignment.section_id || subject.section_id || null,
-            classroom_id: assignment.classroom_id || subject.classroom_id || null,
-            student_count: assignment.student_count || subject.student_count || 0,
-            periods_per_week: assignment.periods_per_week || subject.periods_per_week || 0,
-            teacher: assignment.teacher || subject.teacher || null,
-            grade_level: assignment.grade_level || subject.grade_level || null,
-            section: assignment.section || subject.section || null,
-            academic_year: assignment.academic_year || subject.academic_year || null,
-            is_primary_teacher: assignment.is_primary_teacher ?? subject.is_primary_teacher ?? false,
-          };
-        });
-      });
       
-      setTeacherAssignments(assignments as TeacherAssignment[]);
-      debugLog += `Created ${assignments.length} assignment entries\n`;
-      
-      console.log('📋 All assignments after creation:', assignments.map(a => ({
-        id: a.id,
-        classroom: a.classroom_name,
-        classroom_id: a.classroom_id,
-        subject: a.subject_name,
-        subject_id: a.subject_id,
-        education_level: a.education_level
-      })));
-
-      const gradeSubjectIds = Array.from(
-        new Set(
-          assignments
-            .map(a => Number(a.subject_id))
-            .filter(id => !isNaN(id) && id > 0)
-        )
-      );
-      
-      console.log('🎯 Unique subject IDs to query:', gradeSubjectIds);
-      debugLog += `Unique subject IDs: ${gradeSubjectIds.join(', ')}\n`;
-
-      if (gradeSubjectIds.length === 0) {
-        setResults([]);
-        debugLog += 'No subject IDs found\n';
-        console.warn('⚠️ No subject IDs found for teacher');
-        setDebugInfo(debugLog);
-        return;
-      }
-
-      const subjectIdsByLevel: Record<EducationLevel, number[]> = {
-        NURSERY: [],
-        PRIMARY: [],
-        JUNIOR_SECONDARY: [],
-        SENIOR_SECONDARY: [],
-      };
-
-      assignments.forEach((assignment) => {
-        console.log('🔍 Grouping assignment:', {
-          assignmentId: assignment.id,
-          classroom: assignment.classroom_name,
-          subject: assignment.subject_name,
-          subjectId: assignment.subject_id,
-          educationLevel: assignment.education_level,
-          hasEducationLevel: !!assignment.education_level
-        });
-        
-        // Skip if no subject_id
-        if (!assignment.subject_id) {
-          console.warn('⚠️ Skipping assignment - missing subject_id:', {
-            assignmentId: assignment.id,
-            classroom: assignment.classroom_name,
-            fullAssignment: assignment
-          });
-          return;
-        }
-        
-        // Use education_level if available, otherwise derive from classroom name
-         let educationLevel: EducationLevel | undefined;
-        
-         const className = (assignment.classroom_name || '').toUpperCase();
-        
-        // Primary derivation from classroom name (most reliable)
-        if (className.includes('JSS') || className.match(/JSS\s*\d/) || className.includes('JUNIOR')) {
-          educationLevel = 'JUNIOR_SECONDARY';
-        } else if (className.includes('SSS') || className.match(/SS\s*\d/) || className.includes('SENIOR')) {
-          educationLevel = 'SENIOR_SECONDARY';
-        } else if (className.includes('PRIMARY') || className.match(/\bP\s*\d/)) {
-          educationLevel = 'PRIMARY';
-        } else if (className.includes('NURSERY') || className.includes('KG') || className.includes('KINDERGARTEN')) {
-          educationLevel = 'NURSERY';
-        }
-        
-        // Fallback to API-provided value if derivation failed
-        if (!educationLevel && assignment.education_level) {
-          educationLevel = assignment.education_level;
-        }
-        
-        console.log('📍 Education level determined:', {
-          assignmentId: assignment.id,
-          classroom: assignment.classroom_name,
-          derivedLevel: educationLevel,
-          apiLevel: assignment.education_level,
-          method: educationLevel === assignment.education_level ? 'API' : 'DERIVED'
-        });
+      return subject.assignments.map((assignment: any) => {
+        // ✅ Use education_level directly from the assignment - no derivation needed!
+        const educationLevel = assignment.education_level;
         
         if (!educationLevel) {
-          console.warn('⚠️ Could not determine education level for assignment:', {
-            assignmentId: assignment.id,
-            classroom: assignment.classroom_name,
-            subjectId: assignment.subject_id,
-            className: className
-          });
-          return;
+          console.warn('⚠️ Assignment missing education_level:', assignment);
         }
         
-        if (!subjectIdsByLevel[educationLevel].includes(Number(assignment.subject_id))) {
-          subjectIdsByLevel[educationLevel].push(Number(assignment.subject_id));
-          console.log('✅ Added subject to level:', {
-            level: educationLevel,
-            subjectId: assignment.subject_id,
-            currentSubjects: subjectIdsByLevel[educationLevel]
-          });
-        }
-      });
-
-      debugLog += `Subjects grouped by level:\n${JSON.stringify(subjectIdsByLevel, null, 2)}\n`;
-      console.log('📊 Final subjects grouped by education level:', subjectIdsByLevel);
-
-      // Rest of the function remains the same...
-      const levelEndpoints: Record<EducationLevel, (params?: ResultQueryParams) => Promise<any[]>> = {
-        NURSERY: (params) => ResultService.getNurseryResults(params),
-        PRIMARY: (params) => ResultService.getPrimaryResults(params),
-        JUNIOR_SECONDARY: (params) => ResultService.getJuniorSecondaryResults(params),
-        SENIOR_SECONDARY: (params) => ResultService.getSeniorSecondaryResults(params),
-      };
-
-      const assignmentsBySubject = new Map<number, ExtendedAssignment[]>();
-      const teacherClassroomIdsBySubject = new Map<number, Set<number>>();
-      const teacherClassroomNamesBySubject = new Map<number, Set<string>>();
-
-      assignments.forEach((assignment) => {
-        if (!assignment.subject_id) return;
-        const subjectId = Number(assignment.subject_id);
-        
-        if (!assignmentsBySubject.has(subjectId)) {
-          assignmentsBySubject.set(subjectId, []);
-        }
-        assignmentsBySubject.get(subjectId)!.push(assignment);
-        
-        if (!teacherClassroomIdsBySubject.has(subjectId)) {
-          teacherClassroomIdsBySubject.set(subjectId, new Set());
-        }
-        if (assignment.classroom_id) {
-          teacherClassroomIdsBySubject.get(subjectId)!.add(Number(assignment.classroom_id));
-        }
-        
-        if (!teacherClassroomNamesBySubject.has(subjectId)) {
-          teacherClassroomNamesBySubject.set(subjectId, new Set());
-        }
-        if (assignment.classroom_name) {
-          teacherClassroomNamesBySubject.get(subjectId)!.add(assignment.classroom_name.trim());
-        }
-      });
-
-      console.log('🏫 Teacher classroom names by subject:', 
-        Array.from(teacherClassroomNamesBySubject.entries()).map(([subjectId, names]) => ({
-          subjectId,
-          classroomNames: Array.from(names)
-        }))
-      );
-
-      const resultPromises = Object.entries(subjectIdsByLevel)
-        .filter(([_, ids]) => ids.length > 0)
-        .flatMap(([level, ids]) =>
-          ids.map((subjectId) => {
-            const subjectAssignments = assignmentsBySubject.get(subjectId) || [];
-            
-            debugLog += `Querying ${level} | subject=${subjectId} | classes=${subjectAssignments.length}\n`;
-            console.log(`🔎 Fetching ${level} results for subject:`, subjectId, 
-              'in classrooms:', subjectAssignments.map((a: ExtendedAssignment) => a.classroom_name));
-
-            return levelEndpoints[level as EducationLevel]!({
-              subject: String(subjectId),
-            }).then(results => {
-              console.log(`📦 Raw API response for ${level} subject ${subjectId}:`, results);
-              console.log(`📦 Response length:`, results?.length || 0);
-              if (results && results.length > 0) {
-                console.log(`📦 First result sample:`, results[0]);
-              }
-              return {
-                results,
-                subjectId,
-                classrooms: subjectAssignments,
-                classroomIds: Array.from(teacherClassroomIdsBySubject.get(subjectId) || []),
-                classroomNames: Array.from(teacherClassroomNamesBySubject.get(subjectId) || []),
-                educationLevel: level as EducationLevel
-              };
-            }).catch(error => {
-              console.error(`❌ Error fetching ${level} results for subject ${subjectId}:`, error);
-              return {
-                results: [],
-                subjectId,
-                classrooms: subjectAssignments,
-                classroomIds: Array.from(teacherClassroomIdsBySubject.get(subjectId) || []),
-                classroomNames: Array.from(teacherClassroomNamesBySubject.get(subjectId) || []),
-                educationLevel: level as EducationLevel
-              };
-            });
-          })
-        );
-
-      const resultsArray = await Promise.allSettled(resultPromises);
-
-      const allResults: any[] = [];
-      resultsArray.forEach((res, i) => {
-        if (res.status === 'fulfilled') {
-          const { results, subjectId, classrooms, classroomIds, classroomNames, educationLevel } = res.value;
-          
-          const teacherClassroomIds = new Set(classroomIds.map((id: number) => Number(id)));
-          const teacherClassroomNamesSet = new Set(classroomNames.map((name: string) => name.trim()));
-          
-          console.log(`🔍 Filtering results for subject ${subjectId} (${educationLevel}):`, {
-            totalResults: results.length,
-            teacherClassroomIds: Array.from(teacherClassroomIds),
-            teacherClassroomNames: Array.from(teacherClassroomNamesSet),
-            classroomAssignments: classrooms.map((a: ExtendedAssignment) => ({
-              classroom_name: a.classroom_name,
-              classroom_id: a.classroom_id,
-              education_level: a.education_level
-            })),
-            educationLevel
-          });
-          
-          if (results.length > 0) {
-            const firstResult = results[0];
-            console.log(`🔬 Sample result structure for subject ${subjectId}:`, {
-              resultKeys: Object.keys(firstResult),
-              hasClassroomId: 'classroom_id' in firstResult,
-              resultClassroomId: firstResult.classroom_id,
-              hasStudent: 'student' in firstResult,
-              studentKeys: firstResult.student ? Object.keys(firstResult.student) : [],
-              studentClass: firstResult.student?.student_class,
-              studentClassDisplay: firstResult.student?.student_class_display,
-              fullSample: firstResult
-            });
-          }
-          
-          let filteredResults = results.filter((result: any) => {
-            if (!result.student || !result.student.id) {
-              console.log(`❌ Rejecting result - no valid student data:`, result);
-              return false;
-            }
-            
-            const resultClassroomName = (
-              result.student?.student_class_display || 
-              result.student?.student_class || 
-              result.classroom_name ||
-              ''
-            ).trim();
-            
-            const resultClassroomId = Number(
-              result.classroom_id || 
-              result.student?.classroom_id ||
-              result.student?.current_classroom_id ||
-              0
-            );
-            
-            console.log(`🔍 Checking result for subject ${subjectId}:`, {
-              studentName: result.student?.full_name,
-              resultClassroomName,
-              resultClassroomId,
-              teacherClassroomIds: Array.from(teacherClassroomIds),
-              teacherClassroomNames: Array.from(teacherClassroomNamesSet)
-            });
-            
-            if (teacherClassroomIds.size === 0 && teacherClassroomNamesSet.size === 0) {
-              console.log(`✅ Accepting - no classroom constraints`);
-              return true;
-            }
-            
-            if (teacherClassroomIds.size > 0 && resultClassroomId > 0) {
-              if (teacherClassroomIds.has(resultClassroomId)) {
-                console.log(`✅ Accepting - classroom ID match: ${resultClassroomId}`);
-                return true;
-              }
-            }
-            
-            if (resultClassroomName && teacherClassroomNamesSet.size > 0) {
-              if (teacherClassroomNamesSet.has(resultClassroomName)) {
-                console.log(`✅ Accepting - exact classroom name match: ${resultClassroomName}`);
-                return true;
-              }
-              
-              for (const teacherClassName of Array.from(teacherClassroomNamesSet)) {
-                if (teacherClassName.startsWith(resultClassroomName + ' ') || 
-                    teacherClassName === resultClassroomName) {
-                  console.log(`✅ Accepting - flexible match: ${resultClassroomName} ~ ${teacherClassName}`);
-                  return true;
-                }
-                
-                const teacherClassBase = teacherClassName.split(' ').slice(0, -1).join(' ');
-                if (teacherClassBase && resultClassroomName.startsWith(teacherClassBase)) {
-                  console.log(`✅ Accepting - base match: ${resultClassroomName} ~ ${teacherClassBase}`);
-                  return true;
-                }
-              }
-            }
-            
-            console.log(`❌ Rejecting - no classroom match`);
-            return false;
-          });
-          
-          console.log(`📊 Filtering summary for ${educationLevel} subject ${subjectId}:`, {
-            totalFromAPI: results.length,
-            afterFiltering: filteredResults.length,
-            teacherClassrooms: Array.from(teacherClassroomNamesSet),
-            teacherClassroomIds: Array.from(teacherClassroomIds)
-          });
-          
-          allResults.push(...filteredResults);
-          debugLog += `✅ Query ${i} returned ${results.length} results (${filteredResults.length} for teacher's classes)\n`;
-        } else {
-          console.error(`❌ Query ${i} failed:`, res.reason);
-          debugLog += `❌ Query ${i} failed: ${res.reason?.message || res.reason}\n`;
-        }
-      });
-
-      debugLog += `Total raw results: ${allResults.length}\n`;
-      console.log('📊 All raw results:', allResults);
-    
-      const normalized: StudentResult[] = allResults.map((r: any): StudentResult => {
-        const studentId = (r.student && r.student.id) || r.student || r.student_id;
-        const subjectId = (r.subject && r.subject.id) || r.subject || r.subject_id;
-        const examSessionId = (r.exam_session && r.exam_session.id) || r.exam_session || r.exam_session_id || r.session_id;
-
-        const educationLevel = (r.education_level || r.student?.education_level) as EducationLevel;
-        
-        let ca_score = 0;
-        let exam_score = 0;
-        let total_score = 0;
-        
-        if (educationLevel === 'NURSERY') {
-          const markObtained = Number(r.mark_obtained || 0);
-          total_score = markObtained;
-          ca_score = 0;
-          exam_score = markObtained;
-        } else {
-          const caFromSenior = Number(r.first_test_score || 0) + Number(r.second_test_score || 0) + Number(r.third_test_score || 0);
-          const caFromPrimary =
-            r.ca_total !== undefined
-              ? Number(r.ca_total)
-              : Number(r.continuous_assessment_score || 0) +
-                Number(r.take_home_test_score || 0) +
-                Number(r.appearance_score || 0) +
-                Number(r.practical_score || 0) +
-                Number(r.project_score || 0) +
-                Number(r.note_copying_score || 0);
-          const caFromTotalField = r.total_ca_score !== undefined ? Number(r.total_ca_score) : undefined;
-          ca_score = caFromTotalField ?? (caFromSenior > 0 ? caFromSenior : caFromPrimary || 0);
-          exam_score = Number((r.exam_score ?? r.exam) ?? 0);
-          total_score = Number((r.total_score ?? (ca_score + exam_score)) ?? 0);
-        }
-
-        const examSession = typeof r.exam_session === 'object' ? r.exam_session : null;
-        
-        const termDisplay = examSession?.term_display 
-          || examSession?.term 
-          || r.term_display 
-          || r.term 
-          || 'N/A';
-        
-        const examSessionName = examSession?.name 
-          || r.exam_session_name 
-          || r.session_name 
-          || 'N/A';
-        
-        let academicSessionName = 'N/A';
-        if (examSession?.academic_session_name) {
-          academicSessionName = String(examSession.academic_session_name);
-        } else if (typeof examSession?.academic_session === 'string') {
-          academicSessionName = examSession.academic_session;
-        } else if (typeof examSession?.academic_session === 'object' && examSession.academic_session?.name) {
-          academicSessionName = String(examSession.academic_session.name);
-        } else if (r.academic_session_name) {
-          academicSessionName = String(r.academic_session_name);
-        } else if (r.academic_session) {
-          academicSessionName = typeof r.academic_session === 'string' 
-            ? r.academic_session 
-            : (r.academic_session?.name || 'N/A');
-        }
-        
-        const safeNumberConvert = (value: any): number => {
-          if (value === null || value === undefined || value === '') return 0;
-          const num = Number(value);
-          return isNaN(num) ? 0 : num;
-        };
+        console.log('✅ Creating assignment with education_level:', {
+          assignmentId: assignment.id,
+          classroom: assignment.classroom_name,
+          subject: subject.name,
+          education_level: educationLevel  // ✅ This should be set!
+        });
         
         return {
-          id: safeNumberConvert(r.id),
-          student: {
-            id: safeNumberConvert(studentId),
-            full_name: r.student?.full_name ?? r.student_name ?? r.student_full_name ?? 'Unknown Student',
-            registration_number: r.student?.username ?? r.registration_number ?? r.student_registration_number ?? '',
-            profile_picture: r.student?.profile_picture ?? r.student_profile_picture ?? null,
-            education_level: educationLevel,
-          },
-          subject: {
-            id: safeNumberConvert(subjectId),
-            name: r.subject?.name ?? r.subject_name ?? 'Unknown Subject',
-            code: r.subject?.code ?? r.subject_code ?? '',
-          },
-          exam_session: {
-            id: safeNumberConvert(examSessionId),
-            name: examSessionName,
-            term: termDisplay,
-            academic_session: academicSessionName,
-          },
-          academic_session: (() => {
-            const raw = r.academic_session && typeof r.academic_session === 'object' ? r.academic_session : null;
-            return {
-              id: String(raw?.id ?? examSession?.academic_session ?? 0),
-              name: raw?.name || academicSessionName,
-              start_date: raw?.start_date ?? '',
-              end_date: raw?.end_date ?? '',
-              is_current: raw?.is_current ?? false,
-              is_active: raw?.is_active ?? false,
-              created_at: raw?.created_at ?? '',
-              updated_at: raw?.updated_at ?? ''
-            } as AcademicSession;
-          })(),
-          first_test_score: Number(r.first_test_score || 0),
-          second_test_score: Number(r.second_test_score || 0),
-          third_test_score: Number(r.third_test_score || 0),
-          continuous_assessment_score: Number(r.continuous_assessment_score || 0),
-          take_home_test_score: Number(r.take_home_test_score || 0),
-          appearance_score: Number(r.appearance_score || 0),
-          practical_score: Number(r.practical_score || 0),
-          project_score: Number(r.project_score || 0),
-          note_copying_score: Number(r.note_copying_score || 0),
-          ca_score,
-          ca_total: ca_score,
-          exam_score,
-          total_score,
-          education_level: educationLevel,
-          grade: r.grade ?? r.letter_grade,
-          status: (typeof r.status === 'string' ? r.status.toUpperCase() : 'DRAFT') as ResultStatus,
-          remarks: r.remarks ?? '',
-          created_at: r.created_at ?? '',
-          updated_at: r.updated_at ?? '',
+          id: assignment.id,
+          classroom_name: assignment.classroom_name || 'Unknown',
+          section_name: assignment.section || 'Unknown',
+          grade_level_name: assignment.grade_level || 'Unknown',
+          education_level: educationLevel,  // ✅ Direct from API
+          subject_name: subject.name || 'Unknown Subject',
+          subject_code: subject.code || '',
+          subject_id: Number(assignment.classroom_id ? subject.id : assignment.id),
+          grade_level_id: null,
+          section_id: null,
+          classroom_id: assignment.classroom_id || null,
+          student_count: assignment.student_count || 0,
+          periods_per_week: assignment.periods_per_week || 0,
+          teacher: null,
+          grade_level: null,
+          section: null,
+          academic_year: null,
+          is_primary_teacher: assignment.is_class_teacher || false,
         };
       });
+    });
+    
+    setTeacherAssignments(assignments as TeacherAssignment[]);
+    debugLog += `Created ${assignments.length} assignment entries\n`;
+    
+    console.log('📋 All assignments with education_level:', assignments.map(a => ({
+      id: a.id,
+      classroom: a.classroom_name,
+      subject: a.subject_name,
+      education_level: a.education_level  // ✅ Check this in console!
+    })));
 
-      debugLog += `Normalized results: ${normalized.length}\n`;
-      console.log('🔄 Normalized results:', normalized);
+    // Get unique subject IDs
+    const gradeSubjectIds = Array.from(
+      new Set(
+        assignments
+          .map(a => Number(a.subject_id))
+          .filter(id => !isNaN(id) && id > 0)
+      )
+    );
+    
+    console.log('🎯 Unique subject IDs to query:', gradeSubjectIds);
+    debugLog += `Unique subject IDs: ${gradeSubjectIds.join(', ')}\n`;
 
-      const subjectIdSet = new Set(gradeSubjectIds);
-      console.log('🎯 Subject ID Set for filtering:', Array.from(subjectIdSet));
-      
-      const filtered = normalized.filter((item) => {
-        const itemSubjectId = Number(item.subject.id);
-        return subjectIdSet.has(itemSubjectId);
-      });
-      
-      debugLog += `Filtered results (matching teacher subjects): ${filtered.length}\n`;
-      console.log('✅ Final filtered results:', filtered);
-      
-      if (filtered.length === 0 && normalized.length > 0) {
-        console.warn('⚠️ No results matched teacher subjects after filtering.');
-        console.warn('Teacher subject IDs:', Array.from(subjectIdSet));
-        console.warn('Result subject IDs:', [...new Set(normalized.map(r => r.subject.id))]);
+    if (gradeSubjectIds.length === 0) {
+      setResults([]);
+      debugLog += 'No subject IDs found\n';
+      setDebugInfo(debugLog);
+      return;
+    }
+
+    // ✅ Group by education_level - now guaranteed to exist!
+    const subjectIdsByLevel: Record<EducationLevel, number[]> = {
+      NURSERY: [],
+      PRIMARY: [],
+      JUNIOR_SECONDARY: [],
+      SENIOR_SECONDARY: [],
+    };
+
+    assignments.forEach((assignment) => {
+      if (!assignment.subject_id) {
+        console.warn('⚠️ Skipping assignment - missing subject_id:', assignment);
+        return;
       }
       
-      setResults(filtered);
-      setDebugInfo(debugLog);
-      console.log('📝 Full Debug Log:\n', debugLog);
-      console.log('🎉 FINAL RESULTS SET:', {
-        totalResults: filtered.length,
-        byEducationLevel: {
-          NURSERY: filtered.filter(r => r.education_level === 'NURSERY').length,
-          PRIMARY: filtered.filter(r => r.education_level === 'PRIMARY').length,
-          JUNIOR_SECONDARY: filtered.filter(r => r.education_level === 'JUNIOR_SECONDARY').length,
-          SENIOR_SECONDARY: filtered.filter(r => r.education_level === 'SENIOR_SECONDARY').length,
-        },
-        sampleResults: filtered.slice(0, 3).map(r => ({
-          id: r.id,
-          student: r.student.full_name,
-          subject: r.subject.name,
-          education_level: r.education_level,
-          total_score: r.total_score
-        }))
-      });
+      if (!assignment.education_level) {
+        console.warn('⚠️ Skipping assignment - missing education_level:', assignment);
+        return;
+      }
       
-    } catch (err) {
-      console.error('❌ Error loading teacher data:', err);
-      const errorMsg = err instanceof Error ? err.message : 'Failed to load data';
-      setError(errorMsg);
-      setDebugInfo(prev => prev + `\nERROR: ${errorMsg}`);
-    } finally {
-      setLoading(false);
-    }
-  }
+      const educationLevel = assignment.education_level;
+      const subjectId = Number(assignment.subject_id);
+      
+      if (!subjectIdsByLevel[educationLevel].includes(subjectId)) {
+        subjectIdsByLevel[educationLevel].push(subjectId);
+        console.log('✅ Added subject to level:', {
+          level: educationLevel,
+          subjectId: subjectId,
+        });
+      }
+    });
 
+    debugLog += `Subjects grouped by level:\n${JSON.stringify(subjectIdsByLevel, null, 2)}\n`;
+    console.log('📊 Subjects grouped by education level:', subjectIdsByLevel);
+
+    // Rest of your function continues the same way...
+    const levelEndpoints: Record<EducationLevel, (params?: ResultQueryParams) => Promise<any[]>> = {
+      NURSERY: (params) => ResultService.getNurseryResults(params),
+      PRIMARY: (params) => ResultService.getPrimaryResults(params),
+      JUNIOR_SECONDARY: (params) => ResultService.getJuniorSecondaryResults(params),
+      SENIOR_SECONDARY: (params) => ResultService.getSeniorSecondaryResults(params),
+    };
+
+    const assignmentsBySubject = new Map<number, ExtendedAssignment[]>();
+    const teacherClassroomIdsBySubject = new Map<number, Set<number>>();
+    const teacherClassroomNamesBySubject = new Map<number, Set<string>>();
+
+    assignments.forEach((assignment) => {
+      if (!assignment.subject_id) return;
+      const subjectId = Number(assignment.subject_id);
+      
+      if (!assignmentsBySubject.has(subjectId)) {
+        assignmentsBySubject.set(subjectId, []);
+      }
+      assignmentsBySubject.get(subjectId)!.push(assignment);
+      
+      if (!teacherClassroomIdsBySubject.has(subjectId)) {
+        teacherClassroomIdsBySubject.set(subjectId, new Set());
+      }
+      if (assignment.classroom_id) {
+        teacherClassroomIdsBySubject.get(subjectId)!.add(Number(assignment.classroom_id));
+      }
+      
+      if (!teacherClassroomNamesBySubject.has(subjectId)) {
+        teacherClassroomNamesBySubject.set(subjectId, new Set());
+      }
+      if (assignment.classroom_name) {
+        teacherClassroomNamesBySubject.get(subjectId)!.add(assignment.classroom_name.trim());
+      }
+    });
+
+    console.log('🏫 Teacher classroom names by subject:', 
+      Array.from(teacherClassroomNamesBySubject.entries()).map(([subjectId, names]) => ({
+        subjectId,
+        classroomNames: Array.from(names)
+      }))
+    );
+
+    const resultPromises = Object.entries(subjectIdsByLevel)
+      .filter(([_, ids]) => ids.length > 0)
+      .flatMap(([level, ids]) =>
+        ids.map((subjectId) => {
+          const subjectAssignments = assignmentsBySubject.get(subjectId) || [];
+          
+          debugLog += `Querying ${level} | subject=${subjectId} | classes=${subjectAssignments.length}\n`;
+          console.log(`🔎 Fetching ${level} results for subject:`, subjectId);
+
+          return levelEndpoints[level as EducationLevel]!({
+            subject: String(subjectId),
+          }).then(results => {
+            console.log(`📦 Got ${results?.length || 0} results for ${level} subject ${subjectId}`);
+            return {
+              results,
+              subjectId,
+              classrooms: subjectAssignments,
+              classroomIds: Array.from(teacherClassroomIdsBySubject.get(subjectId) || []),
+              classroomNames: Array.from(teacherClassroomNamesBySubject.get(subjectId) || []),
+              educationLevel: level as EducationLevel
+            };
+          }).catch(error => {
+            console.error(`❌ Error fetching ${level} results for subject ${subjectId}:`, error);
+            return {
+              results: [],
+              subjectId,
+              classrooms: subjectAssignments,
+              classroomIds: [],
+              classroomNames: [],
+              educationLevel: level as EducationLevel
+            };
+          });
+        })
+      );
+
+    const resultsArray = await Promise.allSettled(resultPromises);
+
+    const allResults: any[] = [];
+    resultsArray.forEach((res) => {
+      if (res.status === 'fulfilled') {
+        const { results, classroomIds, classroomNames } = res.value;
+        
+        const teacherClassroomIds = new Set(classroomIds.map((id: number) => Number(id)));
+        const teacherClassroomNamesSet = new Set(classroomNames.map((name: string) => name.trim()));
+        
+        const filteredResults = results.filter((result: any) => {
+          if (!result.student || !result.student.id) {
+            return false;
+          }
+          
+          const resultClassroomName = (
+            result.student?.student_class_display || 
+            result.student?.student_class || 
+            result.classroom_name ||
+            ''
+          ).trim();
+          
+          const resultClassroomId = Number(
+            result.classroom_id || 
+            result.student?.classroom_id ||
+            0
+          );
+          
+          // Accept if no constraints
+          if (teacherClassroomIds.size === 0 && teacherClassroomNamesSet.size === 0) {
+            return true;
+          }
+          
+          // Check classroom ID match
+          if (teacherClassroomIds.size > 0 && resultClassroomId > 0) {
+            if (teacherClassroomIds.has(resultClassroomId)) {
+              return true;
+            }
+          }
+          
+          // Check classroom name match
+          if (resultClassroomName && teacherClassroomNamesSet.has(resultClassroomName)) {
+            return true;
+          }
+          
+          return false;
+        });
+        
+        allResults.push(...filteredResults);
+      }
+    });
+
+    debugLog += `Total results after filtering: ${allResults.length}\n`;
+    console.log('📊 All filtered results:', allResults.length);
+  
+    // Normalize results (your existing normalization code)
+    const normalized: StudentResult[] = allResults.map((r: any): StudentResult => {
+      const studentId = (r.student && r.student.id) || r.student || r.student_id;
+      const subjectId = (r.subject && r.subject.id) || r.subject || r.subject_id;
+      const examSessionId = (r.exam_session && r.exam_session.id) || r.exam_session || r.exam_session_id || r.session_id;
+      const educationLevel = (r.education_level || r.student?.education_level) as EducationLevel;
+      
+      let ca_score = 0;
+      let exam_score = 0;
+      let total_score = 0;
+      
+      if (educationLevel === 'NURSERY') {
+        const markObtained = Number(r.mark_obtained || 0);
+        total_score = markObtained;
+        ca_score = 0;
+        exam_score = markObtained;
+      } else {
+        const caFromSenior = Number(r.first_test_score || 0) + Number(r.second_test_score || 0) + Number(r.third_test_score || 0);
+        const caFromPrimary = r.ca_total !== undefined
+          ? Number(r.ca_total)
+          : Number(r.continuous_assessment_score || 0) +
+            Number(r.take_home_test_score || 0) +
+            Number(r.appearance_score || 0) +
+            Number(r.practical_score || 0) +
+            Number(r.project_score || 0) +
+            Number(r.note_copying_score || 0);
+        const caFromTotalField = r.total_ca_score !== undefined ? Number(r.total_ca_score) : undefined;
+        ca_score = caFromTotalField ?? (caFromSenior > 0 ? caFromSenior : caFromPrimary || 0);
+        exam_score = Number((r.exam_score ?? r.exam) ?? 0);
+        total_score = Number((r.total_score ?? (ca_score + exam_score)) ?? 0);
+      }
+
+      const examSession = typeof r.exam_session === 'object' ? r.exam_session : null;
+      const termDisplay = examSession?.term_display || examSession?.term || r.term_display || r.term || 'N/A';
+      const examSessionName = examSession?.name || r.exam_session_name || r.session_name || 'N/A';
+      
+      let academicSessionName = 'N/A';
+      if (examSession?.academic_session_name) {
+        academicSessionName = String(examSession.academic_session_name);
+      } else if (typeof examSession?.academic_session === 'string') {
+        academicSessionName = examSession.academic_session;
+      } else if (typeof examSession?.academic_session === 'object' && examSession.academic_session?.name) {
+        academicSessionName = String(examSession.academic_session.name);
+      } else if (r.academic_session_name) {
+        academicSessionName = String(r.academic_session_name);
+      } else if (r.academic_session) {
+        academicSessionName = typeof r.academic_session === 'string' 
+          ? r.academic_session 
+          : (r.academic_session?.name || 'N/A');
+      }
+      
+      const safeNumberConvert = (value: any): number => {
+        if (value === null || value === undefined || value === '') return 0;
+        const num = Number(value);
+        return isNaN(num) ? 0 : num;
+      };
+      
+      return {
+        id: safeNumberConvert(r.id),
+        student: {
+          id: safeNumberConvert(studentId),
+          full_name: r.student?.full_name ?? r.student_name ?? 'Unknown Student',
+          registration_number: r.student?.username ?? r.registration_number ?? '',
+          profile_picture: r.student?.profile_picture ?? null,
+          education_level: educationLevel,
+        },
+        subject: {
+          id: safeNumberConvert(subjectId),
+          name: r.subject?.name ?? r.subject_name ?? 'Unknown Subject',
+          code: r.subject?.code ?? r.subject_code ?? '',
+        },
+        exam_session: {
+          id: safeNumberConvert(examSessionId),
+          name: examSessionName,
+          term: termDisplay,
+          academic_session: academicSessionName,
+        },
+        academic_session: (() => {
+          const raw = r.academic_session && typeof r.academic_session === 'object' ? r.academic_session : null;
+          return {
+            id: String(raw?.id ?? 0),
+            name: raw?.name || academicSessionName,
+            start_date: raw?.start_date ?? '',
+            end_date: raw?.end_date ?? '',
+            is_current: raw?.is_current ?? false,
+            is_active: raw?.is_active ?? false,
+            created_at: raw?.created_at ?? '',
+            updated_at: raw?.updated_at ?? ''
+          } as AcademicSession;
+        })(),
+        first_test_score: Number(r.first_test_score || 0),
+        second_test_score: Number(r.second_test_score || 0),
+        third_test_score: Number(r.third_test_score || 0),
+        continuous_assessment_score: Number(r.continuous_assessment_score || 0),
+        take_home_test_score: Number(r.take_home_test_score || 0),
+        appearance_score: Number(r.appearance_score || 0),
+        practical_score: Number(r.practical_score || 0),
+        project_score: Number(r.project_score || 0),
+        note_copying_score: Number(r.note_copying_score || 0),
+        ca_score,
+        ca_total: ca_score,
+        exam_score,
+        total_score,
+        education_level: educationLevel,
+        grade: r.grade ?? r.letter_grade,
+        status: (typeof r.status === 'string' ? r.status.toUpperCase() : 'DRAFT') as ResultStatus,
+        remarks: r.remarks ?? '',
+        created_at: r.created_at ?? '',
+        updated_at: r.updated_at ?? '',
+      };
+    });
+
+    const subjectIdSet = new Set(gradeSubjectIds);
+    const filtered = normalized.filter((item) => subjectIdSet.has(Number(item.subject.id)));
+    
+    debugLog += `Final filtered results: ${filtered.length}\n`;
+    
+    setResults(filtered);
+    setDebugInfo(debugLog);
+    
+    console.log('🎉 FINAL RESULTS:', {
+      total: filtered.length,
+      byLevel: {
+        NURSERY: filtered.filter(r => r.education_level === 'NURSERY').length,
+        PRIMARY: filtered.filter(r => r.education_level === 'PRIMARY').length,
+        JUNIOR_SECONDARY: filtered.filter(r => r.education_level === 'JUNIOR_SECONDARY').length,
+        SENIOR_SECONDARY: filtered.filter(r => r.education_level === 'SENIOR_SECONDARY').length,
+      }
+    });
+    
+  } catch (err) {
+    console.error('❌ Error loading teacher data:', err);
+    const errorMsg = err instanceof Error ? err.message : 'Failed to load data';
+    setError(errorMsg);
+    setDebugInfo(prev => prev + `\nERROR: ${errorMsg}`);
+  } finally {
+    setLoading(false);
+  }
+}
   const { 
     handleEditResult, 
     handleViewResult, 
