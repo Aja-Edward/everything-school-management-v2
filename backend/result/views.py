@@ -423,6 +423,8 @@ class ScoringConfigurationViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet)
 class BaseResultViewSetMixin:
     """Common methods for all result viewsets"""
 
+    # results/views.py - FIXED VERSION
+
     def get_teacher_queryset(self, user, queryset):
         """Get filtered queryset for teachers"""
         try:
@@ -440,12 +442,23 @@ class BaseResultViewSetMixin:
                 | Q(classroomteacherassignment__teacher=teacher)
             ).distinct()
 
-            # ✅ FIXED: Changed from "grade_level__education_level" to "section__grade_level__education_level"
+            # ✅ FIX: Access education_level through section -> grade_level
+            # Use select_related to optimize and ensure we have the data
+            assigned_classrooms = assigned_classrooms.select_related(
+                "section", "section__grade_level"
+            )
+
+            # ✅ FIX: Correct path to education_level
             classroom_education_levels = list(
                 assigned_classrooms.values_list(
                     "section__grade_level__education_level", flat=True
                 ).distinct()
             )
+
+            # Filter out None values
+            classroom_education_levels = [
+                level for level in classroom_education_levels if level is not None
+            ]
 
             is_classroom_teacher = any(
                 level in [NURSERY, PRIMARY] for level in classroom_education_levels
