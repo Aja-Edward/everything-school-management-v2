@@ -15,6 +15,9 @@ from .models import (
 from subject.models import Subject
 from students.models import Student
 from teacher.models import Teacher
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # User Serializer
@@ -397,11 +400,7 @@ class ClassroomTeacherAssignmentSerializer(serializers.ModelSerializer):
     )
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     subject_code = serializers.CharField(source="subject.code", read_only=True)
-    education_level = serializers.CharField(
-        source="classroom.grade_level.education_level",
-        read_only=True,
-        allow_null=True,  # In case some classrooms don't have grade_level set
-    )
+    education_level = serializers.SerializerMethodField()
 
     class Meta:
         model = ClassroomTeacherAssignment
@@ -429,6 +428,26 @@ class ClassroomTeacherAssignmentSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["id", "created_at", "classroom", "teacher", "subject"]
+
+    def get_education_level(self, obj):
+        """
+        Safely get education_level from classroom -> grade_level -> education_level
+        Returns None if any part of the chain is missing
+        """
+        try:
+            if (
+                obj.classroom
+                and hasattr(obj.classroom, "grade_level")
+                and obj.classroom.grade_level
+            ):
+                return obj.classroom.grade_level.education_level
+            return None
+        except (AttributeError, ValueError) as e:
+            # Log the error for debugging but don't fail
+            logger.warning(
+                f"Could not get education_level for assignment {obj.id}: {e}"
+            )
+            return None
 
     def create(self, validated_data):
         """Override create to handle field mapping"""
