@@ -66,6 +66,8 @@ const TeacherResults: React.FC = () => {
 
 // Replace your loadTeacherData function with this fixed version
 
+// Replace your loadTeacherData function with this fixed version
+
 async function loadTeacherData() {
   try {
     setLoading(true);
