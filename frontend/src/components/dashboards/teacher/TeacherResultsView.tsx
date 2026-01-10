@@ -86,7 +86,7 @@ async function loadTeacherData() {
 
     type ExtendedAssignment = TeacherAssignment & { classroom_id?: number | null };
 
-    // ✅ FIX: Map assignments and preserve education_level from API
+    // ✅ FIX: Map assignments and preserve education_level from API with fallback
     const assignments: ExtendedAssignment[] = subjects.flatMap((subject: any) => {
       if (!subject.assignments || !Array.isArray(subject.assignments)) {
         console.warn('⚠️ Subject has no assignments array:', subject);
@@ -94,15 +94,17 @@ async function loadTeacherData() {
       }
       
       return subject.assignments.map((assignment: any) => {
-        // ✅ Get education_level directly from the API response
-        const educationLevel = assignment.education_level as EducationLevel | undefined;
+        // ✅ Get education_level from API response, fallback to deriving from classroom name
+        const educationLevel = (assignment.education_level as EducationLevel | undefined) || 
+                               deriveEducationLevelFromClassName(assignment.classroom_name);
         
         console.log('✅ Creating assignment:', {
           assignmentId: assignment.id,
           classroom: assignment.classroom_name,
           subject: subject.name,
-          education_level: educationLevel,  // Should show JUNIOR_SECONDARY
-          raw_assignment: assignment  // Log full object for debugging
+          education_level_from_api: assignment.education_level,
+          education_level_final: educationLevel,
+          raw_assignment: assignment
         });
         
         // ✅ Make sure education_level is preserved!
@@ -111,10 +113,10 @@ async function loadTeacherData() {
           classroom_name: assignment.classroom_name || 'Unknown',
           section_name: assignment.section_name || assignment.section || 'Unknown',
           grade_level_name: assignment.grade_level || 'Unknown',
-          education_level: educationLevel,  // ✅ This should now have a value!
+          education_level: educationLevel,  // ✅ Now guaranteed to have a value!
           subject_name: subject.name || 'Unknown Subject',
           subject_code: subject.code || '',
-          subject_id: Number(subject.id),  // ✅ Use subject.id, not assignment.id
+          subject_id: Number(subject.id),
           grade_level_id: null,
           section_id: assignment.section_id || null,
           classroom_id: assignment.classroom_id || null,
@@ -136,7 +138,7 @@ async function loadTeacherData() {
       id: a.id,
       classroom: a.classroom_name,
       subject: a.subject_name,
-      education_level: a.education_level  // ✅ Verify this shows JUNIOR_SECONDARY
+      education_level: a.education_level
     })));
 
     // Get unique subject IDs
@@ -172,7 +174,7 @@ async function loadTeacherData() {
         classroom: assignment.classroom_name,
         subject: assignment.subject_name,
         subjectId: assignment.subject_id,
-        educationLevel: assignment.education_level  // ✅ Should show value here!
+        educationLevel: assignment.education_level
       });
 
       if (!assignment.subject_id) {
@@ -180,8 +182,12 @@ async function loadTeacherData() {
         return;
       }
       
-      if (!assignment.education_level) {
-        console.warn('⚠️ Skipping - missing education_level:', {
+      // ✅ FIX: Add fallback for education_level during grouping too
+      const educationLevel = assignment.education_level || 
+                             deriveEducationLevelFromClassName(assignment.classroom_name);
+      
+      if (!educationLevel) {
+        console.warn('⚠️ Skipping - missing education_level even after derivation:', {
           assignmentId: assignment.id,
           classroom: assignment.classroom_name,
           educationLevel: assignment.education_level,
@@ -191,7 +197,6 @@ async function loadTeacherData() {
         return;
       }
       
-      const educationLevel = assignment.education_level;
       const subjectId = Number(assignment.subject_id);
       
       if (!subjectIdsByLevel[educationLevel].includes(subjectId)) {
