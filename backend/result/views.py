@@ -21,6 +21,7 @@ from django.db.models import Prefetch
 from .filters import StudentTermResultFilter
 from utils.signature_handler import upload_signature_to_cloudinary
 from rest_framework.pagination import PageNumberPagination
+from classroom.models import StudentEnrollment
 
 
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -1983,8 +1984,18 @@ class JuniorSecondaryResultViewSet(
                 "published_by",
                 "last_edited_by",
             )
+            .prefetch_related(
+                # ✅ NEW: Prefetch student enrollments with classroom data
+                # This avoids N+1 queries when StudentMinimalSerializer accesses classroom info
+                Prefetch(
+                    "student__studentenrollment_set",
+                    queryset=StudentEnrollment.objects.filter(
+                        is_active=True
+                    ).select_related("classroom"),
+                    to_attr="active_enrollments",
+                )
+            )
         )
-
         user = self.request.user
 
         # ===== SUPER ADMIN / STAFF =====

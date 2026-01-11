@@ -49,6 +49,10 @@ class StudentMinimalSerializer(serializers.ModelSerializer):
         source="get_education_level_display", read_only=True
     )
 
+    # ✅ ADD: Classroom information from current enrollment
+    classroom_id = serializers.SerializerMethodField()
+    classroom_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Student
         fields = [
@@ -59,7 +63,41 @@ class StudentMinimalSerializer(serializers.ModelSerializer):
             "student_class_display",
             "education_level",
             "education_level_display",
+            "classroom_id",  # ✅ NEW
+            "classroom_name",  # ✅ NEW
         ]
+
+    def get_classroom_id(self, obj):
+        """Get the student's current classroom ID from active enrollment"""
+        try:
+            # Get active enrollment for this student
+            enrollment = (
+                obj.studentenrollment_set.filter(is_active=True)
+                .select_related("classroom")
+                .first()
+            )
+
+            if enrollment and enrollment.classroom:
+                return enrollment.classroom.id
+            return None
+        except Exception:
+            return None
+
+    def get_classroom_name(self, obj):
+        """Get the student's current classroom name from active enrollment"""
+        try:
+            # Get active enrollment for this student
+            enrollment = (
+                obj.studentenrollment_set.filter(is_active=True)
+                .select_related("classroom")
+                .first()
+            )
+
+            if enrollment and enrollment.classroom:
+                return enrollment.classroom.name
+            return None
+        except Exception:
+            return None
 
 
 class SubjectMinimalSerializer(serializers.ModelSerializer):
