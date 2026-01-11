@@ -500,6 +500,7 @@ class TeacherDashboardService {
   }
 
   // Get teacher's assigned subjects
+  
   async getTeacherSubjects(teacherId: number): Promise<TeacherSubjectData[]> {
     try {
       const teacherResponse = await TeacherService.getTeacher(teacherId);
@@ -512,6 +513,7 @@ class TeacherDashboardService {
       const subjectMap = new Map();
       
       classroomAssignments.forEach((assignment: any) => {
+         console.log('🔍 RAW ASSIGNMENT OBJECT:', JSON.stringify(assignment, null, 2));
         console.log('🔍 Processing assignment:', assignment);
         console.log('🔍 Assignment details:', {
           id: assignment.id,
@@ -521,7 +523,8 @@ class TeacherDashboardService {
           subject_name: assignment.subject_name,
           subject_code: assignment.subject_code,
           grade_level: assignment.grade_level_name,
-          section: assignment.section_name
+          section: assignment.section_name,
+          education_level: assignment.education_level
         });
         
         const subjectId = assignment.subject_id;
