@@ -2014,6 +2014,9 @@ class JuniorSecondaryResultViewSet(
         return JuniorSecondaryResultSerializer
 
     def get_queryset(self):
+        # ✅ CRITICAL FIX: Import StudentEnrollment at the START of get_queryset
+        from classroom.models import StudentEnrollment
+
         queryset = (
             super(viewsets.ModelViewSet, self)
             .get_queryset()
@@ -2082,94 +2085,7 @@ class JuniorSecondaryResultViewSet(
 
         # ===== TEACHERS =====
         if role == "teacher":
-            try:
-                from teacher.models import Teacher
-                from classroom.models import (
-                    Classroom,
-                    StudentEnrollment,
-                    ClassroomTeacherAssignment,
-                )
-
-                teacher = Teacher.objects.get(user=user)
-
-                # Get assigned classrooms
-                assigned_classrooms = Classroom.objects.filter(
-                    Q(class_teacher=teacher)
-                    | Q(classroomteacherassignment__teacher=teacher)
-                ).distinct()
-
-                classroom_education_levels = list(
-                    assigned_classrooms.values_list(
-                        "section__grade_level__education_level", flat=True
-                    ).distinct()
-                )
-
-                logger.info(
-                    f"Teacher {user.username} classroom education levels: {classroom_education_levels}"
-                )
-
-                # Check if this is a classroom teacher (Nursery/Primary)
-                is_classroom_teacher = any(
-                    level in ["NURSERY", "PRIMARY"]
-                    for level in classroom_education_levels
-                )
-
-                if is_classroom_teacher:
-                    # CLASSROOM TEACHERS: See ALL results for students in their classrooms
-                    student_ids = StudentEnrollment.objects.filter(
-                        classroom__in=assigned_classrooms, is_active=True
-                    ).values_list("student_id", flat=True)
-
-                    filtered = queryset.filter(student_id__in=student_ids)
-                    logger.info(
-                        f"goodClassroom teacher can see {filtered.count()} results"
-                    )
-                    return filtered
-                else:
-                    # SUBJECT TEACHERS: See ONLY results for subjects they teach
-
-                    # Get subjects assigned to this teacher
-                    teacher_assignments = ClassroomTeacherAssignment.objects.filter(
-                        teacher=teacher
-                    ).select_related("subject")
-
-                    assigned_subject_ids = list(
-                        teacher_assignments.values_list(
-                            "subject_id", flat=True
-                        ).distinct()
-                    )
-
-                    logger.info(
-                        f"Teacher {user.username} assigned subjects: {assigned_subject_ids}"
-                    )
-
-                    if not assigned_subject_ids:
-                        logger.warning(
-                            f"❌ Subject teacher {user.username} has no assigned subjects"
-                        )
-                        return queryset.none()
-
-                    # Get students from assigned classrooms
-                    student_ids = StudentEnrollment.objects.filter(
-                        classroom__in=assigned_classrooms, is_active=True
-                    ).values_list("student_id", flat=True)
-
-                    filtered = queryset.filter(
-                        subject_id__in=assigned_subject_ids,
-                        student__education_level="JUNIOR_SECONDARY",
-                    )
-
-                    logger.info(
-                        f"goodSubject teacher can see {filtered.count()} results (subjects: {assigned_subject_ids})"
-                    )
-                    return filtered
-
-            except Teacher.DoesNotExist:
-                logger.warning(f"❌ Teacher object not found for user {user.username}")
-                return queryset.none()
-            except Exception as e:
-                logger.error(f"❌ Error filtering for teacher: {str(e)}", exc_info=True)
-                return queryset.none()
+            return self.get_teacher_queryset(user, queryset)
 
         # ===== STUDENTS =====
         if role == "student":
