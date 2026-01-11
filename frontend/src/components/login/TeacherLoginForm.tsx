@@ -171,7 +171,7 @@ const TeacherLoginForm: React.FC<LoginProps> = ({
       }
 
       setLoginSuccess(true);
-      console.log('Teacher login payload:', form);
+  
       await onLogin(form);
       
     } catch (error) {

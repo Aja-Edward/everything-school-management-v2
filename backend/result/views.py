@@ -429,6 +429,7 @@ class BaseResultViewSetMixin:
     def get_teacher_queryset(self, user, queryset):
         """Get filtered queryset for teachers"""
         try:
+            # Import models at the START of the try block
             Teacher = apps.get_model("teacher", "Teacher")
             Classroom = apps.get_model("classroom", "Classroom")
             StudentEnrollment = apps.get_model("classroom", "StudentEnrollment")
