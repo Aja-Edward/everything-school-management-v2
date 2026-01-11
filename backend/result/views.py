@@ -2045,7 +2045,7 @@ class JuniorSecondaryResultViewSet(
 
                 classroom_education_levels = list(
                     assigned_classrooms.values_list(
-                        "grade_level__education_level", flat=True
+                        "section__grade_level__education_level", flat=True
                     ).distinct()
                 )
 
