@@ -382,7 +382,7 @@ class TeacherSerializer(serializers.ModelSerializer):
 
     #     return classroom_assignments
     def get_classroom_assignments(self, obj):
-        """Get classroom assignments with optimized queries"""
+        """Get classroom assignments with optimized queries and proper error handling"""
         try:
             assignments = (
                 obj.classroom_assignments.select_related(
@@ -391,27 +391,59 @@ class TeacherSerializer(serializers.ModelSerializer):
                     "classroom__section__grade_level",
                     "subject",
                 )
-                .prefetch_related(
-                    "classroom__students"  # Prefetch students to avoid N+1
-                )
+                .prefetch_related("classroom__students")
                 .all()
             )
 
             result = []
             for assignment in assignments:
-                classroom = assignment.classroom
+                try:
+                    classroom = assignment.classroom
 
-                # Use prefetched students count instead of current_enrollment property
-                student_count = (
-                    classroom.students.count() if hasattr(classroom, "students") else 0
-                )
+                    if not classroom:
+                        print(f"⚠️ Assignment {assignment.id} has no classroom")
+                        continue
 
-                education_level = None
-                if classroom and classroom.section and classroom.section.grade_level:
-                    education_level = classroom.section.grade_level.education_level
+                    # Get student count safely
+                    student_count = (
+                        classroom.students.count()
+                        if hasattr(classroom, "students")
+                        else 0
+                    )
 
-                result.append(
-                    {
+                    # Get education_level with detailed logging
+                    education_level = None
+
+                    print(
+                        f"🔍 Processing assignment {assignment.id} for classroom {classroom.id} ({classroom.name})"
+                    )
+
+                    if not classroom.section:
+                        print(f"⚠️ Classroom {classroom.id} has no section")
+                    else:
+                        print(
+                            f"✅ Classroom {classroom.id} has section: {classroom.section.name} (ID: {classroom.section.id})"
+                        )
+
+                        if not classroom.section.grade_level:
+                            print(
+                                f"⚠️ Section {classroom.section.id} has no grade_level"
+                            )
+                        else:
+                            grade_level = classroom.section.grade_level
+                            print(
+                                f"✅ Section has grade_level: {grade_level.name} (ID: {grade_level.id})"
+                            )
+
+                            if hasattr(grade_level, "education_level"):
+                                education_level = grade_level.education_level
+                                print(f"✅ Found education_level: {education_level}")
+                            else:
+                                print(
+                                    f"⚠️ GradeLevel {grade_level.id} has no education_level attribute"
+                                )
+
+                    assignment_data = {
                         "id": assignment.id,
                         "classroom_id": classroom.id,
                         "classroom_name": classroom.name,
@@ -435,11 +467,27 @@ class TeacherSerializer(serializers.ModelSerializer):
                         "is_primary_teacher": assignment.is_primary_teacher,
                         "periods_per_week": assignment.periods_per_week,
                     }
-                )
 
+                    print(
+                        f"✅ Created assignment data with education_level: {education_level}"
+                    )
+                    result.append(assignment_data)
+
+                except Exception as e:
+                    print(f"❌ Error processing assignment {assignment.id}: {str(e)}")
+                    import traceback
+
+                    print(traceback.format_exc())
+                    continue
+
+            print(f"📊 Returning {len(result)} classroom assignments")
             return result
+
         except Exception as e:
-            logger.error(f"Error getting classroom assignments: {e}")
+            print(f"❌ Error getting classroom assignments: {e}")
+            import traceback
+
+            print(traceback.format_exc())
             return []
 
         # In teachers/serializers.py - Updated create() method
