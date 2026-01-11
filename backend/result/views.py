@@ -424,8 +424,6 @@ class ScoringConfigurationViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet)
 class BaseResultViewSetMixin:
     """Common methods for all result viewsets"""
 
-    # results/views.py - FIXED VERSION
-
     def get_teacher_queryset(self, user, queryset):
         """Get filtered queryset for teachers - FIXED VERSION"""
         # Import all models at the module level to avoid scoping issues
@@ -461,8 +459,7 @@ class BaseResultViewSetMixin:
                 logger.warning(f"❌ Teacher {user.username} has no assigned classrooms")
                 return queryset.none()
 
-            # Get education levels from classrooms
-            # Classroom -> Section -> GradeLevel -> education_level
+            # Get education levels from classrooms - SAFE ITERATION METHOD
             classroom_education_levels = []
             for classroom in assigned_classrooms:
                 try:
@@ -1989,7 +1986,10 @@ class SeniorSecondaryTermReportViewSet(
 
 
 class JuniorSecondaryResultViewSet(
-    TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
+    BaseResultViewSetMixin,
+    TeacherPortalCheckMixin,
+    SectionFilterMixin,
+    viewsets.ModelViewSet,
 ):
     pagination_class = StandardResultsPagination
     queryset = JuniorSecondaryResult.objects.all().order_by("-created_at")
@@ -2014,7 +2014,7 @@ class JuniorSecondaryResultViewSet(
         return JuniorSecondaryResultSerializer
 
     def get_queryset(self):
-        # ✅ CRITICAL FIX: Import StudentEnrollment at the START of get_queryset
+        # ✅ CRITICAL FIX: Import StudentEnrollment at the START
         from classroom.models import StudentEnrollment
 
         queryset = (
@@ -2032,8 +2032,7 @@ class JuniorSecondaryResultViewSet(
                 "last_edited_by",
             )
             .prefetch_related(
-                # ✅ NEW: Prefetch student enrollments with classroom data
-                # This avoids N+1 queries when StudentMinimalSerializer accesses classroom info
+                # ✅ Prefetch student enrollments with classroom data
                 Prefetch(
                     "student__studentenrollment_set",
                     queryset=StudentEnrollment.objects.filter(
@@ -2043,6 +2042,7 @@ class JuniorSecondaryResultViewSet(
                 )
             )
         )
+
         user = self.request.user
 
         # ===== SUPER ADMIN / STAFF =====
@@ -2085,6 +2085,7 @@ class JuniorSecondaryResultViewSet(
 
         # ===== TEACHERS =====
         if role == "teacher":
+            # ✅ This now calls the method we added to BaseResultViewSetMixin
             return self.get_teacher_queryset(user, queryset)
 
         # ===== STUDENTS =====
@@ -2093,7 +2094,6 @@ class JuniorSecondaryResultViewSet(
                 from students.models import Student
 
                 student = Student.objects.get(user=user)
-                # Students only see PUBLISHED results
                 filtered = queryset.filter(student=student, status="PUBLISHED")
                 logger.info(f"goodStudent can see {filtered.count()} published results")
                 return filtered
@@ -2107,7 +2107,6 @@ class JuniorSecondaryResultViewSet(
                 from parent.models import Parent
 
                 parent = Parent.objects.get(user=user)
-                # Parents only see PUBLISHED results
                 filtered = queryset.filter(student__parents=parent, status="PUBLISHED")
                 logger.info(f"goodParent can see {filtered.count()} published results")
                 return filtered
