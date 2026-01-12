@@ -19,6 +19,7 @@ from django.db import models
 from rest_framework import permissions as drf_permissions
 from schoolSettings.models import UserRole
 import logging
+from classroom.models import ClassroomTeacherAssignment, Classroom
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +160,7 @@ class TeacherViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         """
         Get queryset with automatic section filtering from mixin.
         Then apply additional search/filter parameters.
+        OPTIMIZED: Prefetch and annotate to avoid N+1 queries.
         """
         # 🔥 CRITICAL: Let AutoSectionFilterMixin handle section filtering
         # This calls the mixin's get_queryset() which applies section filters
@@ -166,13 +168,32 @@ class TeacherViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
 
         user = self.request.user
         logger.info(f"[TeacherViewSet] Getting queryset for user: {user.username}")
+
+        # 🚀 PERFORMANCE OPTIMIZATION: Apply prefetch and annotations EARLY
+        # This must happen BEFORE any .count() calls or iterations
+        optimized_classrooms = Classroom.objects.annotate(
+            student_count=Count("students")
+        ).select_related(
+            "section",
+            "section__grade_level",
+        )
+
+        queryset = queryset.prefetch_related(
+            Prefetch(
+                "classroomteacherassignment_set",
+                queryset=ClassroomTeacherAssignment.objects.filter(is_active=True)
+                .select_related("subject")
+                .prefetch_related(Prefetch("classroom", queryset=optimized_classrooms)),
+            )
+        )
+
+        # Now it's safe to count after optimization is applied
         logger.info(
             f"[TeacherViewSet] After mixin filtering: {queryset.count()} teachers"
         )
 
         # 🟦 Special case: Teachers can only see their own profile
         # Check if user is a teacher by checking if they have a teacher record
-        # Use try/except instead of hasattr to be more reliable
         is_teacher = False
         teacher_id = None
 

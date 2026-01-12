@@ -313,96 +313,23 @@ class TeacherSerializer(serializers.ModelSerializer):
 
         return subjects
 
-    # def get_classroom_assignments(self, obj):
-    #     """Returns the classroom assignments for this teacher in the format expected by the frontend."""
-    #     from classroom.models import ClassroomTeacherAssignment
-
-    #     # Fix: Use correct field names - academic_session not academic_year
-    #     assignments = ClassroomTeacherAssignment.objects.filter(
-    #         teacher=obj, is_active=True
-    #     ).select_related(
-    #         "classroom",
-    #         "classroom__section",
-    #         "classroom__section__grade_level",
-    #         "classroom__academic_session",  # Changed from academic_year
-    #         "classroom__term",
-    #         "subject",
-    #     )
-
-    #     classroom_assignments = []
-    #     for assignment in assignments:
-    #         classroom = assignment.classroom
-    #         section = classroom.section
-    #         grade_level = section.grade_level
-
-    #         student_count = classroom.current_enrollment
-
-    #         assignment_data = {
-    #             "id": assignment.id,
-    #             "classroom_name": classroom.name,
-    #             "classroom_id": classroom.id,
-    #             "section_id": section.id,
-    #             "section_name": section.name,
-    #             "grade_level_id": grade_level.id,
-    #             "grade_level_name": grade_level.name,
-    #             "education_level": grade_level.education_level,
-    #             "academic_session": (
-    #                 classroom.academic_session.name
-    #                 if classroom.academic_session
-    #                 else "N/A"
-    #             ),
-    #             "term": (
-    #                 classroom.term.get_name_display()
-    #                 if hasattr(classroom.term, "get_name_display")
-    #                 else str(classroom.term)
-    #             ),
-    #             "subject_id": assignment.subject.id,
-    #             "subject_name": assignment.subject.name,
-    #             "subject_code": assignment.subject.code,
-    #             "assigned_date": (
-    #                 assignment.assigned_date.isoformat()
-    #                 if assignment.assigned_date
-    #                 else None
-    #             ),
-    #             "room_number": classroom.room_number or "",
-    #             "student_count": student_count,
-    #             "max_capacity": classroom.max_capacity,
-    #             "is_primary_teacher": assignment.is_primary_teacher,
-    #             "periods_per_week": assignment.periods_per_week,
-    #         }
-
-    #         # Add stream information if available (for Senior Secondary)
-    #         if hasattr(classroom, "stream") and classroom.stream:
-    #             assignment_data["stream_name"] = classroom.stream.name
-    #             assignment_data["stream_type"] = (
-    #                 classroom.stream.get_stream_type_display()
-    #             )
-
-    #         classroom_assignments.append(assignment_data)
-
-    #     return classroom_assignments
     def get_classroom_assignments(self, obj):
-        """Get classroom assignments - simplified and verified working"""
-        from classroom.models import ClassroomTeacherAssignment
-
-        # Get fresh data from database (no caching)
-        assignments = ClassroomTeacherAssignment.objects.filter(
-            teacher=obj, is_active=True
-        ).select_related(
-            "classroom",
-            "classroom__section",
-            "classroom__section__grade_level",
-            "subject",
-        )
+        """
+        Get classroom assignments - using annotated student count.
+        The student_count is calculated at the database level for max performance.
+        """
+        assignments = obj.classroomteacherassignment_set.all()
 
         result = []
         for assignment in assignments:
             classroom = assignment.classroom
             section = classroom.section
             grade_level = section.grade_level if section else None
-
-            # Get education_level exactly as it worked in the shell
             education_level = grade_level.education_level if grade_level else None
+
+            # Use the annotated student_count - this was calculated in the database!
+            # No additional query needed
+            student_count = getattr(classroom, "student_count", 0)
 
             result.append(
                 {
@@ -418,8 +345,8 @@ class TeacherSerializer(serializers.ModelSerializer):
                     "subject_code": (
                         assignment.subject.code if assignment.subject else ""
                     ),
-                    "education_level": education_level,  # This WILL work based on shell test
-                    "student_count": classroom.students.count(),
+                    "education_level": education_level,
+                    "student_count": student_count,
                     "is_primary_teacher": assignment.is_primary_teacher,
                     "periods_per_week": assignment.periods_per_week,
                 }
