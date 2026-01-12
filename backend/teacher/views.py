@@ -169,8 +169,6 @@ class TeacherViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         user = self.request.user
         logger.info(f"[TeacherViewSet] Getting queryset for user: {user.username}")
 
-        # 🚀 PERFORMANCE OPTIMIZATION: Apply prefetch and annotations EARLY
-        # This must happen BEFORE any .count() calls or iterations
         optimized_classrooms = Classroom.objects.annotate(
             student_count=Count("students")
         ).select_related(
@@ -180,7 +178,7 @@ class TeacherViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
 
         queryset = queryset.prefetch_related(
             Prefetch(
-                "classroomteacherassignment_set",
+                "classroom_assignments",  # ✅ Matches related_name in model
                 queryset=ClassroomTeacherAssignment.objects.filter(is_active=True)
                 .select_related("subject")
                 .prefetch_related(Prefetch("classroom", queryset=optimized_classrooms)),

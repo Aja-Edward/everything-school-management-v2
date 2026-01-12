@@ -314,11 +314,8 @@ class TeacherSerializer(serializers.ModelSerializer):
         return subjects
 
     def get_classroom_assignments(self, obj):
-        """
-        Get classroom assignments - using annotated student count.
-        The student_count is calculated at the database level for max performance.
-        """
-        assignments = obj.classroomteacherassignment_set.all()
+        """Uses annotated student count from optimized queryset"""
+        assignments = obj.classroom_assignments.all()
 
         result = []
         for assignment in assignments:
@@ -327,8 +324,7 @@ class TeacherSerializer(serializers.ModelSerializer):
             grade_level = section.grade_level if section else None
             education_level = grade_level.education_level if grade_level else None
 
-            # Use the annotated student_count - this was calculated in the database!
-            # No additional query needed
+            # Uses pre-calculated count from annotation
             student_count = getattr(classroom, "student_count", 0)
 
             result.append(
