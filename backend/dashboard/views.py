@@ -13,7 +13,7 @@ from lesson.models import Lesson
 from attendance.models import Attendance
 from classroom.models import Classroom
 from exam.models import Exam
-from result.models import Result
+from result.models import StudentResult
 from schoolSettings.models import SchoolAnnouncement
 
 logger = logging.getLogger(__name__)
@@ -168,7 +168,7 @@ def admin_dashboard_summary(request):
         # Check for pending results
         pending_exams = (
             Exam.objects.filter(date__lt=today, status="completed")
-            .exclude(id__in=Result.objects.values_list("exam_id", flat=True))
+            .exclude(id__in=StudentResult.objects.values_list("exam_id", flat=True))
             .count()
         )
 
@@ -471,7 +471,7 @@ def parent_dashboard_summary(request, parent_id=None):
 
             # Recent results (last 5)
             recent_results = (
-                Result.objects.filter(student=child)
+                StudentResult.objects.filter(student=child)
                 .select_related("exam__subject")
                 .order_by("-exam__date")
                 .values("id", "exam__subject__name", "exam__date", "score", "grade")[:5]
@@ -615,7 +615,7 @@ def student_dashboard_summary(request, student_id=None):
         # ============================================
 
         recent_results = (
-            Result.objects.filter(student=student)
+            StudentResult.objects.filter(student=student)
             .select_related("exam__subject")
             .order_by("-exam__date")
             .values(
@@ -630,7 +630,9 @@ def student_dashboard_summary(request, student_id=None):
 
         # Calculate average
         avg_score = (
-            Result.objects.filter(student=student).aggregate(avg=Avg("score"))["avg"]
+            StudentResult.objects.filter(student=student).aggregate(avg=Avg("score"))[
+                "avg"
+            ]
             or 0
         )
 
@@ -833,7 +835,7 @@ def student_dashboard_extended(request, student_id):
 
     # All results this term
     all_results = (
-        Result.objects.filter(student_id=student_id)
+        StudentResult.objects.filter(student_id=student_id)
         .select_related("exam__subject")
         .order_by("-exam__date")
         .values(
