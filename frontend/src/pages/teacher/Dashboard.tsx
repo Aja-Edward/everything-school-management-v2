@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
-import TeacherDashboardLayout from '@/components/layouts/TeacherDashboardLayout';
-import TeacherDashboardContent from '@/components/dashboards/teacher/TeacherDashboardContent';
 import { TeacherUserData } from '@/types/types';
 import TeacherDashboardService from '@/services/TeacherDashboardService';
 import { useSettings } from '@/hooks/useSettings';
 import { AlertTriangle, Lock, RefreshCw } from 'lucide-react';
+
+// Lazy load heavy components
+const TeacherDashboardLayout = React.lazy(() => import('@/components/layouts/TeacherDashboardLayout'));
+const TeacherDashboardContent = React.lazy(() => import('@/components/dashboards/teacher/TeacherDashboardContent'));
 
 const TeacherDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -20,41 +22,17 @@ const TeacherDashboard: React.FC = () => {
   
   const isTeacherPortalEnabled = settings?.teacher_portal_enabled !== false;
 
-  useEffect(() => {
-    if (!isLoading) {
-      if (!isAuthenticated || !user) {
-        console.log('🔍 TeacherDashboard - Not authenticated, redirecting to login');
-        navigate('/teacher-login');
-        return;
-      }
-
-      if (user.role !== 'teacher') {
-        console.log('🔍 TeacherDashboard - User is not a teacher, redirecting to home');
-        navigate('/');
-        return;
-      }
-
-      console.log('✅ TeacherDashboard - Authenticated teacher, loading dashboard');
-      
-      if (isTeacherPortalEnabled) {
-        loadDashboardData();
-      } else {
-        setLoading(false);
-      }
-    }
-  }, [isAuthenticated, user, isLoading, navigate, isTeacherPortalEnabled]);
-
   /**
    * ⚡ OPTIMIZED: Load dashboard data using single API call
-   * This replaces multiple sequential API calls with one optimized request
    */
-  const loadDashboardData = async () => {
+  const loadDashboardData = useCallback(async () => {
+    if (!user) return;
+    
     try {
       setLoading(true);
       setError(null);
       
       const startTime = performance.now();
-      console.log('🚀 Starting optimized dashboard load...');
       
       // Get teacher ID from user data (cached)
       const teacherId = await TeacherDashboardService.getTeacherIdFromUser(user);
@@ -63,18 +41,15 @@ const TeacherDashboard: React.FC = () => {
         throw new Error('Teacher profile not found. Please contact your administrator.');
       }
       
-      console.log(`📋 Loading dashboard for teacher ID: ${teacherId}`);
-      
-      // ⚡ USE OPTIMIZED METHOD - Single API call instead of 6+ calls
+      // ⚡ Single optimized API call
       const data = await TeacherDashboardService.getOptimizedDashboard(teacherId);
       
       const loadTime = performance.now() - startTime;
       console.log(`✅ Dashboard loaded in ${loadTime.toFixed(0)}ms`);
       
-      // Ensure data is an object before spreading
+      // Validate and combine data
       const dashboardDataResponse = data && typeof data === 'object' ? data : {};
       
-      // Combine with user data
       const completeData = {
         teacher: {
           ...user,
@@ -85,14 +60,14 @@ const TeacherDashboard: React.FC = () => {
       
       setDashboardData(completeData);
       
-      // 📊 Optional: Load extended data in background (non-blocking)
+      // Load extended data in background (non-blocking)
       loadExtendedData(teacherId);
       
     } catch (error) {
       console.error('❌ Error loading dashboard:', error);
       setError(error instanceof Error ? error.message : 'Failed to load dashboard data');
       
-      // Set minimal fallback data
+      // Fallback data
       setDashboardData({
         teacher: user as TeacherUserData,
         stats: {
@@ -113,29 +88,25 @@ const TeacherDashboard: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
 
   /**
-   * 📊 Load extended data in background (optional, non-blocking)
-   * This loads additional data after the main dashboard is displayed
+   * 📊 Load extended data in background
    */
   const loadExtendedData = async (teacherId: number) => {
     try {
       setLoadingExtended(true);
-      console.log('⏳ Loading extended dashboard data...');
       
       const extendedData = await TeacherDashboardService.getExtendedDashboardData(teacherId);
       
       if (extendedData && typeof extendedData === 'object') {
-        // Merge extended data with existing dashboard data
         setDashboardData((prev: any) => ({
           ...prev,
           ...(extendedData as Record<string, any>)
         }));
-        console.log('✅ Extended data loaded');
       }
     } catch (error) {
-      console.warn('⚠️ Extended data unavailable (non-critical):', error);
+      console.warn('⚠️ Extended data unavailable:', error);
     } finally {
       setLoadingExtended(false);
     }
@@ -143,44 +114,62 @@ const TeacherDashboard: React.FC = () => {
 
   /**
    * 🔄 Manual refresh handler
-   * Clears cache and reloads dashboard data
    */
-  const handleRefresh = async () => {
-    console.log('🔄 Manual refresh triggered');
+  const handleRefresh = useCallback(async () => {
+    if (!user) return;
     
-    // Clear cache for this teacher
     const teacherId = await TeacherDashboardService.getTeacherIdFromUser(user);
     if (teacherId) {
       TeacherDashboardService.clearTeacherCache(teacherId);
     }
     
-    // Reload data
     await loadDashboardData();
-  };
+  }, [user, loadDashboardData]);
+
+  // Auth and portal check
+  useEffect(() => {
+    if (!isLoading) {
+      if (!isAuthenticated || !user) {
+        navigate('/teacher-login');
+        return;
+      }
+
+      if (user.role !== 'teacher') {
+        navigate('/');
+        return;
+      }
+
+      if (isTeacherPortalEnabled) {
+        loadDashboardData();
+      } else {
+        setLoading(false);
+      }
+    }
+  }, [isAuthenticated, user, isLoading, navigate, isTeacherPortalEnabled, loadDashboardData]);
 
   // ============================================================================
   // RENDER STATES
   // ============================================================================
 
-  // Loading authentication or initial data
+  // Loading state
   if (isLoading || (loading && isTeacherPortalEnabled)) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
         <div className="flex flex-col items-center space-y-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
           <p className="text-white/70 text-sm">Loading Teacher Dashboard...</p>
-          <p className="text-white/50 text-xs">Using optimized loading...</p>
+          <p className="text-white/50 text-xs">Optimized loading...</p>
         </div>
       </div>
     );
   }
 
-  // Auth check - will redirect via useEffect
+  // Auth check
   if (!isAuthenticated || !user || user.role !== 'teacher') {
     return null;
   }
 
-  // Portal disabled state
+  // Portal disabled
   if (!isTeacherPortalEnabled) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
@@ -197,12 +186,12 @@ const TeacherDashboard: React.FC = () => {
             </p>
             <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl p-4 mb-6">
               <p className="text-sm text-amber-800 dark:text-amber-300">
-                <strong>Need access?</strong> Please contact your school administrator or IT support team for assistance.
+                <strong>Need access?</strong> Please contact your school administrator or IT support team.
               </p>
             </div>
             <div className="flex items-center justify-center gap-4 text-sm text-gray-500 dark:text-slate-500">
               <AlertTriangle className="w-4 h-4" />
-              <span>This restriction is applied system-wide and affects all teacher accounts</span>
+              <span>This restriction is applied system-wide</span>
             </div>
             <button
               onClick={() => navigate('/')}
@@ -216,7 +205,7 @@ const TeacherDashboard: React.FC = () => {
     );
   }
 
-  // Error state with retry option
+  // Error state
   if (error && !dashboardData) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-8">
@@ -242,22 +231,31 @@ const TeacherDashboard: React.FC = () => {
     );
   }
 
-  // Main dashboard view
+  // Main dashboard
   return (
-    <TeacherDashboardLayout>
-      {loadingExtended && (
-        <div className="fixed top-4 right-4 z-50 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 animate-pulse">
-          <RefreshCw className="w-4 h-4 animate-spin" />
-          <span className="text-sm">Loading additional data...</span>
+    <React.Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
+          <p className="text-white/70 text-sm">Loading Dashboard...</p>
         </div>
-      )}
-      
-      <TeacherDashboardContent 
-        dashboardData={dashboardData}
-        onRefresh={handleRefresh}
-        error={error}
-      />
-    </TeacherDashboardLayout>
+      </div>
+    }>
+      <TeacherDashboardLayout>
+        {loadingExtended && (
+          <div className="fixed top-4 right-4 z-50 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 animate-pulse">
+            <RefreshCw className="w-4 h-4 animate-spin" />
+            <span className="text-sm">Loading additional data...</span>
+          </div>
+        )}
+        
+        <TeacherDashboardContent 
+          dashboardData={dashboardData}
+          onRefresh={handleRefresh}
+          error={error}
+        />
+      </TeacherDashboardLayout>
+    </React.Suspense>
   );
 };
 
