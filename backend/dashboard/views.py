@@ -15,6 +15,9 @@ from classroom.models import Classroom
 from exam.models import Exam
 from result.models import StudentResult
 from schoolSettings.models import SchoolAnnouncement
+from teacher.models import Teacher
+from classroom.models import ClassroomTeacherAssignment
+
 
 logger = logging.getLogger(__name__)
 
@@ -248,13 +251,16 @@ def teacher_dashboard_summary(request, teacher_id=None):
         # ============================================
 
         teacher = (
-            Teacher.objects.select_related("user")
+            Teacher.objects.select_related("user")  # Load user data in same query
             .prefetch_related(
                 Prefetch(
-                    "classroom_assignments",
+                    "classroom_assignments",  # The related name on Teacher model
                     queryset=(
-                        Teacher.classroom_assignments.through.objects.select_related(
-                            "classroom", "subject"
+                        ClassroomTeacherAssignment.objects.select_related(  # ✅ Use actual through model
+                            "classroom",
+                            "classroom__section",
+                            "classroom__grade_level",
+                            "subject",
                         ).prefetch_related(
                             Prefetch(
                                 "classroom__students",
