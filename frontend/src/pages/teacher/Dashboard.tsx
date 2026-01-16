@@ -8,9 +8,10 @@ import TeacherDashboardService from '@/services/TeacherDashboardService';
 import { useSettings } from '@/hooks/useSettings';
 import { AlertTriangle, Lock } from 'lucide-react';
 
+const navigate = useNavigate();
+
 const TeacherDashboard: React.FC = () => {
   const { user, isAuthenticated, isLoading } = useAuth();
-  const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,7 +62,7 @@ const TeacherDashboard: React.FC = () => {
       
       // Fetch comprehensive dashboard data from the database
       const [data, teacherProfile] = await Promise.all([
-        TeacherDashboardService.getTeacherDashboardData(teacherId),
+        TeacherDashboardService.getOptimizedDashboard(teacherId),
         TeacherDashboardService.getTeacherProfile(teacherId)
       ]);
       
@@ -71,7 +72,7 @@ const TeacherDashboard: React.FC = () => {
           ...user,
           teacher_data: teacherProfile || (user as TeacherUserData)?.teacher_data
         } as TeacherUserData,
-        ...data
+        ...(data || {})
       };
       
       console.log('🔍 Teacher Dashboard - Complete data set:', completeData);

@@ -15,8 +15,6 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     # ===== API ROOT =====
     path("api/", api_root, name="api_root"),
-    # ===== DEBUG ENDPOINTS (Development only) =====
-    path("api/debug/login/", debug_login_function, name="debug_login"),
     # ===== AUTHENTICATION ROUTES =====
     # Django Rest Auth routes (MAIN AUTHENTICATION)
     path("api/dj-rest-auth/", include("dj_rest_auth.urls")),

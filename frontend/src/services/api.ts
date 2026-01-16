@@ -40,8 +40,7 @@ const getAuthHeaders = () => {
 
 // };
 if (activeToken) {
-    // JWT tokens are longer and have 2 dots (3 parts: header.payload.signature)
-    // DRF tokens are 40 characters hex string
+    
     const isJWT = activeToken.split('.').length === 3;
     
     if (isJWT) {

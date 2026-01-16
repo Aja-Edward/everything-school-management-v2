@@ -18,6 +18,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { TeacherUserData } from '@/types/types';
 
+const { user } = useAuth();
+const navigate = useNavigate();
+
 interface TeacherDashboardContentProps {
   dashboardData: any;
   onRefresh: () => void;
@@ -28,8 +31,7 @@ interface TeacherDashboardContentProps {
 const TeacherDashboardContent: React.FC<TeacherDashboardContentProps> = ({ 
   dashboardData
 }) => {
-  const { user } = useAuth();
-  const navigate = useNavigate();
+  
 
   const teacher = user as TeacherUserData;
   const teacherData = teacher?.teacher_data;
