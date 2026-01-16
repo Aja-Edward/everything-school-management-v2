@@ -216,6 +216,7 @@ import { TeacherUserData } from '@/types/types';
 import TeacherDashboardService from '@/services/TeacherDashboardService';
 import { useSettings } from '@/hooks/useSettings';
 import { AlertTriangle, Lock, RefreshCw } from 'lucide-react';
+import { LoadingScreen } from '@/components/common/LoadingScreen';
 
 // Lazy load heavy components
 const TeacherDashboardLayout = React.lazy(() => import('@/components/layouts/TeacherDashboardLayout'));
@@ -363,15 +364,18 @@ const TeacherDashboard: React.FC = () => {
   // ============================================================================
 
   // Loading state
+  // ============================================================================
+  // RENDER STATES
+  // ============================================================================
+
+  // Loading state
   if (isLoading || (loading && isTeacherPortalEnabled)) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
-        <div className="flex flex-col items-center space-y-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
-          <p className="text-white/70 text-sm">Loading Teacher Dashboard...</p>
-          <p className="text-white/50 text-xs">Optimized loading...</p>
-        </div>
-      </div>
+      <LoadingScreen 
+        variant="teacher"
+        message="Loading Teacher Dashboard..."
+        subMessage="Preparing your classes and student data"
+      />
     );
   }
 
@@ -445,12 +449,10 @@ const TeacherDashboard: React.FC = () => {
   // Main dashboard
   return (
     <React.Suspense fallback={
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
-        <div className="flex flex-col items-center space-y-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
-          <p className="text-white/70 text-sm">Loading Dashboard...</p>
-        </div>
-      </div>
+      <LoadingScreen 
+        variant="teacher"
+        message="Loading Dashboard Components..."
+      />
     }>
       <TeacherDashboardLayout>
         {loadingExtended && (
