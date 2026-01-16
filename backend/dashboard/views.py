@@ -315,24 +315,36 @@ def teacher_dashboard_summary(request, teacher_id=None):
         )
 
         # ============================================
-        # 📋 QUICK COUNTS
+        # 📋 QUICK COUNTS - FIXED VERSION
         # ============================================
 
         last_week = today - timedelta(days=7)
-        pending_attendance = (
-            Lesson.objects.filter(
-                teacher_id=teacher_id,
-                date__gte=last_week,
-                date__lte=today,
-                status="completed",
-            )
-            .exclude(
-                id__in=Attendance.objects.filter(teacher_id=teacher_id).values_list(
-                    "lesson_id", flat=True
-                )
-            )
-            .count()
+
+        # Option 1: Count completed lessons without LessonAttendance records
+        from lesson.models import LessonAttendance
+
+        completed_lessons = Lesson.objects.filter(
+            teacher_id=teacher_id,
+            date__gte=last_week,
+            date__lte=today,
+            status="completed",
         )
+
+        # Get lesson IDs that have attendance records
+        lessons_with_attendance = (
+            LessonAttendance.objects.filter(
+                lesson__teacher_id=teacher_id,
+                lesson__date__gte=last_week,
+                lesson__date__lte=today,
+            )
+            .values_list("lesson_id", flat=True)
+            .distinct()
+        )
+
+        # Count lessons without attendance
+        pending_attendance = completed_lessons.exclude(
+            id__in=lessons_with_attendance
+        ).count()
 
         # ============================================
         # 📦 RESPONSE
@@ -382,7 +394,6 @@ def teacher_dashboard_summary(request, teacher_id=None):
         return Response(
             {"error": "Failed to load teacher dashboard", "detail": str(e)}, status=500
         )
-
 
 # ============================================================================
 # 👨‍👩‍👧 PARENT DASHBOARD
@@ -755,42 +766,92 @@ def dashboard_extended(request):
 def teacher_dashboard_extended(request, teacher_id):
     """Extended data for teacher dashboard"""
 
-    today = timezone.now().date()
-    thirty_days_ago = today - timedelta(days=30)
+    # ✅ Add validation at the start
+    if not teacher_id:
+        return Response({"error": "Teacher ID is required"}, status=400)
 
-    # Attendance history
-    attendance_data = (
-        Attendance.objects.filter(teacher_id=teacher_id, date__gte=thirty_days_ago)
-        .values("date", "status")
-        .annotate(count=Count("id"))
-        .order_by("-date")
-    )
+    try:
+        # Verify teacher exists
+        teacher = Teacher.objects.filter(id=teacher_id).first()
+        if not teacher:
+            return Response({"error": "Teacher not found"}, status=404)
 
-    # Upcoming lessons
-    next_week = today + timedelta(days=7)
-    upcoming_lessons = (
-        Lesson.objects.filter(
-            teacher_id=teacher_id,
-            date__gt=today,
-            date__lte=next_week,
-            status="scheduled",
+        today = timezone.now().date()
+        thirty_days_ago = today - timedelta(days=30)
+
+        # ============================================
+        # 📊 LESSON COMPLETION HISTORY (Last 30 days)
+        # ============================================
+        lesson_history = (
+            Lesson.objects.filter(
+                teacher_id=teacher_id, date__gte=thirty_days_ago, date__lte=today
+            )
+            .values("date", "status")
+            .annotate(count=Count("id"))
+            .order_by("-date")
         )
-        .select_related("classroom", "subject")
-        .order_by("date", "start_time")
-        .values(
-            "id", "subject__name", "classroom__name", "date", "start_time", "end_time"
-        )[:20]
-    )
 
-    return Response(
-        {
-            "attendance_history": list(attendance_data),
-            "upcoming_lessons": list(upcoming_lessons),
-            "data_scope": "extended_load",
-            "loaded_at": timezone.now().isoformat(),
-        }
-    )
+        # ============================================
+        # 📊 LESSON ATTENDANCE RATES (Last 30 days)
+        # ============================================
+        from lesson.models import LessonAttendance
 
+        attendance_summary = (
+            LessonAttendance.objects.filter(
+                lesson__teacher_id=teacher_id,
+                lesson__date__gte=thirty_days_ago,
+                lesson__date__lte=today,
+            )
+            .values("lesson__date")
+            .annotate(
+                total=Count("id"),
+                present=Count("id", filter=Q(status="present")),
+                absent=Count("id", filter=Q(status="absent")),
+                late=Count("id", filter=Q(status="late")),
+            )
+            .order_by("-lesson__date")
+        )
+
+        # ============================================
+        # 📅 UPCOMING LESSONS (Next 7 days)
+        # ============================================
+        next_week = today + timedelta(days=7)
+        upcoming_lessons = (
+            Lesson.objects.filter(
+                teacher_id=teacher_id,
+                date__gt=today,
+                date__lte=next_week,
+                status="scheduled",
+            )
+            .select_related("classroom", "subject")
+            .order_by("date", "start_time")
+            .values(
+                "id",
+                "subject__name",
+                "classroom__name",
+                "date",
+                "start_time",
+                "end_time",
+                "lesson_type",
+            )[:20]
+        )
+
+        # ✅ Always return Response object
+        return Response(
+            {
+                "lesson_history": list(lesson_history),
+                "attendance_summary": list(attendance_summary),
+                "upcoming_lessons": list(upcoming_lessons),
+                "data_scope": "extended_load",
+                "loaded_at": timezone.now().isoformat(),
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"❌ Teacher extended dashboard error: {str(e)}", exc_info=True)
+        return Response(
+            {"error": "Failed to load extended data", "detail": str(e)}, status=500
+        )
 
 def parent_dashboard_extended(request, parent_id):
     """Extended data for parent dashboard"""
