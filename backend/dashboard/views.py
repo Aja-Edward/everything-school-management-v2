@@ -259,7 +259,6 @@ def teacher_dashboard_summary(request, teacher_id=None):
                         ClassroomTeacherAssignment.objects.select_related(
                             "classroom",
                             "classroom__section",
-                            # "classroom__section__grade_level",
                             "subject",
                         ).prefetch_related(
                             Prefetch(
