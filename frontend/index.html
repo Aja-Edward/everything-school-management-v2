@@ -2,12 +2,32 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AL-QOLAMULMUWAFFAQ</title>
+
+    <!-- Prevent white flash -->
+    <style>
+      body {
+        margin: 0;
+        background: #0f172a; /* match your theme */
+      }
+      #loader {
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-family: system-ui, sans-serif;
+        font-size: 18px;
+        letter-spacing: 1px;
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="loader">Loading…</div>
+    </div>
+
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
