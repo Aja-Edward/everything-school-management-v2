@@ -359,14 +359,6 @@ const TeacherDashboard: React.FC = () => {
     }
   }, [isAuthenticated, user, isLoading, navigate, isTeacherPortalEnabled, loadDashboardData]);
 
-  // ============================================================================
-  // RENDER STATES
-  // ============================================================================
-
-  // Loading state
-  // ============================================================================
-  // RENDER STATES
-  // ============================================================================
 
   // Loading state
   if (isLoading || (loading && isTeacherPortalEnabled)) {

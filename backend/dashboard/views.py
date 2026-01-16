@@ -251,15 +251,15 @@ def teacher_dashboard_summary(request, teacher_id=None):
         # ============================================
 
         teacher = (
-            Teacher.objects.select_related("user")  # Load user data in same query
+            Teacher.objects.select_related("user")
             .prefetch_related(
                 Prefetch(
-                    "classroom_assignments",  # The related name on Teacher model
+                    "classroom_assignments",
                     queryset=(
-                        ClassroomTeacherAssignment.objects.select_related(  # ✅ Use actual through model
+                        ClassroomTeacherAssignment.objects.select_related(
                             "classroom",
                             "classroom__section",
-                            "classroom__grade_level",
+                            "classroom__section__grade_level",
                             "subject",
                         ).prefetch_related(
                             Prefetch(
