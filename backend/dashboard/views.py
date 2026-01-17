@@ -970,7 +970,6 @@ from classroom.models import Classroom
 from exam.models import Exam
 from result.models import StudentResult
 from schoolSettings.models import SchoolAnnouncement
-from teacher.models import Teacher
 from classroom.models import ClassroomTeacherAssignment
 
 
@@ -1274,20 +1273,22 @@ def teacher_dashboard_summary(request, teacher_id=None):
         # ============================================
 
         last_week = today - timedelta(days=7)
-        pending_attendance = (
-            Lesson.objects.filter(
-                teacher_id=teacher_id,
-                date__gte=last_week,
-                date__lte=today,
-                status="completed",
-            )
-            .exclude(
-                id__in=Attendance.objects.filter(teacher_id=teacher_id).values_list(
-                    "lesson_id", flat=True
-                )
-            )
-            .count()
-        )
+        # Count completed lessons vs attendance records by date
+        completed_lessons = Lesson.objects.filter(
+            teacher_id=teacher_id,
+            date__gte=last_week,
+            date__lte=today,
+            status="completed",
+        ).count()
+
+        attendance_records = Attendance.objects.filter(
+            teacher_id=teacher_id,
+            date__gte=last_week,
+            date__lte=today,
+        ).count()
+
+        # Approximate pending attendance (this is simplified)
+        pending_attendance = max(0, completed_lessons - attendance_records)
 
         # ============================================
         # 📦 RESPONSE
@@ -1701,160 +1702,227 @@ def dashboard_extended(request):
             return Response({"error": "Unknown role"}, status=400)
 
     except Exception as e:
-        logger.error(f"❌ Extended dashboard error: {str(e)}")
+        logger.error(f"❌ Extended dashboard error: {str(e)}", exc_info=True)
         return Response(
             {"error": "Failed to load extended data", "detail": str(e)}, status=500
         )
 
 
-def teacher_dashboard_extended(request, teacher_id):
-    """Extended data for teacher dashboard"""
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def teacher_dashboard_extended(request, teacher_id=None):
+    """
+    📊 TEACHER EXTENDED DATA
+    GET /api/dashboard/teacher/{teacher_id}/extended/
+    """
+    try:
+        if not teacher_id:
+            teacher_id = get_teacher_id_from_user(request.user)
+            if not teacher_id:
+                return Response({"error": "Teacher profile not found"}, status=404)
 
-    today = timezone.now().date()
-    thirty_days_ago = today - timedelta(days=30)
+        today = timezone.now().date()
+        thirty_days_ago = today - timedelta(days=30)
 
-    # Attendance history
-    attendance_data = (
-        Attendance.objects.filter(teacher_id=teacher_id, date__gte=thirty_days_ago)
-        .values("date", "status")
-        .annotate(count=Count("id"))
-        .order_by("-date")
-    )
-
-    # Upcoming lessons
-    next_week = today + timedelta(days=7)
-    upcoming_lessons = (
-        Lesson.objects.filter(
-            teacher_id=teacher_id,
-            date__gt=today,
-            date__lte=next_week,
-            status="scheduled",
+        # Attendance history
+        attendance_data = (
+            Attendance.objects.filter(teacher_id=teacher_id, date__gte=thirty_days_ago)
+            .values("date", "status")
+            .annotate(count=Count("id"))
+            .order_by("-date")
         )
-        .select_related("classroom", "subject")
-        .order_by("date", "start_time")
-        .values(
-            "id", "subject__name", "classroom__name", "date", "start_time", "end_time"
-        )[:20]
-    )
 
-    return Response(
-        {
-            "attendance_history": list(attendance_data),
-            "upcoming_lessons": list(upcoming_lessons),
-            "data_scope": "extended_load",
-            "loaded_at": timezone.now().isoformat(),
-        }
-    )
+        # Upcoming lessons
+        next_week = today + timedelta(days=7)
+        upcoming_lessons = (
+            Lesson.objects.filter(
+                teacher_id=teacher_id,
+                date__gt=today,
+                date__lte=next_week,
+                status="scheduled",
+            )
+            .select_related("classroom", "subject")
+            .order_by("date", "start_time")
+            .values(
+                "id",
+                "subject__name",
+                "classroom__name",
+                "date",
+                "start_time",
+                "end_time",
+            )[:20]
+        )
+
+        return Response(
+            {
+                "attendance_history": list(attendance_data),
+                "upcoming_lessons": list(upcoming_lessons),
+                "data_scope": "extended_load",
+                "loaded_at": timezone.now().isoformat(),
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"❌ Teacher extended dashboard error: {str(e)}", exc_info=True)
+        return Response(
+            {"error": "Failed to load extended data", "detail": str(e)}, status=500
+        )
 
 
-def parent_dashboard_extended(request, parent_id):
-    """Extended data for parent dashboard"""
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def parent_dashboard_extended(request, parent_id=None):
+    """
+    📊 PARENT EXTENDED DATA
+    GET /api/dashboard/parent/{parent_id}/extended/
+    """
+    try:
+        if not parent_id:
+            parent_id = get_parent_id_from_user(request.user)
+            if not parent_id:
+                return Response({"error": "Parent profile not found"}, status=404)
 
-    # Get all children
-    children = Student.objects.filter(parent_profiles__id=parent_id, is_active=True)
+        # Get all children
+        children = Student.objects.filter(parent_profiles__id=parent_id, is_active=True)
 
-    # Detailed attendance for all children (last 30 days)
-    thirty_days_ago = timezone.now().date() - timedelta(days=30)
+        # Detailed attendance for all children (last 30 days)
+        thirty_days_ago = timezone.now().date() - timedelta(days=30)
 
-    children_attendance = []
-    for child in children:
-        attendance = (
-            Attendance.objects.filter(student=child, date__gte=thirty_days_ago)
+        children_attendance = []
+        for child in children:
+            attendance = (
+                Attendance.objects.filter(student=child, date__gte=thirty_days_ago)
+                .values("date", "status")
+                .order_by("-date")
+            )
+
+            children_attendance.append(
+                {
+                    "student_id": child.id,
+                    "student_name": f"{child.user.first_name} {child.user.last_name}",
+                    "attendance": list(attendance),
+                }
+            )
+
+        return Response(
+            {
+                "children_attendance": children_attendance,
+                "data_scope": "extended_load",
+                "loaded_at": timezone.now().isoformat(),
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"❌ Parent extended dashboard error: {str(e)}", exc_info=True)
+        return Response(
+            {"error": "Failed to load extended data", "detail": str(e)}, status=500
+        )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def student_dashboard_extended(request, student_id=None):
+    """
+    📊 STUDENT EXTENDED DATA
+    GET /api/dashboard/student/{student_id}/extended/
+    """
+    try:
+        if not student_id:
+            student_id = get_student_id_from_user(request.user)
+            if not student_id:
+                return Response({"error": "Student profile not found"}, status=404)
+
+        # Full attendance history (last 60 days)
+        sixty_days_ago = timezone.now().date() - timedelta(days=60)
+
+        attendance_history = (
+            Attendance.objects.filter(student_id=student_id, date__gte=sixty_days_ago)
             .values("date", "status")
             .order_by("-date")
         )
 
-        children_attendance.append(
+        # All results this term
+        all_results = (
+            StudentResult.objects.filter(student_id=student_id)
+            .select_related("exam__subject")
+            .order_by("-exam__date")
+            .values(
+                "id",
+                "exam__subject__name",
+                "exam__date",
+                "score",
+                "grade",
+                "exam__total_marks",
+            )[:20]
+        )
+
+        return Response(
             {
-                "student_id": child.id,
-                "student_name": f"{child.user.first_name} {child.user.last_name}",
-                "attendance": list(attendance),
+                "attendance_history": list(attendance_history),
+                "all_results": list(all_results),
+                "data_scope": "extended_load",
+                "loaded_at": timezone.now().isoformat(),
             }
         )
 
-    return Response(
-        {
-            "children_attendance": children_attendance,
-            "data_scope": "extended_load",
-            "loaded_at": timezone.now().isoformat(),
-        }
-    )
-
-
-def student_dashboard_extended(request, student_id):
-    """Extended data for student dashboard"""
-
-    # Full attendance history (last 60 days)
-    sixty_days_ago = timezone.now().date() - timedelta(days=60)
-
-    attendance_history = (
-        Attendance.objects.filter(student_id=student_id, date__gte=sixty_days_ago)
-        .values("date", "status")
-        .order_by("-date")
-    )
-
-    # All results this term
-    all_results = (
-        StudentResult.objects.filter(student_id=student_id)
-        .select_related("exam__subject")
-        .order_by("-exam__date")
-        .values(
-            "id",
-            "exam__subject__name",
-            "exam__date",
-            "score",
-            "grade",
-            "exam__total_marks",
-        )[:20]
-    )
-
-    return Response(
-        {
-            "attendance_history": list(attendance_history),
-            "all_results": list(all_results),
-            "data_scope": "extended_load",
-            "loaded_at": timezone.now().isoformat(),
-        }
-    )
-
-
-def admin_dashboard_extended(request):
-    """Extended data for admin dashboard"""
-
-    today = timezone.now().date()
-    last_month = today - timedelta(days=30)
-
-    # Attendance trends (last 30 days)
-    attendance_trends = (
-        Attendance.objects.filter(date__gte=last_month)
-        .values("date")
-        .annotate(
-            total=Count("id"),
-            present=Count("id", filter=Q(status="present")),
-            absent=Count("id", filter=Q(status="absent")),
+    except Exception as e:
+        logger.error(f"❌ Student extended dashboard error: {str(e)}", exc_info=True)
+        return Response(
+            {"error": "Failed to load extended data", "detail": str(e)}, status=500
         )
-        .order_by("-date")
-    )
 
-    # Recent enrollments
-    recent_students = (
-        Student.objects.filter(created_at__gte=last_month)
-        .select_related("user", "classroom")
-        .order_by("-created_at")
-        .values(
-            "id", "user__first_name", "user__last_name", "classroom__name", "created_at"
-        )[:10]
-    )
 
-    return Response(
-        {
-            "attendance_trends": list(attendance_trends),
-            "recent_enrollments": list(recent_students),
-            "data_scope": "extended_load",
-            "loaded_at": timezone.now().isoformat(),
-        }
-    )
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def admin_dashboard_extended(request):
+    """
+    📊 ADMIN EXTENDED DATA
+    GET /api/dashboard/admin/extended/
+    """
+    try:
+        today = timezone.now().date()
+        last_month = today - timedelta(days=30)
 
+        # Attendance trends (last 30 days)
+        attendance_trends = (
+            Attendance.objects.filter(date__gte=last_month)
+            .values("date")
+            .annotate(
+                total=Count("id"),
+                present=Count("id", filter=Q(status="present")),
+                absent=Count("id", filter=Q(status="absent")),
+            )
+            .order_by("-date")
+        )
+
+        # Recent enrollments
+        recent_students = (
+            Student.objects.filter(created_at__gte=last_month)
+            .select_related("user", "classroom")
+            .order_by("-created_at")
+            .values(
+                "id",
+                "user__first_name",
+                "user__last_name",
+                "classroom__name",
+                "created_at",
+            )[:10]
+        )
+
+        return Response(
+            {
+                "attendance_trends": list(attendance_trends),
+                "recent_enrollments": list(recent_students),
+                "data_scope": "extended_load",
+                "loaded_at": timezone.now().isoformat(),
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"❌ Admin extended dashboard error: {str(e)}", exc_info=True)
+        return Response(
+            {"error": "Failed to load extended data", "detail": str(e)}, status=500
+        )
 
 # ============================================================================
 # 🔧 HELPER FUNCTIONS
