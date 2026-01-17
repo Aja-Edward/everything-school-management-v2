@@ -13,15 +13,23 @@ const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) => {
 
   // Show loading state while checking authentication
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-purple-500 mx-auto mb-4"></div>
-          <p className="text-white text-lg">Verifying access...</p>
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
+      <div className="text-center">
+        <div className="relative">
+          {/* Outer ring */}
+          <div className="absolute inset-0 rounded-full h-20 w-20 border-4 border-slate-200 mx-auto"></div>
+          {/* Animated spinner */}
+          <div className="animate-spin rounded-full h-20 w-20 border-4 border-slate-200 border-t-slate-700 mx-auto"></div>
         </div>
+        <p className="text-slate-700 text-lg font-medium mt-8 tracking-wide">
+          Verifying access
+          <span className="animate-pulse">...</span>
+        </p>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   // If not authenticated, redirect to appropriate login page
   if (!isAuthenticated || !user) {
