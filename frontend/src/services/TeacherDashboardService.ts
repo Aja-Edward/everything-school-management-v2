@@ -821,6 +821,9 @@ interface CacheEntry<T> {
   timestamp: number;
 }
 
+
+
+
 class CacheManager {
   private cache = new Map<string, CacheEntry<any>>();
   private pendingRequests = new Map<string, Promise<any>>();
@@ -853,6 +856,7 @@ class CacheManager {
     });
   }
 
+  
   /**
    * Get pending request to prevent duplicates
    */
@@ -891,6 +895,7 @@ class CacheManager {
     this.pendingRequests.delete(key);
   }
 }
+
 
 // ============================================================================
 // MAIN SERVICE CLASS
@@ -965,6 +970,7 @@ class TeacherDashboardService {
     }
   }
 
+  
   /**
    * 📊 Get extended dashboard data (optional)
    * 
@@ -975,19 +981,53 @@ class TeacherDashboardService {
    * @returns Extended data or null if unavailable
    */
   async getExtendedDashboardData(teacherId: number) {
-    try {
-      console.log('⏳ Loading extended dashboard data...');
-      
-      const response = await api.get(`/api/dashboard/teacher/${teacherId}/extended/`);
-      
-      console.log('✅ Extended data loaded');
-      return response;
-      
-    } catch (error) {
-      console.warn('⚠️ Extended data unavailable (non-critical):', error);
-      return null;
-    }
+  const cacheKey = `extended-${teacherId}`;
+  
+  // ✅ Check cache first
+  const cached = this.cacheManager.get(cacheKey);
+  if (cached) {
+    console.log('✅ Using cached extended data');
+    return cached;
   }
+
+  // ✅ Check if request is already pending (DEDUPLICATION)
+  const pending = this.cacheManager.getPending(cacheKey);
+  if (pending) {
+    console.log('⏳ Extended data request already in progress, waiting...');
+    return pending;
+  }
+
+  try {
+    console.log('⏳ Loading extended dashboard data...');
+    
+    // ✅ Create promise and register it as pending
+    const promise = api.get(`/api/dashboard/teacher/${teacherId}/extended/`)
+      .then(response => {
+        console.log('✅ Extended data loaded');
+        
+        // Cache the result
+        this.cacheManager.set(cacheKey, response);
+        this.cacheManager.removePending(cacheKey);
+        
+        return response;
+      })
+      .catch(error => {
+        console.warn('⚠️ Extended data unavailable (non-critical):', error);
+        this.cacheManager.removePending(cacheKey);
+        return null;
+      });
+
+    // ✅ Register as pending to prevent duplicate requests
+    this.cacheManager.setPending(cacheKey, promise);
+    
+    return promise;
+    
+  } catch (error) {
+    console.warn('⚠️ Extended data unavailable (non-critical):', error);
+    this.cacheManager.removePending(cacheKey);
+    return null;
+  }
+}
 
   /**
    * 🔄 Transform optimized backend response to match existing structure
@@ -1043,6 +1083,7 @@ class TeacherDashboardService {
     };
   }
 
+  
   /**
    * Group classroom assignments by subject
    */
@@ -1726,6 +1767,9 @@ class TeacherDashboardService {
     }
   }
 }
+
+
+
 
 // Export singleton instance
 export default new TeacherDashboardService();

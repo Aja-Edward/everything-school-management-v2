@@ -29,6 +29,13 @@ class Attendance(models.Model):
 
     class Meta:
         unique_together = ("date", "student", "section")
+        indexes = [
+            models.Index(fields=["date"]),  # For date-based queries
+            models.Index(fields=["teacher", "date"]),  # For teacher dashboard
+            models.Index(fields=["student", "date"]),  # For student queries
+            models.Index(fields=["date", "status"]),  # For attendance reports
+            models.Index(fields=["section", "date"]),  # For section queries
+        ]
 
     def __str__(self):
         return f"{self.student} - {self.date} - {self.get_status_display()}"

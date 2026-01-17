@@ -959,6 +959,7 @@ from rest_framework.response import Response
 from django.db.models import Count, Q, Prefetch, Avg, Sum
 from django.utils import timezone
 from datetime import timedelta, datetime
+from events.models import Event
 import logging
 
 from teacher.models import Teacher
@@ -1074,9 +1075,9 @@ def admin_dashboard_summary(request):
         # Today's attendance summary (single optimized query)
         attendance_today = Attendance.objects.filter(date=today).aggregate(
             total=Count("id"),
-            present=Count("id", filter=Q(status="present")),
-            absent=Count("id", filter=Q(status="absent")),
-            late=Count("id", filter=Q(status="late")),
+            present=Count("id", filter=Q(status="P")),  # ✅ Use "P" not "present"
+            absent=Count("id", filter=Q(status="A")),  # ✅ Use "A" not "absent"
+            late=Count("id", filter=Q(status="L")),  # ✅ Use "L" not "late"
         )
 
         # Calculate attendance rate
@@ -1221,7 +1222,10 @@ def teacher_dashboard_summary(request, teacher_id=None):
                         ).prefetch_related(
                             Prefetch(
                                 "classroom__students",
-                                queryset=Student.objects.filter(is_active=True),
+                                # ✅ Only fetch IDs since we're just counting
+                                queryset=Student.objects.filter(is_active=True).only(
+                                    "id"
+                                ),
                             )
                         )
                     ),
@@ -1770,10 +1774,27 @@ def teacher_dashboard_extended(request, teacher_id=None):
             )[:20]
         )
 
+        # Add announcements and events to extended load
+        announcements = (
+            SchoolAnnouncement.objects.filter(
+                is_active=True, target_audience__in=["all", "teachers"]
+            )
+            .order_by("-created_at")
+            .values("id", "title", "content", "created_at")[:5]
+        )
+
+        upcoming_events = (
+            Event.objects.filter(start_date__gte=timezone.now().date(), is_active=True)
+            .order_by("start_date")
+            .values("id", "title", "start_date", "end_date")[:5]
+        )
+
         return Response(
             {
                 "attendance_history": list(attendance_data),
                 "upcoming_lessons": list(upcoming_lessons),
+                "announcements": list(announcements),  # ✅ Added
+                "upcoming_events": list(upcoming_events),  # ✅ Added
                 "data_scope": "extended_load",
                 "loaded_at": timezone.now().isoformat(),
             }
