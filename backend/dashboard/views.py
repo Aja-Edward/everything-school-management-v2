@@ -1104,7 +1104,9 @@ def admin_dashboard_summary(request):
         recent_announcements = (
             SchoolAnnouncement.objects.filter(is_active=True)
             .order_by("-created_at")
-            .values("id", "title", "created_at", "priority")[:5]
+            .values("id", "title", "created_at", "announcement_type", "is_pinned")[
+                :5
+            ]  # ✅ FIXED
         )
 
         # ============================================
