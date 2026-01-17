@@ -1126,7 +1126,9 @@ def admin_dashboard_summary(request):
 
         # Check for pending results
         pending_exams = (
-            Exam.objects.filter(date__lt=today, status="completed")
+            Exam.objects.filter(
+                exam_date__lt=today, status="completed"
+            )  # ✅ Use 'exam_date'
             .exclude(id__in=StudentResult.objects.values_list("exam_id", flat=True))
             .count()
         )
@@ -1607,14 +1609,19 @@ def student_dashboard_summary(request, student_id=None):
         upcoming_exams = (
             Exam.objects.filter(
                 classroom=student.classroom,
-                date__gte=today,
-                date__lte=next_two_weeks,
+                exam_date__gte=today,  # ✅ Fixed
+                exam_date__lte=next_two_weeks,  # ✅ Fixed
                 status="scheduled",
             )
             .select_related("subject")
-            .order_by("date")
+            .order_by("exam_date")  # ✅ Fixed
             .values(
-                "id", "subject__name", "date", "start_time", "duration", "total_marks"
+                "id",
+                "subject__name",
+                "exam_date",
+                "start_time",
+                "duration_minutes",
+                "total_marks",  # ✅ Fixed
             )[:5]
         )
 
