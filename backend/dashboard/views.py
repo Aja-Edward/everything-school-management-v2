@@ -1126,10 +1126,10 @@ def admin_dashboard_summary(request):
 
         # Check for pending results
         pending_exams = (
-            Exam.objects.filter(
-                exam_date__lt=today, status="completed"
-            )  # ✅ Use 'exam_date'
-            .exclude(id__in=StudentResult.objects.values_list("exam_id", flat=True))
+            Exam.objects.filter(exam_date__lt=today, status="completed")
+            .exclude(
+                id__in=StudentResult.objects.values_list("exam_session_id", flat=True)
+            )  # ✅ Fixed
             .count()
         )
 
@@ -1437,9 +1437,17 @@ def parent_dashboard_summary(request, parent_id=None):
             # Recent results (last 5)
             recent_results = (
                 StudentResult.objects.filter(student=child)
-                .select_related("exam__subject")
-                .order_by("-exam__date")
-                .values("id", "exam__subject__name", "exam__date", "score", "grade")[:5]
+                .select_related("exam_session__subject")  # ✅ Fixed
+                .order_by("-exam_session__exam_date")  # ✅ Fixed
+                .values(
+                    "id",
+                    "exam_session__subject__name",
+                    "exam_session__exam_date",
+                    "total_score",
+                    "grade",
+                )[
+                    :5
+                ]  # ✅ Fixed
             )
 
             children_data.append(
@@ -1581,15 +1589,15 @@ def student_dashboard_summary(request, student_id=None):
 
         recent_results = (
             StudentResult.objects.filter(student=student)
-            .select_related("exam__subject")
-            .order_by("-exam__date")
+            .select_related("exam_session__subject")  # ✅
+            .order_by("-exam_session__exam_date")  # ✅
             .values(
                 "id",
-                "exam__subject__name",
-                "exam__date",
-                "score",
+                "exam_session__subject__name",  # ✅
+                "exam_session__exam_date",  # ✅
+                "total_score",  # ✅
                 "grade",
-                "exam__total_marks",
+                "exam_session__total_marks",  # ✅
             )[:5]
         )
 
