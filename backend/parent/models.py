@@ -1,9 +1,11 @@
 from django.db import models
+
+from tenants.models import TenantMixin
 from users.models import CustomUser
 from students.models import Student
 
 
-class Message(models.Model):
+class Message(TenantMixin, models.Model):
     sender = models.ForeignKey(
         CustomUser, on_delete=models.CASCADE, related_name="sent_messages"
     )
@@ -19,7 +21,7 @@ class Message(models.Model):
         return f"From {self.sender} to {self.recipient}: {self.subject}"
 
 
-class ParentStudentRelationship(models.Model):
+class ParentStudentRelationship(TenantMixin, models.Model):
     parent = models.ForeignKey('ParentProfile', on_delete=models.CASCADE)
     student = models.ForeignKey('students.Student', on_delete=models.CASCADE)
     relationship = models.CharField(max_length=20, choices=[
@@ -31,13 +33,13 @@ class ParentStudentRelationship(models.Model):
     is_primary_contact = models.BooleanField(default=False)
 
     class Meta:
-        unique_together = ('parent', 'student')
+        unique_together = [('tenant', 'parent', 'student')]
 
     def __str__(self):
         return f"{self.parent} - {self.student} ({self.relationship})"
 
 
-class ParentProfile(models.Model):
+class ParentProfile(TenantMixin, models.Model):
     user = models.OneToOneField(
         CustomUser,
         on_delete=models.CASCADE,

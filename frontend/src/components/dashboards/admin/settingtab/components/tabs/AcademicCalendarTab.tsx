@@ -133,7 +133,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL
   const fetchSessions = async (): Promise<AcademicSession[]> => {
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/api/academics/sessions/`, {
+      const response = await fetch(`${API_BASE_URL}/academics/sessions/`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -153,7 +153,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL
   const fetchTerms = async (): Promise<Term[]> => {
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/api/academics/terms/`, {
+      const response = await fetch(`${API_BASE_URL}/academics/terms/`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -192,7 +192,7 @@ console.log('Fetching academic sessions and terms from API...');
 
       const token = localStorage.getItem('authToken');
       
-      const response = await fetch(`${API_BASE_URL}/api/academics/sessions/`, {
+      const response = await fetch(`${API_BASE_URL}/academics/sessions/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -245,7 +245,7 @@ console.log('Fetching academic sessions and terms from API...');
 
       const token = localStorage.getItem('authToken');
       
-      const response = await fetch(`${API_BASE_URL}/api/academics/sessions/${sessionId}/`, {
+      const response = await fetch(`${API_BASE_URL}/academics/sessions/${sessionId}/`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -287,7 +287,7 @@ console.log('Fetching academic sessions and terms from API...');
       setSaving(true);
       const token = localStorage.getItem('authToken');
       
-      const response = await fetch(`${API_BASE_URL}/api/academics/sessions/${sessionId}/`, {
+      const response = await fetch(`${API_BASE_URL}/academics/sessions/${sessionId}/`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -313,7 +313,7 @@ console.log('Fetching academic sessions and terms from API...');
       setSaving(true);
       const token = localStorage.getItem('authToken');
       
-      const response = await fetch(`${API_BASE_URL}/api/academics/sessions/${sessionId}/set_active/`, {
+      const response = await fetch(`${API_BASE_URL}/academics/sessions/${sessionId}/set_active/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -384,7 +384,7 @@ console.log('Fetching academic sessions and terms from API...');
       
       console.log('Sending term data:', termForm);
       
-      const response = await fetch(`${API_BASE_URL}/api/academics/terms/`, {
+      const response = await fetch(`${API_BASE_URL}/academics/terms/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -450,7 +450,7 @@ console.log('Fetching academic sessions and terms from API...');
 
       const token = localStorage.getItem('authToken');
       
-      const response = await fetch(`${API_BASE_URL}/api/academics/terms/${termId}/`, {
+      const response = await fetch(`${API_BASE_URL}/academics/terms/${termId}/`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -492,7 +492,7 @@ console.log('Fetching academic sessions and terms from API...');
       setSaving(true);
       const token = localStorage.getItem('authToken');
       
-      const response = await fetch(`${API_BASE_URL}/api/academics/terms/${termId}/`, {
+      const response = await fetch(`${API_BASE_URL}/academics/terms/${termId}/`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -518,7 +518,7 @@ console.log('Fetching academic sessions and terms from API...');
       setSaving(true);
       const token = localStorage.getItem('authToken');
       
-      const response = await fetch(`${API_BASE_URL}/api/academics/terms/${termId}/set_current/`, {
+      const response = await fetch(`${API_BASE_URL}/academics/terms/${termId}/set_current/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`

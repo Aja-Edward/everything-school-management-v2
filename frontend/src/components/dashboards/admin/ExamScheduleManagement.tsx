@@ -774,10 +774,8 @@ const ExamScheduleManagement: React.FC = () => {
   // Load terms
   const loadTerms = async () => {
     const endpoints = [
-      '/api/academics/terms/',
-      '/api/fee/terms/',
-      '/api/academic/terms/',
-      '/api/terms/'
+      '/api/academics/terms/',  // ✅ Correct endpoint
+      '/api/terms/'  // ✅ Backward compatibility alias
     ];
 
     for (const endpoint of endpoints) {

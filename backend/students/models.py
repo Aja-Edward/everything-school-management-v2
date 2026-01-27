@@ -4,6 +4,7 @@ from django.utils import timezone
 from datetime import timedelta
 import secrets
 from users.models import CustomUser
+from tenants.models import TenantMixin
 
 GENDER_CHOICES = (
     ("M", "Male"),
@@ -40,7 +41,7 @@ CLASS_CHOICES = (
 )
 
 
-class Student(models.Model):
+class Student(TenantMixin, models.Model):
     user = models.OneToOneField(
         CustomUser, on_delete=models.CASCADE, related_name="student_profile"
     )
@@ -66,7 +67,6 @@ class Student(models.Model):
     # Registration number field
     registration_number = models.CharField(
         max_length=20,
-        unique=True,
         blank=True,
         null=True,
         help_text="Student's unique registration number",
@@ -156,10 +156,11 @@ class Student(models.Model):
         ordering = ["education_level", "student_class", "user__first_name"]
         verbose_name = "Student"
         verbose_name_plural = "Students"
+        unique_together = ["tenant", "registration_number"]
         indexes = [
-            models.Index(fields=["education_level", "student_class"]),
-            models.Index(fields=["is_active"]),
-            models.Index(fields=["classroom"]),
+            models.Index(fields=["tenant", "education_level", "student_class"]),
+            models.Index(fields=["tenant", "is_active"]),
+            models.Index(fields=["tenant", "classroom"]),
         ]
 
     def __str__(self):
@@ -254,13 +255,13 @@ class Student(models.Model):
 User = get_user_model()
 
 
-class ResultCheckToken(models.Model):
+class ResultCheckToken(TenantMixin, models.Model):
     """Token for result portal access - one per student per term"""
 
     student = models.ForeignKey(  # Changed from OneToOneField to ForeignKey
         User, on_delete=models.CASCADE, related_name="result_tokens"
     )
-    token = models.CharField(max_length=64, unique=True, db_index=True)
+    token = models.CharField(max_length=64, db_index=True)
     school_term = models.ForeignKey("academics.Term", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
@@ -268,9 +269,9 @@ class ResultCheckToken(models.Model):
     used_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        unique_together = ("student", "school_term")
+        unique_together = [("tenant", "student", "school_term"), ("tenant", "token")]
         indexes = [
-            models.Index(fields=["token"]),
+            models.Index(fields=["tenant", "token"]),
             models.Index(fields=["expires_at"]),
             models.Index(fields=["is_used"]),
         ]

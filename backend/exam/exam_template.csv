@@ -1,0 +1,11 @@
+Section,Type,Question,OptionA,OptionB,OptionC,OptionD,OptionE,CorrectAnswer,Marks,ExpectedPoints,Instructions
+EXAM_INFO,,,,,,,,,120,Final Examination Instructions: Answer all questions. No calculators allowed.
+Objective,objective,What is the capital of France?,London,Paris,Berlin,Madrid,Rome,B,2,,Answer all questions in this section
+Objective,objective,Which planet is known as the Red Planet?,Venus,Mars,Jupiter,Saturn,,B,2,,
+Objective,objective,What is 2 + 2?,3,4,5,6,,B,1,,
+Theory,theory,Explain the water cycle and its importance to the environment.,,,,,,,5,Mention evaporation condensation precipitation,Answer any THREE questions from this section
+Theory,theory,Describe the process of photosynthesis in plants.,,,,,,,5,Include light reactions and Calvin cycle,
+Theory,theory,What are the main causes of climate change?,,,,,,,5,Discuss both natural and human factors,
+Practical,practical,Design an experiment to test the pH of different substances.,,,,,,,10,Include hypothesis materials procedure and expected results,Follow all safety procedures
+Practical,practical,Create a simple electrical circuit using a battery bulb and wires.,,,,,,,10,Draw circuit diagram and explain current flow,
+Custom,custom,Compare and contrast the French and American Revolutions.,,,,,,,15,,Write a detailed essay

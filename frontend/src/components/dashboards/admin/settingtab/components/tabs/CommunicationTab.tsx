@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { MessageSquare, Mail, Phone, Settings, Eye, EyeOff, CheckCircle, AlertCircle } from 'lucide-react';
+import { API_BASE_URL } from '@/services/api';
 
 // TypeScript interfaces
 interface NotificationSettings {
@@ -103,7 +104,7 @@ const CommunicationTab = () => {
     try {
       setLoading(true);
       const token = localStorage.getItem('authToken');
-      const response = await fetch('/api/school-settings/communication-settings/', {
+      const response = await fetch(`${API_BASE_URL}/school-settings/communication-settings/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -112,7 +113,7 @@ const CommunicationTab = () => {
 
       if (response.ok) {
         const data = await response.json();
-        
+
         // Update notification settings
         setSettings({
           emailNotifications: data.email_notifications_enabled ?? true,
@@ -152,7 +153,7 @@ const CommunicationTab = () => {
       setErrorMessage(null);
       
       const token = localStorage.getItem('authToken');
-      const response = await fetch('/api/school-settings/communication-settings/', {
+      const response = await fetch(`${API_BASE_URL}/school-settings/communication-settings/`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -197,7 +198,7 @@ const CommunicationTab = () => {
       setErrorMessage(null);
       
       const token = localStorage.getItem('authToken');
-      const response = await fetch('/api/school-settings/notifications/brevo/test/', {
+      const response = await fetch(`${API_BASE_URL}/school-settings/notifications/brevo/test/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -233,7 +234,7 @@ const CommunicationTab = () => {
       setErrorMessage(null);
       
       const token = localStorage.getItem('authToken');
-      const response = await fetch('/api/school-settings/notifications/twilio/test/', {
+      const response = await fetch(`${API_BASE_URL}/school-settings/notifications/twilio/test/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -276,7 +277,7 @@ const CommunicationTab = () => {
       setErrorMessage(null);
       
       const token = localStorage.getItem('authToken');
-      const response = await fetch('/api/school-settings/notifications/brevo/send-test/', {
+      const response = await fetch(`${API_BASE_URL}/school-settings/notifications/brevo/send-test/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -319,7 +320,7 @@ const CommunicationTab = () => {
       setErrorMessage(null);
       
       const token = localStorage.getItem('authToken');
-      const response = await fetch('/api/school-settings/notifications/twilio/send-test/', {
+      const response = await fetch(`${API_BASE_URL}/school-settings/notifications/twilio/send-test/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

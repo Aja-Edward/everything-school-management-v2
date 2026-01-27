@@ -1,6 +1,5 @@
 from rest_framework import serializers
 from .models import (
-    SchoolSettings,
     NotificationSettings,
     SystemPreferences,
     SchoolHoliday,
@@ -10,62 +9,6 @@ from .models import (
     Role,
     UserRole,
 )
-
-
-class SchoolSettingsSerializer(serializers.ModelSerializer):
-    """Serializer for school settings"""
-
-    class Meta:
-        model = SchoolSettings
-        fields = [
-            "id",
-            "school_name",
-            "site_name",
-            "school_code",
-            "school_address",
-            "school_phone",
-            "school_email",
-            "school_motto",
-            "logo",  # This is now a URL string
-            "favicon",  # This is now a URL string
-            "academic_year",
-            "current_term",
-            "timezone",
-            "date_format",
-            "language",
-            "theme",
-            "primary_color",
-            "typography",
-            "allow_self_registration",
-            "email_verification_required",
-            "registration_approval_required",
-            "default_user_role",
-            "password_min_length",
-            "password_reset_interval",
-            "password_require_numbers",
-            "password_require_symbols",
-            "password_require_uppercase",
-            "password_expiration",
-            "session_timeout",
-            "account_lock_duration",
-            "max_login_attempts",
-            "allow_profile_image_upload",
-            "profile_image_max_size",
-            "notifications_enabled",
-            "student_portal_enabled",
-            "teacher_portal_enabled",
-            "parent_portal_enabled",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = ["id", "created_at", "updated_at"]
-
-    def to_representation(self, instance):
-        """Custom representation to include logo and favicon URLs"""
-        data = super().to_representation(instance)
-        data["logo_url"] = instance.logo if instance.logo else None
-        data["favicon_url"] = instance.favicon if instance.favicon else None
-        return data
 
 
 class NotificationSettingsSerializer(serializers.ModelSerializer):

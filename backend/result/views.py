@@ -1,5 +1,7 @@
 import tempfile
 import logging
+import csv
+import io
 from decimal import Decimal
 from django.apps import apps
 from django.http import HttpResponse
@@ -15,17 +17,21 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.template.loader import render_to_string
 from utils.section_filtering import SectionFilterMixin, AutoSectionFilterMixin
+from tenants.mixins import TenantFilterMixin
 from .report_generation import get_report_generator
 from utils.teacher_portal_permissions import TeacherPortalCheckMixin
 from django.db.models import Prefetch
 from .filters import StudentTermResultFilter
 from utils.signature_handler import upload_signature_to_cloudinary
 from rest_framework.pagination import PageNumberPagination
+from utils.pagination import LargeResultsPagination, StandardResultsPagination
 from classroom.models import StudentEnrollment
 
 
 from rest_framework.parsers import MultiPartParser, FormParser
 import cloudinary.uploader
+
+from messaging.models import BulkMessage, Message
 
 from .models import (
     StudentResult,
@@ -98,7 +104,6 @@ from .serializers import (
 from students.models import Student
 from academics.models import AcademicSession, Term
 from classroom.models import Stream
-from schoolSettings.models import SchoolSettings
 from subject.models import Subject
 
 logger = logging.getLogger(__name__)
@@ -227,7 +232,11 @@ def validate_result_for_approval(result):
     return errors
 
 
-class GradingSystemViewSet(viewsets.ModelViewSet):  # goodRemoved AutoSectionFilterMixin
+class GradingSystemViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin ensures tenant isolation.
+    Grading systems are school-wide, not section-specific.
+    """
     queryset = GradingSystem.objects.all()
     serializer_class = GradingSystemSerializer
     permission_classes = [IsAuthenticated]
@@ -236,8 +245,10 @@ class GradingSystemViewSet(viewsets.ModelViewSet):  # goodRemoved AutoSectionFil
     search_fields = ["name", "description"]
 
     def get_queryset(self):
+        # CRITICAL: Call super() to get tenant-filtered queryset first
         # Grading systems are school-wide, not section-specific
-        return GradingSystem.objects.prefetch_related("grades")
+        queryset = super().get_queryset()
+        return queryset.prefetch_related("grades")
 
     def get_serializer_class(self):
         # Use write-serializer for create/update
@@ -261,7 +272,11 @@ class GradingSystemViewSet(viewsets.ModelViewSet):  # goodRemoved AutoSectionFil
 
 
 # Also remove from GradeViewSet
-class GradeViewSet(viewsets.ModelViewSet):  # goodRemoved AutoSectionFilterMixin
+class GradeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin ensures tenant isolation.
+    Grades are school-wide, not section-specific.
+    """
     queryset = Grade.objects.all()
     serializer_class = GradeSerializer
     permission_classes = [IsAuthenticated]
@@ -269,11 +284,14 @@ class GradeViewSet(viewsets.ModelViewSet):  # goodRemoved AutoSectionFilterMixin
     filterset_fields = ["grading_system", "is_passing"]
 
     def get_queryset(self):
+        # CRITICAL: Call super() to get tenant-filtered queryset first
         # Grades are also school-wide, not section-specific
-        return Grade.objects.select_related("grading_system")
+        queryset = super().get_queryset()
+        return queryset.select_related("grading_system")
 
 
-class AssessmentTypeViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class AssessmentTypeViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+    """CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation."""
     queryset = AssessmentType.objects.all()
     serializer_class = AssessmentTypeSerializer
     permission_classes = [IsAuthenticated]
@@ -282,7 +300,8 @@ class AssessmentTypeViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
     search_fields = ["name", "code"]
 
 
-class ExamSessionViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class ExamSessionViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+    """CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation."""
     queryset = ExamSession.objects.all()
     serializer_class = ExamSessionSerializer
     permission_classes = [IsAuthenticated]
@@ -359,7 +378,8 @@ class ExamSessionViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
 
 
 # ===== SCORING CONFIGURATION VIEWSET =====
-class ScoringConfigurationViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class ScoringConfigurationViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+    """CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation."""
     queryset = ScoringConfiguration.objects.all().order_by("education_level", "name")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
@@ -5707,8 +5727,11 @@ class ResultCommentViewSet(
         serializer.save(commented_by=self.request.user)
 
 
-class ResultTemplateViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
-    """ViewSet for managing result templates"""
+class ResultTemplateViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
+    ViewSet for managing result templates
+    """
 
     queryset = ResultTemplate.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
@@ -5737,7 +5760,8 @@ class ResultTemplateViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         return Response(ResultTemplateSerializer(template).data)
 
 
-class BulkResultOperationsViewSet(viewsets.ViewSet):
+class BulkResultOperationsViewSet(TenantFilterMixin, viewsets.ViewSet):
+    """CRITICAL: TenantFilterMixin ensures tenant isolation."""
     """ViewSet for bulk result operations"""
 
     permission_classes = [IsAuthenticated]
@@ -5865,6 +5889,7 @@ class BulkResultOperationsViewSet(viewsets.ViewSet):
         try:
             with transaction.atomic():
                 total_published = 0
+                student_ids = set()
 
                 for model in [
                     SeniorSecondaryResult,
@@ -5872,6 +5897,11 @@ class BulkResultOperationsViewSet(viewsets.ViewSet):
                     PrimaryResult,
                     NurseryResult,
                 ]:
+                    # Get student IDs before publishing
+                    if send_notifications:
+                        results_to_publish = model.objects.filter(id__in=result_ids)
+                        student_ids.update(results_to_publish.values_list('student_id', flat=True))
+
                     published = model.objects.filter(id__in=result_ids).update(
                         status="PUBLISHED",
                         published_by=request.user,
@@ -5879,13 +5909,82 @@ class BulkResultOperationsViewSet(viewsets.ViewSet):
                     )
                     total_published += published
 
-                # TODO: Implement notification logic if send_notifications is True
+                # Implement notification logic if send_notifications is True
+                notifications_sent = 0
+                if send_notifications and student_ids:
+                    # Get parent user IDs for the students
+                    from parent.models import ParentStudentRelationship
+                    from students.models import Student
+
+                    # Get all students
+                    students = Student.objects.filter(id__in=student_ids).select_related('user')
+
+                    # Get all parents of these students
+                    parent_relationships = ParentStudentRelationship.objects.filter(
+                        student_id__in=student_ids
+                    ).select_related('parent__user')
+
+                    recipient_user_ids = []
+
+                    # Add student user IDs
+                    recipient_user_ids.extend([s.user.id for s in students if s.user])
+
+                    # Add parent user IDs
+                    recipient_user_ids.extend([
+                        pr.parent.user.id for pr in parent_relationships
+                        if pr.parent and pr.parent.user
+                    ])
+
+                    if recipient_user_ids:
+                        # Create bulk message notification
+                        bulk_message = BulkMessage.objects.create(
+                            sender=request.user,
+                            subject="Results Published",
+                            content=f"Academic results have been published and are now available for viewing. Please check your student portal to view the results.",
+                            message_type='in_app',
+                            priority='high',
+                            custom_recipients=list(set(recipient_user_ids)),  # Remove duplicates
+                            total_recipients=len(set(recipient_user_ids)),
+                            status='sent',
+                            sent_at=timezone.now(),
+                            tenant=request.tenant if hasattr(request, 'tenant') else None
+                        )
+
+                        # Create individual messages for each recipient
+                        from users.models import CustomUser
+                        recipients = CustomUser.objects.filter(id__in=list(set(recipient_user_ids)))
+
+                        messages_to_create = []
+                        for recipient in recipients:
+                            messages_to_create.append(
+                                Message(
+                                    sender=request.user,
+                                    recipient=recipient,
+                                    subject=bulk_message.subject,
+                                    content=bulk_message.content,
+                                    message_type=bulk_message.message_type,
+                                    priority=bulk_message.priority,
+                                    status='sent',
+                                    sent_at=timezone.now(),
+                                    tenant=request.tenant if hasattr(request, 'tenant') else None
+                                )
+                            )
+
+                        # Bulk create all messages
+                        Message.objects.bulk_create(messages_to_create)
+                        notifications_sent = len(messages_to_create)
+
+                        # Update bulk message counts
+                        bulk_message.sent_count = notifications_sent
+                        bulk_message.delivered_count = notifications_sent
+                        bulk_message.save()
 
                 return Response(
                     {
                         "message": f"Successfully published {total_published} results",
                         "published_date": publish_date,
-                        "notifications_sent": send_notifications,
+                        "notifications_sent": notifications_sent if send_notifications else 0,
+                        "recipients_notified": len(set(recipient_user_ids)) if send_notifications and student_ids else 0,
                     },
                     status=status.HTTP_200_OK,
                 )
@@ -5898,7 +5997,8 @@ class BulkResultOperationsViewSet(viewsets.ViewSet):
             )
 
 
-class ResultAnalyticsViewSet(viewsets.ViewSet):
+class ResultAnalyticsViewSet(TenantFilterMixin, viewsets.ViewSet):
+    """CRITICAL: TenantFilterMixin ensures tenant isolation."""
     """ViewSet for result analytics and statistics"""
 
     permission_classes = [IsAuthenticated]
@@ -6042,6 +6142,69 @@ class ResultAnalyticsViewSet(viewsets.ViewSet):
                 percentage_change = 0
                 trend = "STABLE"
 
+            # Calculate best and worst subjects
+            best_subject = None
+            worst_subject = None
+
+            # Get all results for the student based on education level
+            if education_level == "SENIOR_SECONDARY":
+                results = SeniorSecondaryResult.objects.filter(
+                    student=student
+                ).select_related('subject')
+                if academic_session_id:
+                    results = results.filter(exam_session__academic_session_id=academic_session_id)
+            elif education_level == "JUNIOR_SECONDARY":
+                results = JuniorSecondaryResult.objects.filter(
+                    student=student
+                ).select_related('subject')
+                if academic_session_id:
+                    results = results.filter(exam_session__academic_session_id=academic_session_id)
+            elif education_level == "PRIMARY":
+                results = PrimaryResult.objects.filter(
+                    student=student
+                ).select_related('subject')
+                if academic_session_id:
+                    results = results.filter(exam_session__academic_session_id=academic_session_id)
+            else:
+                results = NurseryResult.objects.filter(
+                    student=student
+                ).select_related('subject')
+                if academic_session_id:
+                    results = results.filter(exam_session__academic_session_id=academic_session_id)
+
+            # Calculate average score per subject
+            subject_scores = {}
+            for result in results:
+                subject_name = result.subject.name if hasattr(result, 'subject') and result.subject else "Unknown"
+                total = float(result.total or 0)
+
+                if subject_name in subject_scores:
+                    subject_scores[subject_name].append(total)
+                else:
+                    subject_scores[subject_name] = [total]
+
+            # Calculate average for each subject
+            subject_averages = {
+                subject: sum(scores) / len(scores)
+                for subject, scores in subject_scores.items()
+                if scores
+            }
+
+            if subject_averages:
+                # Find best subject (highest average)
+                best_subject_name = max(subject_averages, key=subject_averages.get)
+                best_subject = {
+                    "name": best_subject_name,
+                    "average_score": round(subject_averages[best_subject_name], 2)
+                }
+
+                # Find worst subject (lowest average)
+                worst_subject_name = min(subject_averages, key=subject_averages.get)
+                worst_subject = {
+                    "name": worst_subject_name,
+                    "average_score": round(subject_averages[worst_subject_name], 2)
+                }
+
             response_data = {
                 "student": StudentMinimalSerializer(student).data,
                 "term_scores": term_scores,
@@ -6052,8 +6215,8 @@ class ResultAnalyticsViewSet(viewsets.ViewSet):
                 ),
                 "trend": trend,
                 "percentage_change": round(percentage_change, 2),
-                "best_subject": None,  # TODO: Implement
-                "worst_subject": None,  # TODO: Implement
+                "best_subject": best_subject,
+                "worst_subject": worst_subject,
             }
 
             return Response(response_data)
@@ -6126,6 +6289,61 @@ class ResultAnalyticsViewSet(viewsets.ViewSet):
             for report in top_performers
         ]
 
+        # Add subject performance breakdown
+        result_model_map = {
+            "SENIOR_SECONDARY": SeniorSecondaryResult,
+            "JUNIOR_SECONDARY": JuniorSecondaryResult,
+            "PRIMARY": PrimaryResult,
+            "NURSERY": NurseryResult,
+        }
+
+        result_model = result_model_map.get(education_level)
+        subject_performance = []
+
+        if result_model:
+            # Get all results for this class and exam session
+            results = result_model.objects.filter(
+                exam_session_id=exam_session_id,
+                student__student_class=student_class,
+                status__in=["APPROVED", "PUBLISHED"],
+            ).select_related('subject')
+
+            # Group by subject and calculate statistics
+            subject_stats = {}
+            for result in results:
+                subject_name = result.subject.name if hasattr(result, 'subject') and result.subject else "Unknown"
+                total_score = float(result.total or 0)
+
+                if subject_name not in subject_stats:
+                    subject_stats[subject_name] = {
+                        'scores': [],
+                        'passed': 0,
+                        'failed': 0
+                    }
+
+                subject_stats[subject_name]['scores'].append(total_score)
+                if total_score >= 50:
+                    subject_stats[subject_name]['passed'] += 1
+                else:
+                    subject_stats[subject_name]['failed'] += 1
+
+            # Calculate averages and build response
+            for subject_name, stats in subject_stats.items():
+                scores = stats['scores']
+                if scores:
+                    subject_performance.append({
+                        'subject': subject_name,
+                        'average_score': round(sum(scores) / len(scores), 2),
+                        'highest_score': round(max(scores), 2),
+                        'lowest_score': round(min(scores), 2),
+                        'students_passed': stats['passed'],
+                        'students_failed': stats['failed'],
+                        'pass_rate': round((stats['passed'] / len(scores) * 100) if len(scores) > 0 else 0, 2)
+                    })
+
+            # Sort by average score descending
+            subject_performance.sort(key=lambda x: x['average_score'], reverse=True)
+
         response_data = {
             "student_class": student_class,
             "education_level": education_level,
@@ -6133,7 +6351,7 @@ class ResultAnalyticsViewSet(viewsets.ViewSet):
             "class_average": round(class_average, 2),
             "pass_rate": round(pass_rate, 2),
             "top_performers": top_performers_data,
-            "subject_performance": [],  # TODO: Add subject breakdown
+            "subject_performance": subject_performance,
         }
 
         return Response(response_data)
@@ -6198,37 +6416,190 @@ class ResultAnalyticsViewSet(viewsets.ViewSet):
         return Response(summary)
 
 
-class ResultImportExportViewSet(viewsets.ViewSet):
+class ResultImportExportViewSet(TenantFilterMixin, viewsets.ViewSet):
+    """CRITICAL: TenantFilterMixin ensures tenant isolation."""
     """ViewSet for importing and exporting results"""
 
     permission_classes = [IsAuthenticated]
 
     @action(detail=False, methods=["post"])
     def import_results(self, request):
-        """Import results from file"""
+        """Import results from CSV file"""
         serializer = ResultImportSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        # TODO: Implement CSV/Excel import logic
-        return Response(
-            {"message": "Import functionality to be implemented", "status": "pending"},
-            status=status.HTTP_501_NOT_IMPLEMENTED,
-        )
+        file_obj = request.FILES.get('file')
+        if not file_obj:
+            return Response(
+                {"error": "No file provided"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            # Determine education level and exam session from request
+            education_level = serializer.validated_data.get('education_level')
+            exam_session_id = serializer.validated_data.get('exam_session_id')
+
+            # Map education level to result model
+            model_map = {
+                "SENIOR_SECONDARY": SeniorSecondaryResult,
+                "JUNIOR_SECONDARY": JuniorSecondaryResult,
+                "PRIMARY": PrimaryResult,
+                "NURSERY": NurseryResult,
+            }
+
+            result_model = model_map.get(education_level)
+            if not result_model:
+                return Response(
+                    {"error": "Invalid education level"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Read CSV file
+            decoded_file = file_obj.read().decode('utf-8')
+            io_string = io.StringIO(decoded_file)
+            reader = csv.DictReader(io_string)
+
+            imported_count = 0
+            errors = []
+
+            with transaction.atomic():
+                for row_num, row in enumerate(reader, start=2):
+                    try:
+                        # Expected CSV format: student_id, subject_id, ca_score, exam_score
+                        from students.models import Student
+                        from subject.models import Subject
+
+                        student = Student.objects.get(id=row['student_id'])
+                        subject = Subject.objects.get(id=row['subject_id'])
+
+                        # Create or update result
+                        result, created = result_model.objects.update_or_create(
+                            student=student,
+                            subject=subject,
+                            exam_session_id=exam_session_id,
+                            defaults={
+                                'ca_score': Decimal(row.get('ca_score', 0)),
+                                'exam_score': Decimal(row.get('exam_score', 0)),
+                                'total': Decimal(row.get('ca_score', 0)) + Decimal(row.get('exam_score', 0)),
+                                'status': 'DRAFT',
+                                'tenant': request.tenant if hasattr(request, 'tenant') else None
+                            }
+                        )
+                        imported_count += 1
+
+                    except Student.DoesNotExist:
+                        errors.append(f"Row {row_num}: Student ID {row.get('student_id')} not found")
+                    except Subject.DoesNotExist:
+                        errors.append(f"Row {row_num}: Subject ID {row.get('subject_id')} not found")
+                    except Exception as e:
+                        errors.append(f"Row {row_num}: {str(e)}")
+
+            return Response(
+                {
+                    "message": f"Successfully imported {imported_count} results",
+                    "imported_count": imported_count,
+                    "error_count": len(errors),
+                    "errors": errors[:10]  # Return first 10 errors only
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+            logger.error(f"Import failed: {str(e)}")
+            return Response(
+                {"error": f"Import failed: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     @action(detail=False, methods=["post"])
     def export_results(self, request):
-        """Export results to file"""
+        """Export results to CSV file"""
         serializer = ResultExportSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        # TODO: Implement CSV/Excel/PDF export logic
-        return Response(
-            {"message": "Export functionality to be implemented", "status": "pending"},
-            status=status.HTTP_501_NOT_IMPLEMENTED,
-        )
+        try:
+            education_level = serializer.validated_data.get('education_level')
+            exam_session_id = serializer.validated_data.get('exam_session_id')
+            student_class = serializer.validated_data.get('student_class')
+            export_format = serializer.validated_data.get('export_format', 'csv')
+
+            # Map education level to result model
+            model_map = {
+                "SENIOR_SECONDARY": SeniorSecondaryResult,
+                "JUNIOR_SECONDARY": JuniorSecondaryResult,
+                "PRIMARY": PrimaryResult,
+                "NURSERY": NurseryResult,
+            }
+
+            result_model = model_map.get(education_level)
+            if not result_model:
+                return Response(
+                    {"error": "Invalid education level"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Query results
+            results = result_model.objects.filter(
+                exam_session_id=exam_session_id
+            ).select_related('student', 'subject')
+
+            if student_class:
+                results = results.filter(student__student_class=student_class)
+
+            # Only export CSV for now (Excel requires openpyxl which may not be installed)
+            if export_format == 'csv':
+                # Create CSV response
+                response = HttpResponse(content_type='text/csv')
+                response['Content-Disposition'] = f'attachment; filename="results_{exam_session_id}_{education_level}.csv"'
+
+                writer = csv.writer(response)
+                # Write header
+                writer.writerow([
+                    'Student ID',
+                    'Student Name',
+                    'Student Class',
+                    'Subject ID',
+                    'Subject Name',
+                    'CA Score',
+                    'Exam Score',
+                    'Total',
+                    'Grade',
+                    'Status'
+                ])
+
+                # Write data rows
+                for result in results:
+                    writer.writerow([
+                        result.student.id,
+                        result.student.full_name if hasattr(result.student, 'full_name') else f"{result.student.user.first_name} {result.student.user.last_name}",
+                        result.student.student_class if hasattr(result.student, 'student_class') else '',
+                        result.subject.id if hasattr(result, 'subject') else '',
+                        result.subject.name if hasattr(result, 'subject') else '',
+                        result.ca_score or 0,
+                        result.exam_score or 0,
+                        result.total or 0,
+                        result.grade or '',
+                        result.status or ''
+                    ])
+
+                return response
+            else:
+                return Response(
+                    {"error": "Only CSV export is currently supported"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        except Exception as e:
+            logger.error(f"Export failed: {str(e)}")
+            return Response(
+                {"error": f"Export failed: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
 
-class ReportGenerationViewSet(viewsets.ViewSet):
+class ReportGenerationViewSet(TenantFilterMixin, viewsets.ViewSet):
+    """CRITICAL: TenantFilterMixin ensures tenant isolation."""
     """ViewSet for generating and downloading PDF reports"""
 
     permission_classes = [IsAuthenticated]
@@ -7260,6 +7631,7 @@ class HeadTeacherAssignmentViewSet(
     """
 
     permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate results
     parser_classes = (MultiPartParser, FormParser)
 
     def get_queryset_for_head_teacher(self, exam_session):

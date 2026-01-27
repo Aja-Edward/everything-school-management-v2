@@ -597,6 +597,8 @@ from django.views.decorators.csrf import csrf_exempt
 import logging
 
 from utils.section_filtering import AutoSectionFilterMixin
+from tenants.mixins import TenantFilterMixin
+from utils.pagination import StandardResultsPagination
 from .models import ParentProfile
 from .serializers import ParentProfileSerializer
 from .permissions import IsParent, IsParentOrAdmin
@@ -609,8 +611,9 @@ logger = logging.getLogger(__name__)
 
 
 @method_decorator(csrf_exempt, name="dispatch")
-class ParentViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """
+    CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
     Parent ViewSet with automatic section filtering.
     Section admins only see parents whose children are in their sections.
     """
@@ -618,12 +621,14 @@ class ParentViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
     queryset = ParentProfile.objects.all()
     serializer_class = ParentProfileSerializer
     permission_classes = [IsParentOrAdmin]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate parents
 
     def get_queryset(self):
         """
-        FIXED: Use AutoSectionFilterMixin for section filtering
+        CRITICAL: Call super() to get tenant-filtered queryset first.
+        Then use AutoSectionFilterMixin for section filtering.
         """
-        # Let the mixin handle section filtering
+        # CRITICAL: Call super() to get tenant-filtered queryset first
         queryset = super().get_queryset()
 
         user = self.request.user

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Search, Plus, Edit, Trash2, Eye, User, Phone, Mail, MapPin, Calendar, Users, GraduationCap, X, Save, UserPlus, Power, PowerOff, Filter } from 'lucide-react';
 import { toast } from 'react-toastify';
 import ParentService, { Parent, CreateParentData, UpdateParentData } from '@/services/ParentService';
+import api from '@/services/api';
 
 const ParentListNew: React.FC = () => {
   const [parents, setParents] = useState<Parent[]>([]);
@@ -626,6 +627,14 @@ interface ParentModalProps {
   onClose: () => void;
 }
 
+interface Student {
+  id: number;
+  full_name: string;
+  education_level_display?: string;
+  student_class_display?: string;
+  stream_name?: string;
+}
+
 const ParentModal: React.FC<ParentModalProps> = ({ parent, mode, onSave, onClose }) => {
   const [formData, setFormData] = useState({
     user_email: parent?.user || '',
@@ -636,12 +645,49 @@ const ParentModal: React.FC<ParentModalProps> = ({ parent, mode, onSave, onClose
     student_ids: parent?.students?.map(s => s.id) || []
   });
 
+  const [availableStudents, setAvailableStudents] = useState<Student[]>([]);
+  const [loadingStudents, setLoadingStudents] = useState(false);
+  const [searchStudentTerm, setSearchStudentTerm] = useState('');
+
+  // Fetch available students
+  useEffect(() => {
+    const fetchStudents = async () => {
+      if (mode === 'view') return; // No need to fetch for view mode
+
+      try {
+        setLoadingStudents(true);
+        console.log('Fetching students from /api/students/students/');
+        const response = await api.get('/api/students/students/');
+        console.log('Students response:', response);
+        const studentsData = Array.isArray(response) ? response : (response.results || []);
+        console.log('Parsed students data:', studentsData);
+        setAvailableStudents(studentsData);
+      } catch (error: any) {
+        console.error('Error fetching students:', error);
+        console.error('Error details:', {
+          message: error.message,
+          response: error.response,
+          status: error.response?.status,
+          data: error.response?.data
+        });
+        // Don't show error toast if it's just empty results
+        if (error.response?.status !== 404) {
+          toast.error(`Failed to load students: ${error.message}`);
+        }
+      } finally {
+        setLoadingStudents(false);
+      }
+    };
+
+    fetchStudents();
+  }, [mode]);
+
   // Update form data when parent changes
   useEffect(() => {
     if (parent) {
       // Handle nested user object structure
       const userData = parent.user && typeof parent.user === 'object' ? parent.user as any : {};
-      
+
       setFormData({
         user_email: userData.email || parent.user || '',
         user_first_name: userData.first_name || parent.user_first_name || '',
@@ -667,10 +713,26 @@ const ParentModal: React.FC<ParentModalProps> = ({ parent, mode, onSave, onClose
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  const handleStudentToggle = (studentId: number) => {
+    setFormData(prev => {
+      const isSelected = prev.student_ids.includes(studentId);
+      return {
+        ...prev,
+        student_ids: isSelected
+          ? prev.student_ids.filter(id => id !== studentId)
+          : [...prev.student_ids, studentId]
+      };
+    });
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSave(formData);
   };
+
+  const filteredAvailableStudents = availableStudents.filter(student =>
+    student.full_name.toLowerCase().includes(searchStudentTerm.toLowerCase())
+  );
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -807,6 +869,86 @@ const ParentModal: React.FC<ParentModalProps> = ({ parent, mode, onSave, onClose
                   onChange={handleInputChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
+              </div>
+
+              {/* Student Selection Section */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Link Students (Optional)
+                </label>
+                <p className="text-xs text-gray-500 mb-3">
+                  Select one or more students to link to this parent. You can also link students later.
+                </p>
+
+                {loadingStudents ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Search Students */}
+                    <div className="mb-3">
+                      <input
+                        type="text"
+                        placeholder="Search students..."
+                        value={searchStudentTerm}
+                        onChange={(e) => setSearchStudentTerm(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      />
+                    </div>
+
+                    {/* Selected Students Count */}
+                    {formData.student_ids.length > 0 && (
+                      <div className="mb-2 text-sm text-blue-600">
+                        {formData.student_ids.length} student{formData.student_ids.length !== 1 ? 's' : ''} selected
+                      </div>
+                    )}
+
+                    {/* Student List */}
+                    <div className="border border-gray-300 rounded-lg max-h-64 overflow-y-auto">
+                      {filteredAvailableStudents.length === 0 ? (
+                        <div className="p-4 text-center text-gray-500 text-sm">
+                          {searchStudentTerm ? 'No students found matching your search' : 'No students available'}
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-gray-200">
+                          {filteredAvailableStudents.map((student) => {
+                            const isSelected = formData.student_ids.includes(student.id);
+                            return (
+                              <label
+                                key={student.id}
+                                className={`flex items-center p-3 cursor-pointer hover:bg-gray-50 transition-colors ${
+                                  isSelected ? 'bg-blue-50' : ''
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => handleStudentToggle(student.id)}
+                                  className="mr-3 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-medium text-gray-900 text-sm truncate">
+                                    {student.full_name}
+                                  </div>
+                                  <div className="text-xs text-gray-500 truncate">
+                                    {student.education_level_display || 'Unknown Level'}
+                                    {student.student_class_display && ` - ${student.student_class_display}`}
+                                    {student.stream_name && (
+                                      <span className="text-blue-600 ml-1">
+                                        ({student.stream_name})
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 

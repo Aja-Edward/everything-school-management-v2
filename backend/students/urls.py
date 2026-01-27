@@ -127,12 +127,6 @@ urlpatterns = [
     # Specific paths MUST come before router patterns
     # Function-based view for current user's schedule (standalone)
     path("my-schedule/", student_schedule_view, name="student-schedule"),
-    # Additional specific student endpoints that might conflict with {pk} pattern
-    path(
-        "students/my-schedule/",
-        StudentViewSet.as_view({"get": "my_schedule"}),
-        name="student-my-schedule",
-    ),
     # Token-related endpoints (admin and student)
     path(
         "admin/generate-result-tokens/",
@@ -164,32 +158,14 @@ urlpatterns = [
         views.verify_result_token,
         name="verify_result_token",
     ),
-    path(
-        "students/my-weekly-schedule/",
-        StudentViewSet.as_view({"get": "my_weekly_schedule"}),
-        name="student-my-weekly-schedule",
-    ),
-    path(
-        "students/my-current-period/",
-        StudentViewSet.as_view({"get": "my_current_period"}),
-        name="student-my-current-period",
-    ),
-    path(
-        "students/current_schedule/",
-        StudentViewSet.as_view({"get": "current_schedule"}),
-        name="student-current-schedule-alt",
-    ),
-    path(
-        "students/dashboard/",
-        StudentViewSet.as_view({"get": "dashboard"}),
-        name="student-dashboard-alt",
-    ),
-    path(
-        "students/profile/",
-        StudentViewSet.as_view({"get": "profile"}),
-        name="student-profile-alt",
-    ),
-    # Include router URLs LAST - this includes the {pk} patterns
+    # Include router URLs - this includes the {pk} patterns AND @action endpoints
+    # Router will automatically create:
+    # - /students/my-schedule/ (from @action)
+    # - /students/my-weekly-schedule/ (from @action)
+    # - /students/my-current-period/ (from @action)
+    # - /students/dashboard/ (from @action)
+    # - /students/profile/ (from @action)
+    # - /students/current_schedule/ (from @action if exists)
     path("", include(router.urls)),
 ]
 

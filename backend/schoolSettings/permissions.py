@@ -261,12 +261,17 @@ class HasStudentsPermissionOrReadOnly(permissions.BasePermission):
             return request.user and request.user.is_authenticated
 
         # Write permissions require specific permission
+        is_platform_admin = (
+            request.user.is_superuser or
+            (hasattr(request.user, 'role') and request.user.role.upper() == 'SUPERADMIN')
+        )
+
         return (
             request.user
             and request.user.is_authenticated
             and (
                 request.user.is_staff
-                or request.user.is_superuser
+                or is_platform_admin
                 or self._has_students_write_permission(request.user)
             )
         )
@@ -291,8 +296,13 @@ class IsStudentOwnerOrStaff(permissions.BasePermission):
         return request.user and request.user.is_authenticated
 
     def has_object_permission(self, request, view, obj):
-        # Staff and superusers can access any student record
-        if request.user.is_staff or request.user.is_superuser:
+        # Staff and platform admins can access any student record
+        is_platform_admin = (
+            request.user.is_superuser or
+            (hasattr(request.user, 'role') and request.user.role.upper() == 'SUPERADMIN')
+        )
+
+        if request.user.is_staff or is_platform_admin:
             return True
 
         # Students can only access their own record
@@ -351,8 +361,13 @@ class ModulePermissionBase(permissions.BasePermission):
 
     def user_has_permission(self, user, module, permission_type):
         """Check if user has specific permission through their role assignments"""
-        # Super admins have full access to everything
-        if user.is_superuser:
+        # Platform admins have full access to everything (both is_superuser flag and role='SUPERADMIN')
+        is_platform_admin = (
+            user.is_superuser or
+            (hasattr(user, 'role') and user.role.upper() == 'SUPERADMIN')
+        )
+
+        if is_platform_admin:
             return True
 
         # Get all active role assignments for the user
@@ -631,8 +646,13 @@ class SectionPermissionBase(permissions.BasePermission):
         if not request.user.is_active:
             return False
 
-        # Superusers have access to all sections
-        if request.user.is_superuser:
+        # Platform admins have access to all sections
+        is_platform_admin = (
+            request.user.is_superuser or
+            (hasattr(request.user, 'role') and request.user.role.upper() == 'SUPERADMIN')
+        )
+
+        if is_platform_admin:
             return True
 
         # Get user's section access from role assignments
@@ -694,8 +714,13 @@ class SubSectionPermissionBase(permissions.BasePermission):
         if not request.user.is_active:
             return False
 
-        # Superusers have access to all sections
-        if request.user.is_superuser:
+        # Platform admins have access to all sections
+        is_platform_admin = (
+            request.user.is_superuser or
+            (hasattr(request.user, 'role') and request.user.role.upper() == 'SUPERADMIN')
+        )
+
+        if is_platform_admin:
             return True
 
         # Get user's section access from role assignments
@@ -717,13 +742,24 @@ class SubSectionPermissionBase(permissions.BasePermission):
                 has_section_access = True
 
             if has_section_access:
-                # If no specific grade levels specified, grant access
+                # If no specific grade levels specified in permission class, grant access
                 if not self.grade_levels:
                     return True
 
-                # TODO: Check if role has specific grade level restrictions
-                # For now, if they have section access, they can access sub-sections
-                return True
+                # Check if user has specific grade level restrictions
+                allowed_grades = user_role.allowed_grade_levels
+
+                # If no grade level restrictions set (None or empty list), grant access to all
+                if not allowed_grades:
+                    return True
+
+                # Check if any of the permission's required grade levels match user's allowed grades
+                # Use set intersection for efficient checking
+                permission_grades = set(self.grade_levels)
+                user_allowed_grades = set(allowed_grades)
+
+                if permission_grades.intersection(user_allowed_grades):
+                    return True
 
         return False
 
@@ -953,7 +989,13 @@ class IsSectionAdmin(permissions.BasePermission):
         if not request.user or not request.user.is_authenticated:
             return False
 
-        if request.user.is_superuser:
+        # Platform admins have full access
+        is_platform_admin = (
+            request.user.is_superuser or
+            (hasattr(request.user, 'role') and request.user.role.upper() == 'SUPERADMIN')
+        )
+
+        if is_platform_admin:
             return True
 
         # Check if user has any admin role
@@ -997,15 +1039,22 @@ class IsAdminOrReadOnly(permissions.BasePermission):
 def get_user_sections(user):
     """
     Get all sections a user has access to
-    Returns: dict with keys 'primary', 'secondary', 'nursery'
+    Returns: dict with keys 'primary', 'secondary', 'nursery', 'allowed_grade_levels'
     """
-    if user.is_superuser:
+    # Platform admins have access to all sections
+    is_platform_admin = (
+        user.is_superuser or
+        (hasattr(user, 'role') and user.role.upper() == 'SUPERADMIN')
+    )
+
+    if is_platform_admin:
         return {
             "primary": True,
             "secondary": True,
             "nursery": True,
             "junior_secondary": True,
             "senior_secondary": True,
+            "allowed_grade_levels": None,  # None means access to all grades
         }
 
     from schoolSettings.models import UserRole
@@ -1018,22 +1067,44 @@ def get_user_sections(user):
         "nursery": False,
         "junior_secondary": False,
         "senior_secondary": False,
+        "allowed_grade_levels": set(),  # Collect all allowed grade levels
     }
 
     for user_role in user_roles:
         if user_role.is_expired():
             continue
 
+        # Collect allowed grade levels from all active roles
+        if user_role.allowed_grade_levels:
+            sections["allowed_grade_levels"].update(user_role.allowed_grade_levels)
+
         if user_role.primary_section_access:
             sections["primary"] = True
         if user_role.secondary_section_access:
             sections["secondary"] = True
-            # Assume if they have secondary access, they have both junior and senior
-            # unless specific grade level restrictions apply
-            sections["junior_secondary"] = True
-            sections["senior_secondary"] = True
+            # Check if they have grade level restrictions for secondary
+            if user_role.allowed_grade_levels:
+                # Parse allowed grades to determine JSS/SSS access
+                jss_grades = {"JSS 1", "JSS 2", "JSS 3"}
+                sss_grades = {"SSS 1", "SSS 2", "SSS 3", "SS 1", "SS 2", "SS 3"}
+                user_grades = set(user_role.allowed_grade_levels)
+
+                if user_grades.intersection(jss_grades):
+                    sections["junior_secondary"] = True
+                if user_grades.intersection(sss_grades):
+                    sections["senior_secondary"] = True
+            else:
+                # No restrictions, grant access to both
+                sections["junior_secondary"] = True
+                sections["senior_secondary"] = True
         if user_role.nursery_section_access:
             sections["nursery"] = True
+
+    # Convert allowed_grade_levels set to list for JSON serialization
+    # If empty, set to None (means access to all grades in assigned sections)
+    sections["allowed_grade_levels"] = (
+        list(sections["allowed_grade_levels"]) if sections["allowed_grade_levels"] else None
+    )
 
     return sections
 
@@ -1043,7 +1114,13 @@ def get_user_permissions(user):
     Get all module permissions for a user
     Returns: dict mapping module names to list of permission types
     """
-    if user.is_superuser:
+    # Platform admins have all permissions
+    is_platform_admin = (
+        user.is_superuser or
+        (hasattr(user, 'role') and user.role.upper() == 'SUPERADMIN')
+    )
+
+    if is_platform_admin:
         return {"all": ["read", "write", "delete"]}
 
     from schoolSettings.models import UserRole

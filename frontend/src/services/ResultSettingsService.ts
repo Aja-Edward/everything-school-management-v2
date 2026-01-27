@@ -1,4 +1,4 @@
-import api from './api';
+import api, { API_BASE_URL } from './api';
 import { SchoolSettings, AcademicSession } from '@/types/types';
 
 
@@ -1252,22 +1252,21 @@ async getPrimaryTermReports(filters?: ResultFilters): Promise<any[]> {
  */
 async downloadTermReportPDF(reportId: string, educationLevel: string): Promise<Blob> {
   try {
-    const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://school-project-with-edward.onrender.com/api';
     const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
-    
+
     if (!token) {
       throw new Error('Authentication token not found. Please login again.');
     }
-    
+
     const params = new URLSearchParams({
       report_id: reportId,
       education_level: educationLevel.toUpperCase()
     });
-    
+
     // Ensure proper URL construction - API_BASE_URL already includes /api
     const baseUrl = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
     const url = `${baseUrl}/results/report-generation/download-term-report/?${params}`;
-    
+
     console.log('📄 Downloading term report PDF from:', url);
     
     const response = await fetch(url, {
@@ -1310,20 +1309,19 @@ async downloadTermReportPDF(reportId: string, educationLevel: string): Promise<B
  */
 async downloadSessionReportPDF(reportId: string): Promise<Blob> {
   try {
-    const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://school-project-with-edward.onrender.com/api';
     const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
-    
+
     if (!token) {
       throw new Error('Authentication token not found. Please login again.');
     }
-    
+
     const params = new URLSearchParams({
       report_id: reportId
     });
-    
+
     const baseUrl = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
     const url = `${baseUrl}/results/report-generation/download-session-report/?${params}`;
-    
+
     console.log('📄 Downloading session report PDF from:', url);
     
     const response = await fetch(url, {
@@ -1367,20 +1365,19 @@ async downloadSessionReportPDF(reportId: string): Promise<Blob> {
  */
 async bulkDownloadTermReports(reportIds: string[], educationLevel: string): Promise<Blob> {
   try {
-    const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://school-project-with-edward.onrender.com/api';
     const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
-    
+
     if (!token) {
       throw new Error('Authentication token not found. Please login again.');
     }
-    
+
     if (!reportIds || reportIds.length === 0) {
       throw new Error('No report IDs provided for bulk download.');
     }
-    
+
     const baseUrl = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
     const url = `${baseUrl}/results/report-generation/bulk-download/`;
-    
+
     console.log('📦 Bulk downloading reports from:', url);
     console.log('📦 Report IDs:', reportIds);
     

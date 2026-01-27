@@ -1641,32 +1641,71 @@ class TeacherDashboardService {
   }
 
   /**
-   * Get comprehensive teacher dashboard data (Legacy method)
-   * 
-   * This method makes multiple API calls to gather all dashboard data.
-   * Consider using getOptimizedDashboard() instead for better performance.
+   * Get comprehensive teacher dashboard data (Legacy method - OPTIMIZED)
+   *
+   * This method has been optimized to minimize API calls by:
+   * 1. Fetching teacher data ONCE and deriving classes/subjects from it
+   * 2. Skipping non-critical data (activities, events) for initial load
+   * 3. Using cached results where available
    */
   async getTeacherDashboardData(teacherId: number) {
-    try {
-      const [stats, activities, events, classes, subjects, exams] = await Promise.all([
-        this.getTeacherDashboardStats(teacherId),
-        this.getTeacherRecentActivities(teacherId),
-        this.getTeacherUpcomingEvents(teacherId),
-        this.getTeacherClasses(teacherId),
-        this.getTeacherSubjects(teacherId),
-        ExamService.getExamsByTeacher(teacherId)
-      ]);
+    const cacheKey = `dashboard-legacy-${teacherId}`;
 
-      return {
-        stats,
-        activities,
-        events,
-        classes,
-        subjects,
-        exams: Array.isArray(exams) ? exams : []
-      };
+    // Check cache first
+    const cached = this.cacheManager.get(cacheKey);
+    if (cached) return cached;
+
+    // Check pending request
+    const pending = this.cacheManager.getPending(cacheKey);
+    if (pending) return pending;
+
+    try {
+      console.log('🔄 Fetching teacher dashboard data (optimized fallback)...');
+      const startTime = performance.now();
+
+      const promise = (async () => {
+        // 1. Fetch teacher data ONCE (this contains classroom_assignments)
+        const teacherResponse = await TeacherService.getTeacher(teacherId);
+        const classroomAssignments = teacherResponse.classroom_assignments || [];
+
+        // 2. Derive classes from teacher data (no extra API call)
+        const classes = this.deriveClassesFromAssignments(classroomAssignments);
+
+        // 3. Derive subjects from teacher data (no extra API call)
+        const subjects = this.deriveSubjectsFromAssignments(classroomAssignments);
+
+        // 4. Calculate stats from teacher data (minimal API calls)
+        const stats = await this.calculateStatsFromTeacherData(teacherId, teacherResponse, classroomAssignments);
+
+        // 5. Fetch exams (single API call)
+        const exams = await ExamService.getExamsByTeacher(teacherId).catch(() => []);
+
+        const loadTime = performance.now() - startTime;
+        console.log(`✅ Dashboard data loaded in ${loadTime.toFixed(0)}ms (optimized fallback)`);
+
+        const result = {
+          stats,
+          activities: [], // Loaded later via extended data
+          events: [],     // Loaded later via extended data
+          classes,
+          subjects,
+          exams: Array.isArray(exams) ? exams : []
+        };
+
+        // Cache the result
+        this.cacheManager.set(cacheKey, result);
+        this.cacheManager.removePending(cacheKey);
+
+        return result;
+      })();
+
+      this.cacheManager.setPending(cacheKey, promise);
+      return promise;
+
     } catch (error: any) {
       console.error('Error fetching teacher dashboard data:', error);
+      this.cacheManager.removePending(cacheKey);
+
       return {
         stats: {
           totalStudents: 0,
@@ -1685,6 +1724,144 @@ class TeacherDashboardService {
         exams: []
       };
     }
+  }
+
+  /**
+   * Derive classes from classroom assignments (no API call)
+   */
+  private deriveClassesFromAssignments(assignments: any[]): TeacherClassData[] {
+    const assignmentGroups = new Map();
+
+    assignments.forEach((assignment: any) => {
+      const uniqueKey = `${assignment.classroom_id}_${assignment.subject_id || assignment.subject?.id}`;
+
+      if (!assignmentGroups.has(uniqueKey)) {
+        assignmentGroups.set(uniqueKey, {
+          id: assignment.classroom_id,
+          name: assignment.classroom_name,
+          section_id: assignment.section_id,
+          section_name: assignment.section_name,
+          grade_level_id: assignment.grade_level_id,
+          grade_level_name: assignment.grade_level_name,
+          education_level: assignment.education_level,
+          student_count: assignment.student_count,
+          max_capacity: assignment.max_capacity,
+          subject_id: assignment.subject_id || assignment.subject?.id,
+          subject_name: assignment.subject_name,
+          subject_code: assignment.subject_code,
+          room_number: assignment.room_number,
+          is_primary_teacher: assignment.is_primary_teacher,
+          periods_per_week: assignment.periods_per_week,
+          stream_name: assignment.stream_name,
+          stream_type: assignment.stream_type,
+        });
+      }
+    });
+
+    return Array.from(assignmentGroups.values());
+  }
+
+  /**
+   * Derive subjects from classroom assignments (no API call)
+   */
+  private deriveSubjectsFromAssignments(assignments: any[]): TeacherSubjectData[] {
+    const subjectMap = new Map<number, TeacherSubjectData>();
+
+    assignments.forEach((assignment: any) => {
+      const subjectId = assignment.subject_id;
+      if (!subjectId) return;
+
+      if (!subjectMap.has(subjectId)) {
+        subjectMap.set(subjectId, {
+          id: subjectId,
+          name: assignment.subject_name,
+          code: assignment.subject_code || '',
+          assignments: []
+        });
+      }
+
+      subjectMap.get(subjectId)!.assignments.push({
+        id: assignment.id,
+        classroom_name: assignment.classroom_name,
+        classroom_id: assignment.classroom_id,
+        grade_level: assignment.grade_level_name,
+        section: assignment.section_name,
+        education_level: assignment.education_level,
+        stream_type: assignment.stream_type,
+        student_count: assignment.student_count || 0,
+        is_class_teacher: assignment.is_primary_teacher || false,
+        periods_per_week: assignment.periods_per_week || 1
+      });
+    });
+
+    return Array.from(subjectMap.values());
+  }
+
+  /**
+   * Calculate stats from already-fetched teacher data (minimal API calls)
+   */
+  private async calculateStatsFromTeacherData(
+    teacherId: number,
+    teacherResponse: any,
+    classroomAssignments: any[]
+  ): Promise<TeacherDashboardStats> {
+    // Calculate totals from existing data (no API calls)
+    const totalStudents = typeof teacherResponse.total_students === 'number'
+      ? teacherResponse.total_students
+      : (() => {
+          const seen = new Set<number>();
+          let sum = 0;
+          classroomAssignments.forEach((a: any) => {
+            if (a && typeof a.classroom_id === 'number' && !seen.has(a.classroom_id)) {
+              seen.add(a.classroom_id);
+              sum += a.student_count || 0;
+            }
+          });
+          return sum;
+        })();
+
+    const totalClasses = (() => {
+      const ids = new Set<number>();
+      classroomAssignments.forEach((a: any) => {
+        if (a && typeof a.classroom_id === 'number') ids.add(a.classroom_id);
+      });
+      return ids.size || classroomAssignments.length;
+    })();
+
+    const totalSubjects = typeof teacherResponse.total_subjects === 'number'
+      ? teacherResponse.total_subjects
+      : new Set(classroomAssignments.map((a: any) => a.subject_name).filter(Boolean)).size;
+
+    // Only fetch attendance rate (single API call, limited data)
+    let attendanceRate = 0;
+    try {
+      const currentDate = new Date();
+      const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+
+      const attendanceResponse = await getAttendance({
+        teacher: teacherId,
+        date__gte: startOfMonth.toISOString().split('T')[0],
+        limit: 100 // Limit to reduce data transfer
+      });
+
+      if (attendanceResponse && attendanceResponse.length > 0) {
+        const presentCount = attendanceResponse.filter((r: any) => r.status === 'P').length;
+        attendanceRate = Math.round((presentCount / attendanceResponse.length) * 100);
+      }
+    } catch (error) {
+      console.warn('Could not fetch attendance rate:', error);
+    }
+
+    return {
+      totalStudents,
+      totalClasses,
+      totalSubjects,
+      attendanceRate,
+      pendingExams: 0,     // Loaded via extended data
+      unreadMessages: 0,
+      upcomingLessons: 0,  // Loaded via extended data
+      recentResults: 0     // Loaded via extended data
+    };
   }
 
   /**

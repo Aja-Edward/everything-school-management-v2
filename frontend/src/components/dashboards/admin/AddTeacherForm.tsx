@@ -168,7 +168,7 @@ const AddTeacherForm: React.FC = () => {
       const educationLevel = levelMap[formData.level];
       if (!educationLevel) return;
 
-      fetch(`${API_BASE_URL}/api/subjects/?education_level=${educationLevel}`, {
+      fetch(`${API_BASE_URL}/subjects/?education_level=${educationLevel}`, {
   headers: getAuthHeaders()
 })
   .then(res => {
@@ -194,7 +194,7 @@ const AddTeacherForm: React.FC = () => {
     setSubjectOptions([]);
   });
   
-      fetch(`${API_BASE_URL}/api/classrooms/classrooms/?section__grade_level__education_level=${educationLevel}`, {
+      fetch(`${API_BASE_URL}/classrooms/classrooms/?section__grade_level__education_level=${educationLevel}`, {
   headers: getAuthHeaders()
 })
   .then(res => {
@@ -251,7 +251,7 @@ const AddTeacherForm: React.FC = () => {
       const educationLevel = levelMap[formData.level];
       if (!educationLevel) return;
 
-      const url = `${API_BASE_URL}/api/classrooms/grades/?education_level=${educationLevel}`;
+      const url = `${API_BASE_URL}/classrooms/grades/?education_level=${educationLevel}`;
 
 fetch(url, {
   headers: getAuthHeaders()
@@ -392,7 +392,7 @@ fetch(url, {
     return;
   }
 
-     fetch(`${API_BASE_URL}/api/classrooms/grades/${gradeLevelId}/sections/`, {
+     fetch(`${API_BASE_URL}/classrooms/grades/${gradeLevelId}/sections/`, {
     headers: getAuthHeaders()
   })
     .then(res => {
@@ -484,7 +484,6 @@ fetch(url, {
     const payload: any = {
       user_email: formData.email,
       user_first_name: formData.firstName,
-      user_middle_name: formData.middleName,
       user_last_name: formData.lastName,
       employee_id: formData.employeeId,
       address: formData.address,
@@ -500,6 +499,11 @@ fetch(url, {
       // Remove these fields - they're not part of the Teacher model:
       // gender, blood_group, place_of_birth, academic_session, date_of_birth
     };
+
+    // Only include user_middle_name if it has a value (not blank)
+    if (formData.middleName && formData.middleName.trim()) {
+      payload.user_middle_name = formData.middleName;
+    }
 
     console.log('📤 Submitting teacher data:', payload);
 
@@ -523,8 +527,8 @@ fetch(url, {
       'Authorization': `Bearer ${token}`
     };
 
-    // FIXED: Use correct endpoint URL - /api/teachers/teachers/
-    const endpoint = `${API_BASE_URL}/api/teachers/teachers/`;
+    // FIXED: Use correct endpoint URL - /teachers/teachers/
+    const endpoint = `${API_BASE_URL}/teachers/teachers/`;
     console.log('📍 API Endpoint:', endpoint);
     console.log('🔐 Headers:', { 'Authorization': `Bearer ${token.substring(0, 20)}...` });
 
@@ -537,7 +541,32 @@ fetch(url, {
     if (!response.ok) {
       const errorData = await response.json();
       console.error('❌ API Error:', errorData);
-      throw new Error(errorData.detail || JSON.stringify(errorData) || `API error: ${response.status}`);
+
+      // Handle different error formats from Django REST Framework
+      let errorMessage = 'Failed to create teacher';
+
+      if (Array.isArray(errorData)) {
+        // Array of error messages
+        errorMessage = errorData.map(err =>
+          typeof err === 'string' ? err : err.detail || err.message || JSON.stringify(err)
+        ).join(', ');
+      } else if (errorData.detail) {
+        // Single detail message
+        errorMessage = errorData.detail;
+      } else if (typeof errorData === 'object') {
+        // Object with field-specific errors
+        const fieldErrors = Object.entries(errorData)
+          .map(([field, errors]) => {
+            if (Array.isArray(errors)) {
+              return `${field}: ${errors.join(', ')}`;
+            }
+            return `${field}: ${errors}`;
+          })
+          .join('; ');
+        errorMessage = fieldErrors || JSON.stringify(errorData);
+      }
+
+      throw new Error(errorMessage);
     }
 
     const responseData = await response.json();

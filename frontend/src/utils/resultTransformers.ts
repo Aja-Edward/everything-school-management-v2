@@ -33,7 +33,8 @@ import {
   getAcademicSessionId,
   createDefaultAcademicSession,
   calculateGrade,
-  calculateTotalScore
+  calculateTotalScore,
+  validatePosition
 } from './resultHelpers';
 
 // ============================================================================
@@ -208,6 +209,32 @@ const createExamSession = (
   updated_at: new Date().toISOString()
 });
 
+/**
+ * Get class position from term results
+ * Finds the first non-null/undefined class_position value
+ * This handles cases where the first result might not have the position
+ *
+ * @param termResults - Array of term results
+ * @returns number | null - Class position or null if not found
+ */
+const getClassPosition = (termResults: ExtendedStudentTermResult[]): number | null => {
+  if (!Array.isArray(termResults) || termResults.length === 0) {
+    return null;
+  }
+
+  // Find first result with a valid class_position
+  for (const result of termResults) {
+    if (result.class_position !== null && result.class_position !== undefined) {
+      const validated = validatePosition(result.class_position);
+      if (validated !== null) {
+        return validated;
+      }
+    }
+  }
+
+  return null;
+};
+
 // ============================================================================
 // NURSERY RESULT TRANSFORMER
 // ============================================================================
@@ -246,7 +273,7 @@ export const transformDataForNursery = (
     max_marks_obtainable: 100,
     mark_obtained: result.total_score || 0,
     percentage: result.percentage || 0,
-    subject_position: result.position || result.subject_position,
+    subject_position: validatePosition(result.subject_position),
     academic_comment: result.teacher_remark || '',
     grade: result.grade || '',
     grade_point: undefined,
@@ -273,7 +300,7 @@ export const transformDataForNursery = (
     total_max_marks: totalMaxMarks,
     total_marks_obtained: totalMarksObtained,
     overall_percentage: overallPercentage,
-    class_position: termResults[0]?.class_position,
+    class_position: getClassPosition(termResults),
     total_students_in_class: termResults[0]?.total_students || 0,
     times_school_opened: termResults[0]?.times_opened || 0,
     times_student_present: termResults[0]?.times_present || 0,
@@ -359,7 +386,7 @@ export const transformDataForPrimary = (
       class_average: result.class_average || 0,
       highest_in_class: result.highest_in_class || 0,
       lowest_in_class: result.lowest_in_class || 0,
-      subject_position: result.position || result.subject_position,
+      subject_position: validatePosition(result.subject_position),
       previous_term_score: 0,
       cumulative_score: 0,
       teacher_remark: result.teacher_remark || '',
@@ -372,8 +399,8 @@ export const transformDataForPrimary = (
   });
 
   const totalScore = subjectResults.reduce((sum, r) => sum + r.total_score, 0);
-  const averageScore = results.length > 0 
-    ? subjectResults.reduce((sum, r) => sum + r.total_percentage, 0) / results.length 
+  const averageScore = results.length > 0
+    ? subjectResults.reduce((sum, r) => sum + r.total_percentage, 0) / results.length
     : 0;
 
   return {
@@ -383,7 +410,7 @@ export const transformDataForPrimary = (
     total_score: totalScore,
     average_score: averageScore,
     overall_grade: calculateGrade(averageScore),
-    class_position: termResults[0]?.class_position,
+    class_position: getClassPosition(termResults),
     total_students: termResults[0]?.total_students || 0,
     times_opened: termResults[0]?.times_opened || 0,
     times_present: termResults[0]?.times_present || 0,
@@ -468,7 +495,7 @@ export const transformDataForJuniorSecondary = (
       class_average: result.class_average || 0,
       highest_in_class: result.highest_in_class || 0,
       lowest_in_class: result.lowest_in_class || 0,
-      subject_position: result.position || result.subject_position,
+      subject_position: validatePosition(result.subject_position),
       previous_term_score: 0,
       cumulative_score: 0,
       teacher_remark: result.teacher_remark || '',
@@ -481,8 +508,8 @@ export const transformDataForJuniorSecondary = (
   });
 
   const totalScore = subjectResults.reduce((sum, r) => sum + r.total_score, 0);
-  const averageScore = results.length > 0 
-    ? subjectResults.reduce((sum, r) => sum + r.total_percentage, 0) / results.length 
+  const averageScore = results.length > 0
+    ? subjectResults.reduce((sum, r) => sum + r.total_percentage, 0) / results.length
     : 0;
 
   return {
@@ -492,7 +519,7 @@ export const transformDataForJuniorSecondary = (
     total_score: totalScore,
     average_score: averageScore,
     overall_grade: calculateGrade(averageScore),
-    class_position: termResults[0]?.class_position,
+    class_position: getClassPosition(termResults),
     total_students: termResults[0]?.total_students || 0,
     times_opened: termResults[0]?.times_opened || 0,
     times_present: termResults[0]?.times_present || 0,
@@ -565,7 +592,7 @@ export function transformDataForSeniorSecondary(
       class_average: result.class_average || 0,
       highest_in_class: result.highest_in_class || 0,
       lowest_in_class: result.lowest_in_class || 0,
-      subject_position: result.position || result.subject_position,
+      subject_position: validatePosition(result.subject_position),
       teacher_remark: result.teacher_remark || '',
       class_teacher_remark: '',
       head_teacher_remark: '',
@@ -590,7 +617,7 @@ export function transformDataForSeniorSecondary(
       obtainable: totalObtainable,
       obtained: totalObtained,
       overall_grade: calculateGrade(averageScore),
-      class_position: termResults[0]?.class_position,
+      class_position: getClassPosition(termResults),
       total_students: termResults[0]?.total_students || 0,
       teacher_remark: termResults[0]?.class_teacher_remark || '',
       head_teacher_remark: termResults[0]?.head_teacher_remark || '',
@@ -643,7 +670,7 @@ export function transformDataForSeniorSecondary(
       class_average: result.class_average || 0,
       highest_in_class: result.highest_in_class || 0,
       lowest_in_class: result.lowest_in_class || 0,
-      subject_position: result.position || result.subject_position,
+      subject_position: validatePosition(result.subject_position),
       teacher_remark: result.teacher_remark || '',
       class_teacher_remark: '',
       head_teacher_remark: '',
@@ -654,8 +681,8 @@ export function transformDataForSeniorSecondary(
   });
 
   const totalScore = subjectResults.reduce((sum, r) => sum + r.total_score, 0);
-  const averageScore = results.length > 0 
-    ? subjectResults.reduce((sum, r) => sum + r.percentage, 0) / results.length 
+  const averageScore = results.length > 0
+    ? subjectResults.reduce((sum, r) => sum + r.percentage, 0) / results.length
     : 0;
 
   return {
@@ -665,7 +692,7 @@ export function transformDataForSeniorSecondary(
     total_score: totalScore,
     average_score: averageScore,
     overall_grade: calculateGrade(averageScore),
-    class_position: termResults[0]?.class_position,
+    class_position: getClassPosition(termResults),
     total_students: termResults[0]?.total_students || 0,
     times_opened: termResults[0]?.times_opened || 0,
     times_present: termResults[0]?.times_present || 0,

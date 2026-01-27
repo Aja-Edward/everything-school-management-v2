@@ -1,4 +1,4 @@
-import api from './api';
+import api, { API_BASE_URL } from './api';
 
 export interface SchoolSettings {
   site_name: string;
@@ -69,20 +69,16 @@ class SettingsService {
   async getSettings(): Promise<SchoolSettings> {
     try {
       const cacheBuster = `${Date.now()}_${Math.random()}`;
-      const response = await api.get(`/api/school-settings/school-settings/?_=${cacheBuster}`, {
-        headers: {
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        }
-      });
-      
+      // Note: Cache-Control headers are handled automatically by api.ts
+      const response = await api.get(`school-settings/school-settings/?_=${cacheBuster}`);
+
       if (typeof response === 'string' && response.includes('<!DOCTYPE html>')) {
         console.error('Received HTML instead of JSON - likely a 404 or auth error');
         return this.getDefaultSettings();
       }
-      
+
       console.log('📥 Raw backend response:', response);
-      
+
       return this.transformBackendToFrontend(response);
     } catch (error) {
       console.error('Error fetching settings:', error);
@@ -186,7 +182,7 @@ class SettingsService {
       
       console.log('📤 Transformed for backend:', backendSettings);
       
-      const response = await api.put('/api/school-settings/school-settings/', backendSettings);
+      const response = await api.put('school-settings/school-settings/', backendSettings);
       console.log('✅ Backend response:', response);
       
       const transformedResponse = this.transformBackendToFrontend(response);
@@ -327,7 +323,7 @@ class SettingsService {
     if (csrfToken) headers['X-CSRFToken'] = csrfToken;
     
     const response = await fetch(
-      "https://school-project-with-edward.onrender.com/api/school-settings/school-settings/upload-logo/",
+      `${API_BASE_URL}/school-settings/school-settings/upload-logo/`,
       {
         method: 'POST',
         headers,
@@ -368,7 +364,7 @@ class SettingsService {
     if (csrfToken) headers['X-CSRFToken'] = csrfToken;
     
     const response = await fetch(
-      "https://school-project-with-edward.onrender.com/api/school-settings/school-settings/upload-favicon/",
+      `${API_BASE_URL}/school-settings/school-settings/upload-favicon/`,
       {
         method: 'POST',
         headers,
@@ -527,3 +523,630 @@ class SettingsService {
 }
 
 export default new SettingsService();
+
+// ============================================================================
+// COMMUNICATION SETTINGS SERVICE
+// ============================================================================
+
+export interface CommunicationSettings {
+  id: number;
+  brevo_api_key?: string;
+  brevo_sender_email?: string;
+  brevo_sender_name?: string;
+  brevo_configured: boolean;
+  twilio_account_sid?: string;
+  twilio_auth_token?: string;
+  twilio_phone_number?: string;
+  twilio_configured: boolean;
+  email_enabled: boolean;
+  sms_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CommunicationTestResult {
+  success: boolean;
+  message: string;
+}
+
+class CommunicationSettingsService {
+  async getSettings(): Promise<CommunicationSettings> {
+    try {
+      const response = await api.get('school-settings/communication-settings/');
+      return response;
+    } catch (error) {
+      console.error('Error fetching communication settings:', error);
+      throw error;
+    }
+  }
+
+  async updateSettings(settings: Partial<CommunicationSettings>): Promise<CommunicationSettings> {
+    try {
+      const response = await api.put('school-settings/communication-settings/', settings);
+      return response;
+    } catch (error) {
+      console.error('Error updating communication settings:', error);
+      throw error;
+    }
+  }
+
+  async testBrevoConnection(apiKey: string, senderEmail: string): Promise<CommunicationTestResult> {
+    try {
+      const response = await api.post('school-settings/test-brevo-connection/', {
+        apiKey,
+        senderEmail,
+      });
+      return response;
+    } catch (error) {
+      console.error('Error testing Brevo connection:', error);
+      throw error;
+    }
+  }
+
+  async testTwilioConnection(accountSid: string, authToken: string, phoneNumber: string): Promise<CommunicationTestResult> {
+    try {
+      const response = await api.post('school-settings/test-twilio-connection/', {
+        accountSid,
+        authToken,
+        phoneNumber,
+      });
+      return response;
+    } catch (error) {
+      console.error('Error testing Twilio connection:', error);
+      throw error;
+    }
+  }
+
+  async sendTestEmail(): Promise<CommunicationTestResult> {
+    try {
+      const response = await api.post('school-settings/send-test-email/');
+      return response;
+    } catch (error) {
+      console.error('Error sending test email:', error);
+      throw error;
+    }
+  }
+
+  async sendTestSMS(testNumber: string): Promise<CommunicationTestResult & { message_sid?: string; status?: string }> {
+    try {
+      const response = await api.post('school-settings/send-test-sms/', {
+        testNumber,
+      });
+      return response;
+    } catch (error) {
+      console.error('Error sending test SMS:', error);
+      throw error;
+    }
+  }
+
+  async testEmailConnection(provider: 'smtp' | 'brevo', config: any): Promise<CommunicationTestResult> {
+    try {
+      const response = await api.post('school-settings/test-email-connection/', {
+        provider,
+        ...config,
+      });
+      return response;
+    } catch (error) {
+      console.error('Error testing email connection:', error);
+      throw error;
+    }
+  }
+
+  async testSMSConnection(config: { provider: string; apiKey: string; apiSecret: string }): Promise<CommunicationTestResult> {
+    try {
+      const response = await api.post('school-settings/test-sms-connection/', config);
+      return response;
+    } catch (error) {
+      console.error('Error testing SMS connection:', error);
+      throw error;
+    }
+  }
+
+  async testPaymentGateway(gateway: 'paystack' | 'stripe' | 'flutterwave', credentials: any): Promise<CommunicationTestResult> {
+    try {
+      const response = await api.post(`school-settings/test-payment-gateway/${gateway}/`, credentials);
+      return response;
+    } catch (error) {
+      console.error(`Error testing ${gateway} gateway:`, error);
+      throw error;
+    }
+  }
+}
+
+export const communicationSettingsService = new CommunicationSettingsService();
+
+// ============================================================================
+// PERMISSIONS SERVICE
+// ============================================================================
+
+export interface Permission {
+  id: number;
+  module: string;
+  module_display?: string;
+  permission_type: 'read' | 'write' | 'delete' | 'admin';
+  permission_type_display?: string;
+  section: 'primary' | 'secondary' | 'nursery' | 'all';
+  section_display?: string;
+  granted: boolean;
+  description?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreatePermissionData {
+  module: string;
+  permission_type: 'read' | 'write' | 'delete' | 'admin';
+  section: 'primary' | 'secondary' | 'nursery' | 'all';
+  granted: boolean;
+  description?: string;
+}
+
+export interface PermissionFilters {
+  module?: string;
+  permission_type?: string;
+  section?: string;
+}
+
+class PermissionService {
+  async getPermissions(params?: PermissionFilters): Promise<Permission[]> {
+    try {
+      const response = await api.get('school-settings/permissions/', params);
+      return response.results || response;
+    } catch (error) {
+      console.error('Error fetching permissions:', error);
+      throw error;
+    }
+  }
+
+  async getPermission(id: number): Promise<Permission> {
+    try {
+      const response = await api.get(`school-settings/permissions/${id}/`);
+      return response;
+    } catch (error) {
+      console.error(`Error fetching permission ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async createPermission(data: CreatePermissionData): Promise<Permission> {
+    try {
+      const response = await api.post('school-settings/permissions/', data);
+      return response;
+    } catch (error) {
+      console.error('Error creating permission:', error);
+      throw error;
+    }
+  }
+
+  async updatePermission(id: number, data: Partial<CreatePermissionData>): Promise<Permission> {
+    try {
+      const response = await api.patch(`school-settings/permissions/${id}/`, data);
+      return response;
+    } catch (error) {
+      console.error(`Error updating permission ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async deletePermission(id: number): Promise<void> {
+    try {
+      await api.delete(`school-settings/permissions/${id}/`);
+    } catch (error) {
+      console.error(`Error deleting permission ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async bulkCreatePermissions(permissions: CreatePermissionData[]): Promise<{ message: string; permissions: Permission[] }> {
+    try {
+      const response = await api.post('school-settings/permissions/bulk_create/', {
+        permissions,
+      });
+      return response;
+    } catch (error) {
+      console.error('Error bulk creating permissions:', error);
+      throw error;
+    }
+  }
+}
+
+export const permissionService = new PermissionService();
+
+// ============================================================================
+// ROLES SERVICE
+// ============================================================================
+
+export interface Role {
+  id: number;
+  name: string;
+  description?: string;
+  color: string;
+  is_system: boolean;
+  primary_section_access: boolean;
+  secondary_section_access: boolean;
+  nursery_section_access: boolean;
+  permissions: Permission[];
+  permission_ids?: number[];
+  created_by?: number;
+  created_by_name?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateRoleData {
+  name: string;
+  description?: string;
+  color?: string;
+  primary_section_access?: boolean;
+  secondary_section_access?: boolean;
+  nursery_section_access?: boolean;
+  permission_ids?: number[];
+}
+
+class RoleService {
+  async getRoles(): Promise<Role[]> {
+    try {
+      const response = await api.get('school-settings/roles/');
+      return response.results || response;
+    } catch (error) {
+      console.error('Error fetching roles:', error);
+      throw error;
+    }
+  }
+
+  async getRole(id: number): Promise<Role> {
+    try {
+      const response = await api.get(`school-settings/roles/${id}/`);
+      return response;
+    } catch (error) {
+      console.error(`Error fetching role ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async createRole(data: CreateRoleData): Promise<Role> {
+    try {
+      const response = await api.post('school-settings/roles/', data);
+      return response;
+    } catch (error) {
+      console.error('Error creating role:', error);
+      throw error;
+    }
+  }
+
+  async updateRole(id: number, data: Partial<CreateRoleData>): Promise<Role> {
+    try {
+      const response = await api.patch(`school-settings/roles/${id}/`, data);
+      return response;
+    } catch (error) {
+      console.error(`Error updating role ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async deleteRole(id: number): Promise<void> {
+    try {
+      await api.delete(`school-settings/roles/${id}/`);
+    } catch (error) {
+      console.error(`Error deleting role ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async duplicateRole(id: number): Promise<{ message: string; role: Role }> {
+    try {
+      const response = await api.post(`school-settings/roles/${id}/duplicate/`);
+      return response;
+    } catch (error) {
+      console.error(`Error duplicating role ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async getRoleUsers(id: number): Promise<{
+    role: string;
+    user_count: number;
+    users: Array<{
+      id: number;
+      username: string;
+      email: string;
+      full_name: string;
+      is_active: boolean;
+      assigned_at: string;
+      expires_at?: string;
+      assigned_by?: string;
+      primary_section_access: boolean;
+      secondary_section_access: boolean;
+      nursery_section_access: boolean;
+    }>;
+  }> {
+    try {
+      const response = await api.get(`school-settings/roles/${id}/users/`);
+      return response;
+    } catch (error) {
+      console.error(`Error fetching users for role ${id}:`, error);
+      throw error;
+    }
+  }
+}
+
+export const roleService = new RoleService();
+
+// ============================================================================
+// USER ROLES SERVICE
+// ============================================================================
+
+export interface UserRole {
+  id: number;
+  user: number;
+  user_details?: {
+    id: number;
+    username: string;
+    email: string;
+    full_name: string;
+    role: string;
+  };
+  role: number;
+  role_details?: Role;
+  assigned_by?: number;
+  assigned_by_name?: string;
+  assigned_at: string;
+  expires_at?: string;
+  is_active: boolean;
+  primary_section_access: boolean;
+  secondary_section_access: boolean;
+  nursery_section_access: boolean;
+  custom_permissions: Permission[];
+  custom_permission_ids?: number[];
+}
+
+export interface CreateUserRoleData {
+  user: number;
+  role: number;
+  expires_at?: string;
+  is_active?: boolean;
+  primary_section_access?: boolean;
+  secondary_section_access?: boolean;
+  nursery_section_access?: boolean;
+  custom_permission_ids?: number[];
+}
+
+export interface UserRoleFilters {
+  user?: number;
+  role?: number;
+  is_active?: boolean;
+}
+
+export interface UserPermissionsSummary {
+  user: {
+    id: number;
+    name: string;
+    email: string;
+    role: string;
+  };
+  role_assignments: Array<{
+    role_id: number;
+    role_name: string;
+    role_color: string;
+    sections: {
+      primary: boolean;
+      secondary: boolean;
+      nursery: boolean;
+    };
+    expires_at?: string;
+    permissions: Record<string, boolean>;
+  }>;
+  effective_permissions: Record<string, {
+    read: boolean;
+    write: boolean;
+    delete: boolean;
+    admin: boolean;
+    sections: {
+      primary: boolean;
+      secondary: boolean;
+      nursery: boolean;
+    };
+  }>;
+}
+
+class UserRoleService {
+  async getUserRoles(params?: UserRoleFilters): Promise<UserRole[]> {
+    try {
+      const response = await api.get('school-settings/user-roles/', params);
+      return response.results || response;
+    } catch (error) {
+      console.error('Error fetching user roles:', error);
+      throw error;
+    }
+  }
+
+  async getUserRole(id: number): Promise<UserRole> {
+    try {
+      const response = await api.get(`school-settings/user-roles/${id}/`);
+      return response;
+    } catch (error) {
+      console.error(`Error fetching user role ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async createUserRole(data: CreateUserRoleData): Promise<UserRole> {
+    try {
+      const response = await api.post('school-settings/user-roles/', data);
+      return response;
+    } catch (error) {
+      console.error('Error creating user role:', error);
+      throw error;
+    }
+  }
+
+  async updateUserRole(id: number, data: Partial<CreateUserRoleData>): Promise<UserRole> {
+    try {
+      const response = await api.patch(`school-settings/user-roles/${id}/`, data);
+      return response;
+    } catch (error) {
+      console.error(`Error updating user role ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async deleteUserRole(id: number): Promise<void> {
+    try {
+      await api.delete(`school-settings/user-roles/${id}/`);
+    } catch (error) {
+      console.error(`Error deleting user role ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async getUserPermissions(userId: number): Promise<UserPermissionsSummary> {
+    try {
+      const response = await api.get('school-settings/user-roles/user_permissions/', {
+        params: { user_id: userId },
+      });
+      return response;
+    } catch (error) {
+      console.error(`Error fetching permissions for user ${userId}:`, error);
+      throw error;
+    }
+  }
+
+  async bulkAssignRoles(assignments: CreateUserRoleData[]): Promise<{ message: string; assignments: UserRole[] }> {
+    try {
+      const response = await api.post('school-settings/user-roles/bulk_assign/', {
+        assignments,
+      });
+      return response;
+    } catch (error) {
+      console.error('Error bulk assigning roles:', error);
+      throw error;
+    }
+  }
+
+  async updateUserRoleByEmail(email: string, role: string): Promise<{
+    message: string;
+    role: string;
+    is_staff: boolean;
+    user_role_id: number;
+    user_role_status: 'created' | 'updated';
+  }> {
+    try {
+      const response = await api.post('school-settings/update-user-role/', {
+        email,
+        role,
+      });
+      return response;
+    } catch (error) {
+      console.error('Error updating user role by email:', error);
+      throw error;
+    }
+  }
+}
+
+export const userRoleService = new UserRoleService();
+
+// ============================================================================
+// SCHOOL ANNOUNCEMENTS SERVICE
+// ============================================================================
+
+export interface SchoolAnnouncement {
+  id: number;
+  title: string;
+  content: string;
+  announcement_type: 'general' | 'academic' | 'event' | 'urgent' | 'maintenance';
+  announcement_type_display?: string;
+  target_audience: 'all' | 'students' | 'teachers' | 'parents' | 'staff';
+  target_audience_display?: string;
+  is_active: boolean;
+  is_pinned: boolean;
+  published_at?: string;
+  expires_at?: string;
+  created_by?: number;
+  created_by_name?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateAnnouncementData {
+  title: string;
+  content: string;
+  announcement_type: 'general' | 'academic' | 'event' | 'urgent' | 'maintenance';
+  target_audience: 'all' | 'students' | 'teachers' | 'parents' | 'staff';
+  is_active?: boolean;
+  is_pinned?: boolean;
+  published_at?: string;
+  expires_at?: string;
+}
+
+class SchoolAnnouncementService {
+  async getAnnouncements(): Promise<SchoolAnnouncement[]> {
+    try {
+      const response = await api.get('school-settings/announcements/');
+      return response.results || response;
+    } catch (error) {
+      console.error('Error fetching announcements:', error);
+      throw error;
+    }
+  }
+
+  async getAnnouncement(id: number): Promise<SchoolAnnouncement> {
+    try {
+      const response = await api.get(`school-settings/announcements/${id}/`);
+      return response;
+    } catch (error) {
+      console.error(`Error fetching announcement ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async createAnnouncement(data: CreateAnnouncementData): Promise<SchoolAnnouncement> {
+    try {
+      const response = await api.post('school-settings/announcements/', data);
+      return response;
+    } catch (error) {
+      console.error('Error creating announcement:', error);
+      throw error;
+    }
+  }
+
+  async updateAnnouncement(id: number, data: Partial<CreateAnnouncementData>): Promise<SchoolAnnouncement> {
+    try {
+      const response = await api.patch(`school-settings/announcements/${id}/`, data);
+      return response;
+    } catch (error) {
+      console.error(`Error updating announcement ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async deleteAnnouncement(id: number): Promise<void> {
+    try {
+      await api.delete(`school-settings/announcements/${id}/`);
+    } catch (error) {
+      console.error(`Error deleting announcement ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async toggleActive(id: number): Promise<SchoolAnnouncement> {
+    try {
+      const response = await api.post(`school-settings/announcements/${id}/toggle_active/`);
+      return response;
+    } catch (error) {
+      console.error(`Error toggling active status for announcement ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async togglePinned(id: number): Promise<SchoolAnnouncement> {
+    try {
+      const response = await api.post(`school-settings/announcements/${id}/toggle_pinned/`);
+      return response;
+    } catch (error) {
+      console.error(`Error toggling pinned status for announcement ${id}:`, error);
+      throw error;
+    }
+  }
+}
+
+export const schoolAnnouncementService = new SchoolAnnouncementService();

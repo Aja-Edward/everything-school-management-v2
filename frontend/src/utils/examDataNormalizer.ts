@@ -1,80 +1,129 @@
 /**
- * Exam Data Normalization Utilities
- * Ensures compatibility between Teacher and Admin dashboards
+ * Exam Data Normalization Utilities - HTML-First Approach
+ *
+ * UPDATED: 2025-01-22
+ * Strategy: Store all rich content (images, tables, formatting) as HTML in the question field.
+ * This eliminates the mismatch between teacher and admin editing where separate image/table
+ * fields were getting lost during the edit cycle.
+ *
+ * Both dashboards use the same RichTextEditor (Tiptap) which embeds:
+ * - Images (via Cloudinary upload) directly in HTML as <img> tags
+ * - Tables directly in HTML as <table> elements
+ * - Text formatting (bold, italic, etc.) as HTML tags
+ *
+ * This normalizer now:
+ * - Preserves HTML content as-is from RichTextEditor
+ * - Maintains backward compatibility with legacy separate image/table fields
+ * - Converts plain text to HTML for consistent rendering
  */
 
 /**
- * Normalize exam data before saving to ensure compatibility
- * Converts teacher format to unified format
+ * Check if a string contains HTML tags
+ */
+const isHtmlContent = (text: string): boolean => {
+  if (!text || typeof text !== 'string') return false;
+  // Check for common HTML tags that RichTextEditor might produce
+  return /<(?:p|div|span|br|strong|em|u|s|h[1-6]|ul|ol|li|table|img|a|blockquote|pre|code)[^>]*>/i.test(text);
+};
+
+/**
+ * Convert plain text to simple HTML (wrap in paragraph tags)
+ * Preserves existing HTML content
+ */
+const ensureHtmlFormat = (text: string): string => {
+  if (!text || typeof text !== 'string') return '';
+
+  // If already HTML, return as-is
+  if (isHtmlContent(text)) {
+    return text;
+  }
+
+  // Convert plain text to HTML
+  // Replace newlines with <br> and wrap in paragraph
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>');
+
+  return `<p>${escaped}</p>`;
+};
+
+/**
+ * Normalize exam data before saving
+ *
+ * UPDATED: HTML-First Approach
+ * - Question content (with embedded images/tables) is preserved as HTML
+ * - Backward compatibility: Legacy separate image/table fields are maintained if present
+ * - RichTextEditor embeds all content in the question HTML, no extraction needed
  */
 export const normalizeExamDataForSave = (examData: any) => {
   const normalized = { ...examData };
 
+  // Helper to normalize a single question for save
+  const normalizeQuestionForSave = (q: any) => {
+    const result = { ...q };
+
+    // BACKWARD COMPATIBILITY: Maintain separate image/table fields if they exist
+    // But don't create them if they don't exist (HTML-first approach)
+    if (q.imageUrl || q.image) {
+      result.image = q.imageUrl || q.image || null;
+      result.imageUrl = q.imageUrl || q.image || null;
+      result.image_alt = q.imageAlt || q.image_alt || null;
+    }
+
+    if (q.table) {
+      // Ensure table is stringified if it's an object (for backward compatibility)
+      result.table = typeof q.table === 'string' ? q.table : JSON.stringify(q.table);
+    }
+
+    // IMPORTANT: Keep question HTML as-is - it contains embedded images and tables
+    // from RichTextEditor (Tiptap)
+    return result;
+  };
+
   // Normalize objective questions
   if (normalized.objective_questions?.length > 0) {
-    normalized.objective_questions = normalized.objective_questions.map((q: any) => ({
-      ...q,
-      // Ensure both imageUrl and image exist for compatibility
-      image: q.imageUrl || q.image || null,
-      imageUrl: q.imageUrl || q.image || null,
-      image_alt: q.imageAlt || q.image_alt || null,
-      // Ensure table is stringified if it's an object
-      table: q.table ? (typeof q.table === 'string' ? q.table : JSON.stringify(q.table)) : null
-    }));
+    normalized.objective_questions = normalized.objective_questions.map(normalizeQuestionForSave);
   }
 
   // Normalize theory questions
   if (normalized.theory_questions?.length > 0) {
-    normalized.theory_questions = normalized.theory_questions.map((q: any) => ({
-      ...q,
-      image: q.imageUrl || q.image || null,
-      imageUrl: q.imageUrl || q.image || null,
-      image_alt: q.imageAlt || q.image_alt || null,
-      table: q.table ? (typeof q.table === 'string' ? q.table : JSON.stringify(q.table)) : null,
+    normalized.theory_questions = normalized.theory_questions.map((q: any) => {
+      const normalizedQ = normalizeQuestionForSave(q);
+
       // Normalize sub-questions
-      subQuestions: (q.subQuestions || []).map((sq: any) => ({
-        ...sq,
-        image: sq.imageUrl || sq.image || null,
-        imageUrl: sq.imageUrl || sq.image || null,
-        image_alt: sq.imageAlt || sq.image_alt || null,
-        table: sq.table ? (typeof sq.table === 'string' ? sq.table : JSON.stringify(sq.table)) : null,
-        // Normalize sub-sub-questions
-        subSubQuestions: (sq.subSubQuestions || []).map((ssq: any) => ({
-          ...ssq,
-          image: ssq.imageUrl || ssq.image || null,
-          imageUrl: ssq.imageUrl || ssq.image || null,
-          image_alt: ssq.imageAlt || ssq.image_alt || null
-        }))
-      }))
-    }));
+      if (normalizedQ.subQuestions?.length > 0) {
+        normalizedQ.subQuestions = normalizedQ.subQuestions.map((sq: any) => {
+          const normalizedSq = normalizeQuestionForSave(sq);
+
+          // Normalize sub-sub-questions
+          if (normalizedSq.subSubQuestions?.length > 0) {
+            normalizedSq.subSubQuestions = normalizedSq.subSubQuestions.map(normalizeQuestionForSave);
+          }
+
+          return normalizedSq;
+        });
+      }
+
+      return normalizedQ;
+    });
   }
 
   // Normalize practical questions
   if (normalized.practical_questions?.length > 0) {
-    normalized.practical_questions = normalized.practical_questions.map((q: any) => ({
-      ...q,
-      image: q.imageUrl || q.image || null,
-      imageUrl: q.imageUrl || q.image || null,
-      image_alt: q.imageAlt || q.image_alt || null,
-      table: q.table ? (typeof q.table === 'string' ? q.table : JSON.stringify(q.table)) : null
-    }));
+    normalized.practical_questions = normalized.practical_questions.map(normalizeQuestionForSave);
   }
 
   // Normalize custom sections
   if (normalized.custom_sections?.length > 0) {
     normalized.custom_sections = normalized.custom_sections.map((section: any) => ({
       ...section,
-      questions: (section.questions || []).map((q: any) => ({
-        ...q,
-        image: q.imageUrl || q.image || null,
-        imageUrl: q.imageUrl || q.image || null,
-        image_alt: q.imageAlt || q.image_alt || null,
-        table: q.table ? (typeof q.table === 'string' ? q.table : JSON.stringify(q.table)) : null
-      }))
+      questions: (section.questions || []).map(normalizeQuestionForSave)
     }));
   }
 
-  console.log('✅ Normalized exam data for save:', {
+  console.log('✅ Normalized exam data for save (HTML-first):', {
     objective: normalized.objective_questions?.length || 0,
     theory: normalized.theory_questions?.length || 0,
     practical: normalized.practical_questions?.length || 0,
@@ -503,53 +552,91 @@ function convertTableToHtml(tableData: any): string {
 }
 
 /**
+ * Normalize exam data specifically for PDF generation
+ *
+ * This is the dedicated entry point for PDF generation that ensures:
+ * - All plain text is converted to HTML
+ * - Images from both Admin (inline) and Teacher (separate fields) are handled
+ * - Tables in all formats (JSON, arrays, objects, HTML) are converted to HTML
+ * - Content is optimized for print-ready PDF output
+ *
+ * @param examData - Raw exam data from API
+ * @returns Normalized exam data ready for PDF generation
+ */
+export const normalizeForPdfGeneration = (examData: any) => {
+  console.group('📄 Normalizing exam data for PDF generation');
+  console.log('Input exam data:', examData);
+
+  // Use the existing normalizeExamDataForDisplay as the base
+  // It already handles all the requirements from EXAM-002:
+  // 1. Plain text → HTML conversion (ensureHtmlFormat)
+  // 2. Image handling (inline HTML + separate fields)
+  // 3. Table conversion (all formats → HTML)
+  // 4. Consistent styling and formatting
+  const normalized = normalizeExamDataForDisplay(examData);
+
+  console.log('✅ PDF normalization complete');
+  console.groupEnd();
+
+  return normalized;
+};
+
+/**
  * Normalize exam data for display (view modal and print)
- * Ensures consistent structure for rendering with HTML generation
- * CRITICAL: This converts tables to HTML format for proper display
+ *
+ * UPDATED: HTML-First Approach
+ * - Question content with embedded images/tables is preserved from RichTextEditor HTML
+ * - Backward compatibility: Legacy separate image/table fields are still rendered if present
+ * - Ensures all question text is in HTML format for consistent rendering
  */
 export const normalizeExamDataForDisplay = (examData: any) => {
   if (!examData) return null;
 
   const normalized = { ...examData };
 
-  console.group('🔄 Normalizing exam data for display');
+  console.group('🔄 Normalizing exam data for display (HTML-first)');
   console.log('Input exam data:', examData);
 
   // Helper to normalize a single question for display
   const normalizeQuestion = (q: any, questionType: string = 'unknown') => {
     const result = { ...q };
-    
-    // CRITICAL: Normalize image field with multiple fallbacks
-    // Check all possible image field names
-    result.image = 
-      q.image || 
-      q.imageUrl || 
-      q.image_url || 
-      q.imageURL ||
-      q.question_image ||
-      null;
-    
-    // If image is an object, extract URL
-    if (result.image && typeof result.image === 'object') {
-      result.image = result.image.url || result.image.src || result.image.path || null;
+
+    // Normalize question text - ensure HTML format
+    const rawQuestion = q.question || q.question_text || q.questionText || q.text || '';
+    result.question = ensureHtmlFormat(rawQuestion);
+
+    // BACKWARD COMPATIBILITY: Handle legacy separate image fields if they exist
+    // Modern approach: Images are embedded in question HTML via RichTextEditor
+    if (q.image || q.imageUrl || q.image_url || q.imageURL || q.question_image) {
+      result.image =
+        q.image ||
+        q.imageUrl ||
+        q.image_url ||
+        q.imageURL ||
+        q.question_image ||
+        null;
+
+      // If image is an object, extract URL
+      if (result.image && typeof result.image === 'object') {
+        result.image = result.image.url || result.image.src || result.image.path || null;
+      }
+
+      // Ensure it's a valid URL string
+      if (result.image && typeof result.image !== 'string') {
+        console.warn(`⚠️ Invalid image format for ${questionType}:`, result.image);
+        result.image = null;
+      }
+
+      if (result.image) {
+        console.log(`✅ Legacy image field found for ${questionType}:`, result.image.substring(0, 100));
+      }
     }
 
-    // Ensure it's a valid URL string
-    if (result.image && typeof result.image !== 'string') {
-      console.warn(`⚠️ Invalid image format for ${questionType}:`, result.image);
-      result.image = null;
-    }
-
-    // Log image detection
-    if (result.image) {
-      console.log(`✅ Image found for ${questionType}:`, result.image.substring(0, 100));
-    }
-    
-    // CRITICAL: Convert table to HTML format for display
+    // BACKWARD COMPATIBILITY: Handle legacy separate table fields if they exist
+    // Modern approach: Tables are embedded in question HTML via RichTextEditor
     if (q.table) {
-      console.log(`🔍 Processing table for ${questionType}:`, typeof q.table, q.table);
-      
-      // If table is a string, try to parse it first
+      console.log(`🔍 Processing legacy table for ${questionType}:`, typeof q.table);
+
       let tableData = q.table;
       if (typeof tableData === 'string') {
         // Check if it's already HTML
@@ -560,36 +647,30 @@ export const normalizeExamDataForDisplay = (examData: any) => {
           // Try to parse as JSON
           try {
             tableData = JSON.parse(tableData);
-            console.log(`✅ Parsed table JSON for ${questionType}:`, tableData);
             result.table = convertTableToHtml(tableData);
-            console.log(`✅ Converted table to HTML for ${questionType}`);
+            console.log(`✅ Converted legacy table JSON to HTML for ${questionType}`);
           } catch (e) {
-            console.error(`❌ Failed to parse table JSON for ${questionType}:`, e);
             // Treat as plain text, wrap in simple table
             result.table = convertTableToHtml(tableData);
           }
         }
       } else if (typeof tableData === 'object') {
         // Convert object to HTML table
-        console.log(`🔄 Converting table object to HTML for ${questionType}`);
         result.table = convertTableToHtml(tableData);
-        console.log(`✅ Converted table to HTML for ${questionType}:`, result.table.substring(0, 200));
+        console.log(`✅ Converted legacy table object to HTML for ${questionType}`);
       } else {
         console.warn(`⚠️ Unknown table format for ${questionType}:`, typeof tableData);
         result.table = null;
       }
     }
-    
-    // Normalize question text
-    result.question = q.question || q.question_text || q.questionText || q.text || '';
-    
+
     return result;
   };
 
   // Normalize all question types
   if (normalized.objective_questions?.length > 0) {
     console.log(`📊 Processing ${normalized.objective_questions.length} objective questions`);
-    normalized.objective_questions = normalized.objective_questions.map((q: any, idx: number) => 
+    normalized.objective_questions = normalized.objective_questions.map((q: any, idx: number) =>
       normalizeQuestion(q, `objective-${idx + 1}`)
     );
   }
@@ -598,13 +679,13 @@ export const normalizeExamDataForDisplay = (examData: any) => {
     console.log(`📝 Processing ${normalized.theory_questions.length} theory questions`);
     normalized.theory_questions = normalized.theory_questions.map((q: any, idx: number) => {
       const normalizedQ = normalizeQuestion(q, `theory-${idx + 1}`);
-      
+
       // Normalize sub-questions
       if (normalizedQ.subQuestions?.length > 0) {
         console.log(`  └─ Processing ${normalizedQ.subQuestions.length} sub-questions`);
         normalizedQ.subQuestions = normalizedQ.subQuestions.map((sq: any, sqIdx: number) => {
           const normalizedSq = normalizeQuestion(sq, `theory-${idx + 1}-sub-${sqIdx + 1}`);
-          
+
           // Normalize sub-sub-questions
           if (normalizedSq.subSubQuestions?.length > 0) {
             console.log(`    └─ Processing ${normalizedSq.subSubQuestions.length} sub-sub-questions`);
@@ -612,11 +693,11 @@ export const normalizeExamDataForDisplay = (examData: any) => {
               normalizeQuestion(ssq, `theory-${idx + 1}-sub-${sqIdx + 1}-subsub-${ssqIdx + 1}`)
             );
           }
-          
+
           return normalizedSq;
         });
       }
-      
+
       return normalizedQ;
     });
   }
@@ -638,15 +719,15 @@ export const normalizeExamDataForDisplay = (examData: any) => {
     }));
   }
 
-  // Count images and tables for verification
-  const imageCount = [
+  // Count legacy images and tables for verification (embedded content is in question HTML)
+  const legacyImageCount = [
     ...(normalized.objective_questions || []),
     ...(normalized.theory_questions || []),
     ...(normalized.practical_questions || []),
     ...(normalized.custom_sections?.flatMap((s: any) => s.questions || []) || [])
   ].filter(q => q.image).length;
 
-  const tableCount = [
+  const legacyTableCount = [
     ...(normalized.objective_questions || []),
     ...(normalized.theory_questions || []),
     ...(normalized.practical_questions || []),
@@ -654,8 +735,9 @@ export const normalizeExamDataForDisplay = (examData: any) => {
   ].filter(q => q.table).length;
 
   console.log('✅ Normalized exam data for display complete:', {
-    totalImages: imageCount,
-    totalTables: tableCount,
+    legacyImages: legacyImageCount,
+    legacyTables: legacyTableCount,
+    note: 'Modern exams have images/tables embedded in question HTML',
     objective: normalized.objective_questions?.length || 0,
     theory: normalized.theory_questions?.length || 0,
     practical: normalized.practical_questions?.length || 0,

@@ -21,10 +21,14 @@ from .views import (
     check_email_view,
     GoogleLogin,
     DebugLoginView,
-    debug_auth,  # Import the function directly
-    debug_token,  # Import the function directly
+    debug_auth,
+    debug_token,
     activate_user,
     admin_reset_password,
+    # Cookie-based auth endpoints
+    refresh_token_view,
+    csrf_token_view,
+    auth_status_view,
 )
 
 
@@ -42,10 +46,10 @@ def quick_login(request):
 app_name = "authentication"
 
 urlpatterns = [
-    # ================== Main Auth endpoints ==================
+    # ================== Main Auth endpoints (Cookie-based) ==================
     path("quick-login/", quick_login),
-    path("login/", CustomTokenObtainPairView.as_view(), name="login"),
-    path("logout/", logout_view, name="logout"),
+    path("login/", SimpleLoginView.as_view(), name="login"),  # Now uses cookies
+    path("logout/", logout_view, name="logout"),  # Now clears cookies
     path("register/", RegisterView.as_view(), name="register"),
     path("verify-account/", VerifyAccountView.as_view(), name="verify_account"),
     path(
@@ -53,7 +57,11 @@ urlpatterns = [
         ResendVerificationView.as_view(),
         name="resend_verification",
     ),
-    # ================== JWT Token endpoints ==================
+    # ================== Cookie Auth endpoints ==================
+    path("refresh/", refresh_token_view, name="cookie_refresh"),  # Cookie-based refresh
+    path("csrf/", csrf_token_view, name="csrf_token"),  # Get CSRF token
+    path("status/", auth_status_view, name="auth_status"),  # Check auth status
+    # ================== Legacy JWT Token endpoints (header-based) ==================
     path("token/", CustomTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("token/verify/", TokenVerifyView.as_view(), name="token_verify"),

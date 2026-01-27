@@ -92,23 +92,25 @@ class SubjectByEducationLevelView(APIView):
 # ==============================================================================
 # STREAM CONFIGURATION VIEWSETS
 # ==============================================================================
-class SchoolStreamConfigurationViewSet(viewsets.ModelViewSet):
+from tenants.mixins import TenantFilterMixin
+
+
+class SchoolStreamConfigurationViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     """ViewSet for managing school stream configurations"""
 
+    queryset = SchoolStreamConfiguration.objects.all()
     serializer_class = SchoolStreamConfigurationSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        # TenantFilterMixin will automatically filter by tenant
+        queryset = super().get_queryset()
+
         queryset = (
-            SchoolStreamConfiguration.objects.select_related("stream")
+            queryset.select_related("stream")
             .filter(is_active=True)
             .prefetch_related("subject_assignments__subject")
         )
-
-        # Filter by school if provided
-        school_id = self.request.query_params.get("school_id")
-        if school_id:
-            queryset = queryset.filter(school_id=school_id)
 
         # Filter by stream if provided
         stream_id = self.request.query_params.get("stream_id")
@@ -124,18 +126,18 @@ class SchoolStreamConfigurationViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"])
     def summary(self, request):
-        """Get summary of stream configurations for a school"""
-        school_id = request.query_params.get("school_id")
-        if not school_id:
+        """Get summary of stream configurations for the current tenant"""
+        tenant = getattr(request, 'tenant', None)
+        if not tenant:
             return Response(
-                {"error": "school_id parameter is required"},
+                {"error": "Tenant context required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Get all stream configurations for this school
+        # Get all stream configurations for this tenant
         configs = (
             SchoolStreamConfiguration.objects.filter(
-                school_id=school_id, is_active=True
+                tenant=tenant, is_active=True
             )
             .select_related("stream")
             .prefetch_related("subject_assignments__subject")
@@ -173,14 +175,15 @@ class SchoolStreamConfigurationViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["post"])
     def setup_defaults(self, request):
-        """Setup default stream configurations for a school"""
-        school_id = request.data.get("school_id")
-        stream_type = request.data.get("stream_type")
-
-        if not school_id:
+        """Setup default stream configurations for the current tenant"""
+        tenant = getattr(request, 'tenant', None)
+        if not tenant:
             return Response(
-                {"error": "school_id is required"}, status=status.HTTP_400_BAD_REQUEST
+                {"error": "Tenant context required"},
+                status=status.HTTP_400_BAD_REQUEST
             )
+
+        stream_type = request.data.get("stream_type")
 
         try:
             from django.core.management import call_command
@@ -189,8 +192,8 @@ class SchoolStreamConfigurationViewSet(viewsets.ModelViewSet):
             # Capture command output
             out = StringIO()
 
-            # Call the management command (no arguments needed since we use default school_id=1)
-            call_command("setup_default_stream_config", stdout=out)
+            # Call the management command with tenant_id
+            call_command("setup_default_stream_config", tenant_id=tenant.id, stdout=out)
 
             return Response(
                 {
@@ -206,14 +209,18 @@ class SchoolStreamConfigurationViewSet(viewsets.ModelViewSet):
             )
 
 
-class SchoolStreamSubjectAssignmentViewSet(viewsets.ModelViewSet):
+class SchoolStreamSubjectAssignmentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     """ViewSet for managing stream subject assignments"""
 
+    queryset = SchoolStreamSubjectAssignment.objects.all()
     serializer_class = SchoolStreamSubjectAssignmentSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        queryset = SchoolStreamSubjectAssignment.objects.select_related(
+        # TenantFilterMixin will automatically filter by tenant
+        queryset = super().get_queryset()
+
+        queryset = queryset.select_related(
             "stream_config__stream", "subject"
         ).filter(is_active=True)
 

@@ -226,18 +226,18 @@ const Subjects: React.FC = () => {
     <TeacherDashboardLayout>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-slate-900 dark:text-white">My Subjects</h1>
-              <p className="text-slate-600 dark:text-slate-400 mt-2">
+        <div className="mb-6 sm:mb-8">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex-1">
+              <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white">My Subjects</h1>
+              <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 mt-1 sm:mt-2">
                 Manage and view all subjects assigned to you
               </p>
             </div>
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              className="flex items-center space-x-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 text-sm sm:text-base w-full sm:w-auto justify-center"
             >
               {refreshing ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -251,63 +251,63 @@ const Subjects: React.FC = () => {
 
         {/* Statistics Cards */}
         {stats && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
-            <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 sm:gap-6 mb-6 sm:mb-8">
+            <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 shadow-sm border border-slate-200 dark:border-slate-700">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-blue-100 dark:bg-blue-900/20 rounded-lg">
-                  <BookOpen className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                <div className="p-2 bg-blue-100 dark:bg-blue-900/20 rounded-lg flex-shrink-0">
+                  <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600 dark:text-blue-400" />
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Total Subjects</p>
-                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{stats.totalSubjects}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400 truncate">Total Subjects</p>
+                  <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">{stats.totalSubjects}</p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+            <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 shadow-sm border border-slate-200 dark:border-slate-700">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-green-100 dark:bg-green-900/20 rounded-lg">
-                  <GraduationCap className="w-6 h-6 text-green-600 dark:text-green-400" />
+                <div className="p-2 bg-green-100 dark:bg-green-900/20 rounded-lg flex-shrink-0">
+                  <GraduationCap className="w-5 h-5 sm:w-6 sm:h-6 text-green-600 dark:text-green-400" />
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Total Classes</p>
-                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{stats.totalClasses}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400 truncate">Total Classes</p>
+                  <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">{stats.totalClasses}</p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+            <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 shadow-sm border border-slate-200 dark:border-slate-700">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-purple-100 dark:bg-purple-900/20 rounded-lg">
-                  <Users className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+                <div className="p-2 bg-purple-100 dark:bg-purple-900/20 rounded-lg flex-shrink-0">
+                  <Users className="w-5 h-5 sm:w-6 sm:h-6 text-purple-600 dark:text-purple-400" />
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Total Students</p>
-                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{stats.totalStudents}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400 truncate">Total Students</p>
+                  <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">{stats.totalStudents}</p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+            <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 shadow-sm border border-slate-200 dark:border-slate-700">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-orange-100 dark:bg-orange-900/20 rounded-lg">
-                  <TrendingUp className="w-6 h-6 text-orange-600 dark:text-orange-400" />
+                <div className="p-2 bg-orange-100 dark:bg-orange-900/20 rounded-lg flex-shrink-0">
+                  <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6 text-orange-600 dark:text-orange-400" />
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Avg. Students/Class</p>
-                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{stats.averageStudentsPerClass}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400 truncate">Avg. Students/Class</p>
+                  <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">{stats.averageStudentsPerClass}</p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+            <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 shadow-sm border border-slate-200 dark:border-slate-700">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-indigo-100 dark:bg-indigo-900/20 rounded-lg">
-                  <Clock className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
+                <div className="p-2 bg-indigo-100 dark:bg-indigo-900/20 rounded-lg flex-shrink-0">
+                  <Clock className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-600 dark:text-indigo-400" />
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Total Periods/Week</p>
-                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{stats.totalPeriodsPerWeek}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400 truncate">Total Periods/Week</p>
+                  <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">{stats.totalPeriodsPerWeek}</p>
                 </div>
               </div>
             </div>
@@ -315,10 +315,10 @@ const Subjects: React.FC = () => {
         )}
 
         {/* Filters and Search */}
-        <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700 mb-6">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-4 sm:space-y-0 sm:space-x-4">
+        <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 shadow-sm border border-slate-200 dark:border-slate-700 mb-6">
+          <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between space-y-4 lg:space-y-0 lg:space-x-4">
             {/* Search */}
-            <div className="flex-1 max-w-md">
+            <div className="flex-1 lg:max-w-md w-full">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
@@ -326,17 +326,17 @@ const Subjects: React.FC = () => {
                   placeholder="Search subjects..."
                   value={searchTerm}
                   onChange={(e) => handleSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
+                  className="w-full pl-10 pr-4 py-2 text-sm sm:text-base border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
                 />
               </div>
             </div>
 
             {/* Filters */}
-            <div className="flex items-center space-x-4">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4">
               <select
                 value={filterCategory}
                 onChange={(e) => handleFilterChange(e.target.value, filterEducationLevel)}
-                className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
+                className="px-3 py-2 text-sm sm:text-base border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
               >
                 <option value="all">All Categories</option>
                 <option value="core">Core</option>
@@ -348,7 +348,7 @@ const Subjects: React.FC = () => {
               <select
                 value={filterEducationLevel}
                 onChange={(e) => handleFilterChange(filterCategory, e.target.value)}
-                className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
+                className="px-3 py-2 text-sm sm:text-base border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
               >
                 <option value="all">All Levels</option>
                 <option value="NURSERY">Nursery</option>
@@ -366,6 +366,7 @@ const Subjects: React.FC = () => {
                       ? 'bg-white dark:bg-slate-600 text-slate-900 dark:text-white shadow-sm'
                       : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
                   }`}
+                  aria-label="Grid view"
                 >
                   <Grid3X3 className="w-4 h-4" />
                 </button>
@@ -376,6 +377,7 @@ const Subjects: React.FC = () => {
                       ? 'bg-white dark:bg-slate-600 text-slate-900 dark:text-white shadow-sm'
                       : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
                   }`}
+                  aria-label="List view"
                 >
                   <List className="w-4 h-4" />
                 </button>
@@ -396,50 +398,50 @@ const Subjects: React.FC = () => {
             </p>
           </div>
         ) : (
-          <div className={viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6' : 'space-y-4'}>
+          <div className={viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6' : 'space-y-4'}>
             {filteredSubjects.map((subject) => (
               <div
                 key={subject.id}
                 className={`bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden ${
-                  viewMode === 'list' ? 'p-6' : 'p-6'
+                  viewMode === 'list' ? 'p-4 sm:p-6' : 'p-4 sm:p-6'
                 }`}
               >
                 {/* Subject Header */}
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
+                <div className="flex items-start justify-between gap-3 mb-3 sm:mb-4">
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-center space-x-2 mb-2">
-                      <BookOpen className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                      <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+                      <BookOpen className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                      <h3 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white truncate">
                         {subject.name}
                       </h3>
                     </div>
-                    <p className="text-sm text-slate-600 dark:text-slate-400 font-mono">
+                    <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 font-mono truncate">
                       {subject.code}
                     </p>
                   </div>
                   {subject.is_compulsory && (
-                    <span className="px-2 py-1 text-xs bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400 rounded-full">
+                    <span className="px-2 py-1 text-xs bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400 rounded-full whitespace-nowrap flex-shrink-0">
                       Compulsory
                     </span>
                   )}
                 </div>
 
                 {/* Subject Details */}
-                <div className="space-y-3 mb-4">
+                <div className="space-y-2 sm:space-y-3 mb-3 sm:mb-4">
                   {subject.description && (
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                    <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 line-clamp-2">
                       {subject.description}
                     </p>
                   )}
-                  
-                  <div className="flex items-center space-x-4 text-sm">
+
+                  <div className="flex items-center flex-wrap gap-2 text-xs sm:text-sm">
                     {subject.category && (
-                      <span className="px-2 py-1 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-full">
+                      <span className="px-2 py-1 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-full whitespace-nowrap">
                         {getCategoryDisplay(subject.category)}
                       </span>
                     )}
                     {subject.education_levels && subject.education_levels.length > 0 && (
-                      <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-full">
+                      <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-full whitespace-nowrap">
                         {getEducationLevelDisplay(subject.education_levels[0])}
                       </span>
                     )}
@@ -447,40 +449,40 @@ const Subjects: React.FC = () => {
                 </div>
 
                 {/* Class Assignments */}
-                <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
-                  <h4 className="text-sm font-medium text-slate-900 dark:text-white mb-3">
+                <div className="border-t border-slate-200 dark:border-slate-700 pt-3 sm:pt-4">
+                  <h4 className="text-xs sm:text-sm font-medium text-slate-900 dark:text-white mb-2 sm:mb-3">
                     Class Assignments ({subject.assignments.length})
                   </h4>
-                  
+
                   <div className="space-y-2">
                     {subject.assignments.map((assignment) => (
                       <div
                         key={assignment.id}
-                        className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg"
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 p-2.5 sm:p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg"
                       >
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2 mb-1">
-                            <span className="text-sm font-medium text-slate-900 dark:text-white">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center flex-wrap gap-2 mb-1">
+                            <span className="text-xs sm:text-sm font-medium text-slate-900 dark:text-white truncate">
                               {assignment.classroom_name}
                             </span>
                             {assignment.is_class_teacher && (
-                              <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400 rounded-full">
+                              <span className="px-1.5 sm:px-2 py-0.5 sm:py-1 text-xs bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400 rounded-full whitespace-nowrap">
                                 Class Teacher
                               </span>
                             )}
                           </div>
-                          <div className="flex items-center space-x-4 text-xs text-slate-500 dark:text-slate-400">
-                            <span>{assignment.grade_level} {assignment.section}</span>
+                          <div className="flex items-center flex-wrap gap-2 sm:gap-4 text-xs text-slate-500 dark:text-slate-400">
+                            <span className="whitespace-nowrap">{assignment.grade_level} {assignment.section}</span>
                             {assignment.stream_type && (
-                              <span>• {assignment.stream_type}</span>
+                              <span className="whitespace-nowrap">• {assignment.stream_type}</span>
                             )}
-                            <span>• {assignment.student_count} students</span>
+                            <span className="whitespace-nowrap">• {assignment.student_count} students</span>
                           </div>
                         </div>
-                        
+
                         <button
                           onClick={() => navigate(`/teacher/subjects/${subject.id}`)}
-                          className="flex items-center space-x-2 px-3 py-1 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                          className="flex items-center justify-center space-x-1.5 sm:space-x-2 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors w-full sm:w-auto whitespace-nowrap"
                         >
                           <Eye className="w-3 h-3" />
                           <span>View Subject</span>

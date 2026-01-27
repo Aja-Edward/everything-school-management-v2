@@ -14,13 +14,14 @@ from datetime import timedelta
 
 from students.models import Student, CLASS_CHOICES, EDUCATION_LEVEL_CHOICES
 from classroom.models import Stream
+from tenants.models import TenantMixin
 
 
 # Initialize logger
 logger = logging.getLogger(__name__)
 
 
-class GradingSystem(models.Model):
+class GradingSystem(TenantMixin, models.Model):
     """Grading system configuration"""
 
     GRADING_TYPES = [
@@ -30,7 +31,7 @@ class GradingSystem(models.Model):
         ("PASS_FAIL", "Pass/Fail"),
     ]
 
-    name = models.CharField(max_length=100, unique=True)
+    name = models.CharField(max_length=100)
     grading_type = models.CharField(max_length=20, choices=GRADING_TYPES)
     description = models.TextField(blank=True)
     min_score = models.DecimalField(max_digits=5, decimal_places=2, default=0)
@@ -44,6 +45,10 @@ class GradingSystem(models.Model):
         db_table = "results_grading_system"
         verbose_name = "Grading System"
         verbose_name_plural = "Grading Systems"
+        unique_together = ["tenant", "name"]
+        indexes = [
+            models.Index(fields=["tenant", "is_active"]),
+        ]
 
     def get_grade(self, percentage):
         if percentage is None:
@@ -70,7 +75,7 @@ class GradingSystem(models.Model):
             return None
 
 
-class Grade(models.Model):
+class Grade(TenantMixin, models.Model):
     """Individual grade definitions within a grading system"""
 
     grading_system = models.ForeignKey(
@@ -87,8 +92,11 @@ class Grade(models.Model):
 
     class Meta:
         db_table = "results_grade"
-        unique_together = ["grading_system", "grade"]
+        unique_together = ["tenant", "grading_system", "grade"]
         ordering = ["-min_score"]
+        indexes = [
+            models.Index(fields=["tenant", "grading_system"]),
+        ]
 
     def __str__(self):
         return f"{self.grade} ({self.min_score}-{self.max_score})"
@@ -98,7 +106,7 @@ class Grade(models.Model):
             raise ValidationError("Minimum score must be less than maximum score")
 
 
-class ScoringConfiguration(models.Model):
+class ScoringConfiguration(TenantMixin, models.Model):
     """Configuration for scoring systems across different education levels"""
 
     EDUCATION_LEVEL_CHOICES = [
@@ -243,12 +251,12 @@ class ScoringConfiguration(models.Model):
 
     class Meta:
         db_table = "results_scoring_configuration"
-        unique_together = ["education_level", "result_type", "name"]
+        unique_together = ["tenant", "education_level", "result_type", "name"]
         ordering = ["education_level", "result_type", "name"]
         indexes = [
-            models.Index(fields=["education_level", "result_type"]),
-            models.Index(fields=["is_active"]),
-            models.Index(fields=["is_default"]),
+            models.Index(fields=["tenant", "education_level", "result_type"]),
+            models.Index(fields=["tenant", "is_active"]),
+            models.Index(fields=["tenant", "is_default"]),
         ]
         verbose_name = "Scoring Configuration"
         verbose_name_plural = "Scoring Configurations"
@@ -307,7 +315,7 @@ class ScoringConfiguration(models.Model):
             return self.test1_max_score + self.test2_max_score + self.test3_max_score
 
 
-class AssessmentType(models.Model):
+class AssessmentType(TenantMixin, models.Model):
     """Types of assessments (Continuous Assessment, Exam, etc.)"""
 
     EDUCATION_LEVEL_CHOICES = [
@@ -318,8 +326,8 @@ class AssessmentType(models.Model):
         ("ALL", "All Levels"),
     ]
 
-    name = models.CharField(max_length=100, unique=True)
-    code = models.CharField(max_length=10, unique=True)
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=10)
     description = models.TextField(blank=True)
     education_level = models.CharField(
         max_length=20,
@@ -348,12 +356,19 @@ class AssessmentType(models.Model):
         verbose_name = "Assessment Type"
         verbose_name_plural = "Assessment Types"
         ordering = ["name"]
+        unique_together = [
+            ["tenant", "name"],
+            ["tenant", "code"],
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "is_active"]),
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.weight_percentage}%)"
 
 
-class ExamSession(models.Model):
+class ExamSession(TenantMixin, models.Model):
     """Exam sessions within an academic session"""
 
     EXAM_TYPES = [
@@ -390,8 +405,12 @@ class ExamSession(models.Model):
 
     class Meta:
         db_table = "results_exam_session"
-        unique_together = ["academic_session", "term", "exam_type"]
+        unique_together = ["tenant", "academic_session", "term", "exam_type"]
         ordering = ["-start_date"]
+        indexes = [
+            models.Index(fields=["tenant", "academic_session"]),
+            models.Index(fields=["tenant", "is_active"]),
+        ]
 
     def __str__(self):
         return f"{self.name} - {self.academic_session.name} ({self.get_term_display()})"
@@ -401,7 +420,7 @@ class ExamSession(models.Model):
             raise ValidationError("Start date must be before end date")
 
 
-class StudentResult(models.Model):
+class StudentResult(TenantMixin, models.Model):
     """Main result record for a student in a subject"""
 
     RESULT_STATUS = [
@@ -492,12 +511,12 @@ class StudentResult(models.Model):
 
     class Meta:
         db_table = "results_student_result"
-        unique_together = ["student", "subject", "exam_session"]
+        unique_together = ["tenant", "student", "subject", "exam_session"]
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["student", "exam_session"]),
-            models.Index(fields=["subject", "exam_session"]),
-            models.Index(fields=["status"]),
+            models.Index(fields=["tenant", "student", "exam_session"]),
+            models.Index(fields=["tenant", "subject", "exam_session"]),
+            models.Index(fields=["tenant", "status"]),
         ]
 
     def __str__(self):
@@ -722,7 +741,7 @@ class BaseTermReport(models.Model):
 # ============================================
 # SENIOR SECONDARY MODELS
 # ============================================
-class SeniorSecondaryTermReport(BaseTermReport, models.Model):
+class SeniorSecondaryTermReport(TenantMixin, BaseTermReport, models.Model):
     """Consolidated senior secondary term report"""
 
     RESULT_STATUS = [
@@ -813,12 +832,12 @@ class SeniorSecondaryTermReport(BaseTermReport, models.Model):
 
     class Meta:
         db_table = "results_senior_secondary_term_report"
-        unique_together = ["student", "exam_session"]
+        unique_together = ["tenant", "student", "exam_session"]
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["student", "exam_session"]),
-            models.Index(fields=["status"]),
-            models.Index(fields=["is_published"]),
+            models.Index(fields=["tenant", "student", "exam_session"]),
+            models.Index(fields=["tenant", "status"]),
+            models.Index(fields=["tenant", "is_published"]),
         ]
 
     def __str__(self):
@@ -952,7 +971,7 @@ class SeniorSecondaryTermReport(BaseTermReport, models.Model):
         return self._get_default_grade(percentage)
 
 
-class SeniorSecondaryResult(models.Model):
+class SeniorSecondaryResult(TenantMixin, models.Model):
     """Senior Secondary specific result model with detailed test scores"""
 
     RESULT_STATUS = [
@@ -1115,18 +1134,18 @@ class SeniorSecondaryResult(models.Model):
 
     class Meta:
         db_table = "results_senior_secondary_result"
-        unique_together = ["student", "subject", "exam_session"]
+        unique_together = ["tenant", "student", "subject", "exam_session"]
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["student", "exam_session"]),
-            models.Index(fields=["subject", "exam_session"]),
-            models.Index(fields=["status"]),
-            models.Index(fields=["term_report"]),
-            models.Index(fields=["exam_session", "subject", "status", "-total_score"]),
-            models.Index(fields=["student", "status", "-percentage"]),
-            models.Index(fields=["grade"]),  # goodADD THIS
-            models.Index(fields=["is_passed"]),  # goodADD THIS
-            models.Index(fields=["subject_position"]),  # goodADD THI
+            models.Index(fields=["tenant", "student", "exam_session"]),
+            models.Index(fields=["tenant", "subject", "exam_session"]),
+            models.Index(fields=["tenant", "status"]),
+            models.Index(fields=["tenant", "term_report"]),
+            models.Index(fields=["tenant", "exam_session", "subject", "status", "-total_score"]),
+            models.Index(fields=["tenant", "student", "status", "-percentage"]),
+            models.Index(fields=["tenant", "grade"]),
+            models.Index(fields=["tenant", "is_passed"]),
+            models.Index(fields=["tenant", "subject_position"]),
         ]
 
     def __str__(self):
@@ -1325,7 +1344,7 @@ class SeniorSecondaryResult(models.Model):
         return f"{self.subject_position}{suffix}"
 
 
-class SeniorSecondarySessionReport(BaseTermReport, models.Model):
+class SeniorSecondarySessionReport(TenantMixin, BaseTermReport, models.Model):
     """Consolidated senior secondary session report with TAA"""
 
     RESULT_STATUS = [
@@ -1414,12 +1433,12 @@ class SeniorSecondarySessionReport(BaseTermReport, models.Model):
 
     class Meta:
         db_table = "results_senior_secondary_session_report"
-        unique_together = ["student", "academic_session"]
+        unique_together = ["tenant", "student", "academic_session"]
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["student", "academic_session"]),
-            models.Index(fields=["status"]),
-            models.Index(fields=["is_published"]),
+            models.Index(fields=["tenant", "student", "academic_session"]),
+            models.Index(fields=["tenant", "status"]),
+            models.Index(fields=["tenant", "is_published"]),
         ]
 
     def __str__(self):
@@ -1531,7 +1550,7 @@ class SeniorSecondarySessionReport(BaseTermReport, models.Model):
         self.save()
 
 
-class SeniorSecondarySessionResult(models.Model):
+class SeniorSecondarySessionResult(TenantMixin, models.Model):
     """Senior Secondary session result with Termly Accumulative Average (TAA)"""
 
     RESULT_STATUS = [
@@ -1623,13 +1642,13 @@ class SeniorSecondarySessionResult(models.Model):
 
     class Meta:
         db_table = "results_senior_secondary_session_result"
-        unique_together = ["student", "subject", "academic_session"]
+        unique_together = ["tenant", "student", "subject", "academic_session"]
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["student", "academic_session"]),
-            models.Index(fields=["subject", "academic_session"]),
-            models.Index(fields=["status"]),
-            models.Index(fields=["session_report"]),
+            models.Index(fields=["tenant", "student", "academic_session"]),
+            models.Index(fields=["tenant", "subject", "academic_session"]),
+            models.Index(fields=["tenant", "status"]),
+            models.Index(fields=["tenant", "session_report"]),
         ]
 
     def __str__(self):
@@ -1737,7 +1756,7 @@ class SeniorSecondarySessionResult(models.Model):
 # ============================================
 
 
-class JuniorSecondaryTermReport(BaseTermReport, models.Model):
+class JuniorSecondaryTermReport(TenantMixin, BaseTermReport, models.Model):
     """Consolidated junior secondary term report"""
 
     RESULT_STATUS = [
@@ -1820,12 +1839,12 @@ class JuniorSecondaryTermReport(BaseTermReport, models.Model):
 
     class Meta:
         db_table = "results_junior_secondary_term_report"
-        unique_together = ["student", "exam_session"]
+        unique_together = ["tenant", "student", "exam_session"]
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["student", "exam_session"]),
-            models.Index(fields=["status"]),
-            models.Index(fields=["is_published"]),
+            models.Index(fields=["tenant", "student", "exam_session"]),
+            models.Index(fields=["tenant", "status"]),
+            models.Index(fields=["tenant", "is_published"]),
         ]
 
     def __str__(self):
@@ -1953,7 +1972,7 @@ class JuniorSecondaryTermReport(BaseTermReport, models.Model):
             )
 
 
-class JuniorSecondaryResult(models.Model):
+class JuniorSecondaryResult(TenantMixin, models.Model):
     """Junior Secondary specific result model with detailed CA breakdown"""
 
     RESULT_STATUS = [
@@ -2145,20 +2164,20 @@ class JuniorSecondaryResult(models.Model):
 
     class Meta:
         db_table = "results_junior_secondary_result"
-        unique_together = ["student", "subject", "exam_session"]
+        unique_together = ["tenant", "student", "subject", "exam_session"]
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["student", "exam_session"]),
-            models.Index(fields=["subject", "exam_session"]),
-            models.Index(fields=["status"]),
-            models.Index(fields=["term_report"]),
+            models.Index(fields=["tenant", "student", "exam_session"]),
+            models.Index(fields=["tenant", "subject", "exam_session"]),
+            models.Index(fields=["tenant", "status"]),
+            models.Index(fields=["tenant", "term_report"]),
             models.Index(
-                fields=["exam_session", "subject", "status", "-total_percentage"]
+                fields=["tenant", "exam_session", "subject", "status", "-total_percentage"]
             ),
-            models.Index(fields=["student", "status", "-total_percentage"]),
-            models.Index(fields=["grade"]),  # goodADD THIS
-            models.Index(fields=["is_passed"]),  # goodADD THIS
-            models.Index(fields=["subject_position"]),  # goodADD THIS
+            models.Index(fields=["tenant", "student", "status", "-total_percentage"]),
+            models.Index(fields=["tenant", "grade"]),
+            models.Index(fields=["tenant", "is_passed"]),
+            models.Index(fields=["tenant", "subject_position"]),
         ]
 
     def __str__(self):
@@ -2364,7 +2383,7 @@ class JuniorSecondaryResult(models.Model):
 # ============================================
 
 
-class PrimaryTermReport(BaseTermReport, models.Model):
+class PrimaryTermReport(TenantMixin, BaseTermReport, models.Model):
     """Consolidated primary term report"""
 
     RESULT_STATUS = [
@@ -2444,12 +2463,12 @@ class PrimaryTermReport(BaseTermReport, models.Model):
 
     class Meta:
         db_table = "results_primary_term_report"
-        unique_together = ["student", "exam_session"]
+        unique_together = ["tenant", "student", "exam_session"]
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["student", "exam_session"]),
-            models.Index(fields=["status"]),
-            models.Index(fields=["is_published"]),
+            models.Index(fields=["tenant", "student", "exam_session"]),
+            models.Index(fields=["tenant", "status"]),
+            models.Index(fields=["tenant", "is_published"]),
         ]
 
     def __str__(self):
@@ -2575,7 +2594,7 @@ class PrimaryTermReport(BaseTermReport, models.Model):
             )
 
 
-class PrimaryResult(models.Model):
+class PrimaryResult(TenantMixin, models.Model):
     """Primary School specific result model with detailed CA breakdown"""
 
     RESULT_STATUS = [
@@ -2769,20 +2788,20 @@ class PrimaryResult(models.Model):
 
     class Meta:
         db_table = "results_primary_result"
-        unique_together = ["student", "subject", "exam_session"]
+        unique_together = ["tenant", "student", "subject", "exam_session"]
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["student", "exam_session"]),
-            models.Index(fields=["subject", "exam_session"]),
-            models.Index(fields=["status"]),
-            models.Index(fields=["term_report"]),
+            models.Index(fields=["tenant", "student", "exam_session"]),
+            models.Index(fields=["tenant", "subject", "exam_session"]),
+            models.Index(fields=["tenant", "status"]),
+            models.Index(fields=["tenant", "term_report"]),
             models.Index(
-                fields=["exam_session", "subject", "status", "-total_percentage"]
+                fields=["tenant", "exam_session", "subject", "status", "-total_percentage"]
             ),
-            models.Index(fields=["student", "status", "-total_percentage"]),
-            models.Index(fields=["grade"]),  # goodADD THIS
-            models.Index(fields=["is_passed"]),  # goodADD THIS
-            models.Index(fields=["subject_position"]),
+            models.Index(fields=["tenant", "student", "status", "-total_percentage"]),
+            models.Index(fields=["tenant", "grade"]),
+            models.Index(fields=["tenant", "is_passed"]),
+            models.Index(fields=["tenant", "subject_position"]),
         ]
 
     def __str__(self):
@@ -2980,7 +2999,7 @@ class PrimaryResult(models.Model):
 # ============================================
 
 
-class NurseryTermReport(BaseTermReport, models.Model):
+class NurseryTermReport(TenantMixin, BaseTermReport, models.Model):
     """Consolidated nursery term report"""
 
     RESULT_STATUS = [
@@ -3129,14 +3148,14 @@ class NurseryTermReport(BaseTermReport, models.Model):
 
     class Meta:
         db_table = "results_nursery_term_report"
-        unique_together = ["student", "exam_session"]  # goodRemoved 'subject'
+        unique_together = ["tenant", "student", "exam_session"]
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["student", "exam_session"]),
-            models.Index(fields=["status"]),
-            models.Index(fields=["exam_session", "status"]),
-            models.Index(fields=["student", "status"]),
-            models.Index(fields=["-overall_percentage"]),
+            models.Index(fields=["tenant", "student", "exam_session"]),
+            models.Index(fields=["tenant", "status"]),
+            models.Index(fields=["tenant", "exam_session", "status"]),
+            models.Index(fields=["tenant", "student", "status"]),
+            models.Index(fields=["tenant", "-overall_percentage"]),
         ]
 
     def __str__(self):
@@ -3372,7 +3391,7 @@ class NurseryTermReport(BaseTermReport, models.Model):
             )
 
 
-class NurseryResult(models.Model):
+class NurseryResult(TenantMixin, models.Model):
     """Individual subject results for nursery students"""
 
     RESULT_STATUS = [
@@ -3476,16 +3495,16 @@ class NurseryResult(models.Model):
 
     class Meta:
         db_table = "results_nursery_result"
-        unique_together = ["student", "subject", "exam_session"]
+        unique_together = ["tenant", "student", "subject", "exam_session"]
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["student", "exam_session"]),
-            models.Index(fields=["subject", "exam_session"]),
-            models.Index(fields=["status"]),
-            models.Index(fields=["term_report"]),
-            models.Index(fields=["grade"]),
-            models.Index(fields=["is_passed"]),
-            models.Index(fields=["subject_position"]),
+            models.Index(fields=["tenant", "student", "exam_session"]),
+            models.Index(fields=["tenant", "subject", "exam_session"]),
+            models.Index(fields=["tenant", "status"]),
+            models.Index(fields=["tenant", "term_report"]),
+            models.Index(fields=["tenant", "grade"]),
+            models.Index(fields=["tenant", "is_passed"]),
+            models.Index(fields=["tenant", "subject_position"]),
         ]
 
     def __str__(self):
@@ -3704,7 +3723,7 @@ class NurseryResult(models.Model):
 # ============================================
 
 
-class AssessmentScore(models.Model):
+class AssessmentScore(TenantMixin, models.Model):
     """Detailed assessment scores for different assessment types"""
 
     student_result = models.ForeignKey(
@@ -3725,7 +3744,10 @@ class AssessmentScore(models.Model):
 
     class Meta:
         db_table = "results_assessment_score"
-        unique_together = ["student_result", "assessment_type"]
+        unique_together = ["tenant", "student_result", "assessment_type"]
+        indexes = [
+            models.Index(fields=["tenant", "student_result"]),
+        ]
 
     def __str__(self):
         return f"{self.student_result.student.full_name} - {self.assessment_type.name}: {self.score}"
@@ -3736,7 +3758,7 @@ class AssessmentScore(models.Model):
         super().save(*args, **kwargs)
 
 
-class ResultSheet(models.Model):
+class ResultSheet(TenantMixin, models.Model):
     """Class result sheet for an exam session"""
 
     SHEET_STATUS = [
@@ -3781,8 +3803,12 @@ class ResultSheet(models.Model):
 
     class Meta:
         db_table = "results_result_sheet"
-        unique_together = ["exam_session", "student_class", "education_level"]
+        unique_together = ["tenant", "exam_session", "student_class", "education_level"]
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["tenant", "exam_session"]),
+            models.Index(fields=["tenant", "status"]),
+        ]
 
     def __str__(self):
         return f"{self.get_student_class_display()} - {self.exam_session.name}"
@@ -3810,7 +3836,7 @@ class ResultSheet(models.Model):
         self.save()
 
 
-class StudentTermResult(models.Model):
+class StudentTermResult(TenantMixin, models.Model):
     """Consolidated term results for a student"""
 
     RESULT_STATUS = [
@@ -3870,7 +3896,12 @@ class StudentTermResult(models.Model):
 
     class Meta:
         db_table = "results_student_term_result"
-        unique_together = ["student", "academic_session", "term"]
+        unique_together = ["tenant", "student", "academic_session", "term"]
+        indexes = [
+            models.Index(fields=["tenant", "student"]),
+            models.Index(fields=["tenant", "academic_session"]),
+            models.Index(fields=["tenant", "status"]),
+        ]
         ordering = ["-created_at"]
 
     def __str__(self):
@@ -3905,7 +3936,7 @@ class StudentTermResult(models.Model):
         self.save()
 
 
-class ResultComment(models.Model):
+class ResultComment(TenantMixin, models.Model):
     """Comments on student results"""
 
     COMMENT_TYPES = [
@@ -3942,12 +3973,16 @@ class ResultComment(models.Model):
     class Meta:
         db_table = "results_result_comment"
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["tenant", "student_result"]),
+            models.Index(fields=["tenant", "term_result"]),
+        ]
 
     def __str__(self):
         return f"Comment by {self.commented_by.username} on {self.created_at}"
 
 
-class ResultTemplate(models.Model):
+class ResultTemplate(TenantMixin, models.Model):
     """Templates for result reports"""
 
     TEMPLATE_TYPES = [
@@ -3957,7 +3992,7 @@ class ResultTemplate(models.Model):
         ("RESULT_SLIP", "Result Slip"),
     ]
 
-    name = models.CharField(max_length=100, unique=True)
+    name = models.CharField(max_length=100)
     template_type = models.CharField(max_length=20, choices=TEMPLATE_TYPES)
     education_level = models.CharField(
         max_length=50, choices=EDUCATION_LEVEL_CHOICES, blank=True
@@ -3970,6 +4005,11 @@ class ResultTemplate(models.Model):
     class Meta:
         db_table = "results_result_template"
         ordering = ["name"]
+        unique_together = ["tenant", "name"]
+        indexes = [
+            models.Index(fields=["tenant", "is_active"]),
+            models.Index(fields=["tenant", "template_type"]),
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.get_template_type_display()})"

@@ -364,6 +364,16 @@ class UserRole(models.Model):
     secondary_section_access = models.BooleanField(default=True)
     nursery_section_access = models.BooleanField(default=True)
 
+    # Grade level restrictions (JSONField storing list of grade level names)
+    # If empty/null, user has access to all grades in their assigned sections
+    # Example: ["JSS 1", "JSS 2", "JSS 3"] or ["Primary 1", "Primary 2"]
+    allowed_grade_levels = models.JSONField(
+        blank=True,
+        null=True,
+        default=list,
+        help_text="Specific grade levels this user can access. If empty, user can access all grades in assigned sections."
+    )
+
     # Custom permissions override
     custom_permissions = models.ManyToManyField(
         Permission, blank=True, related_name="user_role_assignments"

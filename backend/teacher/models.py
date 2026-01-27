@@ -3,9 +3,10 @@ from django.conf import settings
 from django.utils import timezone
 from classroom.models import GradeLevel, Section
 from subject.models import Subject
+from tenants.models import TenantMixin
 
 
-class Teacher(models.Model):
+class Teacher(TenantMixin, models.Model):
     """Teacher profile extending User model"""
 
     STAFF_TYPE_CHOICES = [
@@ -20,7 +21,7 @@ class Teacher(models.Model):
     ]
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    employee_id = models.CharField(max_length=20, unique=True)
+    employee_id = models.CharField(max_length=20)
     staff_type = models.CharField(
         max_length=20, choices=STAFF_TYPE_CHOICES, default="teaching"
     )
@@ -42,11 +43,14 @@ class Teacher(models.Model):
     )
     signature_uploaded_at = models.DateTimeField(blank=True, null=True)
 
+    class Meta:
+        unique_together = ["tenant", "employee_id"]
+
     def __str__(self):
         return f"{self.user.full_name} ({self.employee_id})"
 
 
-class AssignmentRequest(models.Model):
+class AssignmentRequest(TenantMixin, models.Model):
     """Model for teacher assignment requests"""
 
     REQUEST_TYPE_CHOICES = [
@@ -95,7 +99,7 @@ class AssignmentRequest(models.Model):
         return f"{self.teacher} - {self.title} ({self.status})"
 
 
-class TeacherSchedule(models.Model):
+class TeacherSchedule(TenantMixin, models.Model):
     """Model for teacher weekly schedules"""
 
     DAY_CHOICES = [
@@ -126,6 +130,7 @@ class TeacherSchedule(models.Model):
 
     class Meta:
         unique_together = (
+            "tenant",
             "teacher",
             "day_of_week",
             "start_time",

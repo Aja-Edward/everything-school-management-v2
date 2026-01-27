@@ -16,6 +16,8 @@ urlpatterns = [
     # ============================================================================
     path("admin/summary/", views.admin_dashboard_summary, name="admin-summary"),
     path("admin/extended/", views.admin_dashboard_extended, name="admin-extended"),
+    path("admin/enhanced-stats/", views.admin_dashboard_enhanced_stats, name="admin-enhanced-stats"),
+    path("admin/optimized/", views.admin_dashboard_optimized, name="admin-dashboard-optimized"),
     # ============================================================================
     # 👨‍🏫 TEACHER DASHBOARD (Direct access)
     # ============================================================================

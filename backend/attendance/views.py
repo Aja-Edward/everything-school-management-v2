@@ -16,12 +16,16 @@ from parent.models import ParentProfile
 from schoolSettings.permissions import HasAttendancePermission, HasAttendancePermissionOrReadOnly
 
 from utils.section_filtering import AutoSectionFilterMixin
+from tenants.mixins import TenantFilterMixin
+from utils.pagination import LargeResultsPagination
 
 
-class AttendanceViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class AttendanceViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+    """CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation."""
     serializer_class = AttendanceSerializer
     queryset = Attendance.objects.all()
     permission_classes = [IsAuthenticated]
+    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate large attendance datasets
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -48,10 +52,8 @@ class AttendanceViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
             raise
 
     def get_queryset(self):
-
-
+        # CRITICAL: Call super() to get tenant-filtered queryset first
         # Apply section filtering
-
         queryset = super().get_queryset()
 
         

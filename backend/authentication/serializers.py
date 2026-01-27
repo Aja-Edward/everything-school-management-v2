@@ -8,6 +8,7 @@ from django.utils.crypto import get_random_string
 from django.core.mail import send_mail
 from django.conf import settings
 from django.utils import timezone
+from django.db.models import Q
 from datetime import timedelta
 import random
 import string
@@ -478,30 +479,56 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 
 class SimpleLoginSerializer(serializers.Serializer):
-    """Alternative simple login serializer - based on your second example"""
+    """Login serializer that accepts either email or username"""
 
-    email = serializers.EmailField(required=True)
+    email = serializers.CharField(required=True)  # Accepts email or username
     password = serializers.CharField(
         style={"input_type": "password"}, trim_whitespace=False
     )
 
-    def authenticate_user(self, email, password):
-        return authenticate(self.context["request"], username=email, password=password)
+    def authenticate_user(self, identifier, password):
+        """Try to authenticate with identifier as email first, then as username"""
+        # First try with identifier as email
+        user = authenticate(self.context["request"], username=identifier, password=password)
+        if user:
+            return user
+
+        # If that fails, try to find user by email and authenticate with their username
+        try:
+            user_by_email = User.objects.get(email=identifier)
+            user = authenticate(self.context["request"], username=user_by_email.username, password=password)
+            if user:
+                return user
+        except User.DoesNotExist:
+            pass
+
+        # Try to find user by username directly
+        try:
+            user_by_username = User.objects.get(username=identifier)
+            user = authenticate(self.context["request"], username=identifier, password=password)
+            if user:
+                return user
+        except User.DoesNotExist:
+            pass
+
+        return None
 
     def validate(self, attrs):
-        email = attrs.get("email")
+        identifier = attrs.get("email")  # Can be email or username
         password = attrs.get("password")
 
-        if email and password:
-            user = self.authenticate_user(email, password)
+        if identifier and password:
+            user = self.authenticate_user(identifier, password)
             if not user:
                 # Check if user exists but is inactive (unverified)
                 try:
-                    inactive_user = User.objects.get(email=email)
-                    if not inactive_user.is_active:
+                    inactive_user = User.objects.filter(
+                        Q(email=identifier) | Q(username=identifier)
+                    ).first()
+                    if inactive_user and not inactive_user.is_active:
                         msg = "Account is not verified. Please check your email/SMS for verification code."
                         raise serializers.ValidationError(msg, code="authorization")
-                except User.DoesNotExist:
+                except Exception:
                     pass
 
                 msg = "Unable to log in with provided credentials."

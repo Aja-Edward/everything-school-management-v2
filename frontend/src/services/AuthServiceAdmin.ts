@@ -74,9 +74,9 @@ export function useAdminAuth() {
       } else {
         // For admin or general users, combine all endpoints
                  const [studentsRes, teachersRes, parentsRes] = await Promise.all([
-                       api.get('/api/students/', { params }),
-                       api.get('/api/teachers/teachers/', { params }), // Fixed: use correct teachers endpoint
-                       api.get('/api/parents/', { params })
+                       api.get('/api/students/', params),
+                       api.get('/api/teachers/teachers/', params), // Fixed: use correct teachers endpoint
+                       api.get('/api/parents/', params)
          ]);
         
         // Combine and format the results
@@ -142,7 +142,7 @@ export function useAdminAuth() {
         };
       }
       
-      const response = await api.get(endpoint, { params });
+      const response = await api.get(endpoint, params);
       return response.data;
     } catch (error) {
       console.error('Failed to fetch users:', error);
@@ -525,7 +525,7 @@ export function useAdminAuth() {
     try {
       if (!isAdmin()) throw new Error('Admin access required');
       
-      const response = await api.get('/admin/audit_logs/', { params });
+      const response = await api.get('/admin/audit_logs/', params);
       return response.data;
     } catch (error) {
       console.error('Failed to fetch audit logs:', error);

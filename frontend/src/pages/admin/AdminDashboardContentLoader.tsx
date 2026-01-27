@@ -132,11 +132,22 @@
 
 
 import DashboardMainContent from '../../components/dashboards/admin/DashboardMainContent';
+import DashboardSkeleton from '../../components/dashboards/admin/DashboardSkeleton';
 import { Student, Teacher, Classroom, AttendanceData, DashboardStats, Parent, TrendDirection } from '../../types/types';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '../../hooks/useAuth';
+import AdminDashboardService, { clearDashboardCache } from '@/services/AdminDashboardService';
 import api from '@/services/api';
 
+/**
+ * AdminDashboardContentLoader
+ *
+ * Optimized dashboard content loader with:
+ * - Single optimized API call via AdminDashboardService
+ * - Request deduplication and caching
+ * - Skeleton loading for better perceived performance
+ * - Parallel data fetching where needed
+ */
 const AdminDashboardContentLoader = () => {
   const { user } = useAuth();
   const [dashboardStats, setDashboardStats] = useState<DashboardStats>({} as DashboardStats);
@@ -146,16 +157,18 @@ const AdminDashboardContentLoader = () => {
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
   const [parents, setParents] = useState<Parent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const isMounted = useRef(true);
 
-  // Refresh function
+  // Refresh function - clears cache and refetches
   const handleRefresh = useCallback(() => {
     console.log('🔄 AdminDashboardContentLoader: Refresh triggered');
-    setRefreshKey(prev => prev + 1);
+    clearDashboardCache();
+    fetchDashboardData(true);
   }, []);
 
-  // Handle user status updates
-  const handleUserStatusUpdate = (userId: number, userType: 'student' | 'teacher' | 'parent', isActive: boolean) => {
+  // Handle user status updates (optimistic update)
+  const handleUserStatusUpdate = useCallback((userId: number, userType: 'student' | 'teacher' | 'parent', isActive: boolean) => {
     const updateUserInArray = (users: any[]) => {
       return users.map(user => {
         const userToCheck = user.user?.id || user.user_id || user.id;
@@ -177,118 +190,189 @@ const AdminDashboardContentLoader = () => {
     } else if (userType === 'parent') {
       setParents(prev => updateUserInArray(prev));
     }
-  };
+  }, []);
 
-  useEffect(() => {
+  // Main data fetching function
+  const fetchDashboardData = useCallback(async (forceRefresh = false) => {
+    if (!isMounted.current) return;
+
     setLoading(true);
-    console.log('🔄 AdminDashboardContentLoader: Starting data fetch...');
-    
-    Promise.all([
-      api.get('/api/parents/'),
-      api.get('/api/students/students/'), 
-      api.get('/api/teachers/teachers/'), 
-      api.get('/api/attendance/'),
-      api.get('/api/classrooms/classrooms/'),
-      // ✅ CHANGED: Use new unified dashboard endpoint
-      api.get('/api/dashboard/admin/summary/'),
-    ])
-      .then(([parentsRes, studentsRes, teachersRes, attendanceRes, classroomsRes, dashboardRes]) => {
-        console.log('📊 AdminDashboardContentLoader: Raw API responses:');
-        console.log('Dashboard response:', dashboardRes);
-       
-        // Process lists data
-        const processedParents = parentsRes.results || parentsRes || [];
-        const processedStudents = studentsRes.results || studentsRes || [];
-        const processedTeachers = teachersRes.results || teachersRes || [];
-        const processedAttendance = attendanceRes || {};
-        const processedClassrooms = classroomsRes.results || classroomsRes || [];
-        
-        // ✅ CHANGED: Transform new dashboard structure to match DashboardStats format
-        const transformedStats: DashboardStats = {
-          overview: {
-            total_students: dashboardRes.stats?.students?.total || 0,
-            total_teachers: dashboardRes.stats?.teachers?.total || 0,
-            total_parents: dashboardRes.stats?.parents?.total || 0,
-            total_subjects: 0, // Not provided by new endpoint
-            total_classes: dashboardRes.stats?.classrooms || 0,
-            active_academic_year: new Date().getFullYear().toString(),
-          },
-          totalStudents: dashboardRes.stats?.students?.total || 0,
-          totalTeachers: dashboardRes.stats?.teachers?.total || 0,
-          totalClasses: dashboardRes.stats?.classrooms || 0,
-          totalParents: dashboardRes.stats?.parents?.total || 0,
-          totalUsers: (dashboardRes.stats?.students?.total || 0) + 
-                      (dashboardRes.stats?.teachers?.total || 0) + 
-                      (dashboardRes.stats?.parents?.total || 0),
-          activeUsers: (dashboardRes.stats?.students?.active || 0) + 
-                       (dashboardRes.stats?.teachers?.active || 0) + 
-                       (dashboardRes.stats?.parents?.active || 0),
-          inactiveUsers: (dashboardRes.stats?.students?.inactive || 0) + 
-                         (dashboardRes.stats?.teachers?.inactive || 0),
-          pendingVerifications: 0, // Not provided by new endpoint
-          recentRegistrations: 0, // Not provided by new endpoint
-          recent_activities: [], // Not provided in initial load
-          upcoming_events: [], // Not provided in initial load
-          alerts: dashboardRes.alerts || [],
-          quick_stats: [
-            {
-              label: 'Attendance Today',
-              value: `${dashboardRes.attendance_today?.rate || 0}%`,
-              trend: TrendDirection.STABLE,
-            },
-            {
-              label: 'Present Today',
-              value: dashboardRes.attendance_today?.present || 0,
-              trend: TrendDirection.STABLE,
-            },
-            {
-              label: 'Lessons Today',
-              value: dashboardRes.lessons_today?.total || 0,
-              trend: TrendDirection.STABLE,
-            },
-          ],
-        };
-        
-        console.log('🔧 AdminDashboardContentLoader: Transformed stats:', transformedStats);
-        
-        setParents(processedParents);
-        setStudents(processedStudents);
-        setTeachers(processedTeachers);
-        setAttendanceData(processedAttendance);
-        setClassrooms(processedClassrooms);
-        setDashboardStats(transformedStats);
-        
-        console.log('✅ AdminDashboardContentLoader: Data set to state successfully');
-      })
-      .catch((error) => {
-        console.error('❌ AdminDashboardContentLoader: Error fetching data:', error);
-        setParents([]);
-        setStudents([]);
-        setTeachers([]);
-        setAttendanceData({} as AttendanceData);
-        setClassrooms([]);
-        setDashboardStats({} as DashboardStats);
-      })
-      .finally(() => {
-        setLoading(false);
-        console.log('🏁 AdminDashboardContentLoader: Loading completed');
-      });
-  }, [refreshKey]);
+    setError(null);
+    console.log('🔄 AdminDashboardContentLoader: Starting optimized data fetch...');
 
+    try {
+      // Use optimized service for dashboard data (with caching and deduplication)
+      const optimizedData = await AdminDashboardService.fetchOptimizedDashboard(forceRefresh);
+
+      if (!isMounted.current) return;
+
+      // Fetch additional list data in parallel (only if needed for detailed views)
+      // For the main dashboard, we use counts from optimizedData
+      const [parentsRes, studentsRes, teachersRes] = await Promise.allSettled([
+        api.get('/api/parents/', { limit: 100 }),
+        api.get('/api/students/students/', { limit: 100 }),
+        api.get('/api/teachers/teachers/', { limit: 100 }),
+      ]);
+
+      if (!isMounted.current) return;
+
+      // Process list data
+      const processedParents = parentsRes.status === 'fulfilled'
+        ? (parentsRes.value.results || parentsRes.value || [])
+        : [];
+      const processedStudents = studentsRes.status === 'fulfilled'
+        ? (studentsRes.value.results || studentsRes.value || [])
+        : [];
+      const processedTeachers = teachersRes.status === 'fulfilled'
+        ? (teachersRes.value.results || teachersRes.value || [])
+        : [];
+
+      // Transform optimized data to DashboardStats format
+      const transformedStats: DashboardStats = {
+        overview: {
+          total_students: optimizedData.stats.totalStudents,
+          total_teachers: optimizedData.stats.totalTeachers,
+          total_parents: optimizedData.stats.totalParents,
+          total_subjects: 0,
+          total_classes: optimizedData.stats.totalClasses,
+          active_academic_year: new Date().getFullYear().toString(),
+        },
+        totalStudents: optimizedData.stats.totalStudents,
+        totalTeachers: optimizedData.stats.totalTeachers,
+        totalClasses: optimizedData.stats.totalClasses,
+        totalParents: optimizedData.stats.totalParents,
+        totalUsers: optimizedData.stats.totalStudents + optimizedData.stats.totalTeachers + optimizedData.stats.totalParents,
+        activeUsers: optimizedData.stats.activeStudents + optimizedData.stats.activeTeachers,
+        inactiveUsers: (optimizedData.stats.totalStudents - optimizedData.stats.activeStudents) +
+                       (optimizedData.stats.totalTeachers - optimizedData.stats.activeTeachers),
+        pendingVerifications: 0,
+        recentRegistrations: 0,
+        recent_activities: [],
+        upcoming_events: [],
+        alerts: [],
+        quick_stats: [
+          {
+            label: 'Attendance Today',
+            value: `${optimizedData.attendance.todayRate}%`,
+            trend: TrendDirection.STABLE,
+          },
+          {
+            label: 'Weekly Average',
+            value: `${optimizedData.attendance.weeklyAverage}%`,
+            trend: TrendDirection.STABLE,
+          },
+          {
+            label: 'Total Classes',
+            value: optimizedData.stats.totalClasses,
+            trend: TrendDirection.STABLE,
+          },
+        ],
+      };
+
+      // Transform attendance data
+      const transformedAttendance: AttendanceData = {
+        totalPresent: 0,
+        totalAbsent: 0,
+        totalLate: 0,
+        totalExcused: 0,
+        totalUnexcused: 0,
+        totalStudents: optimizedData.stats.totalStudents,
+        totalTeachers: optimizedData.stats.totalTeachers,
+        attendanceRate: optimizedData.attendance.todayRate,
+        absenteeRate: 100 - optimizedData.attendance.todayRate,
+        lateRate: 0,
+        excusedRate: 0,
+        dailyAttendance: optimizedData.attendance.trends.map(t => ({
+          date: t.date,
+          present: t.present,
+          absent: t.absent,
+          late: 0,
+          excused: 0,
+          totalExpected: t.present + t.absent,
+          attendanceRate: t.rate
+        })),
+        weeklyAttendance: [],
+        monthlyAttendance: [],
+        classAttendance: [],
+        studentAttendanceRecords: [],
+        teacherAttendanceRecords: [],
+        attendanceTrends: [],
+        absenteeismPatterns: [],
+        lowAttendanceAlerts: [],
+        chronicAbsentees: [],
+        previousPeriodComparison: {
+          currentPeriod: { startDate: '', endDate: '', attendanceRate: 0 },
+          previousPeriod: { startDate: '', endDate: '', attendanceRate: 0 },
+          change: 0,
+          changeType: 'stable' as any
+        },
+        gradeComparison: [],
+        reportPeriod: {
+          startDate: new Date().toISOString(),
+          endDate: new Date().toISOString(),
+          totalDays: 0,
+          schoolDays: 0,
+          holidays: 0
+        },
+        lastUpdated: optimizedData.lastUpdated,
+        generatedBy: 'Dashboard Service',
+        insights: [],
+        recommendations: []
+      };
+
+      console.log('✅ AdminDashboardContentLoader: Data loaded successfully');
+
+      setParents(processedParents);
+      setStudents(processedStudents);
+      setTeachers(processedTeachers);
+      setAttendanceData(transformedAttendance);
+      setClassrooms(optimizedData.classrooms);
+      setDashboardStats(transformedStats);
+    } catch (err: any) {
+      console.error('❌ AdminDashboardContentLoader: Error fetching data:', err);
+      if (isMounted.current) {
+        setError(err.message || 'Failed to load dashboard data');
+      }
+    } finally {
+      if (isMounted.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  // Initial data fetch
+  useEffect(() => {
+    isMounted.current = true;
+    fetchDashboardData();
+
+    return () => {
+      isMounted.current = false;
+    };
+  }, [fetchDashboardData]);
+
+  // Show skeleton loader while loading
   if (loading) {
+    return <DashboardSkeleton />;
+  }
+
+  // Show error state
+  if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
-        <div className="text-center">
-          <div className="relative">
-            {/* Outer ring */}
-            <div className="absolute inset-0 rounded-full h-20 w-20 border-4 border-slate-200 mx-auto"></div>
-            {/* Animated spinner */}
-            <div className="animate-spin rounded-full h-20 w-20 border-4 border-slate-200 border-t-slate-700 mx-auto"></div>
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="text-center max-w-sm">
+          <div className="w-12 h-12 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-6 h-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
           </div>
-          <p className="text-slate-700 text-lg font-medium mt-8 tracking-wide">
-            Loading dashboard
-            <span className="animate-pulse">...</span>
-          </p>
+          <h3 className="text-base font-semibold text-gray-900 mb-2">Failed to load dashboard</h3>
+          <p className="text-sm text-gray-500 mb-4">{error}</p>
+          <button
+            onClick={() => handleRefresh()}
+            className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+          >
+            Try again
+          </button>
         </div>
       </div>
     );

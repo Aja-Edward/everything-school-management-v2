@@ -9,6 +9,8 @@ from schoolSettings.permissions import (
     HasStudentsPermissionOrReadOnly,
 )
 from utils.section_filtering import SectionFilterMixin, AutoSectionFilterMixin
+from tenants.mixins import TenantFilterMixin
+from utils.pagination import LargeResultsPagination
 from django.db.models import Avg, Count, Q
 from classroom.models import ClassSchedule, Classroom, Section, GradeLevel
 from django.shortcuts import get_object_or_404
@@ -743,8 +745,14 @@ def student_schedule_view(request):
         return Response({"error": f"Failed to fetch schedule: {str(e)}"}, status=500)
 
 
-class StudentViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
+    ViewSet for managing students with proper tenant filtering and section access control.
+    """
+    queryset = Student.objects.all()  # Base queryset - will be filtered by mixins and get_queryset()
     permission_classes = [HasStudentsPermissionOrReadOnly]
+    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate large student datasets
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -778,21 +786,51 @@ class StudentViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
 
     #     return queryset
     def get_queryset(self):
-        """Optimize queryset with select_related for better performance."""
-        queryset = Student.objects.select_related("user").prefetch_related("parents")
+        """
+        Optimize queryset with select_related for better performance.
+        CRITICAL: Calls super() first to apply tenant filtering from TenantFilterMixin.
+        """
+        # Check if user is querying by user parameter (student viewing their own record)
+        user_filter = self.request.query_params.get("user", None)
+        is_self_query = (
+            self.request.user.is_authenticated
+            and user_filter
+            and str(self.request.user.id) == str(user_filter)
+        )
 
-        # Apply section-based filtering for authenticated users
-        if self.request.user.is_authenticated:
-            # Check if user is querying by user parameter (student viewing their own record)
-            user_filter = self.request.query_params.get("user", None)
+        logger.info(f"🔍 StudentViewSet.get_queryset: user_filter={user_filter}, user.id={self.request.user.id}, is_self_query={is_self_query}")
 
-            if user_filter and str(self.request.user.id) == str(user_filter):
-                # Student viewing their own record - skip section filtering
-                queryset = queryset.filter(user_id=user_filter)
-            else:
-                # Apply section-based filtering for staff/teachers
-                queryset = self.filter_students_by_section_access(queryset)
+        # CRITICAL: If student is viewing their own record, skip AutoSectionFilterMixin
+        if is_self_query:
+            logger.info(f"✅ Self-query detected for user {user_filter}, bypassing section filtering")
+            # Bypass mixins and get base queryset directly with only tenant filtering
+            queryset = Student.objects.all()
 
+            # Apply tenant filtering manually (tenant is set by TenantMiddleware)
+            tenant = getattr(self.request, 'tenant', None)
+            logger.info(f"🏢 Tenant from request: {tenant}")
+            if tenant:
+                # Use tenant ID for filtering to avoid object comparison issues
+                queryset = queryset.filter(tenant_id=tenant.id)
+                logger.info(f"📊 After tenant filter: {queryset.count()} students")
+
+            # Add performance optimizations
+            queryset = queryset.select_related("user").prefetch_related("parents")
+
+            # Filter by the specific user
+            queryset = queryset.filter(user_id=user_filter)
+            logger.info(f"📊 After user filter: {queryset.count()} students")
+
+            return queryset
+
+        # CRITICAL: For non-self queries, call super() to apply tenant and section filtering
+        logger.info(f"⚙️ Not a self-query, using standard filtering")
+        queryset = super().get_queryset()
+
+        # Add performance optimizations
+        queryset = queryset.select_related("user").prefetch_related("parents")
+
+        logger.info(f"📊 Final queryset count: {queryset.count()} students")
         return queryset
 
     def get_serializer_class(self):

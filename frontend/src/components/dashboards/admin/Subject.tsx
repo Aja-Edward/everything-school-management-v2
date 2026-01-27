@@ -18,13 +18,14 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
-import { 
-  subjectService, 
-  Subject, 
-  CreateSubjectData, 
+import {
+  subjectService,
+  Subject,
+  CreateSubjectData,
   SubjectFilters,
-  SubjectStatistics 
+  SubjectStatistics
 } from '@/services/SubjectService';
+import { API_BASE_URL } from '@/services/api';
 
 const SubjectManagement = () => {
   // State management
@@ -237,7 +238,7 @@ const SubjectManagement = () => {
         // Try without any parameters
         try {
           console.log('📋 Retrying subjects without parameters...');
-          const response = await fetch('/api/subjects/');
+          const response = await fetch(`${API_BASE_URL}/subjects/`);
           const text = await response.text();
           console.log('📋 Raw response:', text);
           if (response.ok) {
@@ -659,7 +660,7 @@ const SubjectManagement = () => {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setShowModal(true)}
-                className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-3 rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-200 transform hover:scale-105 shadow-lg hover:shadow-xl flex items-center gap-2 font-medium"
+                className="bg-gray-900 text-white px-5 py-2.5 rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2 text-sm font-medium"
               >
                 <Plus className="w-5 h-5" />
                 Add Subject
@@ -669,64 +670,34 @@ const SubjectManagement = () => {
                   setFilters({ category: '', education_level: '', is_active: true, ordering: 'name' });
                   setSearchTerm('');
                 }}
-                className="px-6 py-3 border-2 border-gray-200 text-gray-700 rounded-xl hover:border-gray-300 hover:bg-gray-50 transition-all duration-200 transform hover:scale-105 font-medium"
+                className="px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
               >
                 Reset Filters
               </button>
             </div>
             
-            {/* Premium View Toggle */}
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-semibold text-gray-700">View Mode:</span>
-              <div className="relative bg-gray-100 rounded-2xl p-1 shadow-inner">
-                <div className="flex relative">
-                  {/* Animated Background Slider */}
-                  <div 
-                    className={`absolute top-1 bottom-1 w-1/2 bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl transition-all duration-300 ease-out shadow-md ${
-                      viewMode === 'list' ? 'translate-x-full' : 'translate-x-0'
-                    }`}
-                  />
-                  
-                  {/* Grid Button */}
-                  <button
-                    onClick={() => setViewMode('grid')}
-                    className={`relative z-10 px-6 py-2.5 text-sm font-semibold rounded-xl transition-all duration-300 ${
-                      viewMode === 'grid'
-                        ? 'text-white shadow-lg'
-                        : 'text-gray-600 hover:text-gray-800'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="grid grid-cols-2 gap-0.5 w-4 h-4">
-                        <div className={`w-1.5 h-1.5 rounded-sm ${viewMode === 'grid' ? 'bg-white' : 'bg-gray-400'}`} />
-                        <div className={`w-1.5 h-1.5 rounded-sm ${viewMode === 'grid' ? 'bg-white' : 'bg-gray-400'}`} />
-                        <div className={`w-1.5 h-1.5 rounded-sm ${viewMode === 'grid' ? 'bg-white' : 'bg-gray-400'}`} />
-                        <div className={`w-1.5 h-1.5 rounded-sm ${viewMode === 'grid' ? 'bg-white' : 'bg-gray-400'}`} />
-                      </div>
-                      Grid
-                    </div>
-                  </button>
-                  
-                  {/* List Button */}
-                  <button
-                    onClick={() => setViewMode('list')}
-                    className={`relative z-10 px-6 py-2.5 text-sm font-semibold rounded-xl transition-all duration-300 ${
-                      viewMode === 'list'
-                        ? 'text-white shadow-lg'
-                        : 'text-gray-600 hover:text-gray-800'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="flex flex-col gap-0.5 w-4 h-4">
-                        <div className={`w-full h-1 rounded-sm ${viewMode === 'list' ? 'bg-white' : 'bg-gray-400'}`} />
-                        <div className={`w-full h-1 rounded-sm ${viewMode === 'list' ? 'bg-white' : 'bg-gray-400'}`} />
-                        <div className={`w-full h-1 rounded-sm ${viewMode === 'list' ? 'bg-white' : 'bg-gray-400'}`} />
-                      </div>
-                      List
-                    </div>
-                  </button>
-                </div>
-              </div>
+            {/* View Toggle */}
+            <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-lg">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  viewMode === 'grid'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Grid
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  viewMode === 'list'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                List
+              </button>
             </div>
           </div>
           

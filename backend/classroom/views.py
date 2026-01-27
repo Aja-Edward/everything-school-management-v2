@@ -16,6 +16,8 @@ from django.shortcuts import get_object_or_404
 import logging
 
 from utils.section_filtering import AutoSectionFilterMixin
+from tenants.mixins import TenantFilterMixin
+from utils.pagination import StandardResultsPagination, LargeResultsPagination
 from .models import (
     GradeLevel,
     Classroom,
@@ -57,12 +59,13 @@ logger = logging.getLogger(__name__)
 # ==============================================================================
 
 
-class GradeLevelViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class GradeLevelViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """ViewSet for GradeLevel model with automatic section filtering"""
 
     queryset = GradeLevel.objects.all()
     serializer_class = GradeLevelSerializer
     permission_classes = []  # public access
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate grade levels
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -118,12 +121,13 @@ class GradeLevelViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
-class SectionViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class SectionViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """ViewSet for Section model with automatic section filtering"""
 
     queryset = Section.objects.all()
     serializer_class = SectionSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate sections
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -147,12 +151,13 @@ class SectionViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
-class StreamViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class StreamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """ViewSet for Stream model"""
 
     queryset = Stream.objects.all()  # FIXED: Was Section.objects
     permission_classes = []
     serializer_class = StreamSerializer
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate streams
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -171,16 +176,24 @@ class StreamViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
     def by_type(self, request):
         stream_type = request.query_params.get("stream_type")
         if stream_type:
-            streams = self.get_queryset().filter(
+            queryset = self.get_queryset().filter(
                 stream_type=stream_type, is_active=True
             )
         else:
-            streams = self.get_queryset().filter(is_active=True)
-        serializer = StreamSerializer(streams, many=True)
+            queryset = self.get_queryset().filter(is_active=True)
+
+        # PERFORMANCE: Add pagination for consistency
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = StreamSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        # Fallback if pagination is disabled
+        serializer = StreamSerializer(queryset, many=True)
         return Response(serializer.data)
 
 
-class ClassroomViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """
     ViewSet for Classroom model with automatic section filtering.
     FIXED: Removed duplicate get_queryset() methods
@@ -193,6 +206,7 @@ class ClassroomViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
     )
     serializer_class = ClassroomSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate classrooms
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -541,12 +555,13 @@ class ClassroomViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
             )
 
 
-class ClassroomTeacherAssignmentViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class ClassroomTeacherAssignmentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """ViewSet for ClassroomTeacherAssignment model"""
 
     queryset = ClassroomTeacherAssignment.objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = ClassroomTeacherAssignmentSerializer
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate teacher assignments
 
     def get_queryset(self):
         # Let mixin handle section filtering
@@ -563,10 +578,18 @@ class ClassroomTeacherAssignmentViewSet(AutoSectionFilterMixin, viewsets.ModelVi
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        assignments = self.get_queryset().filter(
+        queryset = self.get_queryset().filter(
             classroom__academic_session_id=academic_session_id
         )
-        serializer = self.get_serializer(assignments, many=True)
+
+        # PERFORMANCE: Add pagination to handle large datasets
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        # Fallback if pagination is disabled
+        serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
     @action(detail=False, methods=["get"])
@@ -579,8 +602,16 @@ class ClassroomTeacherAssignmentViewSet(AutoSectionFilterMixin, viewsets.ModelVi
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        assignments = self.get_queryset().filter(subject_id=subject_id)
-        serializer = self.get_serializer(assignments, many=True)
+        queryset = self.get_queryset().filter(subject_id=subject_id)
+
+        # PERFORMANCE: Add pagination to handle large datasets
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        # Fallback if pagination is disabled
+        serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
     @action(detail=False, methods=["get"])
@@ -607,12 +638,13 @@ class ClassroomTeacherAssignmentViewSet(AutoSectionFilterMixin, viewsets.ModelVi
         )
 
 
-class StudentEnrollmentViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class StudentEnrollmentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """ViewSet for StudentEnrollment model"""
 
     queryset = StudentEnrollment.objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = StudentEnrollmentSerializer
+    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate large enrollment datasets
 
     def get_queryset(self):
         # Let mixin handle section filtering
@@ -655,12 +687,13 @@ class StudentEnrollmentViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         )
 
 
-class ClassScheduleViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class ClassScheduleViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """ViewSet for ClassSchedule model"""
 
     queryset = ClassSchedule.objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = ClassScheduleSerializer
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate schedules
 
     def get_queryset(self):
         # Let mixin handle section filtering
@@ -813,12 +846,13 @@ class ClassScheduleViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
 # ==============================================================================
 
 
-class TeacherViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """ViewSet for Teacher model"""
 
     queryset = Teacher.objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = TeacherSerializer
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate teachers
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -923,7 +957,7 @@ class TeacherViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         )
 
 
-class StudentViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """
     ViewSet for Student model
     FIXED: Was using Classroom.objects, now uses Student.objects
@@ -932,6 +966,7 @@ class StudentViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
     queryset = Student.objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = None  # You need to add StudentSerializer
+    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate large student datasets
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -1032,12 +1067,13 @@ class StudentViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         )
 
 
-class SubjectViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """ViewSet for Subject model"""
 
     queryset = Subject.objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = SubjectSerializer
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate subjects
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -1156,7 +1192,7 @@ class SubjectViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         return Response({"subject": subject.name, "prerequisites": serializer.data})
 
 
-class SubjectAnalyticsViewSet(AutoSectionFilterMixin, viewsets.ReadOnlyModelViewSet):
+class SubjectAnalyticsViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ReadOnlyModelViewSet):
     """
     ViewSet for Subject analytics (read-only)
     FIXED: Was using Classroom.objects, now uses Subject.objects
@@ -1165,6 +1201,7 @@ class SubjectAnalyticsViewSet(AutoSectionFilterMixin, viewsets.ReadOnlyModelView
     queryset = Subject.objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = SubjectSerializer
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate subject analytics
 
     def get_queryset(self):
         # Let mixin handle section filtering
@@ -1172,7 +1209,7 @@ class SubjectAnalyticsViewSet(AutoSectionFilterMixin, viewsets.ReadOnlyModelView
         return queryset.order_by("name")
 
 
-class SubjectManagementViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class SubjectManagementViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """
     ViewSet for Subject management (admin only)
     FIXED: Was using Classroom.objects, now uses Subject.objects
@@ -1181,6 +1218,7 @@ class SubjectManagementViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
     queryset = Subject.objects.all()
     permission_classes = [IsAdminUser]
     serializer_class = SubjectSerializer
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate subject management
 
     def get_queryset(self):
         # Let mixin handle section filtering

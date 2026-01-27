@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 from datetime import datetime
 
+from tenants.models import TenantMixin
 from academics.models import AcademicSession, Term
 from subject.models import Subject
 from classroom.models import GradeLevel, Section
@@ -72,7 +73,7 @@ def get_default_exam_schedule_id():
     return None
 
 
-class ExamSchedule(models.Model):
+class ExamSchedule(TenantMixin, models.Model):
     """Exam schedule tied to academic structure"""
 
     name = models.CharField(max_length=150)
@@ -105,7 +106,7 @@ class ExamSchedule(models.Model):
     class Meta:
         db_table = "exams_schedule"
         ordering = ["-start_date"]
-        unique_together = ["academic_session", "term", "name"]
+        unique_together = [("tenant", "academic_session", "term", "name")]
 
     def __str__(self):
         default_text = " (Default)" if self.is_default else ""
@@ -173,13 +174,13 @@ class ExamSchedule(models.Model):
 
 
 # 2. Update your Exam model with default
-class Exam(models.Model):
+class Exam(TenantMixin, models.Model):
     """Streamlined exam model focused on logistics"""
 
     # Basic info
     title = models.CharField(max_length=200)
-    # code = models.CharField(max_length=20, unique=True, blank=True)
-    code = models.CharField(max_length=50, unique=True, blank=True)
+    # code = models.CharField(max_length=20, blank=True)
+    code = models.CharField(max_length=50, blank=True)
     description = models.TextField(blank=True)
 
     # Academic relationships (use academic app)
@@ -287,7 +288,8 @@ class Exam(models.Model):
     class Meta:
         db_table = "exams_exam"
         ordering = ["exam_date", "start_time"]
-        # Note: unique_together removed since section can be null
+        unique_together = [("tenant", "code")]
+        # Note: unique_together for code ensures uniqueness per tenant
         # This allows multiple exams for the same subject/grade_level/exam_type/schedule
         # even if they have different sections or no section
 
@@ -412,7 +414,7 @@ class Exam(models.Model):
             raise ValidationError("Pass marks cannot be greater than total marks")
 
 
-class ExamRegistration(models.Model):
+class ExamRegistration(TenantMixin, models.Model):
     """Student exam registration with special needs"""
 
     exam = models.ForeignKey(Exam, on_delete=models.CASCADE)
@@ -433,7 +435,7 @@ class ExamRegistration(models.Model):
 
     class Meta:
         db_table = "exams_registration"
-        unique_together = ("exam", "student")
+        unique_together = [("tenant", "exam", "student")]
         # Fix: Remove the problematic ordering for now, or use correct field path
         # ordering = ["exam__exam_date", "student__first_name"]  # This was causing the error
         # ordering = ["exam__exam_date", "registration_date"]  # Use available fields
@@ -443,7 +445,7 @@ class ExamRegistration(models.Model):
         return f"{self.student.get_full_name()} - {self.exam.title}"
 
 
-class ExamStatistics(models.Model):
+class ExamStatistics(TenantMixin, models.Model):
     """Pre-calculated exam statistics for performance"""
 
     exam = models.OneToOneField(
@@ -518,4 +520,378 @@ class ExamStatistics(models.Model):
         self.total_registered = registrations.count()
         self.total_absent = registrations.filter(is_present=False).count()
 
+        self.save()
+
+
+# ===================================
+# EXAM-003: NEW EXAM FEATURES
+# ===================================
+
+
+QUESTION_TYPE_CHOICES = [
+    ("objective", "Objective"),
+    ("theory", "Theory"),
+    ("practical", "Practical"),
+]
+
+
+class QuestionBank(TenantMixin, models.Model):
+    """
+    Question Bank for reusable questions across multiple exams
+    Implements EXAM-003 Feature 1: Question Bank
+    """
+
+    # Ownership
+    created_by = models.ForeignKey(
+        Teacher,
+        on_delete=models.CASCADE,
+        related_name="created_questions",
+        help_text="Teacher who created this question"
+    )
+
+    # Question Content
+    question_type = models.CharField(
+        max_length=20,
+        choices=QUESTION_TYPE_CHOICES,
+        default="objective"
+    )
+    question = models.TextField(help_text="HTML content from RichTextEditor")
+
+    # For objective questions
+    options = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of options for objective questions"
+    )
+    correct_answer = models.CharField(max_length=255, blank=True)
+
+    # For theory/practical questions
+    answer_guideline = models.TextField(blank=True, help_text="Expected answer or marking guide")
+    expected_points = models.TextField(blank=True, help_text="Key points for theory questions")
+
+    # Marks
+    marks = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])
+
+    # Metadata
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE)
+    topic = models.CharField(max_length=200, blank=True)
+    subtopic = models.CharField(max_length=200, blank=True)
+    difficulty = models.CharField(max_length=10, choices=DIFFICULTY_CHOICES, default="medium")
+    grade_level = models.ForeignKey(GradeLevel, on_delete=models.CASCADE)
+
+    # Categorization
+    tags = models.JSONField(default=list, blank=True, help_text="List of tags for categorization")
+    is_shared = models.BooleanField(
+        default=False,
+        help_text="Make available to other teachers in the school"
+    )
+
+    # Usage Tracking
+    usage_count = models.PositiveIntegerField(default=0)
+    last_used = models.DateTimeField(null=True, blank=True)
+
+    # Media
+    images = models.JSONField(default=list, blank=True, help_text="List of image URLs")
+    table_data = models.TextField(blank=True, help_text="Table HTML or JSON")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "exam_question_bank"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["tenant", "subject", "difficulty"]),
+            models.Index(fields=["tenant", "created_by", "-created_at"]),
+            models.Index(fields=["tenant", "is_shared"]),
+        ]
+
+    def __str__(self):
+        return f"{self.question_type.title()}: {self.question[:50]}... ({self.subject.name})"
+
+    def increment_usage(self):
+        """Increment usage counter and update last used time"""
+        from django.utils import timezone
+        self.usage_count += 1
+        self.last_used = timezone.now()
+        self.save()
+
+
+class ExamTemplate(TenantMixin, models.Model):
+    """
+    Exam Templates for reusable exam structures
+    Implements EXAM-003 Feature 2: Exam Templates
+    """
+
+    # Ownership
+    created_by = models.ForeignKey(
+        Teacher,
+        on_delete=models.CASCADE,
+        related_name="created_templates",
+        help_text="Teacher/Admin who created this template"
+    )
+
+    # Template Info
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    grade_level = models.ForeignKey(GradeLevel, on_delete=models.CASCADE)
+    subject = models.ForeignKey(
+        Subject,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Optional - leave blank for generic templates"
+    )
+
+    # Structure
+    structure = models.JSONField(
+        help_text="Template structure with sections, question counts, marks allocation"
+    )
+    total_marks = models.PositiveIntegerField(default=100)
+    duration_minutes = models.PositiveIntegerField(null=True, blank=True)
+
+    # Default Content
+    default_instructions = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Default instructions for general, objective, theory, practical sections"
+    )
+
+    # Sharing
+    is_shared = models.BooleanField(
+        default=False,
+        help_text="Make available to all teachers in the school"
+    )
+    usage_count = models.PositiveIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "exam_template"
+        ordering = ["-created_at"]
+        unique_together = [("tenant", "name")]
+        indexes = [
+            models.Index(fields=["tenant", "grade_level"]),
+            models.Index(fields=["tenant", "is_shared"]),
+        ]
+
+    def __str__(self):
+        subject_text = f" - {self.subject.name}" if self.subject else ""
+        return f"{self.name} ({self.grade_level.name}{subject_text})"
+
+    def increment_usage(self):
+        """Increment usage counter"""
+        self.usage_count += 1
+        self.save()
+
+
+REVIEW_STATUS_CHOICES = [
+    ("draft", "Draft"),
+    ("submitted", "Submitted for Review"),
+    ("in_review", "In Review"),
+    ("changes_requested", "Changes Requested"),
+    ("approved", "Approved"),
+    ("rejected", "Rejected"),
+]
+
+REVIEW_DECISION_CHOICES = [
+    ("approve", "Approve"),
+    ("request_changes", "Request Changes"),
+    ("reject", "Reject"),
+]
+
+
+class ExamReview(TenantMixin, models.Model):
+    """
+    Exam Review workflow for exam approval process
+    Implements EXAM-003 Feature 3: Collaboration/Review Workflow
+    """
+
+    exam = models.OneToOneField(
+        Exam,
+        on_delete=models.CASCADE,
+        related_name="review"
+    )
+
+    # Workflow State
+    status = models.CharField(
+        max_length=20,
+        choices=REVIEW_STATUS_CHOICES,
+        default="draft"
+    )
+
+    # Submission
+    submitted_by = models.ForeignKey(
+        Teacher,
+        on_delete=models.CASCADE,
+        related_name="submitted_reviews"
+    )
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    submission_note = models.TextField(blank=True, help_text="Note to reviewers")
+
+    # Approval
+    approved_by = models.ForeignKey(
+        Teacher,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_reviews"
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    rejection_reason = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "exam_review"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["tenant", "status"]),
+            models.Index(fields=["tenant", "submitted_by", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"Review: {self.exam.title} ({self.get_status_display()})"
+
+    def submit(self):
+        """Submit exam for review"""
+        from django.utils import timezone
+        self.status = "submitted"
+        self.submitted_at = timezone.now()
+        self.save()
+        # Also update exam status
+        self.exam.submit_for_approval()
+
+    def approve(self, approver, notes=""):
+        """Approve the exam"""
+        from django.utils import timezone
+        self.status = "approved"
+        self.approved_by = approver
+        self.approved_at = timezone.now()
+        self.save()
+        # Also update exam
+        self.exam.approve(approver, notes)
+
+    def request_changes(self):
+        """Request changes to the exam"""
+        self.status = "changes_requested"
+        self.save()
+
+    def reject(self, approver, reason=""):
+        """Reject the exam"""
+        from django.utils import timezone
+        self.status = "rejected"
+        self.approved_by = approver
+        self.approved_at = timezone.now()
+        self.rejection_reason = reason
+        self.save()
+        # Also update exam
+        self.exam.reject(approver, reason)
+
+
+class ExamReviewer(TenantMixin, models.Model):
+    """
+    Reviewers assigned to an exam review
+    """
+
+    review = models.ForeignKey(
+        ExamReview,
+        on_delete=models.CASCADE,
+        related_name="reviewers"
+    )
+    reviewer = models.ForeignKey(
+        Teacher,
+        on_delete=models.CASCADE,
+        related_name="assigned_reviews"
+    )
+
+    # Review status
+    assigned_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    decision = models.CharField(
+        max_length=20,
+        choices=REVIEW_DECISION_CHOICES,
+        blank=True
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "exam_reviewer"
+        unique_together = [("tenant", "review", "reviewer")]
+        ordering = ["assigned_at"]
+
+    def __str__(self):
+        return f"{self.reviewer.get_full_name()} - {self.review.exam.title}"
+
+    def submit_review(self, decision):
+        """Submit review decision"""
+        from django.utils import timezone
+        self.decision = decision
+        self.reviewed_at = timezone.now()
+        self.save()
+
+
+class ExamReviewComment(TenantMixin, models.Model):
+    """
+    Comments on exam reviews
+    """
+
+    review = models.ForeignKey(
+        ExamReview,
+        on_delete=models.CASCADE,
+        related_name="comments"
+    )
+    author = models.ForeignKey(
+        Teacher,
+        on_delete=models.CASCADE,
+        related_name="review_comments"
+    )
+
+    # Comment details
+    comment = models.TextField()
+    question_index = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Which question this comment relates to (0-indexed)"
+    )
+    section = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Which section: objective, theory, practical, custom"
+    )
+
+    # Resolution
+    is_resolved = models.BooleanField(default=False)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.ForeignKey(
+        Teacher,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="resolved_comments"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "exam_review_comment"
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["tenant", "review", "-created_at"]),
+        ]
+
+    def __str__(self):
+        author_name = self.author.get_full_name() if hasattr(self.author, 'get_full_name') else str(self.author)
+        return f"Comment by {author_name} on {self.review.exam.title}"
+
+    def resolve(self, resolver):
+        """Mark comment as resolved"""
+        from django.utils import timezone
+        self.is_resolved = True
+        self.resolved_at = timezone.now()
+        self.resolved_by = resolver
         self.save()

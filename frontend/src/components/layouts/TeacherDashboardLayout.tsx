@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { useNavigate } from 'react-router-dom';
-import { 
-  GraduationCap, 
-  Users, 
-  BookOpen, 
-  Calendar, 
-  FileText, 
-  MessageSquare, 
-  Settings, 
+import { useNavigate, useLocation } from 'react-router-dom';
+import {
+  GraduationCap,
+  Users,
+  BookOpen,
+  Calendar,
+  FileText,
+  MessageSquare,
+  Settings,
   LogOut,
   Menu,
   X,
@@ -42,13 +42,13 @@ interface TeacherDashboardLayoutProps {
 const TeacherDashboardLayout: React.FC<TeacherDashboardLayoutProps> = ({ children }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { isDarkMode, toggleTheme } = useGlobalTheme();
   const { settings } = useSettings();
-  
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState('dashboard');
 
   // Notification states
   const [notifications, setNotifications] = useState<TeacherNotification[]>([]);
@@ -262,18 +262,18 @@ const TeacherDashboardLayout: React.FC<TeacherDashboardLayoutProps> = ({ childre
   };
 
   return (
-    <div className={`min-h-screen ${isDarkMode ? 'dark' : ''}`}>
+    <div className={`min-h-screen overflow-x-hidden ${isDarkMode ? 'dark' : ''}`}>
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      <div className="flex">
+      <div className="flex w-full">
         {/* Sidebar */}
-        <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 ${
+        <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 flex-shrink-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}>
           <div className="flex flex-col h-full">
@@ -307,24 +307,25 @@ const TeacherDashboardLayout: React.FC<TeacherDashboardLayoutProps> = ({ childre
             </div>
 
             {/* Navigation */}
-            <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
+            <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
               {navigationItems.map((item) => {
                 const Icon = item.icon;
+                const isActive = location.pathname === item.path ||
+                  (item.path !== '/teacher/dashboard' && location.pathname.startsWith(item.path));
                 return (
                   <button
                     key={item.id}
                     onClick={() => {
-                      setActiveTab(item.id);
                       setSidebarOpen(false);
                       navigate(item.path);
                     }}
-                    className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
-                      activeTab === item.id
-                        ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
-                        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100'
+                    className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors duration-200 ${
+                      isActive
+                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white'
+                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-200'
                     }`}
                   >
-                    <Icon className="w-5 h-5" />
+                    <Icon className={`w-5 h-5 ${isActive ? 'text-slate-700 dark:text-slate-300' : ''}`} />
                     <span>{item.name}</span>
                   </button>
                 );
@@ -366,33 +367,33 @@ const TeacherDashboardLayout: React.FC<TeacherDashboardLayoutProps> = ({ childre
         </div>
 
         {/* Main Content */}
-        <div className="flex-1 lg:ml-0">
+        <div className="flex-1 min-w-0 w-full lg:ml-0">
           {/* Top Navigation Bar */}
           <header className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
-            <div className="flex items-center justify-between px-4 py-3">
+            <div className="flex items-center justify-between px-3 sm:px-4 py-3 gap-2">
               {/* Left side */}
-              <div className="flex items-center space-x-4">
+              <div className="flex items-center gap-2 sm:gap-4 min-w-0">
                 <button
                   onClick={() => setSidebarOpen(true)}
-                  className="lg:hidden p-2 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                  className="lg:hidden p-2 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 flex-shrink-0"
                 >
                   <Menu className="w-5 h-5" />
                 </button>
-                
+
                 <div className="hidden md:flex items-center space-x-4">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input
                       type="text"
                       placeholder="Search..."
-                      className="pl-10 pr-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="pl-10 pr-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                     />
                   </div>
                 </div>
               </div>
 
               {/* Right side */}
-              <div className="flex items-center space-x-4">
+              <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
                 {/* Theme Toggle */}
                 <button
                   onClick={toggleTheme}
@@ -420,7 +421,7 @@ const TeacherDashboardLayout: React.FC<TeacherDashboardLayoutProps> = ({ childre
                   </button>
                   
                   {notificationsOpen && (
-                    <div className="absolute right-0 mt-2 w-96 bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 z-50">
+                    <div className="fixed sm:absolute right-0 sm:right-0 mt-2 w-full sm:w-96 max-w-md bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 z-50 mx-2 sm:mx-0">
                       {/* Header */}
                       <div className="p-4 border-b border-slate-200 dark:border-slate-700">
                         <div className="flex items-center justify-between">
@@ -773,7 +774,7 @@ const TeacherDashboardLayout: React.FC<TeacherDashboardLayoutProps> = ({ childre
                    </button>
 
                   {userDropdownOpen && (
-                    <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 z-50">
+                    <div className="fixed sm:absolute right-0 sm:right-0 mt-2 w-full sm:w-56 max-w-xs bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 z-50 mx-2 sm:mx-0">
                                              {/* User Info */}
                        <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700">
                          <div className="flex items-center space-x-3">

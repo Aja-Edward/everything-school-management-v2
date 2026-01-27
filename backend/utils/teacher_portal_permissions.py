@@ -1,8 +1,19 @@
-# Create this file: utils/teacher_portal_permissions.py
+# utils/teacher_portal_permissions.py
 
 from rest_framework.permissions import BasePermission
 from rest_framework.exceptions import PermissionDenied
-from schoolSettings.models import SchoolSettings
+from tenants.models import TenantSettings
+
+
+def get_tenant_settings(user):
+    """Get TenantSettings for the user's tenant"""
+    tenant = getattr(user, 'tenant', None)
+    if not tenant:
+        return None
+    try:
+        return tenant.settings
+    except TenantSettings.DoesNotExist:
+        return None
 
 
 class TeacherPortalEnabledPermission(BasePermission):
@@ -25,19 +36,16 @@ class TeacherPortalEnabledPermission(BasePermission):
 
         # For teachers, check if portal is enabled
         if user_role == "teacher":
-            try:
-                settings = SchoolSettings.objects.first()
-                is_enabled = settings.teacher_portal_enabled if settings else True
+            settings = get_tenant_settings(request.user)
+            is_enabled = settings.teacher_portal_enabled if settings else True
 
-                if not is_enabled:
-                    raise PermissionDenied(
-                        "The teacher portal has been temporarily disabled by the system administrator. "
-                        "Please contact your school administrator or IT support team for assistance."
-                    )
+            if not is_enabled:
+                raise PermissionDenied(
+                    "The teacher portal has been temporarily disabled by the system administrator. "
+                    "Please contact your school administrator or IT support team for assistance."
+                )
 
-                return is_enabled
-            except SchoolSettings.DoesNotExist:
-                return True  # Default to enabled if no settings exist
+            return is_enabled
 
         # Allow other roles (students, parents, etc.)
         return True
@@ -65,17 +73,14 @@ class TeacherPortalCheckMixin:
 
         # Check teachers
         if user_role == "teacher":
-            try:
-                settings = SchoolSettings.objects.first()
-                is_enabled = settings.teacher_portal_enabled if settings else True
+            settings = get_tenant_settings(user)
+            is_enabled = settings.teacher_portal_enabled if settings else True
 
-                if not is_enabled:
-                    raise PermissionDenied(
-                        "The teacher portal has been temporarily disabled by the system administrator. "
-                        "Please contact your school administrator or IT support team for assistance."
-                    )
-            except SchoolSettings.DoesNotExist:
-                pass  # Default to enabled
+            if not is_enabled:
+                raise PermissionDenied(
+                    "The teacher portal has been temporarily disabled by the system administrator. "
+                    "Please contact your school administrator or IT support team for assistance."
+                )
 
     def list(self, request, *args, **kwargs):
         self.check_teacher_portal_access()

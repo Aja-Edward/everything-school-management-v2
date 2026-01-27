@@ -1,15 +1,17 @@
 import { useState } from 'react';
-import { 
-  Settings, 
-  Palette, 
-  MessageSquare, 
-  Shield, 
-  FileText, 
-  CreditCard, 
-  Lock, 
+import {
+  Settings,
+  Palette,
+  MessageSquare,
+  Shield,
+  FileText,
+  CreditCard,
+  Lock,
   Zap,
   Calendar,
   GraduationCap,
+  Blocks,
+  Globe,
 } from 'lucide-react';
 import GeneralTab from '@/components/dashboards/admin/settingtab/components/tabs/GeneralTab';
 import DesignTab from '@/components/dashboards/admin/settingtab/components/tabs/DesignTab';
@@ -22,6 +24,8 @@ import AcademicCalendarTab from '@/components/dashboards/admin/settingtab/compon
 import FinanceTab from '@/components/dashboards/admin/settingtab/components/tabs/Finance';
 import SecurityTab from '@/components/dashboards/admin/settingtab/components/tabs/Security';
 import AdvancedTab from '@/components/dashboards/admin/settingtab/components/tabs/Advanced';
+import ServicesTab from '@/components/dashboards/admin/settingtab/components/tabs/ServicesTab';
+import DomainTab from '@/components/dashboards/admin/settingtab/components/tabs/DomainTab';
 import { useSettings } from '@/contexts/SettingsContext';
 import SettingsService from '@/services/SettingsService';
 
@@ -59,11 +63,13 @@ const SettingsDashboard = () => {
 
   const tabs = [
     { id: 'general', label: 'General', icon: Settings, component: GeneralTab },
+    { id: 'services', label: 'Services', icon: Blocks, component: ServicesTab },
+    { id: 'domain', label: 'Domain', icon: Globe, component: DomainTab },
     { id: 'design', label: 'Design', icon: Palette, component: DesignTab },
     { id: 'communication', label: 'Communication', icon: MessageSquare, component: CommunicationTab },
     { id: 'roles', label: 'Roles & Permissions', icon: Shield, component: RolesPermissionsTab },
     { id: 'academic', label: 'Academic', icon: GraduationCap, component: AcademicTab },
-    {id: 'gradelevel', label: 'GradeLevel', icon: GraduationCap, component: AcademicGradeLevelTab},
+    { id: 'gradelevel', label: 'GradeLevel', icon: GraduationCap, component: AcademicGradeLevelTab },
     { id: 'exams', label: 'Exams & Result', icon: FileText, component: ExamsResultTab },
     { id: 'calendar', label: 'Academic Calendar', icon: Calendar, component: AcademicCalendarTab },
     { id: 'finance', label: 'Finance', icon: CreditCard, component: FinanceTab },
@@ -74,42 +80,38 @@ const SettingsDashboard = () => {
   const ActiveComponent = tabs.find(tab => tab.id === activeTab)?.component || GeneralTab;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800 transition-colors duration-300">
+    <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto p-6">
         {/* Success Message */}
         {successMessage && (
-          <div className="fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-in slide-in-from-right">
+          <div className="fixed top-4 right-4 bg-gray-900 text-white px-4 py-2.5 rounded-lg shadow-lg z-50 text-sm font-medium">
             {successMessage}
           </div>
         )}
 
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-100 mb-2 transition-colors duration-300">Settings</h1>
-          <p className="text-slate-600 dark:text-slate-400 transition-colors duration-300">Manage your application preferences and configurations</p>
+        <div className="mb-6">
+          <h1 className="text-xl font-semibold text-gray-900">Settings</h1>
+          <p className="text-sm text-gray-500 mt-1">Manage your application preferences and configurations</p>
         </div>
-        
-        {/* Header Bar with Tabs */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-2 mb-6 transition-colors duration-300">
-          <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-9 gap-2">
+
+        {/* Tab Navigation */}
+        <div className="bg-white rounded-xl border border-gray-200 p-1.5 mb-5">
+          <div className="flex flex-wrap gap-1">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex flex-col items-center gap-2 px-3 py-4 rounded-xl transition-all duration-200 group ${
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                     activeTab === tab.id
-                      ? 'bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-lg shadow-blue-500/25 dark:shadow-blue-500/10'
-                      : 'hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                      ? 'bg-gray-900 text-white'
+                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                   }`}
                 >
-                  <Icon className={`w-5 h-5 transition-colors duration-200 ${
-                    activeTab === tab.id 
-                      ? 'text-white' 
-                      : 'text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300'
-                  }`} />
-                  <span className="text-xs font-medium text-center leading-tight">{tab.label}</span>
+                  <Icon className="w-4 h-4" />
+                  <span className="hidden sm:inline">{tab.label}</span>
                 </button>
               );
             })}
@@ -117,26 +119,26 @@ const SettingsDashboard = () => {
         </div>
 
         {/* Main Content */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 transition-colors duration-300">
+        <div className="bg-white rounded-xl border border-gray-200">
           {loading ? (
-            <div className="p-8 text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 dark:border-blue-400 mx-auto"></div>
-              <p className="mt-2 text-slate-600 dark:text-slate-400 transition-colors duration-300">Loading settings...</p>
+            <div className="p-12 text-center">
+              <div className="w-8 h-8 border-2 border-gray-200 border-t-gray-800 rounded-full animate-spin mx-auto"></div>
+              <p className="mt-3 text-sm text-gray-500">Loading settings...</p>
             </div>
           ) : error ? (
-            <div className="p-8 text-center">
-              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-                <p className="text-red-600 dark:text-red-400 transition-colors duration-300 mb-2">{error}</p>
-                <div className="flex gap-2 justify-center mt-4">
-                  <button 
-                    onClick={() => window.location.reload()} 
-                    className="px-4 py-2 text-sm bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 rounded hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors"
+            <div className="p-8">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
+                <p className="text-sm text-red-600 mb-3">{error}</p>
+                <div className="flex gap-2 justify-center">
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                   >
                     Refresh Page
                   </button>
-                  <button 
+                  <button
                     onClick={handleRetry}
-                    className="px-4 py-2 text-sm bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors"
+                    className="px-3 py-1.5 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors"
                   >
                     Retry
                   </button>
@@ -144,8 +146,8 @@ const SettingsDashboard = () => {
               </div>
             </div>
           ) : (
-            <ActiveComponent 
-              settings={settings} 
+            <ActiveComponent
+              settings={settings}
               onSettingsUpdate={handleSettingsUpdate}
             />
           )}

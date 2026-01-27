@@ -44,7 +44,7 @@ const AdminResultTokenGenerator = () => {
   const [deleting, setDeleting] = useState(false);
   const [tokenStats, setTokenStats] = useState<any>(null);
 
-  const API_BASE_URL = 'https://school-project-with-edward.onrender.com/api';
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://school-project-with-edward.onrender.com/api';
 
   const getAuthToken = () => {
     const tokenKeys = ['authToken', 'token', 'access_token', 'accessToken', 'jwt'];
@@ -79,7 +79,7 @@ const AdminResultTokenGenerator = () => {
         requestBody.days_until_expiry = parseInt(daysUntilExpiry);
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/students/admin/generate-result-tokens/`, {
+      const response = await fetch(`${API_BASE_URL}/students/admin/generate-result-tokens/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${authToken}`,
@@ -152,7 +152,7 @@ const AdminResultTokenGenerator = () => {
       setError(null);
       const authToken = getAuthToken();
       
-      const response = await fetch(`${API_BASE_URL}/api/students/admin/get-all-result-tokens/?school_term_id=${targetTermId}`, {
+      const response = await fetch(`${API_BASE_URL}/students/admin/get-all-result-tokens/?school_term_id=${targetTermId}`, {
         headers: {
           'Authorization': `Bearer ${authToken}`,
         }
@@ -188,7 +188,7 @@ const AdminResultTokenGenerator = () => {
       setError(null);
       const authToken = getAuthToken();
       
-      const response = await fetch(`${API_BASE_URL}/api/students/admin/delete-expired-tokens/`, {
+      const response = await fetch(`${API_BASE_URL}/students/admin/delete-expired-tokens/`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${authToken}`,
@@ -228,7 +228,7 @@ const AdminResultTokenGenerator = () => {
       setError(null);
       const authToken = getAuthToken();
       
-      const response = await fetch(`${API_BASE_URL}/api/students/admin/delete-all-tokens-for-term/`, {
+      const response = await fetch(`${API_BASE_URL}/students/admin/delete-all-tokens-for-term/`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${authToken}`,
@@ -352,206 +352,105 @@ const AdminResultTokenGenerator = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-slate-900 dark:to-slate-800 p-6">
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-800 dark:text-white mb-2">
-            🔐 Result Token Management
-          </h1>
-          <p className="text-gray-600 dark:text-slate-300">
-            Generate human-readable tokens or manage existing tokens for any term
-          </p>
+    <div className="p-4">
+      <div className="max-w-6xl mx-auto">
+        <div className="mb-4">
+          <h1 className="text-lg font-semibold text-gray-900">Result Token Management</h1>
+          <p className="text-xs text-gray-500 mt-0.5">Generate and manage result access tokens</p>
         </div>
 
         {error && (
-          <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" size={20} />
-              <div className="flex-1">
-                <p className="font-semibold text-red-800 dark:text-red-300">Error</p>
-                <p className="text-red-700 dark:text-red-400 text-sm mt-1">{error}</p>
-              </div>
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="text-red-600 mt-0.5 flex-shrink-0" size={16} />
+              <p className="text-sm text-red-600">{error}</p>
             </div>
           </div>
         )}
 
-        <div className="grid gap-6 lg:grid-cols-2 mb-6">
+        <div className="grid gap-4 lg:grid-cols-2 mb-4">
           {/* Generate New Tokens Card */}
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-8 border border-gray-100 dark:border-slate-700">
-            <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-6 flex items-center gap-2">
-              <Key size={24} className="text-blue-600" />
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <h2 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <Key size={16} className="text-gray-500" />
               Generate New Tokens
             </h2>
 
             {success && result && (
-              <div className="mb-6 p-6 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-                <div className="flex items-start gap-3 mb-4">
-                  <CheckCircle className="text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" size={24} />
-                  <div>
-                    <h3 className="font-bold text-green-800 dark:text-green-300 text-lg">Success!</h3>
-                    <p className="text-green-700 dark:text-green-400 text-sm mt-1">{result.message}</p>
-                    <p className="text-green-600 dark:text-green-500 text-sm mt-1">
-                      {result.school_term} • {result.academic_session}
-                    </p>
+              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="text-green-600" size={14} />
+                    <span className="text-xs font-medium text-green-800">
+                      {result.tokens_created} created, {result.tokens_updated} updated
+                    </span>
                   </div>
+                  <span className="text-[10px] text-green-600">Expires: {result.expiry_date}</span>
                 </div>
-
-                <div className="bg-white dark:bg-slate-800 p-4 rounded-lg mb-4">
-                  <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 mb-2">
-                    <Calendar size={16} className="text-blue-600" />
-                    <span className="font-semibold">Expiry Date:</span>
-                    <span>{result.expiry_date}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                    <Clock size={16} className="text-blue-600" />
-                    <span className="font-semibold">Days Until Expiry:</span>
-                    <span className="font-bold text-blue-600">{result.days_until_expiry} days</span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="bg-white dark:bg-slate-800 p-3 rounded-lg text-center">
-                    <p className="text-gray-600 dark:text-slate-400 text-xs font-semibold">Created</p>
-                    <p className={`text-xl font-bold mt-1 ${
-                      result.tokens_created > 0 
-                        ? 'text-green-600 dark:text-green-400' 
-                        : 'text-gray-400 dark:text-gray-600'
-                    }`}>
-                      {result.tokens_created}
-                    </p>
-                  </div>
-                  <div className="bg-white dark:bg-slate-800 p-3 rounded-lg text-center">
-                    <p className="text-gray-600 dark:text-slate-400 text-xs font-semibold">Updated</p>
-                    <p className={`text-xl font-bold mt-1 ${
-                      result.tokens_updated > 0 
-                        ? 'text-blue-600 dark:text-blue-400' 
-                        : 'text-gray-400 dark:text-gray-600'
-                    }`}>
-                      {result.tokens_updated}
-                    </p>
-                  </div>
-                  <div className="bg-white dark:bg-slate-800 p-3 rounded-lg text-center">
-                    <p className="text-gray-600 dark:text-slate-400 text-xs font-semibold">Total</p>
-                    <p className={`text-xl font-bold mt-1 ${
-                      result.total_students > 0 
-                        ? 'text-gray-800 dark:text-white' 
-                        : 'text-gray-400 dark:text-gray-600'
-                    }`}>
-                      {result.total_students}
-                    </p>
-                  </div>
-                </div>
-
                 {result.total_students === 0 && (
-                  <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-                    <p className="text-sm text-yellow-800 dark:text-yellow-300">
-                      ⚠️ No students found for this term. Please check if students are enrolled in Term {termId}.
-                    </p>
-                  </div>
+                  <p className="text-[10px] text-amber-600 mb-2">No students found for this term.</p>
                 )}
-
                 {result.errors && result.errors.length > 0 && (
-                  <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg max-h-60 overflow-y-auto">
-                    <div className="flex items-start gap-2 mb-2">
-                      <AlertCircle className="text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" size={16} />
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold text-red-800 dark:text-red-300">
-                          {result.error_count} Error{result.error_count !== 1 ? 's' : ''} Occurred
-                        </p>
-                        <p className="text-xs text-red-700 dark:text-red-400 mt-1">
-                          First few errors (check console for all):
-                        </p>
-                      </div>
-                    </div>
-                    <div className="space-y-2 mt-3">
-                      {result.errors.slice(0, 10).map((err, idx) => (
-                        <div key={idx} className="bg-white dark:bg-slate-800 p-2 rounded text-xs">
-                          <span className="font-semibold text-gray-700 dark:text-gray-300">
-                            {err.username || `Student ID: ${err.student_id}`}
-                          </span>
-                          <span className="text-red-600 dark:text-red-400 ml-2">
-                            {err.error}
-                          </span>
-                        </div>
-                      ))}
-                      {result.errors.length > 10 && (
-                        <p className="text-xs text-gray-600 dark:text-gray-400 italic">
-                          ...and {result.errors.length - 10} more errors (see console)
-                        </p>
-                      )}
-                    </div>
-                  </div>
+                  <p className="text-[10px] text-red-600 mb-2">{result.error_count} errors occurred</p>
                 )}
-
                 <button
-                  onClick={() => {
-                    setResult(null);
-                    setSuccess(false);
-                    setError(null);
-                    setTermId('');
-                  }}
-                  className="w-full mt-4 py-2 px-4 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-800 dark:text-white rounded-lg transition-colors font-medium"
+                  onClick={() => { setResult(null); setSuccess(false); setError(null); setTermId(''); }}
+                  className="w-full py-1.5 bg-white hover:bg-gray-50 text-gray-700 rounded border border-green-200 text-xs font-medium"
                 >
-                  Generate Another
+                  Generate More
                 </button>
               </div>
             )}
 
             {!success && (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 dark:text-slate-200 mb-2">
-                    Term ID *
-                  </label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Term ID *</label>
                   <input
                     type="number"
                     value={termId}
                     onChange={(e) => setTermId(e.target.value)}
                     placeholder="e.g., 1"
-                    className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 dark:text-slate-200 mb-2">
-                    Days Until Expiry (Optional)
-                  </label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Days Until Expiry</label>
                   <input
                     type="number"
                     value={daysUntilExpiry}
                     onChange={(e) => setDaysUntilExpiry(e.target.value)}
-                    placeholder="e.g., 30, 60, 90"
+                    placeholder="30"
                     min="1"
-                    className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                   />
-                  <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-                    Leave empty to use term end date. Default: 30 days
-                  </p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">Optional. Default: 30 days</p>
                 </div>
 
-                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                  <p className="text-xs text-blue-800 dark:text-blue-200">
-                    <strong>📝 Token Format:</strong> New tokens are human-readable (e.g., <code className="bg-white dark:bg-slate-700 px-2 py-1 rounded font-mono">A7B-2C9-X3Y-5Z1</code>)
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-2">
+                  <p className="text-[10px] text-gray-500">
+                    Tokens are human-readable: <code className="bg-white px-1 py-0.5 rounded font-mono text-gray-700">A7B-2C9-X3Y</code>
                   </p>
                 </div>
 
                 <button
                   onClick={generateTokens}
                   disabled={generating || !termId}
-                  className={`w-full py-3 px-6 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all ${
+                  className={`w-full py-2 px-4 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
                     generating || !termId
-                      ? 'bg-gray-300 dark:bg-slate-600 text-gray-500 dark:text-slate-400 cursor-not-allowed'
-                      : 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg hover:shadow-xl'
+                      ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                      : 'bg-gray-900 hover:bg-gray-800 text-white'
                   }`}
                 >
                   {generating ? (
                     <>
-                      <Loader size={20} className="animate-spin" />
+                      <Loader size={14} className="animate-spin" />
                       Generating...
                     </>
                   ) : (
                     <>
-                      <Key size={20} />
+                      <Key size={14} />
                       Generate Tokens
                     </>
                   )}
@@ -561,43 +460,41 @@ const AdminResultTokenGenerator = () => {
           </div>
 
           {/* View & Manage Tokens Card */}
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-8 border border-gray-100 dark:border-slate-700">
-            <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-6 flex items-center gap-2">
-              <Eye size={24} className="text-purple-600" />
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <h2 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <Eye size={16} className="text-gray-500" />
               View & Manage Tokens
             </h2>
 
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 dark:text-slate-200 mb-2">
-                  Term ID *
-                </label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Term ID *</label>
                 <input
                   type="number"
                   value={viewTermId}
                   onChange={(e) => setViewTermId(e.target.value)}
                   placeholder="e.g., 1, 2, 3..."
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                  className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                 />
               </div>
 
               <button
                 onClick={() => fetchTokens()}
                 disabled={loadingTokens || !viewTermId}
-                className={`w-full py-3 px-6 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all ${
+                className={`w-full py-2.5 px-4 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
                   loadingTokens || !viewTermId
-                    ? 'bg-gray-300 dark:bg-slate-600 text-gray-500 dark:text-slate-400 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white shadow-lg hover:shadow-xl'
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    : 'bg-gray-900 hover:bg-gray-800 text-white'
                 }`}
               >
                 {loadingTokens ? (
                   <>
-                    <Loader size={20} className="animate-spin" />
+                    <Loader size={16} className="animate-spin" />
                     Loading...
                   </>
                 ) : (
                   <>
-                    <Eye size={20} />
+                    <Eye size={16} />
                     View Tokens
                   </>
                 )}
@@ -608,16 +505,16 @@ const AdminResultTokenGenerator = () => {
                   <button
                     onClick={() => fetchTokens()}
                     disabled={loadingTokens}
-                    className="w-full py-2 px-4 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-800 dark:text-white rounded-lg transition-colors font-medium flex items-center justify-center gap-2"
+                    className="w-full py-2 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors text-sm font-medium flex items-center justify-center gap-2"
                   >
-                    <RefreshCw size={16} />
+                    <RefreshCw size={14} />
                     Refresh
                   </button>
 
                   <button
                     onClick={deleteAllTokensForTerm}
                     disabled={deleting}
-                    className="w-full py-2 px-4 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium flex items-center justify-center gap-2"
+                    className="w-full py-2 px-4 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm font-medium flex items-center justify-center gap-2"
                   >
                     {deleting ? (
                       <>
@@ -657,24 +554,23 @@ const AdminResultTokenGenerator = () => {
 
         {/* Token Statistics */}
         {showTokens && tokenStats && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-6 border border-gray-100 dark:border-slate-700 mb-6">
-            <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4">Token Statistics</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
-                <p className="text-sm text-gray-600 dark:text-gray-400">Total Tokens</p>
-                <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{tokenStats.total}</p>
+          <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+            <div className="grid grid-cols-4 gap-3">
+              <div className="text-center">
+                <p className="text-[10px] text-gray-400 uppercase">Total</p>
+                <p className="text-lg font-semibold text-gray-900">{tokenStats.total}</p>
               </div>
-              <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
-                <p className="text-sm text-gray-600 dark:text-gray-400">Active</p>
-                <p className="text-2xl font-bold text-green-600 dark:text-green-400">{tokenStats.active}</p>
+              <div className="text-center">
+                <p className="text-[10px] text-gray-400 uppercase">Active</p>
+                <p className="text-lg font-semibold text-green-600">{tokenStats.active}</p>
               </div>
-              <div className="bg-orange-50 dark:bg-orange-900/20 p-4 rounded-lg">
-                <p className="text-sm text-gray-600 dark:text-gray-400">Expired</p>
-                <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">{tokenStats.expired}</p>
+              <div className="text-center">
+                <p className="text-[10px] text-gray-400 uppercase">Expired</p>
+                <p className="text-lg font-semibold text-amber-600">{tokenStats.expired}</p>
               </div>
-              <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg">
-                <p className="text-sm text-gray-600 dark:text-gray-400">Used</p>
-                <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{tokenStats.used}</p>
+              <div className="text-center">
+                <p className="text-[10px] text-gray-400 uppercase">Used</p>
+                <p className="text-lg font-semibold text-purple-600">{tokenStats.used}</p>
               </div>
             </div>
           </div>
@@ -682,38 +578,38 @@ const AdminResultTokenGenerator = () => {
 
         {/* Tokens List */}
         {showTokens && tokens.length > 0 && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-8 border border-gray-100 dark:border-slate-700">
-            <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
-              <h2 className="text-xl font-bold text-gray-800 dark:text-white">
-                Tokens for Term {viewTermId} ({filteredTokens.length} students)
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-gray-900">
+                Term {viewTermId} ({filteredTokens.length} tokens)
               </h2>
               <div className="flex gap-2">
                 <button
                   onClick={exportToCSV}
-                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center gap-2 text-sm font-medium transition-colors"
+                  className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded flex items-center gap-1 text-xs font-medium transition-colors"
                 >
-                  <Download size={16} />
+                  <Download size={12} />
                   CSV
                 </button>
                 <button
                   onClick={printTokens}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-2 text-sm font-medium transition-colors"
+                  className="px-2 py-1 bg-gray-900 hover:bg-gray-800 text-white rounded flex items-center gap-1 text-xs font-medium transition-colors"
                 >
-                  <Printer size={16} />
+                  <Printer size={12} />
                   Print
                 </button>
               </div>
             </div>
 
-            <div className="mb-4">
+            <div className="mb-3">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-400" size={14} />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search by name, username, class, or token..."
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Search tokens..."
+                  className="w-full pl-8 pr-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                 />
               </div>
             </div>
@@ -721,48 +617,52 @@ const AdminResultTokenGenerator = () => {
             <div className="overflow-x-auto">
               <div className="max-h-[600px] overflow-y-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50 dark:bg-slate-700 sticky top-0">
+                  <thead className="bg-gray-50 sticky top-0">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Expires</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Status</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Actions</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Student</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Username</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Class</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Token</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Expires</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredTokens.map((token) => {
                       const expired = isTokenExpired(token.expires_at);
                       return (
-                        <tr key={token.id} className="border-b border-gray-200 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-700/50">
-                          <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{token.student_name}</td>
-                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{token.username}</td>
-                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{token.student_class}</td>
-                          <td className="px-4 py-3">
-                            <code className="text-sm font-mono bg-gray-100 dark:bg-slate-600 px-2 py-1 rounded text-gray-800 dark:text-gray-200">
+                        <tr key={token.id} className="border-b border-gray-100 hover:bg-gray-50">
+                          <td className="px-3 py-2 text-sm text-gray-900">{token.student_name}</td>
+                          <td className="px-3 py-2 text-sm text-gray-600">{token.username}</td>
+                          <td className="px-3 py-2 text-sm text-gray-600">{token.student_class}</td>
+                          <td className="px-3 py-2">
+                            <code className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">
                               {token.token}
                             </code>
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+                          <td className="px-3 py-2 text-sm text-gray-600">
                             {new Date(token.expires_at).toLocaleDateString()}
                           </td>
-                          <td className="px-4 py-3">
-                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${
-                              expired 
-                                ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300' 
-                                : 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
+                          <td className="px-3 py-2">
+                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
+                              expired
+                                ? 'bg-red-50 text-red-700'
+                                : 'bg-green-50 text-green-700'
                             }`}>
                               {expired ? 'Expired' : token.status || 'Active'}
                             </span>
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-3 py-2">
                             <button
                               onClick={() => copyToken(token.token)}
-                              className="p-2 hover:bg-gray-200 dark:hover:bg-slate-600 rounded-lg transition-colors"
+                              className="p-1 hover:bg-gray-100 rounded transition-colors"
                               title="Copy token"
                             >
                               {copiedToken === token.token ? (
-                                <Check size={16} className="text-green-600 dark:text-green-400" />
+                                <Check size={14} className="text-green-600" />
                               ) : (
-                                <Copy size={16} className="text-gray-600 dark:text-gray-400" />
+                                <Copy size={14} className="text-gray-400" />
                               )}
                             </button>
                           </td>
@@ -775,7 +675,7 @@ const AdminResultTokenGenerator = () => {
             </div>
 
             {filteredTokens.length === 0 && (
-              <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+              <div className="text-center py-6 text-sm text-gray-500">
                 No tokens found matching your search.
               </div>
             )}
@@ -783,10 +683,10 @@ const AdminResultTokenGenerator = () => {
         )}
 
         {showTokens && tokens.length === 0 && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-8 border border-gray-100 dark:border-slate-700 text-center">
-            <AlertCircle className="mx-auto text-gray-400 dark:text-gray-600 mb-4" size={48} />
-            <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-2">No Tokens Found</h3>
-            <p className="text-gray-600 dark:text-gray-400">
+          <div className="bg-white rounded-xl border border-gray-200 p-6 text-center">
+            <AlertCircle className="mx-auto text-gray-300 mb-3" size={32} />
+            <h3 className="text-sm font-medium text-gray-900 mb-1">No Tokens Found</h3>
+            <p className="text-xs text-gray-500">
               Generate tokens for Term {viewTermId} to see them here.
             </p>
           </div>

@@ -1,8 +1,22 @@
-
 import { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import api from '@/services/api';
 import AddAdminForm from './AddAdminForm';
+import {
+  Search,
+  Plus,
+  RefreshCw,
+  Shield,
+  ShieldCheck,
+  ShieldOff,
+  Trash2,
+  User,
+  Mail,
+  Clock,
+  Calendar,
+  X,
+  ChevronLeft,
+} from 'lucide-react';
 
 interface Admin {
   id: number;
@@ -17,7 +31,7 @@ interface Admin {
   date_joined: string;
   last_login: string | null;
   phone?: string;
-  role?: string; // Added role field
+  role?: string;
 }
 
 const AllAdmins = () => {
@@ -26,85 +40,49 @@ const AllAdmins = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
-
-  // useEffect(() => {
-  //   if (!showAddForm) {
-  //     fetchAdmins();
-  //   }
-  // }, [showAddForm]);
+  const [deleteModal, setDeleteModal] = useState<{ open: boolean; admin: Admin | null }>({
+    open: false,
+    admin: null,
+  });
 
   useEffect(() => {
-  fetchAdmins();
-}, []);
-
-  // const fetchAdmins = async () => {
-  //   setLoading(true);
-  //   try {
-  //     const response = await api.get('/api/auth/admins/list/');
-  //     const adminList = Array.isArray(response.data) ? response.data : 
-  //                      Array.isArray(response.data?.results) ? response.data.results : [];
-      
-  //     console.log('✅ Fetched admins:', adminList);
-  //     setAdmins(adminList);
-   
-  //   } catch (error: any) {
-  //     console.error('❌ Error fetching admins:', error);
-  //     toast.error('Failed to load admins. Please ensure the endpoint exists.');
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
+    fetchAdmins();
+  }, []);
 
   const fetchAdmins = async (): Promise<void> => {
-  setLoading(true);
-  try {
-    const response = await api.get("/api/auth/admins/list/");
-    console.log("✅ Full response:", response);
-
-    // since API returns array directly, not wrapped in response.data
-    const adminList = Array.isArray(response) ? response : [];
-
-    console.log("✅ Extracted admin list:", adminList);
-    setAdmins(adminList);
-  } catch (error: any) {
-    console.error("❌ Error fetching admins:", error);
-    toast.error("Failed to load admins.");
-  } finally {
-    setLoading(false);
-  }
-};
-
-
-
-
-  useEffect(() => {
-  console.log("🧠 Admin state updated:", admins);
-}, [admins]);
+    setLoading(true);
+    try {
+      const response = await api.get('/api/auth/admins/list/');
+      const adminList = Array.isArray(response) ? response : [];
+      setAdmins(adminList);
+    } catch (error: any) {
+      console.error('Error fetching admins:', error);
+      toast.error('Failed to load admins.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleToggleStatus = async (adminId: number, currentStatus: boolean) => {
-  try {
-    // Toggle the current status
-    await api.patch(`/api/auth/users/${adminId}/activate/`, {
-      is_active: !currentStatus,
-    });
-
-    toast.success(`Admin ${!currentStatus ? 'activated' : 'deactivated'} successfully`);
-    fetchAdmins();
-  } catch (error: any) {
-    console.error('Error toggling admin status:', error);
-    toast.error('Failed to update admin status');
-  }
-};
-
-
-  const handleDeleteAdmin = async (adminId: number, adminName: string) => {
-    if (!window.confirm(`Are you sure you want to delete admin "${adminName}"? This action cannot be undone.`)) {
-      return;
+    try {
+      await api.patch(`/api/auth/users/${adminId}/activate/`, {
+        is_active: !currentStatus,
+      });
+      toast.success(`Admin ${!currentStatus ? 'activated' : 'deactivated'} successfully`);
+      fetchAdmins();
+    } catch (error: any) {
+      console.error('Error toggling admin status:', error);
+      toast.error('Failed to update admin status');
     }
+  };
+
+  const handleDeleteAdmin = async () => {
+    if (!deleteModal.admin) return;
 
     try {
-      await api.delete(`/api/profiles/users/${adminId}/`);
+      await api.delete(`/api/profiles/users/${deleteModal.admin.id}/`);
       toast.success('Admin deleted successfully');
+      setDeleteModal({ open: false, admin: null });
       fetchAdmins();
     } catch (error: any) {
       console.error('Error deleting admin:', error);
@@ -112,225 +90,306 @@ const AllAdmins = () => {
     }
   };
 
-  const filteredAdmins = admins.filter(admin => {
-    const matchesSearch = 
+  const filteredAdmins = admins.filter((admin) => {
+    const matchesSearch =
       (admin.username || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (admin.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (admin.first_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (admin.last_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (admin.full_name || '').toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchesFilter = 
-      filterStatus === 'all' ? true :
-      filterStatus === 'active' ? admin.is_active :
-      !admin.is_active;
-      
+    const matchesFilter =
+      filterStatus === 'all'
+        ? true
+        : filterStatus === 'active'
+          ? admin.is_active
+          : !admin.is_active;
+
     return matchesSearch && matchesFilter;
   });
 
-  console.log("🧩 Filter Status:", filterStatus);
-console.log("🔍 Search Term:", searchTerm);
-console.log("👥 Admins Before Filter:", admins);
-console.log("✅ Filtered Admins:", filteredAdmins);
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'Never';
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
     });
   };
 
+  const formatTime = (dateString: string | null) => {
+    if (!dateString) return '';
+    return new Date(dateString).toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const getInitials = (admin: Admin) => {
+    const first = admin.first_name?.[0] || '';
+    const last = admin.last_name?.[0] || '';
+    return (first + last).toUpperCase() || admin.username?.[0]?.toUpperCase() || 'A';
+  };
+
+  const activeCount = admins.filter((a) => a.is_active).length;
+  const inactiveCount = admins.filter((a) => !a.is_active).length;
+
   if (showAddForm) {
     return (
-      <div>
-        <button 
-          onClick={() => setShowAddForm(false)} 
-          className="mb-4 bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded transition-colors"
+      <div className="min-h-screen bg-gray-50 p-6">
+        <button
+          onClick={() => setShowAddForm(false)}
+          className="mb-4 flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
         >
-          ← Back to Admin List
+          <ChevronLeft className="w-4 h-4" />
+          Back to Admin List
         </button>
         <AddAdminForm />
       </div>
     );
   }
-  console.log("This is the list of filtered admin", filteredAdmins)
+
   return (
-    <div>
-      <div className="mb-6 flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-800">Admin Management</h1>
-        <button 
-          onClick={() => setShowAddForm(true)} 
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow transition-colors font-semibold"
+    <div className="min-h-screen bg-gray-50 p-6">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-xl font-semibold text-gray-900">Admin Management</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Manage administrator accounts and permissions</p>
+        </div>
+        <button
+          onClick={() => setShowAddForm(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
         >
-          + Add Admin
+          <Plus className="w-4 h-4" />
+          Add Admin
         </button>
       </div>
 
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        {/* Debug Info - Remove this after testing */}
-        {admins.length > 0 && (
-          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded text-sm">
-            <strong>Debug:</strong> Total admins loaded: {admins.length}, 
-            Filtered admins: {filteredAdmins.length}
+      {/* Stats Cards */}
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
+              <Shield className="w-5 h-5 text-gray-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-semibold text-gray-900">{admins.length}</p>
+              <p className="text-xs text-gray-500">Total Admins</p>
+            </div>
           </div>
-        )}
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center">
+              <ShieldCheck className="w-5 h-5 text-green-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-semibold text-gray-900">{activeCount}</p>
+              <p className="text-xs text-gray-500">Active</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-red-50 rounded-lg flex items-center justify-center">
+              <ShieldOff className="w-5 h-5 text-red-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-semibold text-gray-900">{inactiveCount}</p>
+              <p className="text-xs text-gray-500">Inactive</p>
+            </div>
+          </div>
+        </div>
+      </div>
 
-        {/* Search and Filter Bar */}
-        <div className="mb-6 flex flex-col md:flex-row gap-4">
-          <div className="flex-1">
-            <input
-              type="text"
-              placeholder="Search by username, email, or name..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-          <div className="flex gap-2">
+      {/* Main Content */}
+      <div className="bg-white rounded-xl border border-gray-200">
+        {/* Toolbar */}
+        <div className="p-4 border-b border-gray-200">
+          <div className="flex flex-col sm:flex-row gap-3">
+            {/* Search */}
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search admins..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+              />
+            </div>
+
+            {/* Filter Buttons */}
+            <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+              <button
+                onClick={() => setFilterStatus('all')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  filterStatus === 'all'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                All ({admins.length})
+              </button>
+              <button
+                onClick={() => setFilterStatus('active')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  filterStatus === 'active'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Active ({activeCount})
+              </button>
+              <button
+                onClick={() => setFilterStatus('inactive')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  filterStatus === 'inactive'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Inactive ({inactiveCount})
+              </button>
+            </div>
+
+            {/* Refresh */}
             <button
-              onClick={() => setFilterStatus('all')}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                filterStatus === 'all' 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
+              onClick={fetchAdmins}
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
             >
-              All ({admins.length})
-            </button>
-            <button
-              onClick={() => setFilterStatus('active')}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                filterStatus === 'active' 
-                  ? 'bg-green-600 text-white' 
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Active ({admins.filter(a => a.is_active).length})
-            </button>
-            <button
-              onClick={() => setFilterStatus('inactive')}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                filterStatus === 'inactive' 
-                  ? 'bg-red-600 text-white' 
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Inactive ({admins.filter(a => !a.is_active).length})
+              <RefreshCw className="w-4 h-4" />
+              <span className="hidden sm:inline">Refresh</span>
             </button>
           </div>
         </div>
 
-        {/* Admin Table */}
+        {/* Table */}
         {loading ? (
-          <div className="text-center py-12">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            <p className="mt-4 text-gray-600">Loading admins...</p>
+          <div className="p-12 text-center">
+            <div className="w-8 h-8 border-2 border-gray-200 border-t-gray-800 rounded-full animate-spin mx-auto"></div>
+            <p className="mt-3 text-sm text-gray-500">Loading admins...</p>
           </div>
         ) : filteredAdmins.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-500 text-lg">
-              {searchTerm || filterStatus !== 'all' 
-                ? 'No admins found matching your criteria' 
-                : 'No admins found. Click "Add Admin" to create one.'}
+          <div className="p-12 text-center">
+            <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+              <Shield className="w-6 h-6 text-gray-400" />
+            </div>
+            <p className="text-sm font-medium text-gray-900 mb-1">No admins found</p>
+            <p className="text-xs text-gray-500">
+              {searchTerm || filterStatus !== 'all'
+                ? 'Try adjusting your search or filters'
+                : 'Click "Add Admin" to create one'}
             </p>
-            {admins.length > 0 && (
+            {(searchTerm || filterStatus !== 'all') && (
               <button
                 onClick={() => {
                   setSearchTerm('');
                   setFilterStatus('all');
                 }}
-                className="mt-4 text-blue-600 hover:text-blue-800 font-medium"
+                className="mt-3 text-sm font-medium text-gray-900 hover:underline"
               >
-                Clear Filters
+                Clear filters
               </button>
             )}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Username
+              <thead>
+                <tr className="border-b border-gray-200">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Admin
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Name
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Contact
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Email
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Date Joined
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Joined
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Last Login
                   </th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
               </thead>
-            
-              <tbody className="divide-y divide-gray-200 w-auto">
+              <tbody className="divide-y divide-gray-100">
                 {filteredAdmins.map((admin) => (
-                  
                   <tr key={admin.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-4">
-                      <div className="flex flex-col">
-                        <span className="font-mono text-sm text-gray-900">{admin.username}</span>
-                        {admin.role && (
-                          <span className="text-xs text-gray-500 mt-0.5">Role: {admin.role}</span>
-                        )}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 bg-gray-900 rounded-full flex items-center justify-center text-white text-xs font-medium">
+                          {getInitials(admin)}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">
+                            {admin.full_name || `${admin.first_name} ${admin.last_name}`.trim() || admin.username}
+                          </p>
+                          <p className="text-xs text-gray-500 font-mono">@{admin.username}</p>
+                        </div>
                       </div>
                     </td>
-                    <td className="px-4 py-4">
-                      <span className="text-sm font-medium text-gray-900">
-                        {admin.full_name || `${admin.first_name} ${admin.last_name}`.trim() || 'N/A'}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5 text-sm text-gray-600">
+                        <Mail className="w-3.5 h-3.5 text-gray-400" />
+                        {admin.email}
+                      </div>
+                      {admin.role && (
+                        <p className="text-xs text-gray-500 mt-0.5">{admin.role}</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                          admin.is_active
+                            ? 'bg-green-50 text-green-700'
+                            : 'bg-red-50 text-red-700'
+                        }`}
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full ${admin.is_active ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                        {admin.is_active ? 'Active' : 'Inactive'}
                       </span>
                     </td>
-                    <td className="px-4 py-4">
-                      <span className="text-sm text-gray-600">{admin.email}</span>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5 text-sm text-gray-600">
+                        <Calendar className="w-3.5 h-3.5 text-gray-400" />
+                        {formatDate(admin.date_joined)}
+                      </div>
                     </td>
-                    <td className="px-4 py-4">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        admin.is_active 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-red-100 text-red-800'
-                      }`}>
-                        {admin.is_active ? '● Active' : '● Inactive'}
-                      </span>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5 text-sm text-gray-600">
+                        <Clock className="w-3.5 h-3.5 text-gray-400" />
+                        <div>
+                          <p>{formatDate(admin.last_login)}</p>
+                          {admin.last_login && (
+                            <p className="text-xs text-gray-400">{formatTime(admin.last_login)}</p>
+                          )}
+                        </div>
+                      </div>
                     </td>
-                    <td className="px-4 py-4 text-sm text-gray-600">
-                      {formatDate(admin.date_joined)}
-                    </td>
-                    <td className="px-4 py-4 text-sm text-gray-600">
-                      {formatDate(admin.last_login)}
-                    </td>
-                    <td className="px-4 py-4 text-right">
-                      <div className="flex justify-end gap-2">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => handleToggleStatus(admin.id, admin.is_active)}
-                          className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                             admin.is_active
-                              ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
-                              : 'bg-green-100 text-green-800 hover:bg-green-200'
+                              ? 'text-amber-700 bg-amber-50 hover:bg-amber-100'
+                              : 'text-green-700 bg-green-50 hover:bg-green-100'
                           }`}
-                          title={admin.is_active ? 'Deactivate' : 'Activate'}
                         >
                           {admin.is_active ? 'Deactivate' : 'Activate'}
                         </button>
                         <button
-                          onClick={() => handleDeleteAdmin(admin.id, admin.full_name || `${admin.first_name} ${admin.last_name}` || admin.username)}
-                          className="px-3 py-1 text-xs font-medium rounded bg-red-100 text-red-800 hover:bg-red-200 transition-colors"
-                          title="Delete admin"
+                          onClick={() => setDeleteModal({ open: true, admin })}
+                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
                         >
-                          Delete
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </td>
@@ -341,21 +400,58 @@ console.log("✅ Filtered Admins:", filteredAdmins);
           </div>
         )}
 
-        {/* Summary Footer */}
+        {/* Footer */}
         {!loading && filteredAdmins.length > 0 && (
-          <div className="mt-6 pt-4 border-t border-gray-200 flex justify-between items-center text-sm text-gray-600">
-            <span>
-              Showing {filteredAdmins.length} of {admins.length} admin{admins.length !== 1 ? 's' : ''}
-            </span>
-            <button
-              onClick={fetchAdmins}
-              className="text-blue-600 hover:text-blue-800 font-medium"
-            >
-              Refresh List
-            </button>
+          <div className="px-4 py-3 border-t border-gray-200 text-xs text-gray-500">
+            Showing {filteredAdmins.length} of {admins.length} admin{admins.length !== 1 ? 's' : ''}
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deleteModal.open && deleteModal.admin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setDeleteModal({ open: false, admin: null })}
+          />
+          <div className="relative bg-white rounded-xl shadow-xl max-w-sm w-full mx-4 p-5">
+            <button
+              onClick={() => setDeleteModal({ open: false, admin: null })}
+              className="absolute top-4 right-4 p-1 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="text-center mb-5">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Trash2 className="w-6 h-6 text-red-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-1">Delete Admin</h3>
+              <p className="text-sm text-gray-500">
+                Are you sure you want to delete{' '}
+                <span className="font-medium text-gray-900">
+                  {deleteModal.admin.full_name || deleteModal.admin.username}
+                </span>
+                ? This action cannot be undone.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteModal({ open: false, admin: null })}
+                className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteAdmin}
+                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -23,7 +23,7 @@ from .models import (
     ExamSession,
 )
 from students.models import Student
-from schoolSettings.models import SchoolSettings
+from tenants.models import Tenant, TenantSettings
 
 try:
     from weasyprint import HTML
@@ -68,21 +68,39 @@ class ReportGenerator:
             )
         return template
 
-    def get_school_info(self):
-        """Get school information for the report header"""
+    def get_school_info(self, student=None):
+        """Get school information for the report header from Tenant/TenantSettings"""
         try:
-            school = SchoolSettings.objects.first()
-            if not school:
+            tenant = None
+
+            # Try to get tenant from student
+            if student and hasattr(student, 'tenant'):
+                tenant = student.tenant
+
+            # Try to get tenant from request user
+            if not tenant and self.request and self.request.user.is_authenticated:
+                tenant = getattr(self.request.user, 'tenant', None)
+
+            # Fallback to first active tenant
+            if not tenant:
+                tenant = Tenant.objects.filter(is_active=True).first()
+
+            if not tenant:
                 return {}
 
+            # Get tenant settings
+            try:
+                settings = tenant.settings
+            except TenantSettings.DoesNotExist:
+                settings = TenantSettings.objects.create(tenant=tenant)
+
             return {
-                "name": school.school_name or school.site_name or "",
-                "address": school.school_address or "",
-                "phone": school.school_phone or "",
-                "email": school.school_email or "",
-                # goodLogo is already a string URL from Cloudinary, don't access .url
-                "logo": school.logo if school.logo else None,
-                "motto": school.school_motto or "",
+                "name": tenant.name or "",
+                "address": settings.address or "",
+                "phone": settings.phone or "",
+                "email": settings.email or "",
+                "logo": settings.logo if settings.logo else None,
+                "motto": settings.school_motto or "",
             }
         except Exception as e:
             print(f"Error fetching school info: {e}")
@@ -435,22 +453,149 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                 .get(id=report_id)
             )
 
-            # TODO: Implement session report context and generation
-            # For now, use similar structure to term report
-
-            template = self.get_template("session")
-            # ... build context for session report ...
-
-            return JsonResponse(
-                {"message": "Session report generation not fully implemented"},
-                status=501,
+            subject_results = (
+                report.subject_results.all()
+                .select_related("subject", "grading_system")
+                .order_by("subject__name")
             )
+
+            # Build subjects data with term-by-term breakdown
+            subjects_data = []
+            for idx, result in enumerate(subject_results, 1):
+                subject_info = {
+                    "name": result.subject.name,
+                    "code": result.subject.code,
+                    # First term scores
+                    "first_term_total": float(result.first_term_total or 0),
+                    "first_term_grade": result.first_term_grade or "",
+                    # Second term scores
+                    "second_term_total": float(result.second_term_total or 0),
+                    "second_term_grade": result.second_term_grade or "",
+                    # Third term scores
+                    "third_term_total": float(result.third_term_total or 0),
+                    "third_term_grade": result.third_term_grade or "",
+                    # Session cumulative
+                    "cumulative_total": float(result.cumulative_total or 0),
+                    "cumulative_average": float(result.cumulative_average or 0),
+                    "final_grade": result.final_grade or "",
+                    "position": self.format_grade_suffix(result.subject_position),
+                    "remark": result.teacher_remark or "",
+                }
+                subjects_data.append(subject_info)
+
+                # Debug: Print first 3 subjects
+                if idx <= 3:
+                    print(
+                        f"  {idx}. {result.subject.name}: T1={result.first_term_total}, "
+                        f"T2={result.second_term_total}, T3={result.third_term_total}, "
+                        f"Avg={result.cumulative_average} ({result.final_grade})"
+                    )
+
+            # Calculate grade summary across all terms
+            grade_summary = self._calculate_session_grade_summary(subject_results)
+
+            DATE_FORMAT = "%B %d, %Y"
+            context = {
+                "report_type": "SESSION_REPORT",
+                "school": self.get_school_info(student=report.student),
+                "student": {
+                    "name": report.student.full_name,
+                    "admission_number": report.student.registration_number or "",
+                    "class": report.student.get_student_class_display(),
+                    "stream": report.stream.name if report.stream else "",
+                },
+                "session": {
+                    "name": report.academic_session.name,
+                    "year": report.academic_session.start_date.year,
+                    "start_date": report.academic_session.start_date.strftime(DATE_FORMAT),
+                    "end_date": report.academic_session.end_date.strftime(DATE_FORMAT) if report.academic_session.end_date else "In Progress",
+                },
+                "subjects": subjects_data,
+                "summary": {
+                    "total_subjects": len(subjects_data),
+                    # First term summary
+                    "first_term_total": float(report.first_term_total or 0),
+                    "first_term_average": float(report.first_term_average or 0),
+                    "first_term_position": self.format_grade_suffix(report.first_term_position),
+                    # Second term summary
+                    "second_term_total": float(report.second_term_total or 0),
+                    "second_term_average": float(report.second_term_average or 0),
+                    "second_term_position": self.format_grade_suffix(report.second_term_position),
+                    # Third term summary
+                    "third_term_total": float(report.third_term_total or 0),
+                    "third_term_average": float(report.third_term_average or 0),
+                    "third_term_position": self.format_grade_suffix(report.third_term_position),
+                    # Cumulative session summary
+                    "cumulative_total": float(report.cumulative_total or 0),
+                    "cumulative_average": float(report.cumulative_average or 0),
+                    "overall_grade": report.overall_grade or "",
+                    "final_position": self.format_grade_suffix(report.final_position),
+                    "total_students": report.total_students or 0,
+                },
+                "grade_summary": grade_summary,
+                "attendance": {
+                    # Aggregate attendance across all terms
+                    "first_term_present": report.first_term_days_present or 0,
+                    "first_term_opened": report.first_term_days_opened or 0,
+                    "second_term_present": report.second_term_days_present or 0,
+                    "second_term_opened": report.second_term_days_opened or 0,
+                    "third_term_present": report.third_term_days_present or 0,
+                    "third_term_opened": report.third_term_days_opened or 0,
+                    "total_present": (report.first_term_days_present or 0) +
+                                   (report.second_term_days_present or 0) +
+                                   (report.third_term_days_present or 0),
+                    "total_opened": (report.first_term_days_opened or 0) +
+                                  (report.second_term_days_opened or 0) +
+                                  (report.third_term_days_opened or 0),
+                },
+                "remarks": {
+                    "class_teacher": report.class_teacher_remark or "",
+                    "head_teacher": report.head_teacher_remark or "",
+                },
+                "signatures": self.get_signatures(report),
+                "generated_date": datetime.now().strftime(DATE_FORMAT),
+            }
+
+            # Use template mapping
+            template = self.get_template("session")
+            html_string = render_to_string(template, context)
+
+            filename = self.sanitize_filename(
+                f"{report.student.registration_number or report.student.user.username}_session_report.pdf"
+            )
+
+            print(f"💾 Session Report Filename: {filename}\n")
+
+            return self.generate_pdf(html_string, filename)
 
         except SeniorSecondarySessionReport.DoesNotExist:
             logger.error(f"Session report with ID {report_id} not found")
             return JsonResponse(
                 {"error": f"Session report with ID {report_id} not found"}, status=404
             )
+        except Exception as e:
+            logger.error(f"Error generating Senior Secondary session report: {e}", exc_info=True)
+            return JsonResponse(
+                {"error": "Failed to generate session report", "detail": str(e)}, status=500
+            )
+
+    def _calculate_session_grade_summary(self, subject_results):
+        """Calculate grade distribution summary across all terms for session report"""
+        grade_counts = {}
+
+        # Count grades from all three terms
+        for result in subject_results:
+            # First term
+            if result.first_term_grade:
+                grade_counts[result.first_term_grade] = grade_counts.get(result.first_term_grade, 0) + 1
+            # Second term
+            if result.second_term_grade:
+                grade_counts[result.second_term_grade] = grade_counts.get(result.second_term_grade, 0) + 1
+            # Third term
+            if result.third_term_grade:
+                grade_counts[result.third_term_grade] = grade_counts.get(result.third_term_grade, 0) + 1
+
+        return [{"grade": k, "count": v} for k, v in sorted(grade_counts.items())]
 
 
 # class SeniorSecondaryReportGenerator(ReportGenerator):

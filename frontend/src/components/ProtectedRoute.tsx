@@ -31,22 +31,10 @@ const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) => {
   );
 }
 
-  // If not authenticated, redirect to appropriate login page
+  // If not authenticated, redirect to login page
   if (!isAuthenticated || !user) {
-    // Determine which login page to redirect to based on the attempted route
-    let loginPath = '/student-login'; // Default to student login
-    
-    if (location.pathname.startsWith('/admin')) {
-      loginPath = '/admin-login';
-    } else if (location.pathname.startsWith('/teacher')) {
-      loginPath = '/teacher-login';
-    } else if (location.pathname.startsWith('/parent')) {
-      loginPath = '/parent-login';
-    } else if (location.pathname.startsWith('/student')) {
-      loginPath = '/student-login';
-    }
-
-    return <Navigate to={loginPath} state={{ from: location }} replace />;
+    // Use single login page for tenant subdomains
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
   // Check if user's role is allowed

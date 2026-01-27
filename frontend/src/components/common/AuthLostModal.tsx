@@ -20,14 +20,14 @@ const AuthLostModal: React.FC<AuthLostModalProps> = ({
     localStorage.removeItem('authToken');
     localStorage.removeItem('refreshToken');
     localStorage.removeItem('user');
-    
+
     // Close modal if onClose is provided
     if (onClose) {
       onClose();
     }
-    
-    // Navigate to home page instead of non-existent /login
-    navigate('/', { replace: true });
+
+    // Navigate to tenant's login page (stays on same subdomain)
+    navigate('/login', { replace: true });
   };
 
   if (!isOpen) return null;

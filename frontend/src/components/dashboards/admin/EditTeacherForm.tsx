@@ -291,7 +291,7 @@ useEffect(() => {
         
         try {
           console.log('🔍 Fetching subjects...');
-          const subjectUrl = `${API_BASE_URL}/api/subjects/?education_level=${educationLevel}`;
+          const subjectUrl = `${API_BASE_URL}/subjects/?education_level=${educationLevel}`;
           console.log('📍 Subject URL:', subjectUrl);
           
           const subjectResponse = await fetch(subjectUrl, { headers });
@@ -322,7 +322,7 @@ useEffect(() => {
           
           // Try different possible endpoints
           const possibleEndpoints = [
-  `/api/classrooms/classrooms/?section__grade_level__education_level=${educationLevel}`,
+  `/classrooms/classrooms/?section__grade_level__education_level=${educationLevel}`,
 ];
 
           let classroomData = null;

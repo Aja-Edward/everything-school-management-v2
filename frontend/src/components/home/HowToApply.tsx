@@ -1,220 +1,126 @@
 import React from 'react';
-import { 
-  GraduationCap, 
-  FileText, 
-  Calendar, 
-  Users, 
-  CheckCircle, 
-  Clock, 
-  Mail, 
-  Phone, 
-  MapPin,
-  ArrowRight,
-  Star,
-  Award,
-  BookOpen,
-  Heart
-} from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowRight, Check } from 'lucide-react';
+import { useSettings } from '@/contexts/SettingsContext';
 
 const HowToApply: React.FC = () => {
+  const navigate = useNavigate();
+  const { settings } = useSettings();
+
   const steps = [
     {
-      icon: FileText,
-      title: "Complete Application Form",
-      description: "Fill out our comprehensive online application form with all required student and parent information.",
-      details: [
-        "Student's personal information",
-        "Parent/Guardian contact details",
-        "Previous school records",
-        "Medical information"
-      ]
+      number: '01',
+      title: 'Complete Application',
+      description: 'Fill out our online application form with student and parent information.',
+      items: ['Personal details', 'Academic history', 'Parent contacts'],
     },
     {
-      icon: Calendar,
-      title: "Schedule Assessment",
-      description: "Book an academic assessment and interview to evaluate the student's current level and potential.",
-      details: [
-        "Academic assessment test",
-        "Student interview",
-        "Parent consultation",
-        "Learning style evaluation"
-      ]
+      number: '02',
+      title: 'Submit Documents',
+      description: 'Upload required documents including transcripts and identification.',
+      items: ['Birth certificate', 'Previous transcripts', 'Passport photos'],
     },
     {
-      icon: Users,
-      title: "Family Interview",
-      description: "Meet with our admissions team to discuss educational goals and ensure the best fit for your child.",
-      details: [
-        "Family values discussion",
-        "Educational objectives",
-        "School policies review",
-        "Expectations alignment"
-      ]
+      number: '03',
+      title: 'Assessment',
+      description: 'Schedule and complete the academic assessment and interview.',
+      items: ['Written assessment', 'Student interview', 'Parent meeting'],
     },
     {
-      icon: CheckCircle,
-      title: "Admission Decision",
-      description: "Receive your admission decision within 5-7 business days after completing all requirements.",
-      details: [
-        "Comprehensive review",
-        "Academic placement",
-        "Financial aid consideration",
-        "Welcome package"
-      ]
-    }
+      number: '04',
+      title: 'Admission Decision',
+      description: 'Receive your admission decision within 5-7 business days.',
+      items: ['Review process', 'Placement decision', 'Welcome package'],
+    },
   ];
 
   const requirements = [
     {
-      category: "Academic Requirements",
-      items: [
-        "Previous school transcripts",
-        "Academic recommendation letter",
-        "Standardized test scores (if available)",
-        "Current grade level completion"
-      ]
+      title: 'Academic Documents',
+      items: ['Previous school transcripts', 'Recommendation letter', 'Test scores (if available)'],
     },
     {
-      category: "Personal Documents",
-      items: [
-        "Birth certificate",
-        "Immunization records",
-        "Recent passport photographs",
-        "Parent/Guardian ID"
-      ]
+      title: 'Personal Documents',
+      items: ['Birth certificate', 'Passport photographs', 'Parent/Guardian ID'],
     },
     {
-      category: "Additional Information",
-      items: [
-        "Medical history form",
-        "Emergency contact details",
-        "Transportation preferences",
-        "Special needs documentation (if applicable)"
-      ]
-    }
+      title: 'Additional Information',
+      items: ['Medical records', 'Emergency contacts', 'Special needs documentation'],
+    },
   ];
 
-  const benefits = [
-    {
-      icon: Star,
-      title: "Excellence in Education",
-      description: "Comprehensive curriculum designed to nurture academic excellence and personal growth."
-    },
-    {
-      icon: Award,
-      title: "Qualified Teachers",
-      description: "Experienced educators committed to inspiring and guiding students to reach their full potential."
-    },
-    {
-      icon: BookOpen,
-      title: "Modern Facilities",
-      description: "State-of-the-art classrooms, laboratories, and learning spaces equipped with the latest technology."
-    },
-    {
-      icon: Heart,
-      title: "Holistic Development",
-      description: "Focus on character building, leadership skills, and social responsibility alongside academic achievement."
-    }
+  const timeline = [
+    { label: 'Applications Open', date: 'September 1st' },
+    { label: 'Early Decision', date: 'November 15th' },
+    { label: 'Regular Deadline', date: 'January 31st' },
+    { label: 'School Year Starts', date: 'August 15th' },
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      {/* Hero Section */}
-      <div className="relative overflow-hidden bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-700">
-        <div className="absolute inset-0 bg-black/20"></div>
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
-          <div className="text-center">
-            <div className="flex justify-center mb-6">
-              <div className="p-4 bg-white/20 rounded-full backdrop-blur-sm">
-                <GraduationCap className="w-12 h-12 text-white" />
-              </div>
-            </div>
-            <h1 className="text-4xl md:text-6xl font-bold text-white mb-6">
+    <div className="min-h-screen bg-white dark:bg-gray-950">
+      {/* Hero */}
+      <section className="relative bg-gray-900 py-24">
+        <div className="absolute inset-0">
+          <img
+            src="https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=1920&q=80"
+            alt=""
+            className="w-full h-full object-cover opacity-30"
+          />
+        </div>
+        <div className="relative max-w-6xl mx-auto px-6">
+          <div className="max-w-2xl">
+            <p className="text-xs font-medium text-blue-400 tracking-widest uppercase mb-3">
+              Admissions
+            </p>
+            <h1 className="text-3xl sm:text-4xl font-semibold text-white mb-4">
               How to Apply
             </h1>
-            <p className="text-xl md:text-2xl text-blue-100 mb-8 max-w-3xl mx-auto">
-              Join our community of learners and discover the path to academic excellence and personal growth
+            <p className="text-base text-gray-300 leading-relaxed mb-6">
+              Join our community of learners. Our simple application process makes it easy to get started on your educational journey.
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <button className="bg-white text-blue-600 px-8 py-4 rounded-xl font-semibold hover:bg-blue-50 transition-all duration-300 flex items-center justify-center gap-2">
-                <FileText className="w-5 h-5" />
-                Start Application
-              </button>
-              <button className="border-2 border-white text-white px-8 py-4 rounded-xl font-semibold hover:bg-white hover:text-blue-600 transition-all duration-300 flex items-center justify-center gap-2">
-                <Phone className="w-5 h-5" />
-                Contact Us
-              </button>
-            </div>
+            <button
+              onClick={() => navigate('/onboarding/register')}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              Start Application
+              <ArrowRight className="w-4 h-4" />
+            </button>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Application Steps */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-        <div className="text-center mb-16">
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-            Simple 4-Step Application Process
-          </h2>
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            Our streamlined application process ensures a smooth and efficient enrollment experience for your family
-          </p>
-        </div>
+      {/* Steps */}
+      <section className="py-16 bg-white dark:bg-gray-950">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <p className="text-xs font-medium text-blue-600 dark:text-blue-400 tracking-widest uppercase mb-2">
+              Application Process
+            </p>
+            <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white">
+              Four Simple Steps
+            </h2>
+          </div>
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
-          {steps.map((step, index) => (
-            <div key={index} className="relative">
-              <div className="bg-white rounded-2xl p-8 shadow-lg hover:shadow-xl transition-all duration-300 border border-gray-100">
-                <div className="flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full mb-6 mx-auto">
-                  <step.icon className="w-8 h-8 text-white" />
-                </div>
-                <h3 className="text-xl font-bold text-gray-900 mb-4 text-center">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {steps.map((step, index) => (
+              <div
+                key={index}
+                className="bg-gray-50 dark:bg-gray-900 rounded-xl p-6 border border-gray-100 dark:border-gray-800"
+              >
+                <span className="text-3xl font-bold text-blue-600/20 dark:text-blue-400/20">
+                  {step.number}
+                </span>
+                <h3 className="text-base font-semibold text-gray-900 dark:text-white mt-2 mb-2">
                   {step.title}
                 </h3>
-                <p className="text-gray-600 mb-6 text-center">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                   {step.description}
                 </p>
                 <ul className="space-y-2">
-                  {step.details.map((detail, detailIndex) => (
-                    <li key={detailIndex} className="flex items-start gap-2 text-sm text-gray-600">
-                      <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
-                      <span>{detail}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              {index < steps.length - 1 && (
-                <div className="hidden lg:block absolute top-1/2 -right-4 transform -translate-y-1/2">
-                  <ArrowRight className="w-8 h-8 text-gray-300" />
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Requirements Section */}
-      <div className="bg-gray-50 py-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-              Application Requirements
-            </h2>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-              Ensure you have all necessary documents ready to expedite your application process
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-8">
-            {requirements.map((category, index) => (
-              <div key={index} className="bg-white rounded-2xl p-8 shadow-lg">
-                <h3 className="text-xl font-bold text-gray-900 mb-6 text-center">
-                  {category.category}
-                </h3>
-                <ul className="space-y-3">
-                  {category.items.map((item, itemIndex) => (
-                    <li key={itemIndex} className="flex items-start gap-3 text-gray-600">
-                      <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-                      <span>{item}</span>
+                  {step.items.map((item, i) => (
+                    <li key={i} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                      {item}
                     </li>
                   ))}
                 </ul>
@@ -222,126 +128,108 @@ const HowToApply: React.FC = () => {
             ))}
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Benefits Section */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-        <div className="text-center mb-16">
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-            Why Choose Our School?
-          </h2>
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            Discover the unique advantages that make our institution the perfect choice for your child's education
-          </p>
-        </div>
+      {/* Requirements */}
+      <section className="py-16 bg-gray-50 dark:bg-gray-900">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <p className="text-xs font-medium text-blue-600 dark:text-blue-400 tracking-widest uppercase mb-2">
+              What You'll Need
+            </p>
+            <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white">
+              Application Requirements
+            </h2>
+          </div>
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
-          {benefits.map((benefit, index) => (
-            <div key={index} className="text-center group">
-              <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-6 rounded-2xl mb-6 mx-auto w-20 h-20 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                <benefit.icon className="w-10 h-10 text-white" />
+          <div className="grid md:grid-cols-3 gap-6">
+            {requirements.map((category, index) => (
+              <div
+                key={index}
+                className="bg-white dark:bg-gray-950 rounded-xl p-6 border border-gray-100 dark:border-gray-800"
+              >
+                <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-4">
+                  {category.title}
+                </h3>
+                <ul className="space-y-3">
+                  {category.items.map((item, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <div className="w-1.5 h-1.5 rounded-full bg-blue-600 mt-1.5 flex-shrink-0" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-4">
-                {benefit.title}
-              </h3>
-              <p className="text-gray-600">
-                {benefit.description}
-              </p>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      </section>
 
-      {/* Timeline Section */}
-      <div className="bg-gradient-to-r from-blue-600 to-purple-700 py-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
+      {/* Timeline */}
+      <section className="py-16 bg-white dark:bg-gray-950">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <p className="text-xs font-medium text-blue-600 dark:text-blue-400 tracking-widest uppercase mb-2">
+              Important Dates
+            </p>
+            <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white">
               Application Timeline
             </h2>
-            <p className="text-xl text-blue-100 max-w-2xl mx-auto">
-              Important dates and deadlines for the upcoming academic year
-            </p>
           </div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
-            <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-8 text-center">
-              <Clock className="w-12 h-12 text-white mx-auto mb-4" />
-              <h3 className="text-xl font-bold text-white mb-2">Application Opens</h3>
-              <p className="text-blue-100">September 1st</p>
-            </div>
-            <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-8 text-center">
-              <Calendar className="w-12 h-12 text-white mx-auto mb-4" />
-              <h3 className="text-xl font-bold text-white mb-2">Early Decision</h3>
-              <p className="text-blue-100">November 15th</p>
-            </div>
-            <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-8 text-center">
-              <FileText className="w-12 h-12 text-white mx-auto mb-4" />
-              <h3 className="text-xl font-bold text-white mb-2">Regular Deadline</h3>
-              <p className="text-blue-100">January 31st</p>
-            </div>
-            <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-8 text-center">
-              <GraduationCap className="w-12 h-12 text-white mx-auto mb-4" />
-              <h3 className="text-xl font-bold text-white mb-2">School Year Starts</h3>
-              <p className="text-blue-100">August 15th</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            {timeline.map((item, index) => (
+              <div key={index} className="text-center">
+                <div className="text-lg font-semibold text-gray-900 dark:text-white">
+                  {item.date}
+                </div>
+                <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  {item.label}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Contact */}
+      <section className="py-16 bg-gray-50 dark:bg-gray-900">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="bg-gray-900 dark:bg-gray-800 rounded-2xl p-8 md:p-12">
+            <div className="grid md:grid-cols-2 gap-8 items-center">
+              <div>
+                <h2 className="text-2xl font-semibold text-white mb-3">
+                  Need Help?
+                </h2>
+                <p className="text-gray-400 mb-6">
+                  Our admissions team is here to guide you through every step of the application process.
+                </p>
+                <div className="space-y-2 text-sm text-gray-300">
+                  <p>{settings?.email || 'admissions@school.com'}</p>
+                  <p>{settings?.phone || '+1 (555) 123-4567'}</p>
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-3 md:justify-end">
+                <button
+                  onClick={() => navigate('/onboarding/register')}
+                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  Apply Now
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => navigate('/about')}
+                  className="px-5 py-2.5 text-sm font-medium text-gray-300 hover:text-white border border-gray-700 hover:border-gray-600 rounded-lg transition-colors"
+                >
+                  Learn More
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-
-      {/* Contact Section */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-        <div className="bg-gradient-to-r from-gray-900 to-gray-800 rounded-3xl p-12 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold text-white mb-6">
-            Ready to Begin Your Journey?
-          </h2>
-          <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
-            Our admissions team is here to guide you through every step of the application process
-          </p>
-          
-          <div className="grid md:grid-cols-3 gap-8 mb-8">
-            <div className="flex items-center justify-center gap-3 text-white">
-              <Mail className="w-6 h-6 text-blue-400" />
-              <span>admissions@school.com</span>
-            </div>
-            <div className="flex items-center justify-center gap-3 text-white">
-              <Phone className="w-6 h-6 text-blue-400" />
-              <span>+1 (555) 123-4567</span>
-            </div>
-            <div className="flex items-center justify-center gap-3 text-white">
-              <MapPin className="w-6 h-6 text-blue-400" />
-              <span>123 Education Street, City</span>
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <button className="bg-blue-600 text-white px-8 py-4 rounded-xl font-semibold hover:bg-blue-700 transition-all duration-300 flex items-center justify-center gap-2">
-              <FileText className="w-5 h-5" />
-              Apply Now
-            </button>
-            <button className="border-2 border-white text-white px-8 py-4 rounded-xl font-semibold hover:bg-white hover:text-gray-900 transition-all duration-300 flex items-center justify-center gap-2">
-              <Phone className="w-5 h-5" />
-              Schedule a Visit
-            </button>
-          </div>
-        </div>
-      </div>
+      </section>
     </div>
   );
 };
 
 export default HowToApply;
-
-
-
-
-
-
-
-
-
-
-
-
-
-

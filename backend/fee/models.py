@@ -7,6 +7,7 @@ import uuid
 from academics.models import AcademicSession
 from datetime import date, datetime
 import json
+from tenants.models import TenantMixin
 
 User = get_user_model()
 
@@ -117,7 +118,7 @@ REMINDER_TYPE_CHOICES = (
 #         return self.name
 
 
-class FeeStructure(models.Model):
+class FeeStructure(TenantMixin, models.Model):
     """Fee structure model"""
 
     FEE_TYPE_CHOICES = FEE_TYPE_CHOICES
@@ -136,12 +137,16 @@ class FeeStructure(models.Model):
         verbose_name = "Fee Structure"
         verbose_name_plural = "Fee Structures"
         ordering = ["name"]
+        indexes = [
+            models.Index(fields=["tenant", "fee_type"]),
+            models.Index(fields=["tenant", "education_level"]),
+        ]
 
     def __str__(self):
         return f"{self.name} - {self.get_fee_type_display()}"
 
 
-class StudentFee(models.Model):
+class StudentFee(TenantMixin, models.Model):
     """Student fee model"""
 
     PAYMENT_STATUS_CHOICES = PAYMENT_STATUS_CHOICES
@@ -175,7 +180,11 @@ class StudentFee(models.Model):
         verbose_name = "Student Fee"
         verbose_name_plural = "Student Fees"
         ordering = ["-created_at"]
-        unique_together = ["student", "fee_structure", "academic_session", "term"]
+        unique_together = ["tenant", "student", "fee_structure", "academic_session", "term"]
+        indexes = [
+            models.Index(fields=["tenant", "student"]),
+            models.Index(fields=["tenant", "status"]),
+        ]
 
     def __str__(self):
         return f"{self.student.full_name} - {self.fee_structure.name}"
@@ -213,7 +222,7 @@ class StudentFee(models.Model):
         self.save()
 
 
-class FeeDiscount(models.Model):
+class FeeDiscount(TenantMixin, models.Model):
     """Fee discount model"""
 
     name = models.CharField(max_length=100)
@@ -231,12 +240,15 @@ class FeeDiscount(models.Model):
         verbose_name = "Fee Discount"
         verbose_name_plural = "Fee Discounts"
         ordering = ["name"]
+        indexes = [
+            models.Index(fields=["tenant", "is_active"]),
+        ]
 
     def __str__(self):
         return f"{self.name} - {self.get_discount_type_display()}"
 
 
-class StudentDiscount(models.Model):
+class StudentDiscount(TenantMixin, models.Model):
     """Student discount application model"""
 
     student = models.ForeignKey(
@@ -251,13 +263,16 @@ class StudentDiscount(models.Model):
     class Meta:
         verbose_name = "Student Discount"
         verbose_name_plural = "Student Discounts"
-        unique_together = ["student", "discount", "academic_session"]
+        unique_together = ["tenant", "student", "discount", "academic_session"]
+        indexes = [
+            models.Index(fields=["tenant", "student"]),
+        ]
 
     def __str__(self):
         return f"{self.student.full_name} - {self.discount.name}"
 
 
-class PaymentReminder(models.Model):
+class PaymentReminder(TenantMixin, models.Model):
     """Payment reminder model"""
 
     student_fee = models.ForeignKey(
@@ -273,6 +288,9 @@ class PaymentReminder(models.Model):
         verbose_name = "Payment Reminder"
         verbose_name_plural = "Payment Reminders"
         ordering = ["-sent_date"]
+        indexes = [
+            models.Index(fields=["tenant", "is_sent"]),
+        ]
 
     def __str__(self):
         return (
@@ -280,11 +298,11 @@ class PaymentReminder(models.Model):
         )
 
 
-class PaymentGatewayConfig(models.Model):
+class PaymentGatewayConfig(TenantMixin, models.Model):
     """Configuration for different payment gateways"""
 
     gateway = models.CharField(
-        max_length=20, choices=PAYMENT_GATEWAY_CHOICES, unique=True
+        max_length=20, choices=PAYMENT_GATEWAY_CHOICES
     )
     is_active = models.BooleanField(default=True)
     is_test_mode = models.BooleanField(default=True)
@@ -315,12 +333,16 @@ class PaymentGatewayConfig(models.Model):
     class Meta:
         verbose_name = "Payment Gateway Config"
         verbose_name_plural = "Payment Gateway Configs"
+        unique_together = ["tenant", "gateway"]
+        indexes = [
+            models.Index(fields=["tenant", "is_active"]),
+        ]
 
     def __str__(self):
         return f"{self.gateway} ({'Live' if not self.is_test_mode else 'Test'})"
 
 
-class Payment(models.Model):
+class Payment(TenantMixin, models.Model):
     """Enhanced Payment model supporting multiple gateways"""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -329,7 +351,7 @@ class Payment(models.Model):
     )
 
     # Payment details
-    reference = models.CharField(max_length=100, unique=True)  # ✅ Already 100
+    reference = models.CharField(max_length=100)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     currency = models.CharField(max_length=3, default="NGN")
 
@@ -389,7 +411,7 @@ class Payment(models.Model):
 
     # Receipt and documentation
     receipt_number = models.CharField(
-        max_length=50, unique=True, blank=True, null=True
+        max_length=50, blank=True, null=True
     )  # ⚠️ CHANGE: 20 → 50
     description = models.TextField(blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
@@ -404,10 +426,14 @@ class Payment(models.Model):
         ordering = ["-payment_date"]
         verbose_name = "Payment"
         verbose_name_plural = "Payments"
+        unique_together = [
+            ["tenant", "reference"],
+            ["tenant", "receipt_number"],
+        ]
         indexes = [
-            models.Index(fields=["gateway_reference"]),
-            models.Index(fields=["payment_gateway", "gateway_status"]),
-            models.Index(fields=["student_fee", "verified"]),
+            models.Index(fields=["tenant", "gateway_reference"]),
+            models.Index(fields=["tenant", "payment_gateway", "gateway_status"]),
+            models.Index(fields=["tenant", "student_fee", "verified"]),
         ]
 
     def __str__(self):
@@ -458,7 +484,7 @@ class Payment(models.Model):
         return gateway_names.get(self.payment_gateway, self.payment_gateway)
 
 
-class PaymentAttempt(models.Model):
+class PaymentAttempt(TenantMixin, models.Model):
     """Track payment attempts and failures"""
 
     student_fee = models.ForeignKey(
@@ -496,12 +522,15 @@ class PaymentAttempt(models.Model):
         ordering = ["-created_at"]
         verbose_name = "Payment Attempt"
         verbose_name_plural = "Payment Attempts"
+        indexes = [
+            models.Index(fields=["tenant", "gateway", "status"]),
+        ]
 
     def __str__(self):
         return f"Attempt {self.attempt_reference} - {self.gateway} - {self.status}"
 
 
-class PaymentWebhook(models.Model):
+class PaymentWebhook(TenantMixin, models.Model):
     """Store webhook events from payment gateways"""
 
     gateway = models.CharField(max_length=20, choices=PAYMENT_GATEWAY_CHOICES)
@@ -529,15 +558,15 @@ class PaymentWebhook(models.Model):
         verbose_name = "Payment Webhook"
         verbose_name_plural = "Payment Webhooks"
         indexes = [
-            models.Index(fields=["gateway", "event_type"]),
-            models.Index(fields=["processed", "created_at"]),
+            models.Index(fields=["tenant", "gateway", "event_type"]),
+            models.Index(fields=["tenant", "processed", "created_at"]),
         ]
 
     def __str__(self):
         return f"{self.gateway} - {self.event_type} - {self.created_at}"
 
 
-class PaymentPlan(models.Model):
+class PaymentPlan(TenantMixin, models.Model):
     """Installment payment plans"""
 
     student_fee = models.ForeignKey(
@@ -556,11 +585,16 @@ class PaymentPlan(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=["tenant", "is_active"]),
+        ]
+
     def __str__(self):
         return f"{self.student_fee.student.full_name} - {self.name}"
 
 
-class PaymentInstallment(models.Model):
+class PaymentInstallment(TenantMixin, models.Model):
     """Individual installments in a payment plan"""
 
     payment_plan = models.ForeignKey(
@@ -582,7 +616,10 @@ class PaymentInstallment(models.Model):
 
     class Meta:
         ordering = ["installment_number"]
-        unique_together = ("payment_plan", "installment_number")
+        unique_together = ["tenant", "payment_plan", "installment_number"]
+        indexes = [
+            models.Index(fields=["tenant", "is_paid"]),
+        ]
 
     def __str__(self):
         return f"Installment {self.installment_number} - ₦{self.amount}"

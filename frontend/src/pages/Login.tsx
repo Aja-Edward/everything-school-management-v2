@@ -1,17 +1,85 @@
+import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { useDocumentTitle } from './../hooks/useDocumentTitle';
+import Footer from './../components/home/Footer';
+import Navbar from './../components/home/Nav';
+import { UserRole } from '@/types/types';
+import { GraduationCap, Users, UserCircle, Shield, ArrowLeft, Sparkles } from 'lucide-react';
 
-import { useNavigate } from 'react-router-dom'
-import { useTranslation } from 'react-i18next'
-import { useDocumentTitle } from './../hooks/useDocumentTitle'
-import Footer from './../components/home/Footer'
-import Navbar from './../components/home/Nav'
-import { UserRole } from '@/types/types'
+interface RoleCardProps {
+  role: UserRole;
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+  color: string;
+  onClick: () => void;
+}
+
+const RoleCard: React.FC<RoleCardProps> = ({ title, description, icon, color, onClick }) => {
+  return (
+    <button
+      onClick={onClick}
+      className={`
+        group relative w-full p-5 rounded-xl border border-secondary-200 dark:border-secondary-700
+        bg-white dark:bg-secondary-800 hover:border-transparent
+        transition-all duration-300 ease-out
+        hover:shadow-lg hover:-translate-y-1
+        focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2
+        dark:focus-visible:ring-offset-secondary-900
+      `}
+    >
+      {/* Gradient overlay on hover */}
+      <div
+        className={`
+          absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100
+          transition-opacity duration-300 -z-10
+          ${color}
+        `}
+        style={{ filter: 'blur(40px)', transform: 'scale(0.9)' }}
+      />
+
+      <div className="flex items-start gap-4">
+        <div
+          className={`
+            flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center
+            transition-all duration-300
+            ${color} bg-opacity-10 group-hover:bg-opacity-20
+          `}
+        >
+          <span className={`w-6 h-6 ${color.replace('bg-', 'text-')}`}>
+            {icon}
+          </span>
+        </div>
+
+        <div className="flex-1 text-left">
+          <h3 className="font-semibold text-secondary-900 dark:text-white group-hover:text-secondary-900 dark:group-hover:text-white">
+            {title}
+          </h3>
+          <p className="mt-1 text-sm text-secondary-500 dark:text-secondary-400">
+            {description}
+          </p>
+        </div>
+
+        <div className="flex-shrink-0 self-center">
+          <svg
+            className="w-5 h-5 text-secondary-400 group-hover:text-secondary-600 dark:group-hover:text-secondary-300 group-hover:translate-x-1 transition-all duration-200"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
+    </button>
+  );
+};
 
 const Login = () => {
-  const navigate = useNavigate()
-  const { t } = useTranslation()
+  const navigate = useNavigate();
+  const { t } = useTranslation();
 
-  // Set document title
-  useDocumentTitle(t('login.title', 'Login - AL-QOLAMULMUWAFFAQ'))
+  useDocumentTitle(t('login.title', 'Login - School Portal'));
 
   const handleRoleSelection = (role: UserRole) => {
     switch (role) {
@@ -33,78 +101,97 @@ const Login = () => {
   };
 
   const handleBackToHome = () => {
-    navigate('/')
-  }
+    navigate('/');
+  };
+
+  const roles = [
+    {
+      role: UserRole.STUDENT,
+      title: 'Student Login',
+      description: 'Access your dashboard, results, and learning materials',
+      icon: <GraduationCap className="w-full h-full" />,
+      color: 'bg-info-500',
+    },
+    {
+      role: UserRole.TEACHER,
+      title: 'Teacher Login',
+      description: 'Manage classes, record results, and track attendance',
+      icon: <UserCircle className="w-full h-full" />,
+      color: 'bg-success-500',
+    },
+    {
+      role: UserRole.PARENT,
+      title: 'Parent Login',
+      description: "View your children's progress, results, and fee status",
+      icon: <Users className="w-full h-full" />,
+      color: 'bg-primary-500',
+    },
+    {
+      role: UserRole.ADMIN,
+      title: 'Admin Login',
+      description: 'Full access to school management and settings',
+      icon: <Shield className="w-full h-full" />,
+      color: 'bg-error-500',
+    },
+  ];
 
   return (
-    <>
+    <div className="min-h-screen flex flex-col bg-secondary-50 dark:bg-secondary-950">
       <Navbar />
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center px-4">
-        <div className="max-w-md w-full space-y-8">
-          <div className="text-center">
-            <h2 className="mt-6 text-3xl font-extrabold text-gray-900">
+
+      <main className="flex-1 flex items-center justify-center px-4 py-12">
+        <div className="w-full max-w-md">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary-100 dark:bg-primary-900/30 mb-6">
+              <Sparkles className="w-8 h-8 text-primary-600 dark:text-primary-400" />
+            </div>
+
+            <h1 className="text-2xl font-bold text-secondary-900 dark:text-white">
               Welcome Back
-            </h2>
-            <p className="mt-2 text-sm text-gray-600">
-              Please select your role to continue
+            </h1>
+            <p className="mt-2 text-secondary-600 dark:text-secondary-400">
+              Select your role to continue to your dashboard
             </p>
           </div>
-          
-          <div className="space-y-4">
-            <button
-              onClick={() => handleRoleSelection(UserRole.STUDENT)}
-              className="w-full flex items-center justify-center px-4 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
-            >
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-              </svg>
-              Student Login
-            </button>
-            
-            <button
-              onClick={() => handleRoleSelection(UserRole.TEACHER)}
-              className="w-full flex items-center justify-center px-4 py-3 border border-transparent text-base font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors"
-            >
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
-              Teacher Login
-            </button>
-            
-            <button
-              onClick={() => handleRoleSelection(UserRole.PARENT)}
-              className="w-full flex items-center justify-center px-4 py-3 border border-transparent text-base font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 transition-colors"
-            >
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-              </svg>
-              Parent Login
-            </button>
-            
-            <button
-              onClick={() => handleRoleSelection(UserRole.ADMIN)}
-              className="w-full flex items-center justify-center px-4 py-3 border border-transparent text-base font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
-            >
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-              </svg>
-              Admin Login
-            </button>
+
+          {/* Role Selection Cards */}
+          <div className="space-y-3">
+            {roles.map((roleData) => (
+              <RoleCard
+                key={roleData.role}
+                {...roleData}
+                onClick={() => handleRoleSelection(roleData.role)}
+              />
+            ))}
           </div>
-          
-          <div className="text-center">
+
+          {/* Back to Home */}
+          <div className="mt-8 text-center">
             <button
               onClick={handleBackToHome}
-              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+              className="inline-flex items-center gap-2 text-sm text-secondary-600 dark:text-secondary-400 hover:text-secondary-900 dark:hover:text-white transition-colors"
             >
-              ← Back to Home
+              <ArrowLeft className="w-4 h-4" />
+              Back to Home
             </button>
           </div>
-        </div>
-      </div>
-      <Footer />
-    </>
-  )
-}
 
-export default Login
+          {/* Help Text */}
+          <div className="mt-6 p-4 rounded-xl bg-secondary-100 dark:bg-secondary-800/50 border border-secondary-200 dark:border-secondary-700">
+            <p className="text-xs text-secondary-500 dark:text-secondary-400 text-center">
+              Need help? Contact your school administrator or{' '}
+              <a href="/contact" className="text-primary-600 dark:text-primary-400 hover:underline">
+                reach out to support
+              </a>
+            </p>
+          </div>
+        </div>
+      </main>
+
+      <Footer />
+    </div>
+  );
+};
+
+export default Login;

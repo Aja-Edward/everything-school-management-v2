@@ -23,23 +23,23 @@ class PrerequisiteInline(admin.TabularInline):
 @admin.register(SchoolStreamConfiguration)
 class SchoolStreamConfigurationAdmin(admin.ModelAdmin):
     """Admin interface for school stream configurations"""
-    
+
     list_display = [
-        'school_id', 'stream', 'subject_role', 'min_subjects_required', 
+        'tenant', 'stream', 'subject_role', 'min_subjects_required',
         'max_subjects_allowed', 'is_compulsory', 'is_active'
     ]
-    
+
     list_filter = [
-        'school_id', 'stream', 'subject_role', 'is_compulsory', 'is_active'
+        'tenant', 'stream', 'subject_role', 'is_compulsory', 'is_active'
     ]
-    
-    search_fields = ['stream__name']
-    
-    ordering = ['school_id', 'stream', 'display_order']
-    
+
+    search_fields = ['stream__name', 'tenant__name']
+
+    ordering = ['tenant', 'stream', 'display_order']
+
     fieldsets = (
         ('Basic Information', {
-            'fields': ('school_id', 'stream', 'subject_role')
+            'fields': ('tenant', 'stream', 'subject_role')
         }),
         ('Requirements', {
             'fields': ('min_subjects_required', 'max_subjects_allowed', 'is_compulsory')
@@ -60,7 +60,7 @@ class SchoolStreamSubjectAssignmentAdmin(admin.ModelAdmin):
     ]
     
     list_filter = [
-        'stream_config__school_id', 'stream_config__stream', 'stream_config__subject_role',
+        'stream_config__tenant', 'stream_config__stream', 'stream_config__subject_role',
         'is_compulsory', 'can_be_elective_elsewhere', 'is_active'
     ]
     

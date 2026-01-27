@@ -75,8 +75,8 @@ class ParentProfileSerializer(serializers.ModelSerializer):
     user_email = serializers.EmailField(write_only=True, required=False)
     user_first_name = serializers.CharField(write_only=True, required=False)
     user_last_name = serializers.CharField(write_only=True, required=False)
-    phone = serializers.CharField(write_only=True, required=False)
-    address = serializers.CharField(write_only=True, required=False)
+    phone = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    address = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     parent_username = serializers.CharField(read_only=True)
     parent_password = serializers.CharField(read_only=True)
@@ -130,6 +130,9 @@ class ParentProfileSerializer(serializers.ModelSerializer):
         user_last_name = validated_data.pop("user_last_name", None)
         phone = validated_data.pop("phone", None)
         address = validated_data.pop("address", None)
+        # Extract students if provided (student_ids becomes students via source="students")
+        students = validated_data.pop("students", None)
+
         parent_username = None
         parent_password = None
         user = None
@@ -159,6 +162,11 @@ class ParentProfileSerializer(serializers.ModelSerializer):
         if address:
             validated_data["address"] = address
         parent_profile = super().create(validated_data)
+
+        # Link students if provided
+        if students is not None:
+            parent_profile.students.set(students)
+
         parent_profile.parent_username = parent_username or user.username
         parent_profile.parent_password = parent_password or ""
         return parent_profile

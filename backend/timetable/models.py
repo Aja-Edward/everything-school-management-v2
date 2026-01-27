@@ -1,11 +1,13 @@
 from django.db import models
+
+from tenants.models import TenantMixin
 from classroom.models import Section
 from subject.models import Subject
 from teacher.models import Teacher
 
 
 # Create your models here.
-class Timetable(models.Model):
+class Timetable(TenantMixin, models.Model):
     DAY_CHOICES = [
         ("Monday", "Monday"),
         ("Tuesday", "Tuesday"),
@@ -22,7 +24,7 @@ class Timetable(models.Model):
     end_time = models.TimeField()
 
     class Meta:
-        unique_together = ("section", "day", "start_time")
+        unique_together = [("tenant", "section", "day", "start_time")]
         ordering = ["day", "start_time"]
 
     def __str__(self):

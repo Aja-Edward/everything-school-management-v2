@@ -27,9 +27,7 @@ class ProfessionalAssignmentService {
    */
   async getAssignedStudents(filters?: StudentFilters): Promise<AssignedStudentsResponse> {
     try {
-      const data = await api.get(`${this.baseUrl}/my-students/`, {
-        params: filters,
-      });
+      const data = await api.get(`${this.baseUrl}/my-students/`, filters);
       return data;
     } catch (error: any) {
       console.error('Error fetching assigned students:', error.response?.data || error);
@@ -60,8 +58,8 @@ class ProfessionalAssignmentService {
         }
       });
       
-      // ✅ FIXED: Remove duplicate /api
-      const url = `https://school-project-with-edward.onrender.com${this.baseUrl}/update-remark/`;
+      // ✅ FIXED: Use API_BASE_URL instead of hardcoded URL
+      const url = `${API_BASE_URL}${this.baseUrl}/update-remark/`;
       console.log('🌐 POST request to:', url);
       console.log('📤 Request data:', data);
       console.log('📋 Request headers:', headers);
@@ -158,7 +156,7 @@ class ProfessionalAssignmentService {
     // Send array as JSON string within FormData
     formData.append('term_report_ids', JSON.stringify(data.term_report_ids));
     
-    const url = `https://school-project-with-edward.onrender.com${this.baseUrl}/apply-signature/`;
+    const url = `${API_BASE_URL}${this.baseUrl}/apply-signature/`;
     console.log('🌐 POST request to:', url);
     console.log('📤 Request data:', data);
     
@@ -216,9 +214,9 @@ class ProfessionalAssignmentService {
    */
   async getPendingReviews(examSessionId?: string): Promise<PendingReviewsResponse> {
     try {
-      const data = await api.get(`${this.headTeacherUrl}/pending-reviews/`, {
-        params: { exam_session: examSessionId },
-      });
+      const data = await api.get(`${this.headTeacherUrl}/pending-reviews/`,
+        examSessionId ? { exam_session: examSessionId } : undefined
+      );
       return data;
     } catch (error: any) {
       console.error('Error fetching pending reviews:', error.response?.data || error);
@@ -248,8 +246,8 @@ class ProfessionalAssignmentService {
         }
       });
       
-      // ✅ FIXED: Remove duplicate /api
-      const url = `https://school-project-with-edward.onrender.com${this.headTeacherUrl}/update-head-remark/`;
+      // ✅ FIXED: Use API_BASE_URL instead of hardcoded URL
+      const url = `${API_BASE_URL}${this.headTeacherUrl}/update-head-remark/`;
       console.log('🌐 POST request to:', url);
       console.log('📤 Request data:', data);
       
@@ -346,8 +344,8 @@ class ProfessionalAssignmentService {
         }
       });
       
-      // ✅ FIXED: Remove duplicate /api
-      const url = `https://school-project-with-edward.onrender.com${this.headTeacherUrl}/apply-head-signature/`;
+      // ✅ FIXED: Use API_BASE_URL instead of hardcoded URL
+      const url = `${API_BASE_URL}${this.headTeacherUrl}/apply-head-signature/`;
       console.log('🌐 POST request to:', url);
       console.log('📤 Request data:', data);
       

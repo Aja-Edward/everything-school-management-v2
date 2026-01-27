@@ -1,6 +1,6 @@
 // components/QuestionSectionObjectives.tsx
 import React from "react";
-import RichTextEditor from "./RichTextEditor";
+import { RichTextEditor } from "@/components/shared/ExamEditor";
 import { ObjectiveQuestion } from "@/types/types";
 
 

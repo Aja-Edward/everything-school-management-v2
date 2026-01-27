@@ -17,6 +17,11 @@ from .models import (
     Exam,
     ExamRegistration,
     ExamStatistics,
+    QuestionBank,
+    ExamTemplate,
+    ExamReview,
+    ExamReviewer,
+    ExamReviewComment,
 )
 
 
@@ -756,3 +761,403 @@ class ExamStatisticsAdmin(admin.ModelAdmin):
 admin.site.site_header = "School Exam Management System"
 admin.site.site_title = "Exam Admin"
 admin.site.index_title = "Welcome to Exam Management"
+
+
+# ============================================
+# EXAM-003: NEW EXAM FEATURES ADMIN
+# ============================================
+
+
+@admin.register(QuestionBank)
+class QuestionBankAdmin(admin.ModelAdmin):
+    list_display = [
+        "question_preview",
+        "question_type",
+        "subject",
+        "grade_level",
+        "difficulty",
+        "marks",
+        "is_shared",
+        "usage_count",
+        "created_by_name",
+        "created_at",
+    ]
+    list_filter = [
+        "question_type",
+        "difficulty",
+        "is_shared",
+        "subject",
+        "grade_level",
+        "created_at",
+    ]
+    search_fields = [
+        "question",
+        "topic",
+        "subtopic",
+        "tags",
+        "created_by__user__first_name",
+        "created_by__user__last_name",
+    ]
+    readonly_fields = ["usage_count", "last_used", "created_at", "updated_at"]
+    date_hierarchy = "created_at"
+    ordering = ["-created_at"]
+
+    fieldsets = (
+        (
+            "Question Content",
+            {
+                "fields": (
+                    "question_type",
+                    "question",
+                    "options",
+                    "correct_answer",
+                    "answer_guideline",
+                    "expected_points",
+                    "marks",
+                )
+            },
+        ),
+        (
+            "Classification",
+            {
+                "fields": (
+                    "subject",
+                    "grade_level",
+                    "topic",
+                    "subtopic",
+                    "difficulty",
+                    "tags",
+                )
+            },
+        ),
+        ("Media", {"fields": ("images", "table_data"), "classes": ("collapse",)}),
+        ("Sharing & Usage", {"fields": ("is_shared", "usage_count", "last_used")}),
+        (
+            "Metadata",
+            {
+                "fields": ("created_by", "created_at", "updated_at"),
+                "classes": ("collapse",),
+            },
+        ),
+    )
+
+    def question_preview(self, obj):
+        import re
+
+        # Strip HTML and limit to 80 chars
+        clean_text = re.sub(r"<[^>]+>", "", obj.question)
+        preview = clean_text[:80] + "..." if len(clean_text) > 80 else clean_text
+        return format_html('<span title="{}">{}</span>', obj.question, preview)
+
+    question_preview.short_description = "Question"
+
+    def created_by_name(self, obj):
+        return obj.created_by.get_full_name() if obj.created_by else "N/A"
+
+    created_by_name.short_description = "Created By"
+    created_by_name.admin_order_field = "created_by__user__first_name"
+
+    actions = ["mark_as_shared", "mark_as_private"]
+
+    def mark_as_shared(self, request, queryset):
+        updated = queryset.update(is_shared=True)
+        self.message_user(request, f"{updated} questions marked as shared.")
+
+    mark_as_shared.short_description = "Mark selected as shared"
+
+    def mark_as_private(self, request, queryset):
+        updated = queryset.update(is_shared=False)
+        self.message_user(request, f"{updated} questions marked as private.")
+
+    mark_as_private.short_description = "Mark selected as private"
+
+
+class ExamReviewerInline(admin.TabularInline):
+    model = ExamReviewer
+    extra = 0
+    fields = ("reviewer", "decision", "reviewed_at")
+    readonly_fields = ("assigned_at", "reviewed_at")
+
+
+class ExamReviewCommentInline(admin.TabularInline):
+    model = ExamReviewComment
+    extra = 0
+    fields = ("author", "comment", "question_index", "section", "is_resolved")
+    readonly_fields = ("author", "created_at")
+
+
+@admin.register(ExamTemplate)
+class ExamTemplateAdmin(admin.ModelAdmin):
+    list_display = [
+        "name",
+        "grade_level",
+        "subject",
+        "total_marks",
+        "duration_display",
+        "section_count",
+        "is_shared",
+        "usage_count",
+        "created_by_name",
+        "created_at",
+    ]
+    list_filter = [
+        "grade_level",
+        "subject",
+        "is_shared",
+        "created_at",
+    ]
+    search_fields = [
+        "name",
+        "description",
+        "created_by__user__first_name",
+        "created_by__user__last_name",
+    ]
+    readonly_fields = ["usage_count", "created_at", "updated_at"]
+    date_hierarchy = "created_at"
+    ordering = ["-created_at"]
+
+    fieldsets = (
+        ("Basic Information", {"fields": ("name", "description")}),
+        (
+            "Academic Details",
+            {"fields": ("grade_level", "subject", "total_marks", "duration_minutes")},
+        ),
+        ("Template Structure", {"fields": ("structure", "default_instructions")}),
+        ("Sharing & Usage", {"fields": ("is_shared", "usage_count")}),
+        (
+            "Metadata",
+            {
+                "fields": ("created_by", "created_at", "updated_at"),
+                "classes": ("collapse",),
+            },
+        ),
+    )
+
+    def section_count(self, obj):
+        if obj.structure and isinstance(obj.structure, dict):
+            sections = obj.structure.get("sections", [])
+            return len(sections)
+        return 0
+
+    section_count.short_description = "Sections"
+
+    def duration_display(self, obj):
+        if obj.duration_minutes:
+            hours = obj.duration_minutes // 60
+            minutes = obj.duration_minutes % 60
+            if hours > 0:
+                return f"{hours}h {minutes}m"
+            return f"{minutes}m"
+        return "N/A"
+
+    duration_display.short_description = "Duration"
+
+    def created_by_name(self, obj):
+        return obj.created_by.get_full_name() if obj.created_by else "N/A"
+
+    created_by_name.short_description = "Created By"
+    created_by_name.admin_order_field = "created_by__user__first_name"
+
+    actions = ["duplicate_templates", "mark_as_shared", "mark_as_private"]
+
+    def duplicate_templates(self, request, queryset):
+        count = 0
+        for template in queryset:
+            template.pk = None
+            template.name = f"{template.name} (Copy)"
+            template.usage_count = 0
+            template.save()
+            count += 1
+        self.message_user(request, f"{count} templates duplicated successfully.")
+
+    duplicate_templates.short_description = "Duplicate selected templates"
+
+    def mark_as_shared(self, request, queryset):
+        updated = queryset.update(is_shared=True)
+        self.message_user(request, f"{updated} templates marked as shared.")
+
+    mark_as_shared.short_description = "Mark selected as shared"
+
+    def mark_as_private(self, request, queryset):
+        updated = queryset.update(is_shared=False)
+        self.message_user(request, f"{updated} templates marked as private.")
+
+    mark_as_private.short_description = "Mark selected as private"
+
+
+@admin.register(ExamReview)
+class ExamReviewAdmin(admin.ModelAdmin):
+    list_display = [
+        "exam_title",
+        "status",
+        "submitted_by_name",
+        "submitted_at",
+        "approved_by_name",
+        "reviewer_count",
+        "comment_count",
+        "created_at",
+    ]
+    list_filter = [
+        "status",
+        "submitted_at",
+        "approved_at",
+        "created_at",
+    ]
+    search_fields = [
+        "exam__title",
+        "exam__code",
+        "submitted_by__user__first_name",
+        "submitted_by__user__last_name",
+        "submission_note",
+    ]
+    readonly_fields = [
+        "submitted_at",
+        "approved_at",
+        "created_at",
+        "updated_at",
+    ]
+    date_hierarchy = "created_at"
+    ordering = ["-created_at"]
+    inlines = [ExamReviewerInline, ExamReviewCommentInline]
+
+    fieldsets = (
+        ("Review Information", {"fields": ("exam", "status")}),
+        (
+            "Submission Details",
+            {"fields": ("submitted_by", "submitted_at", "submission_note")},
+        ),
+        (
+            "Approval Details",
+            {"fields": ("approved_by", "approved_at", "rejection_reason")},
+        ),
+        (
+            "Metadata",
+            {"fields": ("created_at", "updated_at"), "classes": ("collapse",)},
+        ),
+    )
+
+    def exam_title(self, obj):
+        return obj.exam.title
+
+    exam_title.short_description = "Exam"
+    exam_title.admin_order_field = "exam__title"
+
+    def submitted_by_name(self, obj):
+        return obj.submitted_by.get_full_name() if obj.submitted_by else "N/A"
+
+    submitted_by_name.short_description = "Submitted By"
+    submitted_by_name.admin_order_field = "submitted_by__user__first_name"
+
+    def approved_by_name(self, obj):
+        return obj.approved_by.get_full_name() if obj.approved_by else "N/A"
+
+    approved_by_name.short_description = "Approved By"
+
+    def reviewer_count(self, obj):
+        return obj.reviewers.count()
+
+    reviewer_count.short_description = "Reviewers"
+
+    def comment_count(self, obj):
+        count = obj.comments.count()
+        unresolved = obj.comments.filter(is_resolved=False).count()
+        if unresolved > 0:
+            return format_html(
+                '<span>{} ({} unresolved)</span>', count, unresolved
+            )
+        return count
+
+    comment_count.short_description = "Comments"
+
+    actions = ["approve_reviews", "request_changes"]
+
+    def approve_reviews(self, request, queryset):
+        count = 0
+        for review in queryset:
+            if review.status in ["submitted", "in_review", "changes_requested"]:
+                # Note: This is simplified - in production you'd need proper user context
+                review.status = "approved"
+                review.save()
+                count += 1
+        self.message_user(request, f"{count} reviews approved.")
+
+    approve_reviews.short_description = "Approve selected reviews"
+
+    def request_changes(self, request, queryset):
+        updated = queryset.update(status="changes_requested")
+        self.message_user(request, f"{updated} reviews marked as changes requested.")
+
+    request_changes.short_description = "Request changes for selected reviews"
+
+
+@admin.register(ExamReviewComment)
+class ExamReviewCommentAdmin(admin.ModelAdmin):
+    list_display = [
+        "review_exam",
+        "author_name",
+        "comment_preview",
+        "section",
+        "question_index",
+        "is_resolved",
+        "created_at",
+    ]
+    list_filter = [
+        "is_resolved",
+        "section",
+        "created_at",
+    ]
+    search_fields = [
+        "review__exam__title",
+        "author__user__first_name",
+        "author__user__last_name",
+        "comment",
+    ]
+    readonly_fields = [
+        "resolved_at",
+        "created_at",
+        "updated_at",
+    ]
+    date_hierarchy = "created_at"
+    ordering = ["-created_at"]
+
+    fieldsets = (
+        ("Comment Details", {"fields": ("review", "author", "comment")}),
+        ("Question Reference", {"fields": ("section", "question_index")}),
+        ("Resolution", {"fields": ("is_resolved", "resolved_by", "resolved_at")}),
+        (
+            "Metadata",
+            {"fields": ("created_at", "updated_at"), "classes": ("collapse",)},
+        ),
+    )
+
+    def review_exam(self, obj):
+        return obj.review.exam.title
+
+    review_exam.short_description = "Exam"
+
+    def author_name(self, obj):
+        return obj.author.get_full_name() if obj.author else "N/A"
+
+    author_name.short_description = "Author"
+
+    def comment_preview(self, obj):
+        preview = obj.comment[:100] + "..." if len(obj.comment) > 100 else obj.comment
+        return format_html('<span title="{}">{}</span>', obj.comment, preview)
+
+    comment_preview.short_description = "Comment"
+
+    actions = ["mark_resolved", "mark_unresolved"]
+
+    def mark_resolved(self, request, queryset):
+        from django.utils import timezone
+
+        updated = queryset.update(is_resolved=True, resolved_at=timezone.now())
+        self.message_user(request, f"{updated} comments marked as resolved.")
+
+    mark_resolved.short_description = "Mark selected as resolved"
+
+    def mark_unresolved(self, request, queryset):
+        updated = queryset.update(is_resolved=False, resolved_at=None, resolved_by=None)
+        self.message_user(request, f"{updated} comments marked as unresolved.")
+
+    mark_unresolved.short_description = "Mark selected as unresolved"

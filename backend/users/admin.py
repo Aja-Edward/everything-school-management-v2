@@ -10,14 +10,14 @@ class CustomUserAdmin(BaseUserAdmin):
         "email",
         "full_name",
         "role",
-        "school_code",  # Show school code
+        "tenant_name",  # Show tenant name
         "section",
         "is_active",
         "is_staff",
     ]
 
     list_filter = [
-        "school",  # Filter by school
+        "tenant",  # Filter by tenant
         "role",
         "section",
         "is_active",
@@ -30,8 +30,8 @@ class CustomUserAdmin(BaseUserAdmin):
         "email",
         "first_name",
         "last_name",
-        "school__school_name",
-        "school__school_code",
+        "tenant__name",
+        "tenant__slug",
     ]
 
     fieldsets = (
@@ -50,10 +50,10 @@ class CustomUserAdmin(BaseUserAdmin):
             },
         ),
         (
-            "School & Role Information",
+            "Tenant & Role Information",
             {
-                "fields": ("school", "role", "section", "reports_to"),
-                "description": "Multi-tenant: Users must be assigned to a school",
+                "fields": ("tenant", "role", "section", "reports_to"),
+                "description": "Multi-tenant: Users must be assigned to a tenant (school)",
             },
         ),
         (
@@ -93,7 +93,7 @@ class CustomUserAdmin(BaseUserAdmin):
                     "password2",
                     "first_name",
                     "last_name",
-                    "school",  # Required for new users
+                    "tenant",  # Required for new users
                     "role",
                     "section",
                     "is_active",
@@ -105,23 +105,23 @@ class CustomUserAdmin(BaseUserAdmin):
 
     readonly_fields = ["date_joined", "last_login"]
 
-    def school_code(self, obj):
-        """Display school code in list"""
-        return obj.school.school_code if obj.school else "-"
+    def tenant_name(self, obj):
+        """Display tenant name in list"""
+        return obj.tenant.name if obj.tenant else "-"
 
-    school_code.short_description = "School"
-    school_code.admin_order_field = "school__school_code"
+    tenant_name.short_description = "School"
+    tenant_name.admin_order_field = "tenant__name"
 
     def get_queryset(self, request):
-        """Filter users by school for non-superusers"""
+        """Filter users by tenant for non-superusers"""
         qs = super().get_queryset(request)
 
         # True Django superusers see everything
         if request.user.is_superuser:
             return qs
 
-        # School admins only see their school's users
-        if hasattr(request.user, "school") and request.user.school:
-            return qs.filter(school=request.user.school)
+        # Tenant admins only see their tenant's users
+        if hasattr(request.user, "tenant") and request.user.tenant:
+            return qs.filter(tenant=request.user.tenant)
 
         return qs.none()

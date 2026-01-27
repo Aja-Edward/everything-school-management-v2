@@ -54,6 +54,10 @@ else:
 # ============================================
 
 # Secret Key - FIXED to work with SIMPLE_JWT and Render builds
+# Use a consistent development key in DEBUG mode, otherwise require env var
+_is_debug = os.getenv("DEBUG", "False").lower() in ["true", "1", "yes"]
+_dev_secret_key = "django-insecure-dev-key-for-local-development-only-do-not-use-in-production"
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "")
 
 # Allow dummy SECRET_KEY during collectstatic OR if explicitly building
@@ -66,6 +70,10 @@ if not SECRET_KEY:
     if is_collectstatic or is_render_build:
         print("⚠️  Using temporary SECRET_KEY for build/collectstatic")
         SECRET_KEY = "django-insecure-temporary-key-for-build-only-not-for-production"
+    elif _is_debug:
+        # Use consistent development key for local development
+        print("⚠️  Using development SECRET_KEY - DO NOT use in production!")
+        SECRET_KEY = _dev_secret_key
     else:
         raise ValueError(
             "DJANGO_SECRET_KEY environment variable is required. "
@@ -81,10 +89,13 @@ DEBUG = os.getenv("DEBUG", "False").lower() in ["true", "1", "yes"]
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 # Allowed hosts
-ALLOWED_HOSTS = os.getenv(
-    "ALLOWED_HOSTS",
-    "localhost,127.0.0.1,school-project-with-edward.onrender.com",
-).split(",")
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv(
+        "ALLOWED_HOSTS",
+        "localhost,127.0.0.1,backend,school-project-with-edward.onrender.com",
+    ).split(",")
+]
 
 # Production security settingsay
 if not DEBUG:
@@ -195,6 +206,7 @@ INSTALLED_APPS = [
     "invitations",
     "events",
     "lesson",
+    "tenants",
 ]
 
 SITE_ID = 1
@@ -212,9 +224,24 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "allauth.account.middleware.AccountMiddleware",
+    "tenants.middleware.TenantMiddleware",  # Tenant identification
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+# ============================================
+# CSRF & COOKIE SETTINGS FOR AUTHENTICATION
+# ============================================
+
+# CSRF cookie settings for cross-subdomain support
+CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read CSRF token (needed for API calls)
+CSRF_COOKIE_SAMESITE = "Lax"  # Allow CSRF cookie on same-site requests
+CSRF_USE_SESSIONS = False  # Use cookie-based CSRF, not session-based
+
+# In development, allow cookies across subdomains
+if DEBUG:
+    CSRF_COOKIE_DOMAIN = None  # Don't restrict domain in development
+    SESSION_COOKIE_DOMAIN = None
 
 # ============================================
 # CORS SETTINGS (CRITICAL FIX)
@@ -225,6 +252,7 @@ CSRF_TRUSTED_ORIGINS = [
     for origin in os.getenv(
         "CSRF_TRUSTED_ORIGINS",
         "http://localhost:3000,http://localhost:5173,http://localhost:5174,"
+        "http://bay-school.localhost:5173,"  # Add subdomain pattern for dev
         "https://www.al-qolamulmuwaffaq.com,"
         "https://al-qolamulmuwaffaq.com,"
         "https://school-project-with-edward.vercel.app",
@@ -244,7 +272,16 @@ CORS_ALLOWED_ORIGINS = [
     if origin.strip()
 ]
 
+# Allow subdomain patterns for multi-tenant support
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    # Development: allow any subdomain of localhost
+    r"^http://[\w-]+\.localhost:\d+$",
+    # Production: allow any subdomain of schoolplatform.com
+    r"^https://[\w-]+\.schoolplatform\.com$",
+]
+
 print("✅ CORS Allowed Origins:", CORS_ALLOWED_ORIGINS)
+print("✅ CORS Allowed Origin Regexes:", CORS_ALLOWED_ORIGIN_REGEXES)
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -258,6 +295,8 @@ CORS_ALLOW_HEADERS = [
     "user-agent",
     "x-csrftoken",
     "x-requested-with",
+    "x-tenant-id",
+    "x-tenant-slug",
 ]
 
 CORS_EXPOSE_HEADERS = [
@@ -273,6 +312,13 @@ CORS_ALLOW_METHODS = [
     "POST",
     "PUT",
 ]
+
+# Ensure CORS headers are added to all responses including errors
+CORS_PREFLIGHT_MAX_AGE = 86400
+
+# For debugging in development - allow all origins
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
 
 # ============================================
 # TEMPLATES
@@ -384,24 +430,25 @@ AUTHENTICATION_BACKENDS = [
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "authentication.cookie_auth.CookieJWTAuthentication",  # Cookie-based JWT (primary)
+        "rest_framework_simplejwt.authentication.JWTAuthentication",  # Header-based JWT (fallback)
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_FILTER_BACKENDS": ["django_filters.rest_framework.DjangoFilterBackend"],
 }
 
 # ============================================
-# SIMPLE JWT (FIXED - Uses SECRET_KEY now)
+# SIMPLE JWT - HttpOnly Cookie Configuration
 # ============================================
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
     "UPDATE_LAST_LOGIN": True,
     "ALGORITHM": "HS256",
-    "SIGNING_KEY": SECRET_KEY,  # FIXED - was referencing undefined SECRET_KEY
+    "SIGNING_KEY": SECRET_KEY,
     "AUTH_HEADER_TYPES": ("Bearer",),
     "AUTH_HEADER_NAME": "HTTP_AUTHORIZATION",
     "USER_ID_FIELD": "id",
@@ -410,6 +457,32 @@ SIMPLE_JWT = {
     "TOKEN_TYPE_CLAIM": "token_type",
     "TOKEN_OBTAIN_SERIALIZER": "authentication.serializers.CustomTokenObtainPairSerializer",
 }
+
+# ============================================
+# COOKIE SETTINGS FOR JWT AUTH
+# ============================================
+
+# Cookie names
+AUTH_COOKIE_ACCESS = "access_token"
+AUTH_COOKIE_REFRESH = "refresh_token"
+
+# Cookie settings for cross-origin authentication
+# Production: SameSite=None + Secure=True allows cross-origin cookies over HTTPS
+# Development: Cookies won't work cross-origin over HTTP, so we also return tokens in body
+AUTH_COOKIE_HTTP_ONLY = True  # Prevents JavaScript access (XSS protection)
+AUTH_COOKIE_SECURE = not DEBUG  # Only send over HTTPS in production
+AUTH_COOKIE_SAMESITE = "None" if not DEBUG else "Lax"  # None for cross-origin in production
+AUTH_COOKIE_PATH = "/"
+AUTH_COOKIE_DOMAIN = None
+
+# Access token cookie max age (in seconds) - matches ACCESS_TOKEN_LIFETIME
+AUTH_COOKIE_ACCESS_MAX_AGE = 60 * 60  # 1 hour
+
+# Refresh token cookie max age (in seconds) - matches REFRESH_TOKEN_LIFETIME
+AUTH_COOKIE_REFRESH_MAX_AGE = 60 * 60 * 24 * 7  # 7 days
+
+# In development, also return tokens in response body for cross-origin support
+AUTH_RETURN_TOKENS_IN_BODY = DEBUG  # Only in development
 
 # ============================================
 # DJANGO-ALLAUTH SETTINGS
@@ -511,6 +584,13 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "edwardaja750@gmail.com")
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "your-brevo-api-key-here")
 
 # ============================================
+# MULTI-TENANT SETTINGS
+# ============================================
+
+PLATFORM_DOMAIN = os.getenv("PLATFORM_DOMAIN", "schoolplatform.com")
+PLATFORM_IP = os.getenv("PLATFORM_IP", "0.0.0.0")
+
+# ============================================
 # PAYMENT SETTINGS
 # ============================================
 
@@ -524,13 +604,37 @@ PAYSTACK_PUBLIC_KEY = os.getenv("PAYSTACK_PUBLIC_KEY")
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "{levelname} {asctime} {module} {message}",
+            "style": "{",
+        },
+    },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
+            "formatter": "verbose",
         },
     },
     "root": {
         "handlers": ["console"],
         "level": "INFO",
+    },
+    "loggers": {
+        "django.request": {
+            "handlers": ["console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        "rest_framework_simplejwt": {
+            "handlers": ["console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        "tenants": {
+            "handlers": ["console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
     },
 }

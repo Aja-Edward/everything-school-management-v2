@@ -13,6 +13,7 @@ from .serializers import (
 from classroom.models import GradeLevel, Section
 from subject.models import Subject
 from utils.section_filtering import AutoSectionFilterMixin
+from utils.pagination import StandardResultsPagination
 from rest_framework.authentication import TokenAuthentication, SessionAuthentication
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.db import models
@@ -20,6 +21,7 @@ from rest_framework import permissions as drf_permissions
 from schoolSettings.models import UserRole
 import logging
 from classroom.models import ClassroomTeacherAssignment, Classroom
+from tenants.mixins import TenantFilterMixin
 
 logger = logging.getLogger(__name__)
 
@@ -141,8 +143,9 @@ class TeacherModulePermission(drf_permissions.BasePermission):
         return self.has_permission(request, view)
 
 
-class TeacherViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """
+    CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
     Teacher ViewSet with automatic section filtering.
     AutoSectionFilterMixin handles all section-based filtering automatically.
     """
@@ -155,6 +158,7 @@ class TeacherViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         SessionAuthentication,
     ]
     permission_classes = [TeacherModulePermission]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate teachers
 
     def get_queryset(self):
         """
@@ -162,8 +166,8 @@ class TeacherViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         Then apply additional search/filter parameters.
         OPTIMIZED: Prefetch and annotate to avoid N+1 queries.
         """
-        # 🔥 CRITICAL: Let AutoSectionFilterMixin handle section filtering
-        # This calls the mixin's get_queryset() which applies section filters
+        # CRITICAL: Call super() to get tenant-filtered queryset first
+        # This calls TenantFilterMixin, then AutoSectionFilterMixin
         queryset = super().get_queryset()
 
         user = self.request.user
@@ -476,14 +480,16 @@ class TeacherViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         return Response(data)
 
 
-class AssignmentRequestViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class AssignmentRequestViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """
+    CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
     Assignment Request ViewSet with automatic section filtering.
     """
 
     queryset = AssignmentRequest.objects.all()
     serializer_class = AssignmentRequestSerializer
     permission_classes = [drf_permissions.IsAuthenticated]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate assignment requests
 
     def get_queryset(self):
         """
@@ -543,14 +549,16 @@ class AssignmentRequestViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         return Response({"status": "Request cancelled"})
 
 
-class TeacherScheduleViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class TeacherScheduleViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """
+    CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
     Teacher Schedule ViewSet with automatic section filtering.
     """
 
     queryset = TeacherSchedule.objects.all()
     serializer_class = TeacherScheduleSerializer
     permission_classes = [drf_permissions.IsAuthenticated]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate teacher schedules
 
     def get_queryset(self):
         """
@@ -636,8 +644,9 @@ class TeacherScheduleViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         )
 
 
-class AssignmentManagementViewSet(AutoSectionFilterMixin, viewsets.ViewSet):
+class AssignmentManagementViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ViewSet):
     """
+    CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
     Assignment management endpoints with section filtering.
     """
 

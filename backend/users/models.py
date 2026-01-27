@@ -82,15 +82,15 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         max_length=30, choices=ROLE_CHOICES
     )  # Increased to 30 for "junior_secondary_admin"
 
-    # MULTI-TENANT FIELD - Links user to their school
-    school = models.ForeignKey(
-        "schoolSettings.SchoolSettings",
+    # MULTI-TENANT FIELD - Links user to their tenant (school)
+    tenant = models.ForeignKey(
+        "tenants.Tenant",
         on_delete=models.CASCADE,
         related_name="users",
         null=True,
         blank=True,
-        help_text="School this user belongs to (required for multi-tenant isolation)",
-        db_index=True,  # Index for faster queries
+        help_text="Tenant (school) this user belongs to",
+        db_index=True,
     )
 
     # Section assignment
@@ -134,14 +134,14 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         ordering = ["-date_joined"]
         # Add composite indexes for common queries
         indexes = [
-            models.Index(fields=["school", "role"]),
-            models.Index(fields=["school", "section"]),
-            models.Index(fields=["school", "is_active"]),
+            models.Index(fields=["tenant", "role"]),
+            models.Index(fields=["tenant", "section"]),
+            models.Index(fields=["tenant", "is_active"]),
         ]
 
     def __str__(self):
-        school_code = self.school.school_code if self.school else "No School"
-        return f"{self.email} ({school_code})"
+        tenant_name = self.tenant.name if self.tenant else "No School"
+        return f"{self.email} ({tenant_name})"
 
     @property
     def full_name(self):
@@ -203,11 +203,11 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
             if admin_role:
                 try:
-                    # MULTI-TENANT: Only look for admins in the same school
+                    # MULTI-TENANT: Only look for admins in the same tenant
                     section_admin = CustomUser.objects.filter(
                         role=admin_role,
                         section=self.section,
-                        school=self.school,  # Same school only
+                        tenant=self.tenant,  # Same tenant only
                         is_active=True,
                     ).first()
 
@@ -250,63 +250,65 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     @property
     def school_name(self):
-        """Get the school name"""
-        return self.school.school_name if self.school else "No School"
+        """Get the school/tenant name"""
+        return self.tenant.name if self.tenant else "No School"
 
     @property
     def school_code(self):
-        """Get the school code"""
-        return self.school.school_code if self.school else None
+        """Get the school code from tenant settings"""
+        if self.tenant and hasattr(self.tenant, 'settings'):
+            return self.tenant.settings.school_code
+        return None
 
     def get_subordinates(self):
-        """Get all users directly reporting to this admin (within same school)"""
-        return self.subordinates.filter(school=self.school)
+        """Get all users directly reporting to this admin (within same tenant)"""
+        return self.subordinates.filter(tenant=self.tenant)
 
     def get_section_teachers(self):
-        """Get all teachers in this admin's section (within same school)"""
-        if not self.school:
+        """Get all teachers in this admin's section (within same tenant)"""
+        if not self.tenant:
             return CustomUser.objects.none()
 
         if self.is_section_admin and self.section:
             return CustomUser.objects.filter(
                 role="teacher",
                 section=self.section,
-                school=self.school,  # Same school only
+                tenant=self.tenant,
             )
         elif self.role == "superadmin":
             return CustomUser.objects.filter(
-                role="teacher", school=self.school  # Same school only
+                role="teacher", tenant=self.tenant
             )
         return CustomUser.objects.none()
 
     def get_section_students(self):
-        """Get all students in this admin's section (within same school)"""
-        if not self.school:
+        """Get all students in this admin's section (within same tenant)"""
+        if not self.tenant:
             return CustomUser.objects.none()
 
         if self.is_section_admin and self.section:
             return CustomUser.objects.filter(
                 role="student",
                 section=self.section,
-                school=self.school,  # Same school only
+                tenant=self.tenant,
             )
         elif self.role == "superadmin":
             return CustomUser.objects.filter(
-                role="student", school=self.school  # Same school only
+                role="student", tenant=self.tenant
             )
         return CustomUser.objects.none()
 
     def can_manage_user(self, target_user):
         """Check if this user can manage the target user"""
-        # Cannot manage users from different schools
-        if self.school != target_user.school:
+        # Cannot manage users from different tenants
+        if self.tenant != target_user.tenant:
             return False
 
-        # Superadmin can manage everyone in their school
+        # Superadmin can manage everyone in their tenant
         if self.role == "superadmin" or self.is_superuser:
             return True
 
-        # Section admins can manage users in their section (same school)
+        # Section admins can manage users in their section
         if self.is_section_admin:
             return target_user.section == self.section
 
@@ -314,22 +316,22 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     # MULTI-TENANT HELPER METHODS
     @classmethod
-    def get_school_users(cls, school):
-        """Get all users for a specific school"""
-        from schoolSettings.models import SchoolSettings
+    def get_tenant_users(cls, tenant):
+        """Get all users for a specific tenant"""
+        from tenants.models import Tenant
 
-        if isinstance(school, str):
-            # If school_code is provided
-            return cls.objects.filter(school__school_code=school)
-        elif isinstance(school, SchoolSettings):
-            # If SchoolSettings instance is provided
-            return cls.objects.filter(school=school)
+        if isinstance(tenant, str):
+            # If tenant slug is provided
+            return cls.objects.filter(tenant__slug=tenant)
+        elif isinstance(tenant, Tenant):
+            # If Tenant instance is provided
+            return cls.objects.filter(tenant=tenant)
         return cls.objects.none()
 
     @classmethod
-    def get_school_admins(cls, school):
-        """Get all admins for a specific school"""
-        return cls.get_school_users(school).filter(
+    def get_tenant_admins(cls, tenant):
+        """Get all admins for a specific tenant"""
+        return cls.get_tenant_users(tenant).filter(
             role__in=[
                 "superadmin",
                 "secondary_admin",
@@ -342,16 +344,16 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         )
 
     @classmethod
-    def get_school_teachers(cls, school):
-        """Get all teachers for a specific school"""
-        return cls.get_school_users(school).filter(role="teacher")
+    def get_tenant_teachers(cls, tenant):
+        """Get all teachers for a specific tenant"""
+        return cls.get_tenant_users(tenant).filter(role="teacher")
 
     @classmethod
-    def get_school_students(cls, school):
-        """Get all students for a specific school"""
-        return cls.get_school_users(school).filter(role="student")
+    def get_tenant_students(cls, tenant):
+        """Get all students for a specific tenant"""
+        return cls.get_tenant_users(tenant).filter(role="student")
 
     @classmethod
-    def get_school_parents(cls, school):
-        """Get all parents for a specific school"""
-        return cls.get_school_users(school).filter(role="parent")
+    def get_tenant_parents(cls, tenant):
+        """Get all parents for a specific tenant"""
+        return cls.get_tenant_users(tenant).filter(role="parent")

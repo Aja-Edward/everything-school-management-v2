@@ -1,11 +1,11 @@
 
-import React from 'react';
-import { 
-  GraduationCap, 
-  Users, 
-  Calendar, 
-  FileText, 
-  MessageSquare, 
+import React, { useMemo, memo } from 'react';
+import {
+  GraduationCap,
+  Users,
+  Calendar,
+  FileText,
+  MessageSquare,
   Clock,
   TrendingUp,
   Award,
@@ -13,10 +13,77 @@ import {
   BarChart3,
   Bell,
   Activity,
+  BookOpen,
+  LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { TeacherUserData } from '@/types/types';
+import TeacherDashboardSkeleton from './TeacherDashboardSkeleton';
+
+// Static data moved outside component to prevent recreation on every render
+const QUICK_ACTIONS = [
+  {
+    id: 'attendance',
+    title: 'Attendance',
+    description: 'Track daily attendance',
+    icon: CheckSquare,
+    gradient: 'from-emerald-500 to-teal-600',
+    bgLight: 'bg-emerald-50 dark:bg-emerald-900/20',
+    textColor: 'text-emerald-600 dark:text-emerald-400',
+    path: '/teacher/classes'
+  },
+  {
+    id: 'exam',
+    title: 'Examinations',
+    description: 'Manage tests & exams',
+    icon: FileText,
+    gradient: 'from-blue-500 to-indigo-600',
+    bgLight: 'bg-blue-50 dark:bg-blue-900/20',
+    textColor: 'text-blue-600 dark:text-blue-400',
+    path: '/teacher/exams'
+  },
+  {
+    id: 'result',
+    title: 'Results',
+    description: 'Enter & view scores',
+    icon: Award,
+    gradient: 'from-violet-500 to-purple-600',
+    bgLight: 'bg-violet-50 dark:bg-violet-900/20',
+    textColor: 'text-violet-600 dark:text-violet-400',
+    path: '/teacher/results'
+  },
+  {
+    id: 'message',
+    title: 'Messages',
+    description: 'Communication hub',
+    icon: MessageSquare,
+    gradient: 'from-amber-500 to-orange-600',
+    bgLight: 'bg-amber-50 dark:bg-amber-900/20',
+    textColor: 'text-amber-600 dark:text-amber-400',
+    path: '/'
+  },
+  {
+    id: 'schedule',
+    title: 'Schedule',
+    description: 'View timetable',
+    icon: Calendar,
+    gradient: 'from-rose-500 to-pink-600',
+    bgLight: 'bg-rose-50 dark:bg-rose-900/20',
+    textColor: 'text-rose-600 dark:text-rose-400',
+    path: '/teacher/schedule'
+  },
+  {
+    id: 'reports',
+    title: 'Reports',
+    description: 'Analytics & insights',
+    icon: BarChart3,
+    gradient: 'from-cyan-500 to-blue-600',
+    bgLight: 'bg-cyan-50 dark:bg-cyan-900/20',
+    textColor: 'text-cyan-600 dark:text-cyan-400',
+    path: '/teacher/reports'
+  }
+];
 
 
 
@@ -27,49 +94,44 @@ interface TeacherDashboardContentProps {
   isLoadingSecondaryData?: boolean;
 }
 
-const TeacherDashboardContent: React.FC<TeacherDashboardContentProps> = ({ 
+const TeacherDashboardContent: React.FC<TeacherDashboardContentProps> = ({
   dashboardData
 }) => {
-  
+
 const { user } = useAuth();
 const navigate = useNavigate();
 
   const teacher = user as TeacherUserData;
   const teacherData = teacher?.teacher_data;
 
-  console.log("Teacher data", teacherData);
+  // Memoize safe stats to prevent recalculation on every render
+  const safeStats = useMemo(() => {
+    const stats = dashboardData?.stats || {
+      totalStudents: 0,
+      totalClasses: 0,
+      totalSubjects: 0,
+      attendanceRate: 0,
+      pendingExams: 0,
+      unreadMessages: 0,
+      upcomingLessons: 0,
+      recentResults: 0
+    };
+    return {
+      totalStudents: Number(stats.totalStudents) || 0,
+      totalClasses: Number(stats.totalClasses) || 0,
+      totalSubjects: Number(stats.totalSubjects) || 0,
+      attendanceRate: Number(stats.attendanceRate) || 0,
+      pendingExams: Number(stats.pendingExams) || 0,
+      unreadMessages: Number(stats.unreadMessages) || 0,
+      upcomingLessons: Number(stats.upcomingLessons) || 0,
+      recentResults: Number(stats.recentResults) || 0
+    };
+  }, [dashboardData?.stats]);
 
+  // Show skeleton loader while loading
   if (!dashboardData) {
-    return (
-      <div className="p-3 sm:p-4 md:p-6">
-        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
-          <p className="text-yellow-800 dark:text-yellow-200 text-sm">Loading dashboard data...</p>
-        </div>
-      </div>
-    );
+    return <TeacherDashboardSkeleton />;
   }
-
-  const stats = dashboardData?.stats || {
-    totalStudents: 0,
-    totalClasses: 0,
-    totalSubjects: 0,
-    attendanceRate: 0,
-    pendingExams: 0,
-    unreadMessages: 0,
-    upcomingLessons: 0,
-    recentResults: 0
-  };
-
-  const safeStats = {
-    totalStudents: Number(stats.totalStudents) || 0,
-    totalClasses: Number(stats.totalClasses) || 0,
-    totalSubjects: Number(stats.totalSubjects) || 0,
-    attendanceRate: Number(stats.attendanceRate) || 0,
-    pendingExams: Number(stats.pendingExams) || 0,
-    unreadMessages: Number(stats.unreadMessages) || 0,
-    upcomingLessons: Number(stats.upcomingLessons) || 0,
-    recentResults: Number(stats.recentResults) || 0
-  };
 
   const activities = dashboardData?.activities || [];
   const events = dashboardData?.events || [];
@@ -77,107 +139,70 @@ const navigate = useNavigate();
   const subjects = dashboardData?.subjects || [];
   const exams = dashboardData?.exams || [];
 
-  const quickActions = [
-    {
-      id: 'attendance',
-      title: 'Attendance',
-      icon: CheckSquare,
-      color: 'bg-green-500',
-      path: '/teacher/classes'
-    },
-    {
-      id: 'exam',
-      title: 'Exam',
-      icon: FileText,
-      color: 'bg-blue-500',
-      path: '/teacher/exams'
-    },
-    {
-      id: 'result',
-      title: 'Results',
-      icon: Award,
-      color: 'bg-purple-500',
-      path: '/teacher/results'
-    },
-    {
-      id: 'message',
-      title: 'Messages',
-      icon: MessageSquare,
-      color: 'bg-orange-500',
-      path: '/'
-    },
-    {
-      id: 'schedule',
-      title: 'Schedule',
-      icon: Calendar,
-      color: 'bg-indigo-500',
-      path: '/teacher/schedule'
-    },
-    {
-      id: 'reports',
-      title: 'Reports',
-      icon: BarChart3,
-      color: 'bg-teal-500',
-      path: '/teacher/reports'
-    }
-  ];
-
   const handleQuickAction = (action: any) => {
     navigate(action.path);
   };
 
   try {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
-        <div className="p-3 sm:p-4 md:p-6 space-y-4 sm:space-y-6">
-          
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800">
+        <div className="p-4 sm:p-6 lg:p-8 space-y-6">
+
           {/* Welcome Header */}
-          <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl p-4 sm:p-6 text-white">
-            <div className="flex flex-col sm:flex-row gap-4 sm:items-center sm:justify-between">
+          <div className="relative overflow-hidden bg-gradient-to-r from-slate-800 to-slate-900 dark:from-slate-900 dark:to-slate-950 rounded-2xl p-6 sm:p-8">
+            {/* Subtle decorative elements */}
+            <div className="absolute inset-0 overflow-hidden">
+              <div className="absolute -top-24 -right-24 w-64 h-64 bg-slate-700/30 rounded-full blur-3xl"></div>
+              <div className="absolute -bottom-16 -left-16 w-48 h-48 bg-slate-600/20 rounded-full blur-2xl"></div>
+            </div>
+
+            <div className="relative flex flex-col lg:flex-row gap-6 lg:items-center lg:justify-between">
               <div className="flex-1 min-w-0">
-                <h1 className="text-xl sm:text-2xl md:text-3xl font-bold mb-1 sm:mb-2 truncate">
-                  Welcome back, {teacherData?.user?.first_name || user?.first_name || 'Teacher'}!
+                <p className="text-slate-400 text-sm font-medium mb-2">Teacher Dashboard</p>
+                <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">
+                  Welcome back, {teacherData?.user?.first_name || user?.first_name || 'Teacher'}
                 </h1>
-                <p className="text-blue-100 text-xs sm:text-sm md:text-base mb-2 sm:mb-4">
-                  Ready to inspire and educate today?
+                <p className="text-slate-400 text-sm sm:text-base mb-4">
+                  Here's your overview for today.
                 </p>
-                <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 text-xs sm:text-sm">
-                  <div className="flex items-center space-x-1.5">
-                    <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
-                    <span className="truncate">{new Date().toLocaleDateString('en-US', { 
-                      weekday: 'short', 
-                      month: 'short', 
-                      day: 'numeric' 
+                <div className="flex flex-wrap items-center gap-4 text-sm text-slate-400">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    <span>{new Date().toLocaleDateString('en-US', {
+                      weekday: 'long',
+                      month: 'short',
+                      day: 'numeric'
                     })}</span>
                   </div>
-                  <div className="flex items-center space-x-1.5">
-                    <Activity className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
-                    <span className="truncate">Active</span>
-                  </div>
-                  <div className="hidden xs:flex items-center space-x-1.5">
-                    <GraduationCap className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
-                    <span className="truncate">{teacherData?.department || 'Secondary'}</span>
-                  </div>
-                </div>
-              </div>
-              <div className="flex flex-col items-center space-y-2 flex-shrink-0">
-                <div className="w-16 h-16 sm:w-20 sm:h-20 bg-white/20 rounded-full flex items-center justify-center border-3 border-white/30 flex-shrink-0">
-                  {teacherData?.photo ? (
-                    <img 
-                      src={teacherData.photo} 
-                      alt="Teacher Profile" 
-                      className="w-14 h-14 sm:w-18 sm:h-18 rounded-full object-cover"
-                    />
-                  ) : (
-                    <Users className="w-8 h-8 sm:w-10 sm:h-10 text-white/80" />
+                  {teacherData?.department && (
+                    <div className="flex items-center gap-2">
+                      <BookOpen className="w-4 h-4" />
+                      <span>{teacherData.department}</span>
+                    </div>
                   )}
                 </div>
-                <div className="text-center">
-                  <p className="font-semibold text-xs sm:text-sm truncate max-w-[100px] sm:max-w-none">
+              </div>
+
+              <div className="flex items-center gap-4 flex-shrink-0">
+                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl bg-slate-700/50 overflow-hidden">
+                  {teacherData?.photo ? (
+                    <img
+                      src={teacherData.photo}
+                      alt="Teacher Profile"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <Users className="w-8 h-8 text-slate-500" />
+                    </div>
+                  )}
+                </div>
+                <div className="hidden sm:block">
+                  <p className="font-semibold text-white">
                     {teacherData?.user?.first_name} {teacherData?.user?.last_name}
                   </p>
-                  <p className="text-blue-100 text-xs truncate">
-                    {teacherData?.employee_id || 'ID'}
+                  <p className="text-slate-400 text-sm">
+                    {teacherData?.employee_id || 'Teacher'}
                   </p>
                 </div>
               </div>
@@ -185,87 +210,109 @@ const navigate = useNavigate();
           </div>
 
           {/* Statistics Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
-            <StatCard 
-              label="Students" 
-              value={safeStats.totalStudents} 
-              icon={Users} 
-              color="blue" 
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard
+              label="Students"
+              value={safeStats.totalStudents}
+              icon={Users}
+              gradient=""
+              bgColor=""
+              iconBg="bg-slate-100 dark:bg-slate-700/50"
+              iconColor="text-slate-600 dark:text-slate-400"
             />
-            <StatCard 
-              label="Classes" 
-              value={safeStats.totalClasses} 
-              icon={GraduationCap} 
-              color="green" 
+            <StatCard
+              label="Classes"
+              value={safeStats.totalClasses}
+              icon={GraduationCap}
+              gradient=""
+              bgColor=""
+              iconBg="bg-slate-100 dark:bg-slate-700/50"
+              iconColor="text-slate-600 dark:text-slate-400"
             />
-            <StatCard 
-              label="Subjects" 
-              value={safeStats.totalSubjects} 
-              icon={Award} 
-              color="purple" 
+            <StatCard
+              label="Subjects"
+              value={safeStats.totalSubjects}
+              icon={BookOpen}
+              gradient=""
+              bgColor=""
+              iconBg="bg-slate-100 dark:bg-slate-700/50"
+              iconColor="text-slate-600 dark:text-slate-400"
             />
-            <StatCard 
-              label="Tasks" 
-              value={safeStats.pendingExams} 
-              icon={Bell} 
-              color="orange" 
+            <StatCard
+              label="Pending Tasks"
+              value={safeStats.pendingExams}
+              icon={Bell}
+              gradient=""
+              bgColor=""
+              iconBg="bg-slate-100 dark:bg-slate-700/50"
+              iconColor="text-slate-600 dark:text-slate-400"
             />
           </div>
 
           {/* Quick Actions */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
-            {quickActions.map((action) => (
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
+            {QUICK_ACTIONS.map((action) => (
               <button
                 key={action.id}
                 onClick={() => handleQuickAction(action)}
-                className="bg-white dark:bg-slate-800 rounded-xl p-3 sm:p-4 shadow-sm border border-slate-200 dark:border-slate-700 hover:shadow-md dark:hover:shadow-lg transition-all active:scale-95"
+                className="bg-white/80 dark:bg-slate-800/60 backdrop-blur-sm rounded-xl p-3 sm:p-4 border border-slate-200/60 dark:border-slate-700/60 hover:border-slate-300 dark:hover:border-slate-600 shadow-sm hover:shadow-md transition-all text-left"
               >
-                <div className={`${action.color} p-2 rounded-lg text-white mb-2 inline-block`}>
-                  <action.icon className="w-5 h-5 sm:w-6 sm:h-6" />
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center mb-2 sm:mb-3">
+                  <action.icon className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600 dark:text-slate-400" />
                 </div>
-                <h3 className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-white text-left">
+                <h3 className="text-xs sm:text-sm font-semibold text-slate-800 dark:text-white mb-0.5 truncate">
                   {action.title}
                 </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 hidden sm:block">
+                  {action.description}
+                </p>
               </button>
             ))}
           </div>
 
           {/* Classes & Subjects */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
             <Section
               title="My Classes"
               icon={GraduationCap}
+              iconColor="text-slate-500"
               items={classes}
               renderItem={(classItem, index) => (
-                <div className="flex items-center space-x-2 p-2.5 sm:p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50">
-                  <div className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0"></div>
+                <div className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 rounded-xl bg-slate-50/80 dark:bg-slate-700/30 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors">
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-slate-200 dark:bg-slate-600/50 flex items-center justify-center flex-shrink-0">
+                    <GraduationCap className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-600 dark:text-slate-400" />
+                  </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs sm:text-sm font-medium text-slate-900 dark:text-white truncate">
+                    <p className="text-xs sm:text-sm font-medium text-slate-800 dark:text-white truncate">
                       {classItem.name || `Class ${index + 1}`}
                     </p>
                     <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                      {classItem.grade_level || 'Grade'} - {classItem.section || 'Section'}
+                      {classItem.grade_level || 'Grade'} • {classItem.section || 'Section'}
                     </p>
                   </div>
-                  <span className="text-xs text-slate-400 whitespace-nowrap flex-shrink-0">
+                  <span className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-300 flex-shrink-0">
                     {classItem.student_count || 0}
                   </span>
                 </div>
               )}
               emptyMessage="No classes assigned"
+              emptyIcon={GraduationCap}
             />
 
             <Section
               title="My Subjects"
-              icon={Award}
+              icon={BookOpen}
+              iconColor="text-slate-500"
               items={subjects}
               renderItem={(subject) => (
-                <div className="border border-slate-200 dark:border-slate-600 rounded-lg p-3 sm:p-4 bg-slate-50 dark:bg-slate-700/50">
-                  <div className="flex items-start justify-between gap-2 mb-2 sm:mb-3">
-                    <div className="flex items-center space-x-2 min-w-0">
-                      <div className="w-2 h-2 bg-purple-500 rounded-full flex-shrink-0"></div>
-                      <div className="min-w-0">
-                        <h4 className="text-xs sm:text-base font-semibold text-slate-900 dark:text-white truncate">
+                <div className="p-3 sm:p-4 rounded-xl bg-slate-50/80 dark:bg-slate-700/30">
+                  <div className="flex items-start justify-between gap-2 sm:gap-3 mb-2">
+                    <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+                      <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-slate-200 dark:bg-slate-600/50 flex items-center justify-center flex-shrink-0">
+                        <BookOpen className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-600 dark:text-slate-400" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="text-xs sm:text-sm font-medium text-slate-800 dark:text-white truncate">
                           {subject.name}
                         </h4>
                         <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
@@ -273,24 +320,19 @@ const navigate = useNavigate();
                         </p>
                       </div>
                     </div>
-                    <span className="text-xs text-slate-400 whitespace-nowrap flex-shrink-0">
-                      {subject.assignments?.length || 0}
+                    <span className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-300 whitespace-nowrap flex-shrink-0">
+                      {subject.assignments?.length || 0} classes
                     </span>
                   </div>
                   {subject.assignments?.length > 0 && (
-                    <div className="space-y-1.5 sm:space-y-2">
+                    <div className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-slate-200/80 dark:border-slate-600/50 space-y-1.5">
                       {subject.assignments.slice(0, 2).map((assignment: any, idx: number) => (
-                        <div key={assignment.id || idx} className="text-xs p-1.5 sm:p-2 bg-white dark:bg-slate-600 rounded border border-slate-200 dark:border-slate-500">
-                          <p className="font-medium text-slate-800 dark:text-slate-200 truncate">
-                            {assignment.classroom_name}
-                          </p>
-                          <p className="text-slate-500 dark:text-slate-400 truncate">
-                            {assignment.grade_level} {assignment.section}
-                          </p>
+                        <div key={assignment.id || idx} className="text-xs text-slate-600 dark:text-slate-400 pl-10 sm:pl-12 truncate">
+                          {assignment.classroom_name} • {assignment.grade_level} {assignment.section}
                         </div>
                       ))}
                       {subject.assignments?.length > 2 && (
-                        <p className="text-xs text-blue-600 dark:text-blue-400">
+                        <p className="text-xs text-slate-500 dark:text-slate-400 pl-10 sm:pl-12">
                           +{subject.assignments.length - 2} more
                         </p>
                       )}
@@ -299,24 +341,28 @@ const navigate = useNavigate();
                 </div>
               )}
               emptyMessage="No subjects assigned"
+              emptyIcon={BookOpen}
             />
           </div>
 
           {/* Exams */}
           <Section
-            title="My Exams & Tests"
+            title="Exams & Tests"
             icon={FileText}
+            iconColor="text-blue-500"
             items={exams}
             actionButtons={[
-              { label: 'Results', onClick: () => navigate('/teacher/results'), color: 'purple' },
-              { label: 'Manage', onClick: () => navigate('/teacher/exams'), color: 'blue' }
+              { label: 'View Results', onClick: () => navigate('/teacher/results') },
+              { label: 'Manage', onClick: () => navigate('/teacher/exams') }
             ]}
             renderItem={(exam) => (
-              <div className="flex items-center justify-between gap-2 p-2.5 sm:p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50">
-                <div className="flex items-center space-x-2 min-w-0">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0"></div>
-                  <div className="min-w-0">
-                    <p className="text-xs sm:text-sm font-medium text-slate-900 dark:text-white truncate">
+              <div className="flex items-center justify-between gap-2 sm:gap-3 p-2.5 sm:p-3 rounded-xl bg-slate-50/80 dark:bg-slate-700/30 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors">
+                <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center flex-shrink-0">
+                    <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs sm:text-sm font-medium text-slate-800 dark:text-white truncate">
                       {exam.title}
                     </p>
                     <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
@@ -324,32 +370,34 @@ const navigate = useNavigate();
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  {exam.exam_date && (
-                    <span className="text-xs text-slate-400 whitespace-nowrap">
-                      {new Date(exam.exam_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    </span>
-                  )}
-                </div>
+                {exam.exam_date && (
+                  <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap flex-shrink-0">
+                    {new Date(exam.exam_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </span>
+                )}
               </div>
             )}
-            emptyMessage="No exams yet"
+            emptyMessage="No exams scheduled"
+            emptyIcon={FileText}
           />
 
           {/* Recent Results */}
           <Section
             title="Recent Results"
             icon={Award}
+            iconColor="text-violet-500"
             items={dashboardData?.recentResults}
             actionButtons={[
-              { label: 'View All', onClick: () => navigate('/teacher/results'), color: 'purple' }
+              { label: 'View All', onClick: () => navigate('/teacher/results') }
             ]}
             renderItem={(result) => (
-              <div className="flex items-center justify-between gap-2 p-2.5 sm:p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50">
-                <div className="flex items-center space-x-2 min-w-0">
-                  <div className="w-2 h-2 bg-purple-500 rounded-full flex-shrink-0"></div>
-                  <div className="min-w-0">
-                    <p className="text-xs sm:text-sm font-medium text-slate-900 dark:text-white truncate">
+              <div className="flex items-center justify-between gap-2 sm:gap-3 p-2.5 sm:p-3 rounded-xl bg-slate-50/80 dark:bg-slate-700/30 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors">
+                <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center flex-shrink-0">
+                    <Award className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-violet-600 dark:text-violet-400" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs sm:text-sm font-medium text-slate-800 dark:text-white truncate">
                       {result.student_name || 'Student'}
                     </p>
                     <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
@@ -357,105 +405,109 @@ const navigate = useNavigate();
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <span className="text-xs font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+                  <span className="text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-200">
                     {result.total_score || 0}%
                   </span>
-                  <span className={`text-xs font-bold px-2 py-1 rounded whitespace-nowrap ${
-                    result.grade === 'A' ? 'bg-green-100 text-green-800' :
-                    result.grade === 'B' ? 'bg-blue-100 text-blue-800' :
-                    result.grade === 'C' ? 'bg-yellow-100 text-yellow-800' :
-                    'bg-red-100 text-red-800'
-                  }`}>
-                    {result.grade || 'N/A'}
+                  <span className="text-xs sm:text-sm font-medium text-slate-500 dark:text-slate-400">
+                    {result.grade || '-'}
                   </span>
                 </div>
               </div>
             )}
             emptyMessage="No recent results"
+            emptyIcon={Award}
           />
 
           {/* Activities & Events */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
             <Section
               title="Recent Activities"
-              icon={Clock}
+              icon={Activity}
+              iconColor="text-slate-500"
               items={activities}
               renderItem={(activity) => (
-                <div className="flex items-center space-x-2 p-2.5 sm:p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0"></div>
+                <div className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 rounded-xl bg-slate-50/80 dark:bg-slate-700/30">
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
+                    <Activity className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-500 dark:text-slate-400" />
+                  </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs sm:text-sm font-medium text-slate-900 dark:text-white truncate">
+                    <p className="text-xs sm:text-sm font-medium text-slate-800 dark:text-white truncate">
                       {activity.title || 'Activity'}
                     </p>
                     <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
                       {activity.description || 'No description'}
                     </p>
                   </div>
-                  <span className="text-xs text-slate-400 whitespace-nowrap flex-shrink-0">
+                  <span className="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap flex-shrink-0">
                     {activity.time || 'Soon'}
                   </span>
                 </div>
               )}
               emptyMessage="No recent activities"
+              emptyIcon={Activity}
             />
 
             <Section
               title="Upcoming Events"
               icon={Calendar}
+              iconColor="text-slate-500"
               items={events}
               renderItem={(event) => (
-                <div className="flex items-center space-x-2 p-2.5 sm:p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50">
-                  <div className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0"></div>
+                <div className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 rounded-xl bg-slate-50/80 dark:bg-slate-700/30">
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
+                    <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-500 dark:text-slate-400" />
+                  </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs sm:text-sm font-medium text-slate-900 dark:text-white truncate">
+                    <p className="text-xs sm:text-sm font-medium text-slate-800 dark:text-white truncate">
                       {event.title || 'Event'}
                     </p>
                     <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
                       {event.description || 'No description'}
                     </p>
                   </div>
-                  <span className="text-xs text-slate-400 whitespace-nowrap flex-shrink-0">
+                  <span className="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap flex-shrink-0">
                     {event.date || 'Soon'}
                   </span>
                 </div>
               )}
               emptyMessage="No upcoming events"
+              emptyIcon={Calendar}
             />
           </div>
 
           {/* Performance Overview */}
-          <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white">
-                Performance Overview
-              </h3>
-              <TrendingUp className="w-5 h-5 text-slate-400 flex-shrink-0" />
+          <div className="bg-white/80 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl p-6 border border-slate-200/60 dark:border-slate-700/60 shadow-sm">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-800 dark:text-white">
+                  Performance Overview
+                </h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                  Your teaching metrics at a glance
+                </p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center">
+                <TrendingUp className="w-5 h-5 text-slate-500 dark:text-slate-400" />
+              </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4">
-              <PerformanceCard 
-                value={`${safeStats.attendanceRate}%`} 
-                label="Attendance Rate" 
-                color="blue" 
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <PerformanceCard
+                value={`${safeStats.attendanceRate}%`}
+                label="Attendance Rate"
+                icon={CheckSquare}
               />
-              <PerformanceCard 
-                value={safeStats.recentResults} 
-                label="Recent Results" 
-                color="green" 
+              <PerformanceCard
+                value={safeStats.recentResults}
+                label="Results Recorded"
+                icon={Award}
               />
-              <PerformanceCard 
-                value={safeStats.upcomingLessons} 
-                label="Upcoming Lessons" 
-                color="purple" 
+              <PerformanceCard
+                value={safeStats.upcomingLessons}
+                label="Upcoming Lessons"
+                icon={Calendar}
               />
             </div>
-          </div>
-
-          {/* Success Message */}
-          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3 sm:p-4">
-            <p className="text-green-800 dark:text-green-200 text-xs sm:text-sm">
-              Dashboard loaded: {safeStats.totalStudents} students, {safeStats.totalClasses} classes, {safeStats.totalSubjects} subjects
-            </p>
           </div>
         </div>
       </div>
@@ -474,66 +526,72 @@ const navigate = useNavigate();
   }
 };
 
-// Reusable Components
+// Reusable Components - wrapped with React.memo for performance
 interface StatCardProps {
   label: string;
   value: number;
-  icon: any;
-  color: 'blue' | 'green' | 'purple' | 'orange';
+  icon: LucideIcon;
+  trend?: string;
+  trendUp?: boolean;
+  gradient: string;
+  bgColor: string;
+  iconBg: string;
+  iconColor: string;
 }
 
-const StatCard: React.FC<StatCardProps> = ({ label, value, icon: Icon, color }) => {
-  const colorClasses = {
-    blue: 'bg-blue-100 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400',
-    green: 'bg-green-100 dark:bg-green-900/20 text-green-600 dark:text-green-400',
-    purple: 'bg-purple-100 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400',
-    orange: 'bg-orange-100 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400'
-  };
-
+const StatCard = memo<StatCardProps>(({ label, value, icon: Icon, trend, trendUp, iconBg, iconColor }) => {
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-lg p-3 sm:p-4 shadow-sm border border-slate-200 dark:border-slate-700">
-      <div className={`${colorClasses[color]} w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center mb-2 flex-shrink-0`}>
-        <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
+    <div className="bg-white/80 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl p-5 border border-slate-200/60 dark:border-slate-700/60 shadow-sm hover:shadow-md transition-shadow">
+      <div className="flex items-start justify-between mb-4">
+        <div className={`${iconBg} w-11 h-11 rounded-xl flex items-center justify-center`}>
+          <Icon className={`w-5 h-5 ${iconColor}`} />
+        </div>
+        {trend && (
+          <span className={`text-xs font-medium ${trendUp ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+            {trend}
+          </span>
+        )}
       </div>
-      <p className="text-slate-600 dark:text-slate-400 text-xs sm:text-sm font-medium mb-1">
-        {label}
-      </p>
-      <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+      <p className="text-2xl font-bold text-slate-800 dark:text-white mb-1">
         {value}
+      </p>
+      <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">
+        {label}
       </p>
     </div>
   );
-};
+});
+StatCard.displayName = 'StatCard';
 
 interface SectionProps {
   title: string;
-  icon: any;
+  icon: LucideIcon;
+  iconColor?: string;
   items: any[];
   renderItem: (item: any, index: number) => React.ReactNode;
-  actionButtons?: Array<{ label: string; onClick: () => void; color: string }>;
+  actionButtons?: Array<{ label: string; onClick: () => void }>;
   emptyMessage: string;
+  emptyIcon?: LucideIcon;
 }
 
-const Section: React.FC<SectionProps> = ({ title, icon: Icon, items, renderItem, actionButtons, emptyMessage }) => (
-  <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-    <div className="flex items-center justify-between mb-4 gap-2">
-      <div className="flex items-center gap-2 min-w-0">
-        <Icon className="w-5 h-5 text-slate-400 flex-shrink-0" />
-        <h3 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white truncate">
+const Section = memo<SectionProps>(({ title, icon: Icon, iconColor = 'text-slate-400', items, renderItem, actionButtons, emptyMessage, emptyIcon: EmptyIcon }) => (
+  <div className="bg-white/80 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl p-4 sm:p-6 border border-slate-200/60 dark:border-slate-700/60 shadow-sm">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-5">
+      <div className="flex items-center gap-2 sm:gap-3">
+        <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center flex-shrink-0">
+          <Icon className={`w-4 h-4 sm:w-5 sm:h-5 ${iconColor}`} />
+        </div>
+        <h3 className="text-base sm:text-lg font-semibold text-slate-800 dark:text-white">
           {title}
         </h3>
       </div>
       {actionButtons && (
-        <div className="flex gap-1.5 flex-shrink-0">
+        <div className="flex gap-2 flex-wrap">
           {actionButtons.map((btn, idx) => (
             <button
               key={idx}
               onClick={btn.onClick}
-              className="text-xs sm:text-sm px-2 sm:px-3 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap"
-              style={{
-                backgroundColor: btn.color === 'purple' ? '#a855f7' : '#3b82f6',
-                color: 'white'
-              }}
+              className="text-xs sm:text-sm px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/50 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
             >
               {btn.label}
             </button>
@@ -541,7 +599,7 @@ const Section: React.FC<SectionProps> = ({ title, icon: Icon, items, renderItem,
         </div>
       )}
     </div>
-    
+
     {items && items.length > 0 ? (
       <div className="space-y-2 sm:space-y-3">
         {items.slice(0, 5).map((item, idx) => (
@@ -551,39 +609,46 @@ const Section: React.FC<SectionProps> = ({ title, icon: Icon, items, renderItem,
         ))}
       </div>
     ) : (
-      <div className="text-center py-6 sm:py-8">
-        <Icon className="w-10 h-10 sm:w-12 sm:h-12 text-slate-300 mx-auto mb-2 sm:mb-3" />
-        <p className="text-slate-500 dark:text-slate-400 text-sm">
+      <div className="text-center py-8 sm:py-10">
+        <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center mx-auto mb-3 sm:mb-4">
+          {EmptyIcon ? (
+            <EmptyIcon className="w-6 h-6 sm:w-7 sm:h-7 text-slate-400 dark:text-slate-500" />
+          ) : (
+            <Icon className="w-6 h-6 sm:w-7 sm:h-7 text-slate-400 dark:text-slate-500" />
+          )}
+        </div>
+        <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm">
           {emptyMessage}
         </p>
       </div>
     )}
   </div>
-);
+));
+Section.displayName = 'Section';
 
 interface PerformanceCardProps {
   value: string | number;
   label: string;
-  color: 'blue' | 'green' | 'purple';
+  icon: LucideIcon;
 }
 
-const PerformanceCard: React.FC<PerformanceCardProps> = ({ value, label, color }) => {
-  const colorClasses = {
-    blue: 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400',
-    green: 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400',
-    purple: 'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400'
-  };
-
+const PerformanceCard = memo<PerformanceCardProps>(({ value, label, icon: Icon }) => {
   return (
-    <div className={`${colorClasses[color]} rounded-lg p-3 sm:p-4 text-center`}>
-      <div className="text-xl sm:text-2xl font-bold">
-        {value}
+    <div className="bg-slate-50/80 dark:bg-slate-700/30 rounded-xl p-4">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="w-8 h-8 rounded-lg bg-white dark:bg-slate-600/50 flex items-center justify-center shadow-sm">
+          <Icon className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+        </div>
+        <span className="text-2xl font-bold text-slate-800 dark:text-white">
+          {value}
+        </span>
       </div>
-      <div className="text-xs sm:text-sm font-medium mt-1">
+      <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">
         {label}
-      </div>
+      </p>
     </div>
   );
-};
+});
+PerformanceCard.displayName = 'PerformanceCard';
 
 export default TeacherDashboardContent;

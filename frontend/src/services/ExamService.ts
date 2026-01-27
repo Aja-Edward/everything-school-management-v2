@@ -303,6 +303,32 @@ export class ExamService {
   }
 
   /**
+   * Set a schedule as the default schedule
+   */
+  static async setDefaultSchedule(scheduleId: number): Promise<{ message: string; schedule: ExamSchedule }> {
+    try {
+      const response = await api.post(`${this.baseUrl}/schedules/${scheduleId}/set_default/`, {});
+      return response;
+    } catch (error) {
+      console.error('Error setting default schedule:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Toggle schedule active status
+   */
+  static async toggleScheduleActive(scheduleId: number): Promise<{ message: string; is_active: boolean }> {
+    try {
+      const response = await api.post(`${this.baseUrl}/schedules/${scheduleId}/toggle_active/`, {});
+      return response;
+    } catch (error) {
+      console.error('Error toggling schedule active status:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Get exam statistics
    */
   static async getExamStatistics(examId: number): Promise<ExamStatistics> {
@@ -324,6 +350,41 @@ export class ExamService {
       return response.results || response || [];
     } catch (error) {
       console.error('Error fetching exam registrations:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Bulk register students for an exam
+   */
+  static async bulkRegisterStudents(examId: number, studentIds: number[]): Promise<{
+    message: string;
+    created_registrations: number[];
+    errors: string[];
+  }> {
+    try {
+      const response = await api.post(`${this.baseUrl}/registrations/bulk_register/`, {
+        exam_id: examId,
+        student_ids: studentIds,
+      });
+      return response;
+    } catch (error) {
+      console.error('Error bulk registering students:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get registrations by student
+   */
+  static async getRegistrationsByStudent(studentId: number): Promise<ExamRegistration[]> {
+    try {
+      const response = await api.get(`${this.baseUrl}/registrations/by_student/`, {
+        params: { student_id: studentId }
+      });
+      return response.results || response || [];
+    } catch (error) {
+      console.error('Error fetching registrations by student:', error);
       throw error;
     }
   }
@@ -557,6 +618,223 @@ export class ExamService {
       postponed: 'bg-purple-100 text-purple-800 border-purple-200',
     };
     return colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-800 border-gray-200';
+  }
+
+  // ============================================================================
+  // ADVANCED REPORTS & EXPORTS (MISSING INTEGRATIONS)
+  // ============================================================================
+
+  /**
+   * Export exams to CSV
+   * Returns a CSV file with all exams matching the filters
+   */
+  static async exportExamsCSV(filters: ExamFilters = {}): Promise<Blob> {
+    try {
+      const params = new URLSearchParams();
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          params.append(key, value.toString());
+        }
+      });
+
+      const queryString = params.toString();
+      const url = `${this.baseUrl}/exams/export_csv/${queryString ? `?${queryString}` : ''}`;
+
+      const response = await fetch(url, {
+        method: 'GET',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return response.blob();
+    } catch (error) {
+      console.error('Error exporting exams to CSV:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get grade sheet for an exam
+   * Returns formatted grade sheet with all student marks
+   */
+  static async getGradeSheet(params?: {
+    exam_id?: number;
+    schedule_id?: number;
+    grade_level?: number;
+    subject?: number;
+  }): Promise<any> {
+    try {
+      const response = await api.get(`${this.baseUrl}/exams/grade_sheet/`, params);
+      return response;
+    } catch (error) {
+      console.error('Error fetching grade sheet:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Export exam timetable/schedule to PDF or CSV
+   */
+  static async exportExamTimetable(scheduleId: number, format: 'pdf' | 'csv' = 'pdf'): Promise<Blob> {
+    try {
+      const url = `${this.baseUrl}/export/exam-timetable/${scheduleId}/?format=${format}`;
+
+      const response = await fetch(url, {
+        method: 'GET',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return response.blob();
+    } catch (error) {
+      console.error('Error exporting exam timetable:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Export exam registrations for a specific exam
+   */
+  static async exportRegistrations(examId: number, format: 'csv' | 'xlsx' = 'csv'): Promise<Blob> {
+    try {
+      const url = `${this.baseUrl}/export/registrations/${examId}/?format=${format}`;
+
+      const response = await fetch(url, {
+        method: 'GET',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return response.blob();
+    } catch (error) {
+      console.error('Error exporting registrations:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Export exam results
+   */
+  static async exportResults(examId: number, format: 'csv' | 'xlsx' | 'pdf' = 'csv'): Promise<Blob> {
+    try {
+      const url = `${this.baseUrl}/export/results/${examId}/?format=${format}`;
+
+      const response = await fetch(url, {
+        method: 'GET',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return response.blob();
+    } catch (error) {
+      console.error('Error exporting results:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Mark attendance for registered students during exam
+   */
+  static async markAttendance(data: {
+    registration_ids: number[];
+    status: 'present' | 'absent' | 'late' | 'excused';
+    notes?: string;
+  }): Promise<{ message: string; updated_count: number }> {
+    try {
+      const response = await api.post(`${this.baseUrl}/registrations/mark_attendance/`, data);
+      return response;
+    } catch (error) {
+      console.error('Error marking attendance:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get attendance report for an exam
+   */
+  static async getAttendanceReport(examId: number): Promise<{
+    exam: Exam;
+    total_registered: number;
+    present: number;
+    absent: number;
+    late: number;
+    excused: number;
+    attendance_percentage: number;
+    registrations: ExamRegistration[];
+  }> {
+    try {
+      const response = await api.get(`${this.baseUrl}/exams/${examId}/attendance_report/`);
+      return response;
+    } catch (error) {
+      console.error('Error fetching attendance report:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get performance summary report
+   * Includes statistics across multiple exams
+   */
+  static async getPerformanceSummary(params?: {
+    schedule_id?: number;
+    subject?: number;
+    grade_level?: number;
+    start_date?: string;
+    end_date?: string;
+  }): Promise<{
+    total_exams: number;
+    total_students: number;
+    average_score: number;
+    highest_score: number;
+    lowest_score: number;
+    pass_rate: number;
+    grade_distribution: Record<string, number>;
+    performance_by_subject: any[];
+    performance_by_grade: any[];
+  }> {
+    try {
+      const response = await api.get(`${this.baseUrl}/reports/performance-summary/`, params);
+      return response;
+    } catch (error) {
+      console.error('Error fetching performance summary:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get grade distribution analysis
+   */
+  static async getGradeDistribution(examId?: number, scheduleId?: number): Promise<{
+    exam_id?: number;
+    schedule_id?: number;
+    total_students: number;
+    grade_distribution: Record<string, number>;
+    grade_percentages: Record<string, number>;
+    average_grade: string;
+  }> {
+    try {
+      const params: any = {};
+      if (examId) params.exam_id = examId;
+      if (scheduleId) params.schedule_id = scheduleId;
+
+      const response = await api.get(`${this.baseUrl}/reports/grade-distribution/`, params);
+      return response;
+    } catch (error) {
+      console.error('Error fetching grade distribution:', error);
+      throw error;
+    }
   }
 }
 

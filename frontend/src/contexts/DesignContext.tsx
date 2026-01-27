@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { API_BASE_URL } from '@/services/api';
 
 // Utility function to convert hex to RGB
 const hexToRgb = (hex: string) => {
@@ -107,9 +108,10 @@ export const DesignProvider: React.FC<DesignProviderProps> = ({ children }) => {
     const fetchSettings = async () => {
       try {
         const token = localStorage.getItem('authToken');
-        const response = await fetch('/api/school-settings/', {
+        const response = await fetch(`${API_BASE_URL}/school-settings/school-settings/`, {
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
           }
         });
 

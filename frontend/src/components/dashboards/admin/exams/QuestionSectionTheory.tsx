@@ -1,6 +1,6 @@
 // components/QuestionSectionTheory.tsx
 import React from "react";
-import RichTextEditor from "./RichTextEditor";
+import { RichTextEditor } from "@/components/shared/ExamEditor";
 import { TheoryQuestion, SubQuestion } from "@/types/types";
 
 

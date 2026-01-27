@@ -1,129 +1,155 @@
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { UserRole } from '@/types/types';
-import { createBrowserRouter, Outlet } from 'react-router-dom';
+import { createBrowserRouter, Outlet, Navigate } from 'react-router-dom';
 import ErrorBoundary from './../components/ErrorBoundary';
 import { AuthProvider } from './../hooks/useAuth';
 import { AuthLostProvider } from './../components/common/AuthLostProvider';
 import { GlobalThemeProvider } from '@/contexts/GlobalThemeContext';
-import { lazy } from "react";
+import { TenantProvider, useTenant } from '@/contexts/TenantContext';
+import { lazy, Suspense } from 'react';
 import Navbar from '@/components/home/Nav';
 import Footer from '@/components/home/Footer';
 
+// Loading component
+const PageLoader = () => (
+  <div className="min-h-screen flex items-center justify-center bg-white dark:bg-gray-950">
+    <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+  </div>
+);
 
-// Lazy load all components with consistent import paths and error handling
-const Home = lazy(() => import('./../pages/Landing').catch(() => ({ default: () => <div>Error loading Home</div> })));
-const School_Activities = lazy(() => import('./../pages/School_Activities').catch(() => ({ default: () => <div>Error loading School Activities</div> })));
-const Login = lazy(() => import('./../pages/Login').catch(() => ({ default: () => <div>Error loading Login</div> })));
-const SignUp = lazy(() => import('./../pages/SignUp').catch(() => ({ default: () => <div>Error loading SignUp</div> })));
-const EmailVerification = lazy(() => import('./../pages/EmailVerification').catch(() => ({ default: () => <div>Error loading Email Verification</div> })));
-const About = lazy(() => import('./../pages/About').catch(() => ({ default: () => <div>Error loading About</div> })));
-const StudentDashboard = lazy(() => import('./../pages/student/Dashboard').catch(() => ({ default: () => <div>Error loading Student Dashboard</div> })));
-const TeacherDashboard = lazy(() => import('./../pages/teacher/Dashboard').catch(() => ({ default: () => <div>Error loading Teacher Dashboard</div> })));
-const TeacherProfile = lazy(() => import('./../pages/teacher/Profile').catch(() => ({ default: () => <div>Error loading Teacher Profile</div> })));
-const TeacherClasses = lazy(() => import('./../pages/teacher/Classes').catch(() => ({ default: () => <div>Error loading Teacher Classes</div> })));
-const TeacherAttendance = lazy(() => import('./../pages/teacher/Attendance').catch(() => ({ default: () => <div>Error loading Teacher Attendance</div> })));
-const TeacherStudents = lazy(() => import('./../pages/teacher/Students').catch(() => ({ default: () => <div>Error loading Teacher Students</div> })));
-const TeacherStudentProfile = lazy(() => import('./../pages/teacher/StudentProfile').catch(() => ({ default: () => <div>Error loading Teacher Student Profile</div> })));
-const TeacherStudentsList = lazy(() => import('./../pages/teacher/StudentsList').catch(() => ({ default: () => <div>Error loading Teacher Students List</div> })));
-const TeacherExams = lazy(() => import('./../pages/teacher/Exams').catch(() => ({ default: () => <div>Error loading Teacher Exams</div> })));
-const TeacherResults = lazy(() => import('./../pages/teacher/Results').catch(() => ({ default: () => <div>Error loading Teacher Results</div> })));
-const TeacherSchedule = lazy(() => import('./../pages/teacher/Schedule').catch(() => ({ default: () => <div>Error loading Teacher Schedule</div> })));
-const TeacherSubjects = lazy(() => import('./../pages/teacher/Subjects').catch(() => ({ default: () => <div>Error loading Teacher Subjects</div> })));
-const TeacherSubjectDetail = lazy(() => import('./../pages/teacher/SubjectDetail').catch(() => ({ default: () => <div>Error loading Teacher Subject Detail</div> })));
-const StudentList = lazy(() => import('./../pages/admin/AdminStudentList').catch(() => ({ default: () => <div>Error loading Student List</div> })));
-const ParentDashboard = lazy(() => import('./../pages/parent/Dashboard').catch(() => ({ default: () => <div>Error loading Parent Dashboard</div> })));
-const NotFound = lazy(() => import('./../pages/NotFound').catch(() => ({ default: () => <div>Page Not Found</div> })));
-const TeacherBio = lazy(() => import('./../components/dashboards/teacher/PublicTeacherBio').catch(() => ({ default: () => <div>Error loading Public Teacher Bio</div> })));
-const AdminClassroomManagement = lazy(() => import('./../pages/admin/AdminClassroomManagement').catch(() => ({ default: () => <div>Error loading Classroom Management</div> })));
-const AdminLessonsManagement = lazy(() => import('./../pages/admin/AdminLessonsManagement').catch(() => ({ default: () => <div>Error loading Lessons Management</div> })));
-const AdminExamsManagement = lazy(() => import('./../pages/admin/AdminExamsManagement').catch(() => ({ default: () => <div>Error loading Exams Management</div> })));
-const AdminExamScheduleManagement = lazy(() => import('./../pages/admin/AdminExamScheduleManagement').catch(() => ({ default: () => <div>Error loading Exam Schedule Management</div> })));
-const AdminAtendanceMangement = lazy(() => import('./../pages/admin/AdminAttendanceView').catch(() => ({ default: () => <div>Error loading Attendance Dashboard</div> })));
-const AddStudentForm = lazy(() => import('./../pages/admin/AddStudentForm').catch(() => ({ default: () => <div>Error loading Add Student Form</div> })));
-const EditStudentForm = lazy(() => import('./../components/dashboards/admin/EditStudentForm').catch(() => ({ default: () => <div>Error loading Edit Student Form</div> })));
-const StudentDetailView = lazy(() => import('./../components/dashboards/admin/StudentDetailView').catch(() => ({ default: () => <div>Error loading Student Detail View</div> })));
-const AdminSubjectManagement = lazy(() => import('./../pages/admin/AdminSubjectManagement').catch(() => ({ default: () => <div>Error loading Admin Subject Management</div> })));
-const AdminResultManagement = lazy(() => import('./../pages/admin/AdminResultManagement').catch(() => ({ default: () => <div>Error loading Admin Result Management</div> })));
-const AllTeachers = lazy(() => import('./../pages/admin/AllTeachers').catch(() => ({ default: () => <div>Error loading All Teachers</div> })));
-const AddTeacherForm = lazy(() => import('./../pages/admin/AddTeacherForm').catch(() => ({ default: () => <div>Error loading Add Teacher Form</div> })));
-const AllParents = lazy(() => import('./../pages/admin/AllParents').catch(() => ({ default: () => <div>Error loading All Parents</div> })));
-const AddParentForm = lazy(() => import('./../pages/admin/AddParentForm').catch(() => ({ default: () => <div>Error loading Add Parent Form</div> })));
-const AddAdminForm = lazy(() => import('./../pages/admin/AddAdminForm').catch(() => ({ default: () => <div>Error loading Add Admin Form</div> })));
-const AllAdmins = lazy(() => import('./../pages/admin/AllAdmins').catch(() => ({ default: () => <div>Error loading All Admins</div> })));
-const PasswordRecovery = lazy(() => import('./../pages/admin/PasswordRecovery').catch(() => ({ default: () => <div>Error loading Password Recovery</div> })));
-const AdminDashboardContentLoader = lazy(() => import('./../pages/admin/AdminDashboardContentLoader').catch(() => ({ default: () => <div>Error loading Admin Dashboard Content</div> })));
-const AdminLayout = lazy(() => import('./../components/layouts/AdminLayout').catch(() => ({ default: () => <div>Error loading Admin Layout</div> })));
-const SettingsPage = lazy(() => import('./../pages/admin/Settings').catch(() => ({ default: () => <div>Error loading Settings</div> })));
-const MessageManagement = lazy(() => import('./../components/dashboards/admin/MessageManagement').catch(() => ({ default: () => <div>Error loading Message Management</div> })));
-const ThemeTest = lazy(() => import('./../pages/ThemeTestPage').catch(() => ({ default: () => <div>Error loading Theme Test</div> })));
-const TestHooks = lazy(() => import('./../components/TestHooks').catch(() => ({ default: () => <div>Error loading Test Hooks</div> })));
-const StudentLoginPage = lazy(() => import('./../pages/StudentLoginPage').catch(() => ({ default: () => <div>Error loading Student Login</div> })));
-const TeacherLoginPage = lazy(() => import('./../pages/TeacherLoginPage').catch(() => ({ default: () => <div>Error loading Teacher Login</div> })));
-const ParentLoginPage = lazy(() => import('./../pages/ParentLoginPage').catch(() => ({ default: () => <div>Error loading Parent Login</div> })));
-const AdminLoginPage = lazy(() => import('./../pages/AdminLoginPage').catch(() => ({ default: () => <div>Error loading Admin Login</div> })));
-const HowToApplyPage = lazy(() => import('./../pages/HowToApplyPage').catch(() => ({ default: () => <div>Error loading How to Apply</div> })));
-// const PublicTeacherBio = lazy(() => import('./../pages/PublicTeacherBio').catch(() => ({ default: () => <div>Error loading Teacher Bio</div> })));
-const ResultChecker = lazy(() => import('./../components/dashboards/admin/ResultChecker').catch(() => ({ default: () => <div>Error loading Result Checker</div> })));
-const StudentResultChecker = lazy(() => import('./../components/dashboards/admin/StudentResultChecker').catch(() => ({ default: () => <div>Error loading Student Result Checker</div> })));
-const StudentResultDetail = lazy(() => import('./../components/dashboards/admin/StudentResultDetail').catch(() => ({ default: () => <div>Error loading Student Result Detail</div> })));
-const AdminTokenGenerator = lazy(() => import('./../pages/admin/TokenGenerator').catch(() => ({ default: () => <div>Error loading Admin Token Generator</div> })));
-const AdminRemarksAndSignatureManager = lazy(() => import('./../pages/admin/AdminRemarksAndSignatureManager').catch(() => ({ default: () => <div>Error loading Admin Token Remarks and Signature page</div> })));
-const SuperAdminPage = lazy(() => import('./../pages/SuperAdminDashbaord').catch(() => ({default: () => <div>Error loading Super Admin Page</div>})));
-const RouteErrorElement = () => {
-  const error = (window as any).__routerError || 'Unknown error';
-  
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 px-4">
-      <div className="max-w-md w-full bg-white/10 backdrop-blur-2xl rounded-3xl p-8 border border-white/20 shadow-2xl text-center">
-        <h1 className="text-2xl font-bold text-white mb-4">Oops! Something went wrong</h1>
-        <p className="text-white/70 mb-4">
-          We encountered an error while loading this page.
-        </p>
-        
-        <div className="bg-red-500/20 border border-red-500/30 rounded-lg p-3 mb-6 text-left">
-          <p className="text-red-200 text-xs font-mono">
-            Debug Info: {JSON.stringify(error, null, 2)}
-          </p>
-          <p className="text-red-200 text-xs mt-2">
-            Current URL: {window.location.href}
-          </p>
-        </div>
-        
-        <div className="space-y-3">
-          <button
-            onClick={() => window.location.href = '/'}
-            className="w-full bg-gradient-to-r from-blue-500 to-purple-500 text-white py-3 rounded-xl font-semibold hover:shadow-lg transition-all duration-300"
-          >
-            Go Home
-          </button>
-          
-          <button
-            onClick={() => window.location.reload()}
-            className="w-full bg-gray-600 text-white py-2 rounded-xl font-semibold hover:bg-gray-700 transition-colors"
-          >
-            Retry
-          </button>
-        </div>
+// Lazy load all components
+// Public/Marketing pages (Main Domain)
+const Home = lazy(() => import('./../pages/Landing'));
+const School_Activities = lazy(() => import('./../pages/School_Activities'));
+const About = lazy(() => import('./../pages/About'));
+const HowToApplyPage = lazy(() => import('./../pages/HowToApplyPage'));
+const NotFound = lazy(() => import('./../pages/NotFound'));
+
+// Onboarding pages (Main Domain)
+const SchoolRegistrationPage = lazy(() => import('./../pages/onboarding/SchoolRegistrationPage'));
+const ServiceSelectionPage = lazy(() => import('./../pages/onboarding/ServiceSelectionPage'));
+const RegistrationCompletePage = lazy(() => import('./../pages/onboarding/RegistrationCompletePage'));
+const SetupPage = lazy(() => import('./../pages/onboarding/SetupPage'));
+
+// Auth pages (Subdomain)
+const SubdomainLandingPage = lazy(() => import('./../pages/subdomain/LandingPage'));
+const SubdomainLoginPage = lazy(() => import('./../pages/subdomain/LoginPage'));
+const EmailVerification = lazy(() => import('./../pages/EmailVerification'));
+
+// Dashboard pages (Subdomain - Protected)
+const StudentDashboard = lazy(() => import('./../pages/student/Dashboard'));
+const ParentDashboard = lazy(() => import('./../pages/parent/Dashboard'));
+
+// Teacher pages
+const TeacherDashboard = lazy(() => import('./../pages/teacher/Dashboard'));
+const TeacherProfile = lazy(() => import('./../pages/teacher/Profile'));
+const TeacherClasses = lazy(() => import('./../pages/teacher/Classes'));
+const TeacherAttendance = lazy(() => import('./../pages/teacher/Attendance'));
+const TeacherStudents = lazy(() => import('./../pages/teacher/Students'));
+const TeacherStudentProfile = lazy(() => import('./../pages/teacher/StudentProfile'));
+const TeacherStudentsList = lazy(() => import('./../pages/teacher/StudentsList'));
+const TeacherExams = lazy(() => import('./../pages/teacher/Exams'));
+const TeacherResults = lazy(() => import('./../pages/teacher/Results'));
+const TeacherSchedule = lazy(() => import('./../pages/teacher/Schedule'));
+const TeacherSubjects = lazy(() => import('./../pages/teacher/Subjects'));
+const TeacherSubjectDetail = lazy(() => import('./../pages/teacher/SubjectDetail'));
+const TeacherBio = lazy(() => import('./../components/dashboards/teacher/PublicTeacherBio'));
+
+// Admin pages
+const AdminLayout = lazy(() => import('./../components/layouts/AdminLayout'));
+const AdminDashboardContentLoader = lazy(() => import('./../pages/admin/AdminDashboardContentLoader'));
+const StudentList = lazy(() => import('./../pages/admin/AdminStudentList'));
+const StudentDetailView = lazy(() => import('./../components/dashboards/admin/StudentDetailView'));
+const AddStudentForm = lazy(() => import('./../pages/admin/AddStudentForm'));
+const EditStudentForm = lazy(() => import('./../components/dashboards/admin/EditStudentForm'));
+const AdminClassroomManagement = lazy(() => import('./../pages/admin/AdminClassroomManagement'));
+const AdminSubjectManagement = lazy(() => import('./../pages/admin/AdminSubjectManagement'));
+const AdminExamsManagement = lazy(() => import('./../pages/admin/AdminExamsManagement'));
+const AdminExamScheduleManagement = lazy(() => import('./../pages/admin/AdminExamScheduleManagement'));
+const AdminLessonsManagement = lazy(() => import('./../pages/admin/AdminLessonsManagement'));
+const AdminAtendanceMangement = lazy(() => import('./../pages/admin/AdminAttendanceView'));
+const AdminResultManagement = lazy(() => import('./../pages/admin/AdminResultManagement'));
+const AllTeachers = lazy(() => import('./../pages/admin/AllTeachers'));
+const AddTeacherForm = lazy(() => import('./../pages/admin/AddTeacherForm'));
+const AllParents = lazy(() => import('./../pages/admin/AllParents'));
+const AddParentForm = lazy(() => import('./../pages/admin/AddParentForm'));
+const AllAdmins = lazy(() => import('./../pages/admin/AllAdmins'));
+const AddAdminForm = lazy(() => import('./../pages/admin/AddAdminForm'));
+const SettingsPage = lazy(() => import('./../pages/admin/Settings'));
+const MessageManagement = lazy(() => import('./../components/dashboards/admin/MessageManagement'));
+const PasswordRecovery = lazy(() => import('./../pages/admin/PasswordRecovery'));
+const ResultChecker = lazy(() => import('./../components/dashboards/admin/ResultChecker'));
+const StudentResultChecker = lazy(() => import('./../components/dashboards/admin/StudentResultChecker'));
+const StudentResultDetail = lazy(() => import('./../components/dashboards/admin/StudentResultDetail'));
+const AdminTokenGenerator = lazy(() => import('./../pages/admin/TokenGenerator'));
+const AdminRemarksAndSignatureManager = lazy(() => import('./../pages/admin/AdminRemarksAndSignatureManager'));
+
+// Billing pages
+const BillingDashboard = lazy(() => import('./../pages/admin/billing/Billing'));
+const GenerateInvoice = lazy(() => import('./../pages/admin/billing/GenerateInvoice'));
+const InvoiceDetail = lazy(() => import('./../pages/admin/billing/InvoiceDetail'));
+
+// Advanced Exam Features (EXAM-003)
+const QuestionBankManager = lazy(() => import('./../components/dashboards/admin/QuestionBankManager'));
+const ExamTemplateManager = lazy(() => import('./../components/dashboards/admin/ExamTemplateManager'));
+const ExamReviewManager = lazy(() => import('./../components/dashboards/admin/ExamReviewManager'));
+
+// Platform Admin pages
+const PendingPayments = lazy(() => import('./../pages/platform-admin/PendingPayments'));
+
+// Super Admin (Platform level)
+const SuperAdminPage = lazy(() => import('./../pages/SuperAdminDashbaord'));
+
+// Error element
+const RouteErrorElement = () => (
+  <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950 px-4">
+    <div className="max-w-md w-full bg-white dark:bg-gray-900 rounded-xl p-8 border border-gray-200 dark:border-gray-800 text-center">
+      <h1 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Something went wrong</h1>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+        We encountered an error while loading this page.
+      </p>
+      <div className="space-y-3">
+        <button
+          onClick={() => window.location.href = '/'}
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg text-sm font-medium transition-colors"
+        >
+          Go Home
+        </button>
+        <button
+          onClick={() => window.location.reload()}
+          className="w-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+        >
+          Retry
+        </button>
       </div>
     </div>
-  );
-};
+  </div>
+);
 
-// Root layout with auth providers
+// Wrapper for lazy components
+const LazyWrapper = ({ children }: { children: React.ReactNode }) => (
+  <Suspense fallback={<PageLoader />}>
+    {children}
+  </Suspense>
+);
+
+// Root layout with providers
 const RootLayout = () => (
   <GlobalThemeProvider>
-    <AuthProvider>
-      <AuthLostProvider>
-        <ErrorBoundary>
-          <Outlet />
-        </ErrorBoundary>
-      </AuthLostProvider>
-    </AuthProvider>
+    <TenantProvider>
+      <AuthProvider>
+        <AuthLostProvider>
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
+        </AuthLostProvider>
+      </AuthProvider>
+    </TenantProvider>
   </GlobalThemeProvider>
 );
 
-// MainLayout with Navbar and Footer for public pages
-const MainLayout = () => (
+// Main domain layout with Navbar and Footer (for marketing pages)
+const MainDomainLayout = () => (
   <>
     <Navbar />
     <Outlet />
@@ -131,12 +157,89 @@ const MainLayout = () => (
   </>
 );
 
-// TeacherLayout - just outlet, no navbar (assuming teacher dashboard has its own navigation)
+// Component to render Home only on main domain, show subdomain landing page on subdomain
+const HomeOrRedirect = () => {
+  const { isSubdomain, isLoading } = useTenant();
+
+  if (isLoading) {
+    return <PageLoader />;
+  }
+
+  // If on subdomain, show the subdomain landing page (it handles errors internally)
+  if (isSubdomain) {
+    return <LazyWrapper><SubdomainLandingPage /></LazyWrapper>;
+  }
+
+  // Main domain - show home page with layout
+  return (
+    <>
+      <Navbar />
+      <LazyWrapper><Home /></LazyWrapper>
+      <Footer />
+    </>
+  );
+};
+
+// Teacher protected layout
 const TeacherLayout = () => (
   <ProtectedRoute allowedRoles={[UserRole.TEACHER]}>
     <Outlet />
   </ProtectedRoute>
 );
+
+// Admin protected layout
+const AdminProtectedLayout = () => (
+  <ProtectedRoute allowedRoles={[
+    UserRole.ADMIN,
+    UserRole.SUPERADMIN,
+    UserRole.SECONDARY_ADMIN,
+    UserRole.SENIOR_SECONDARY_ADMIN,
+    UserRole.JUNIOR_SECONDARY_ADMIN,
+    UserRole.PRIMARY_ADMIN,
+    UserRole.NURSERY_ADMIN
+  ]}>
+    <LazyWrapper>
+      <AdminLayout />
+    </LazyWrapper>
+  </ProtectedRoute>
+);
+
+// Route decision component based on tenant context
+const TenantAwareRedirect = () => {
+  const { isSubdomain, isLoading, error, tenant } = useTenant();
+
+  if (isLoading) {
+    return <PageLoader />;
+  }
+
+  // If on subdomain but tenant not found, show error
+  if (isSubdomain && error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950 px-4">
+        <div className="max-w-md w-full bg-white dark:bg-gray-900 rounded-xl p-8 border border-gray-200 dark:border-gray-800 text-center">
+          <h1 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">School Not Found</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+            The school you're looking for doesn't exist or has been deactivated.
+          </p>
+          <a
+            href="https://schoolplatform.com"
+            className="inline-block bg-blue-600 hover:bg-blue-700 text-white py-2.5 px-6 rounded-lg text-sm font-medium transition-colors"
+          >
+            Go to Main Site
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  // If on subdomain, show subdomain content (login by default)
+  if (isSubdomain && tenant) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // If on main domain, show main domain content
+  return <Outlet />;
+};
 
 // Create the router configuration
 export const router = createBrowserRouter([
@@ -145,87 +248,76 @@ export const router = createBrowserRouter([
     element: <RootLayout />,
     errorElement: <RouteErrorElement />,
     children: [
-      // Public routes with Navbar and Footer
+      // ========================================
+      // ROOT - Tenant-aware redirect (shows home on main domain, redirects to login on subdomain)
+      // ========================================
       {
-        element: <MainLayout />,
+        index: true,
+        element: <HomeOrRedirect />,
+      },
+
+      // ========================================
+      // MAIN DOMAIN ROUTES (Marketing & Registration)
+      // ========================================
+      {
+        element: <MainDomainLayout />,
         children: [
           {
-            index: true,
-            element: <Home />,
-            errorElement: <RouteErrorElement />
-          },
-          {
-            path: 'login',
-            element: <Login />,
-            errorElement: <RouteErrorElement />
-          },
-          {
-            path: 'signup',
-            element: <SignUp />,
-            errorElement: <RouteErrorElement />
-          },
-          {
-            path: 'verify-email',
-            element: <EmailVerification />,
-            errorElement: <RouteErrorElement />
-          },
-          {
             path: 'about',
-            element: <About />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><About /></LazyWrapper>,
           },
           {
-            path: 'theme-test',
-            element: <ThemeTest />,
-            errorElement: <RouteErrorElement />
-          },
-          {
-            path: 'test-hooks',
-            element: <TestHooks />,
-            errorElement: <RouteErrorElement />
-          },
-          {
-            path: 'school_activities', 
-            element: <School_Activities/>,
-            errorElement: <RouteErrorElement />
-          },
-          {
-            path: 'student-login',
-            element: <StudentLoginPage />, 
-            errorElement: <RouteErrorElement />
-          },
-          {
-            path: 'teacher-login',
-            element: <TeacherLoginPage />, 
-            errorElement: <RouteErrorElement />
-          },
-          {
-            path: 'parent-login',
-            element: <ParentLoginPage />, 
-            errorElement: <RouteErrorElement />
-          },
-          {
-            path: 'admin-login',
-            element: <AdminLoginPage />, 
-            errorElement: <RouteErrorElement />
+            path: 'school_activities',
+            element: <LazyWrapper><School_Activities /></LazyWrapper>,
           },
           {
             path: 'how-to-apply',
-            element: <HowToApplyPage />, 
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><HowToApplyPage /></LazyWrapper>,
+          },
+        ]
+      },
+
+      // Onboarding routes (no navbar/footer)
+      {
+        path: 'onboarding',
+        children: [
+          {
+            path: 'register',
+            element: <LazyWrapper><SchoolRegistrationPage /></LazyWrapper>,
           },
           {
-            path:'/super-admin/dashboard',
-            element: <SuperAdminPage/>,
-            errorElement: <RouteErrorElement/>
+            path: 'services',
+            element: <LazyWrapper><ServiceSelectionPage /></LazyWrapper>,
           },
           {
-            path: '*',
-            element: <NotFound />,
+            path: 'complete',
+            element: <LazyWrapper><RegistrationCompletePage /></LazyWrapper>,
           }
         ]
       },
-      // Protected student routes
+
+      // ========================================
+      // SUBDOMAIN ROUTES (School Portal)
+      // ========================================
+
+      // Setup route (Subdomain - for token exchange after registration)
+      {
+        path: 'setup',
+        element: <LazyWrapper><SetupPage /></LazyWrapper>,
+      },
+
+      // Auth routes (Subdomain - standalone pages)
+      // Login now uses the combined landing page with built-in login form
+      {
+        path: 'login',
+        element: <LazyWrapper><SubdomainLandingPage /></LazyWrapper>,
+      },
+      {
+        path: 'verify-email',
+        element: <LazyWrapper><EmailVerification /></LazyWrapper>,
+      },
+
+      // Student routes
       {
         path: 'student',
         children: [
@@ -233,14 +325,14 @@ export const router = createBrowserRouter([
             path: 'dashboard',
             element: (
               <ProtectedRoute allowedRoles={[UserRole.STUDENT]}>
-                <StudentDashboard />
+                <LazyWrapper><StudentDashboard /></LazyWrapper>
               </ProtectedRoute>
             ),
-            errorElement: <RouteErrorElement />
           }
         ]
       },
-      // Protected parent routes
+
+      // Parent routes
       {
         path: 'parent',
         children: [
@@ -248,260 +340,246 @@ export const router = createBrowserRouter([
             path: 'dashboard',
             element: (
               <ProtectedRoute allowedRoles={[UserRole.PARENT]}>
-                <ParentDashboard />
+                <LazyWrapper><ParentDashboard /></LazyWrapper>
               </ProtectedRoute>
             ),
-            errorElement: <RouteErrorElement />
           }
         ]
       },
-      // Protected teacher routes
+
+      // Teacher routes
       {
         path: 'teacher',
         element: <TeacherLayout />,
-        errorElement: <RouteErrorElement />,
         children: [
           {
             path: 'dashboard',
-            element: <TeacherDashboard />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><TeacherDashboard /></LazyWrapper>,
           },
           {
             path: 'profile',
-            element: <TeacherProfile />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><TeacherProfile /></LazyWrapper>,
           },
           {
-            path: "/teacher/bio/:teacherId",
-            element: <TeacherBio />,
-            errorElement: <RouteErrorElement />
+            path: 'bio/:teacherId',
+            element: <LazyWrapper><TeacherBio /></LazyWrapper>,
           },
           {
             path: 'classes',
-            element: <TeacherClasses />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><TeacherClasses /></LazyWrapper>,
           },
           {
             path: 'attendance/:classId?',
-            element: <TeacherAttendance />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><TeacherAttendance /></LazyWrapper>,
           },
           {
             path: 'attendance',
-            element: <TeacherAttendance />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><TeacherAttendance /></LazyWrapper>,
           },
           {
             path: 'students/:classId',
-            element: <TeacherStudents />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><TeacherStudents /></LazyWrapper>,
           },
           {
             path: 'student/:studentId',
-            element: <TeacherStudentProfile />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><TeacherStudentProfile /></LazyWrapper>,
           },
           {
             path: 'students',
-            element: <TeacherStudentsList />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><TeacherStudentsList /></LazyWrapper>,
           },
           {
             path: 'exams',
-            element: <TeacherExams />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><TeacherExams /></LazyWrapper>,
+          },
+          {
+            path: 'question-bank',
+            element: <LazyWrapper><QuestionBankManager /></LazyWrapper>,
+          },
+          {
+            path: 'exam-templates',
+            element: <LazyWrapper><ExamTemplateManager /></LazyWrapper>,
+          },
+          {
+            path: 'exam-reviews',
+            element: <LazyWrapper><ExamReviewManager /></LazyWrapper>,
           },
           {
             path: 'results',
-            element: <TeacherResults />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><TeacherResults /></LazyWrapper>,
           },
           {
             path: 'schedule',
-            element: <TeacherSchedule />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><TeacherSchedule /></LazyWrapper>,
           },
           {
             path: 'subjects',
-            element: <TeacherSubjects />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><TeacherSubjects /></LazyWrapper>,
           },
           {
             path: 'subjects/:subjectId',
-            element: <TeacherSubjectDetail />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><TeacherSubjectDetail /></LazyWrapper>,
           }
         ]
       },
-      // Protected admin routes
+
+      // Admin routes
       {
         path: 'admin',
-        element: (
-          <ProtectedRoute allowedRoles={[
-            UserRole.ADMIN,
-            UserRole.SUPERADMIN,
-            UserRole.SECONDARY_ADMIN,
-            UserRole.SENIOR_SECONDARY_ADMIN,
-            UserRole.JUNIOR_SECONDARY_ADMIN,
-            UserRole.PRIMARY_ADMIN,
-            UserRole.NURSERY_ADMIN
-            ]}>
-            <AdminLayout />
-          </ProtectedRoute>
-        ),
-        errorElement: <RouteErrorElement />,
+        element: <AdminProtectedLayout />,
         children: [
           {
             index: true,
-            element: <AdminDashboardContentLoader />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><AdminDashboardContentLoader /></LazyWrapper>,
           },
           {
             path: 'dashboard',
-            element: <AdminDashboardContentLoader />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><AdminDashboardContentLoader /></LazyWrapper>,
           },
           {
             path: 'token-generator',
-            element: <AdminTokenGenerator />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><AdminTokenGenerator /></LazyWrapper>,
           },
           {
             path: 'admin-remarks',
-            element: <AdminRemarksAndSignatureManager/>,
-            errorElement: <RouteErrorElement/>
+            element: <LazyWrapper><AdminRemarksAndSignatureManager /></LazyWrapper>,
           },
           {
             path: 'students',
-            element: <StudentList />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><StudentList /></LazyWrapper>,
           },
           {
             path: 'students/:id',
-            element: <StudentDetailView />,
-            errorElement: <RouteErrorElement />
-          },
-          {
-            path: 'results',
-            element: <AdminResultManagement />,
-            errorElement: <RouteErrorElement />
-          },
-          {
-            path: 'results/student/:studentId',
-            element: <StudentResultDetail />,
-            errorElement: <RouteErrorElement />
-          },
-          {
-            path: 'classes',
-            element: <AdminClassroomManagement />,
-            errorElement: <RouteErrorElement />
-          },
-          {
-            path: 'subjects',
-            element: <AdminSubjectManagement />,
-            errorElement: <RouteErrorElement />
-          },
-          {
-            path: 'exams',
-            element: <AdminExamsManagement />,
-            errorElement: <RouteErrorElement />
-          },
-          {
-            path: 'exam-schedules',
-            element: <AdminExamScheduleManagement />,
-            errorElement: <RouteErrorElement />
-          },
-          {
-            path: 'lessons',
-            element: <AdminLessonsManagement />,
-            errorElement: <RouteErrorElement />
-          },
-          {
-            path: 'attendance',
-            element: <AdminAtendanceMangement />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><StudentDetailView /></LazyWrapper>,
           },
           {
             path: 'students/add',
-            element: <AddStudentForm />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><AddStudentForm /></LazyWrapper>,
           },
           {
             path: 'students/:id/edit',
-            element: <EditStudentForm />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><EditStudentForm /></LazyWrapper>,
+          },
+          {
+            path: 'results',
+            element: <LazyWrapper><AdminResultManagement /></LazyWrapper>,
+          },
+          {
+            path: 'results/student/:studentId',
+            element: <LazyWrapper><StudentResultDetail /></LazyWrapper>,
+          },
+          {
+            path: 'classes',
+            element: <LazyWrapper><AdminClassroomManagement /></LazyWrapper>,
+          },
+          {
+            path: 'subjects',
+            element: <LazyWrapper><AdminSubjectManagement /></LazyWrapper>,
+          },
+          {
+            path: 'exams',
+            element: <LazyWrapper><AdminExamsManagement /></LazyWrapper>,
+          },
+          {
+            path: 'exam-schedules',
+            element: <LazyWrapper><AdminExamScheduleManagement /></LazyWrapper>,
+          },
+          {
+            path: 'lessons',
+            element: <LazyWrapper><AdminLessonsManagement /></LazyWrapper>,
+          },
+          {
+            path: 'attendance',
+            element: <LazyWrapper><AdminAtendanceMangement /></LazyWrapper>,
           },
           {
             path: 'teachers',
-            element: <AllTeachers />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><AllTeachers /></LazyWrapper>,
           },
           {
             path: 'teachers/add',
-            element: <AddTeacherForm />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><AddTeacherForm /></LazyWrapper>,
           },
           {
             path: 'parents',
-            element: <AllParents />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><AllParents /></LazyWrapper>,
           },
           {
             path: 'parents/add',
-            element: <AddParentForm />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><AddParentForm /></LazyWrapper>,
           },
           {
             path: 'admins',
-            element: <AllAdmins />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><AllAdmins /></LazyWrapper>,
           },
           {
             path: 'admins/add',
-            element: <AddAdminForm />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><AddAdminForm /></LazyWrapper>,
           },
           {
             path: 'settings',
-            element: <SettingsPage />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><SettingsPage /></LazyWrapper>,
           },
           {
             path: 'messages',
-            element: <MessageManagement />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><MessageManagement /></LazyWrapper>,
           },
           {
             path: 'password-recovery',
-            element: <PasswordRecovery />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><PasswordRecovery /></LazyWrapper>,
           },
           {
             path: 'result-checker',
-            element: <ResultChecker />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><ResultChecker /></LazyWrapper>,
           },
           {
             path: 'student-result-checker',
-            element: <StudentResultChecker onClose={() => {}} />,
-            errorElement: <RouteErrorElement />
+            element: <LazyWrapper><StudentResultChecker onClose={() => {}} /></LazyWrapper>,
+          },
+          // Billing routes
+          {
+            path: 'billing',
+            element: <LazyWrapper><BillingDashboard /></LazyWrapper>,
+          },
+          {
+            path: 'billing/generate-invoice',
+            element: <LazyWrapper><GenerateInvoice /></LazyWrapper>,
+          },
+          {
+            path: 'billing/invoices/:invoiceId',
+            element: <LazyWrapper><InvoiceDetail /></LazyWrapper>,
           }
         ]
+      },
+
+      // Platform Admin routes (accessed from main domain or platform subdomain)
+      {
+        path: 'platform-admin',
+        children: [
+          {
+            path: 'pending-payments',
+            element: (
+              <ProtectedRoute allowedRoles={[UserRole.PLATFORM_ADMIN, UserRole.SUPERADMIN]}>
+                <LazyWrapper><PendingPayments /></LazyWrapper>
+              </ProtectedRoute>
+            ),
+          }
+        ]
+      },
+
+      // Super Admin (Platform level - accessed from main domain)
+      {
+        path: 'super-admin/dashboard',
+        element: <LazyWrapper><SuperAdminPage /></LazyWrapper>,
+      },
+
+      // 404
+      {
+        path: '*',
+        element: <LazyWrapper><NotFound /></LazyWrapper>,
       }
     ]
   }
 ]);
 
-// Debug logging
-console.log('Router configuration loaded');
-console.log('Available routes:', [
-  '/',
-  '/login', 
-  '/signup',
-  '/about',
-  '/school_activities',
-  '/student/dashboard',
-  '/teacher/dashboard', 
-  '/parent/dashboard',
-  '/admin/dashboard'
-]);
+export default router;

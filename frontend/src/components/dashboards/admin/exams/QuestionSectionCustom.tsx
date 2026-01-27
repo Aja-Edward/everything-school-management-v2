@@ -1,6 +1,6 @@
 // components/QuestionSectionCustom.tsx
 import React from "react";
-import RichTextEditor from "./RichTextEditor";
+import { RichTextEditor } from "@/components/shared/ExamEditor";
 import { CustomSection, Question } from "@/types/types";
 
 

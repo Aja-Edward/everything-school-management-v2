@@ -1,6 +1,6 @@
 // components/QuestionSectionPractical.tsx
 import React from "react";
-import RichTextEditor from "./RichTextEditor";
+import { RichTextEditor } from "@/components/shared/ExamEditor";
 import { PracticalQuestion } from "@/types/types";
 
 

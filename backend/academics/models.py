@@ -6,12 +6,13 @@ from datetime import date
 
 # goodIMPORT Subject from the subject app instead of defining it here
 from subject.models import Subject
+from tenants.models import TenantMixin
 
 
-class AcademicSession(models.Model):
+class AcademicSession(TenantMixin, models.Model):
     """Academic year/session model"""
 
-    name = models.CharField(max_length=50, unique=True)  # e.g., "2024/2025"
+    name = models.CharField(max_length=50)  # e.g., "2024/2025"
     start_date = models.DateField()
     end_date = models.DateField()
     is_current = models.BooleanField(default=False)
@@ -24,6 +25,7 @@ class AcademicSession(models.Model):
         ordering = ["-start_date"]
         verbose_name = "Academic Session"
         verbose_name_plural = "Academic Sessions"
+        unique_together = ["tenant", "name"]
 
     def __str__(self):
         return self.name
@@ -32,9 +34,11 @@ class AcademicSession(models.Model):
         if self.start_date >= self.end_date:
             raise ValidationError("Start date must be before end date")
 
-        # Ensure only one current session
+        # Ensure only one current session per tenant
         if self.is_current:
-            current_sessions = AcademicSession.objects.filter(is_current=True)
+            current_sessions = AcademicSession.objects.filter(
+                tenant=self.tenant, is_current=True
+            )
             if self.pk:
                 current_sessions = current_sessions.exclude(pk=self.pk)
             if current_sessions.exists():
@@ -53,7 +57,7 @@ class AcademicSession(models.Model):
         return self.start_date <= today <= self.end_date
 
 
-class Term(models.Model):
+class Term(TenantMixin, models.Model):
     """Academic term model"""
 
     TERM_CHOICES = [
@@ -81,7 +85,7 @@ class Term(models.Model):
 
     class Meta:
         db_table = "academics_term"
-        unique_together = ["academic_session", "name"]
+        unique_together = ["tenant", "academic_session", "name"]
         ordering = ["academic_session", "name"]
         verbose_name = "Academic Term"
         verbose_name_plural = "Academic Terms"
@@ -103,10 +107,12 @@ class Term(models.Model):
                     "Term dates must be within academic session dates"
                 )
 
-        # Ensure only one current term per session
+        # Ensure only one current term per session per tenant
         if self.is_current and self.academic_session:
             current_terms = Term.objects.filter(
-                academic_session=self.academic_session, is_current=True
+                tenant=self.tenant,
+                academic_session=self.academic_session,
+                is_current=True
             )
             if self.pk:
                 current_terms = current_terms.exclude(pk=self.pk)
@@ -130,7 +136,7 @@ class Term(models.Model):
 # Subject is imported from subject.models at the top of this file
 
 
-class SubjectAllocation(models.Model):
+class SubjectAllocation(TenantMixin, models.Model):
     """Subject allocation to teachers and classes"""
 
     # goodThis will now use the Subject from subject app
@@ -159,6 +165,7 @@ class SubjectAllocation(models.Model):
     class Meta:
         db_table = "academics_subject_allocation"
         unique_together = [
+            "tenant",
             "subject",
             "teacher",
             "academic_session",
@@ -173,7 +180,7 @@ class SubjectAllocation(models.Model):
         return f"{self.subject.name} - {self.teacher.user.full_name} ({self.student_class})"
 
 
-class Curriculum(models.Model):
+class Curriculum(TenantMixin, models.Model):
     """Curriculum structure for different education levels"""
 
     name = models.CharField(max_length=100)
@@ -193,7 +200,7 @@ class Curriculum(models.Model):
 
     class Meta:
         db_table = "academics_curriculum"
-        unique_together = ["name", "education_level", "academic_session"]
+        unique_together = ["tenant", "name", "education_level", "academic_session"]
         ordering = ["education_level", "name"]
         verbose_name = "Curriculum"
         verbose_name_plural = "Curricula"
@@ -202,7 +209,7 @@ class Curriculum(models.Model):
         return f"{self.name} - {self.education_level} ({self.academic_session.name})"
 
 
-class CurriculumSubject(models.Model):
+class CurriculumSubject(TenantMixin, models.Model):
     """Through model for Curriculum-Subject relationship"""
 
     curriculum = models.ForeignKey(
@@ -227,14 +234,14 @@ class CurriculumSubject(models.Model):
 
     class Meta:
         db_table = "academics_curriculum_subject"
-        unique_together = ["curriculum", "subject"]
+        unique_together = ["tenant", "curriculum", "subject"]
         ordering = ["curriculum", "order", "subject__name"]
 
     def __str__(self):
         return f"{self.curriculum.name} - {self.subject.name}"
 
 
-class AcademicCalendar(models.Model):
+class AcademicCalendar(TenantMixin, models.Model):
     """Academic calendar events"""
 
     EVENT_TYPES = [

@@ -6,11 +6,13 @@ import { useAuth } from '@/hooks/useAuth';
 import TeacherDashboardService from '@/services/TeacherDashboardService';
 import { ExamService, ExamCreateData } from '@/services/ExamService';
 import { toast } from 'react-toastify';
-import { X, Plus, Trash2, Save, Clock, CheckCircle, AlertCircle } from 'lucide-react';
-import { 
-  normalizeExamDataForSave, 
-  normalizeExamDataForEdit 
+import { X, Plus, Trash2, Save, Clock, CheckCircle, AlertCircle, Upload } from 'lucide-react';
+import { RichTextEditor } from '@/components/shared/ExamEditor';
+import {
+  normalizeExamDataForSave,
+  normalizeExamDataForEdit
 } from '@/utils/examDataNormalizer';
+import { ExamDocumentUploader } from '@/components/shared/ExamDocumentUploader';
 
 
 interface ExamCreationFormProps {
@@ -31,7 +33,8 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
-  const [activeTab, setActiveTab] = useState<'basic' | 'questions'>('basic');
+  const [activeTab, setActiveTab] = useState<'basic' | 'questions' | 'upload'>('basic');
+  const [showDocumentUploader, setShowDocumentUploader] = useState(false);
   
   const [formData, setFormData] = useState<ExamCreateData>({
     title: '',
@@ -177,28 +180,66 @@ useEffect(() => {
     try {
       const teacherId = await TeacherDashboardService.getTeacherIdFromUser(user);
       console.log('🔍 Loaded Teacher ID:', teacherId);
-      
+      console.log('🔍 User object:', user);
+
       if (!teacherId) {
-        toast.error('Teacher ID not found');
+        toast.error('Teacher ID not found. Please ensure you are logged in as a teacher.');
         return;
       }
       setCurrentTeacherId(Number(teacherId));
 
       const assignments = await TeacherDashboardService.getTeacherClasses(teacherId);
-      console.log('🔍 Teacher assignments:', assignments);
+      console.log('🔍 Teacher assignments RAW:', JSON.stringify(assignments, null, 2));
+      console.log('🔍 Assignment count:', assignments?.length || 0);
+
+      if (!assignments || assignments.length === 0) {
+        toast.warning('You have no class assignments yet. Please contact your administrator to assign classes and subjects to you.');
+        setGradeLevels([]);
+        setSubjects([]);
+        return;
+      }
+
+      console.log('🔍 First assignment structure:', assignments[0]);
+      console.log('🔍 First assignment has subject_id?', 'subject_id' in assignments[0]);
+      console.log('🔍 First assignment subject_id value:', assignments[0]?.subject_id);
+      console.log('🔍 First assignment has grade_level_id?', 'grade_level_id' in assignments[0]);
+      console.log('🔍 First assignment grade_level_id value:', assignments[0]?.grade_level_id);
 
       const uniqueGradeLevels = Array.from(
-        new Map(assignments.map((a: any) => [a.grade_level_id, { id: a.grade_level_id, name: a.grade_level_name }])).values()
+        new Map(
+          assignments
+            .filter((a: any) => a.grade_level_id && a.grade_level_name)
+            .map((a: any) => [a.grade_level_id, { id: a.grade_level_id, name: a.grade_level_name }])
+        ).values()
       );
+      console.log('🔍 Unique grade levels extracted:', uniqueGradeLevels);
+
       const uniqueSubjects = Array.from(
-        new Map(assignments.map((a: any) => [a.subject_id, { id: a.subject_id, name: a.subject_name }])).values()
+        new Map(
+          assignments
+            .filter((a: any) => a.subject_id && a.subject_name)
+            .map((a: any) => [a.subject_id, { id: a.subject_id, name: a.subject_name }])
+        ).values()
       );
+      console.log('🔍 Unique subjects extracted:', uniqueSubjects);
 
       setGradeLevels(uniqueGradeLevels);
       setSubjects(uniqueSubjects);
+
+      if (uniqueSubjects.length === 0) {
+        toast.warning('No subjects found in your assignments. Please contact your administrator to assign subjects to you.');
+      }
+
+      if (uniqueGradeLevels.length === 0) {
+        toast.warning('No grade levels found in your assignments. Please contact your administrator.');
+      }
     } catch (error) {
-      console.error('Error loading teacher data:', error);
-      toast.error('Failed to load teacher data');
+      console.error('❌ Error loading teacher data:', error);
+      if (error instanceof Error) {
+        console.error('❌ Error message:', error.message);
+        console.error('❌ Error stack:', error.stack);
+      }
+      toast.error('Failed to load teacher data. Please try refreshing the page.');
     }
   };
 
@@ -532,6 +573,43 @@ const handleInputChange = (field: keyof ExamCreateData, value: any) => {
     }));
   };
 
+  const handleDocumentImport = (examData: any) => {
+    toast.success('Document imported successfully!');
+
+    // Populate form data with imported exam data
+    setFormData(prev => ({
+      ...prev,
+      title: examData.title || prev.title,
+      instructions: examData.instructions || prev.instructions,
+      total_marks: examData.total_marks || prev.total_marks,
+      duration_minutes: examData.duration_minutes || prev.duration_minutes,
+    }));
+
+    // Populate questions from imported data
+    if (examData.objective_questions?.length > 0) {
+      setObjectiveQuestions(examData.objective_questions);
+      setObjectiveInstructions(examData.objective_instructions || '');
+    }
+
+    if (examData.theory_questions?.length > 0) {
+      setTheoryQuestions(examData.theory_questions);
+      setTheoryInstructions(examData.theory_instructions || '');
+    }
+
+    if (examData.practical_questions?.length > 0) {
+      setPracticalQuestions(examData.practical_questions);
+      setPracticalInstructions(examData.practical_instructions || '');
+    }
+
+    if (examData.custom_sections?.length > 0) {
+      setCustomSections(examData.custom_sections);
+    }
+
+    // Switch to questions tab to review imported content
+    setActiveTab('questions');
+    setShowDocumentUploader(false);
+  };
+
   const validateForm = () => {
     if (!formData.title.trim()) {
       toast.error('Please enter exam title');
@@ -553,17 +631,17 @@ const handleInputChange = (field: keyof ExamCreateData, value: any) => {
       toast.error('Please set start and end times');
       return false;
     }
-    if (objectiveQuestions.length === 0 && theoryQuestions.length === 0 && 
+    if (objectiveQuestions.length === 0 && theoryQuestions.length === 0 &&
         practicalQuestions.length === 0 && customSections.length === 0) {
       toast.error('Please add at least one question');
       return false;
     }
-    
+
     if (!currentTeacherId || currentTeacherId <= 0) {
       toast.error('Teacher ID not found. Please refresh and try again.');
       return false;
     }
-    
+
     return true;
   };
 
@@ -726,6 +804,19 @@ const submitForApproval = async () => {
             Basic Information
           </button>
           <button
+            onClick={() => setActiveTab('upload')}
+            className={`px-6 py-3 text-sm font-medium ${
+              activeTab === 'upload'
+                ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+          >
+            <div className="flex items-center space-x-2">
+              <Upload className="w-4 h-4" />
+              <span>Upload Document</span>
+            </div>
+          </button>
+          <button
             onClick={() => setActiveTab('questions')}
             className={`px-6 py-3 text-sm font-medium ${
               activeTab === 'questions'
@@ -738,7 +829,12 @@ const submitForApproval = async () => {
         </div>
 
         <div className="p-6">
-          {activeTab === 'basic' ? (
+          {activeTab === 'upload' ? (
+            <ExamDocumentUploader
+              onImport={handleDocumentImport}
+              onCancel={() => setActiveTab('basic')}
+            />
+          ) : activeTab === 'basic' ? (
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
@@ -981,20 +1077,15 @@ const submitForApproval = async () => {
                                   <button onClick={() => removeObjectiveQuestion(index)} className="text-red-500 hover:text-red-700"><Trash2 className="w-4 h-4" /></button>
                                 </div>
                                 <div className="space-y-3">
-                                  <input type="text" value={question.question} onChange={(e) => updateObjectiveQuestion(index, 'question', e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Enter question" />
-                                  <div className="grid grid-cols-3 gap-3">
-                                    <input type="text" value={question.imageUrl || ''} onChange={(e) => updateObjectiveQuestion(index, 'imageUrl', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Image URL (optional)" />
-                                    <input type="text" value={question.imageAlt || ''} onChange={(e) => updateObjectiveQuestion(index, 'imageAlt', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Alt text" />
-                                    <label className="flex items-center justify-center px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg cursor-pointer text-sm text-slate-700 dark:text-slate-300">
-                                      <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
-                                        const file = e.target.files && e.target.files[0];
-                                        if (!file) return;
-                                        const url = await uploadImage(file);
-                                        if (url) updateObjectiveQuestion(index, 'imageUrl', url);
-                                      }} />
-                                      Upload Image
-                                    </label>
-                                  </div>
+                                  <RichTextEditor
+                                    value={question.question}
+                                    onChange={(html) => updateObjectiveQuestion(index, 'question', html)}
+                                    placeholder="Enter question (supports formatting, images, tables)"
+                                    minHeight={100}
+                                    simplified={true}
+                                    enableImageUpload={true}
+                                    enableTables={false}
+                                  />
                                   <div className="grid grid-cols-2 gap-3">
                                     <input type="text" value={question.optionA} onChange={(e) => updateObjectiveQuestion(index, 'optionA', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Option A" />
                                     <input type="text" value={question.optionB} onChange={(e) => updateObjectiveQuestion(index, 'optionB', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Option B" />
@@ -1040,20 +1131,15 @@ const submitForApproval = async () => {
                                   <button onClick={() => removeTheoryQuestion(index)} className="text-red-500 hover:text-red-700"><Trash2 className="w-4 h-4" /></button>
                                 </div>
                                 <div className="space-y-3">
-                                  <textarea value={question.question} onChange={(e) => updateTheoryQuestion(index, 'question', e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" rows={3} placeholder="Enter question" />
-                                  <div className="grid grid-cols-3 gap-3">
-                                    <input type="text" value={question.imageUrl || ''} onChange={(e) => updateTheoryQuestion(index, 'imageUrl', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Image URL (optional)" />
-                                    <input type="text" value={question.imageAlt || ''} onChange={(e) => updateTheoryQuestion(index, 'imageAlt', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Alt text" />
-                                    <label className="flex items-center justify-center px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg cursor-pointer text-sm text-slate-700 dark:text-slate-300">
-                                      <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
-                                        const file = e.target.files && e.target.files[0];
-                                        if (!file) return;
-                                        const url = await uploadImage(file);
-                                        if (url) updateTheoryQuestion(index, 'imageUrl', url);
-                                      }} />
-                                      Upload Image
-                                    </label>
-                                  </div>
+                                  <RichTextEditor
+                                    value={question.question}
+                                    onChange={(html) => updateTheoryQuestion(index, 'question', html)}
+                                    placeholder="Enter question (supports formatting, images, tables)"
+                                    minHeight={120}
+                                    simplified={false}
+                                    enableImageUpload={true}
+                                    enableTables={true}
+                                  />
 
                                   <div className="grid grid-cols-3 gap-3">
                                     <input type="text" value={question.expectedPoints} onChange={(e) => updateTheoryQuestion(index, 'expectedPoints', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Expected points" />
@@ -1150,7 +1236,15 @@ const submitForApproval = async () => {
                                   <button onClick={() => removePracticalQuestion(index)} className="text-red-500 hover:text-red-700"><Trash2 className="w-4 h-4" /></button>
                                 </div>
                                 <div className="space-y-3">
-                                  <textarea value={question.task} onChange={(e) => updatePracticalQuestion(index, 'task', e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" rows={2} placeholder="Task description" />
+                                  <RichTextEditor
+                                    value={question.task}
+                                    onChange={(html) => updatePracticalQuestion(index, 'task', html)}
+                                    placeholder="Task description (supports formatting and images)"
+                                    minHeight={80}
+                                    simplified={true}
+                                    enableImageUpload={true}
+                                    enableTables={false}
+                                  />
                                   <div className="grid grid-cols-2 gap-3">
                                     <input type="text" value={question.materials} onChange={(e) => updatePracticalQuestion(index, 'materials', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Required materials" />
                                     <input type="text" value={question.expectedOutcome} onChange={(e) => updatePracticalQuestion(index, 'expectedOutcome', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Expected outcome" />
@@ -1213,22 +1307,20 @@ const submitForApproval = async () => {
                                         <span className="text-sm text-slate-600 dark:text-slate-300">Question {qi + 1}</span>
                                         <button onClick={() => removeCustomQuestion(qi)} className="text-red-500 hover:text-red-700"><Trash2 className="w-4 h-4" /></button>
                                       </div>
-                                      <div className="grid grid-cols-6 gap-3">
-                                        <textarea value={q.question} onChange={(e) => updateCustomQuestion(qi, 'question', e.target.value)} className="col-span-5 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" rows={2} placeholder="Enter question" />
-                                        <input type="number" value={q.marks} onChange={(e) => updateCustomQuestion(qi, 'marks', parseInt(e.target.value))} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Marks" min="0" />
-                                      </div>
-                                      <div className="grid grid-cols-3 gap-3 mt-2">
-                                        <input type="text" value={q.imageUrl || ''} onChange={(e) => updateCustomQuestion(qi, 'imageUrl', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Image URL (optional)" />
-                                        <input type="text" value={q.imageAlt || ''} onChange={(e) => updateCustomQuestion(qi, 'imageAlt', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Alt text" />
-                                        <label className="flex items-center justify-center px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg cursor-pointer text-sm text-slate-700 dark:text-slate-300">
-                                          <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
-                                            const file = e.target.files && e.target.files[0];
-                                            if (!file) return;
-                                            const url = await uploadImage(file);
-                                            if (url) updateCustomQuestion(qi, 'imageUrl', url);
-                                          }} />
-                                          Upload Image
-                                        </label>
+                                      <div className="space-y-3">
+                                        <RichTextEditor
+                                          value={q.question}
+                                          onChange={(html) => updateCustomQuestion(qi, 'question', html)}
+                                          placeholder="Enter question (supports formatting, images, tables)"
+                                          minHeight={100}
+                                          simplified={false}
+                                          enableImageUpload={true}
+                                          enableTables={true}
+                                        />
+                                        <div className="flex items-center gap-3">
+                                          <label className="text-sm text-slate-600 dark:text-slate-300">Marks:</label>
+                                          <input type="number" value={q.marks} onChange={(e) => updateCustomQuestion(qi, 'marks', parseInt(e.target.value))} className="w-24 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Marks" min="0" />
+                                        </div>
                                       </div>
                                       <div className="space-y-2 mt-2">
                                         <div className="flex items-center space-x-2">

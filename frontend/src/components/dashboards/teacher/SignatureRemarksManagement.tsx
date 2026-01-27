@@ -49,8 +49,16 @@ const SignatureRemarksManagement: React.FC<SignatureRemarksManagementProps> = ({
   const [showBulkSignatureModal, setShowBulkSignatureModal] = useState(false);
 
   useEffect(() => {
-    loadStudents();
+    // Load exam sessions first, then load students
+    loadExamSessionsAndStudents();
     loadRemarkTemplates();
+  }, []);
+
+  useEffect(() => {
+    // Reload students when exam session changes (but skip initial load)
+    if (selectedExamSession) {
+      loadStudents();
+    }
   }, [selectedExamSession]);
 
   useEffect(() => {
@@ -59,13 +67,40 @@ const SignatureRemarksManagement: React.FC<SignatureRemarksManagementProps> = ({
     }
   }, [profileData]);
 
-  const loadStudents = async () => {
+  const loadExamSessionsAndStudents = async () => {
     try {
       setIsLoading(true);
       setError(null);
 
+      // Import ResultService to get exam sessions
+      const ResultService = (await import('@/services/ResultService')).default;
+
+      // Fetch exam sessions and find the active one
+      const sessions = await ResultService.getExamSessions({ is_active: true });
+      console.log('Fetched exam sessions:', sessions);
+
+      if (sessions && sessions.length > 0) {
+        const activeSession = sessions[0]; // First session should be the active one
+        console.log('Setting active exam session:', activeSession.id);
+        setSelectedExamSession(activeSession.id);
+
+        // Now load students with the active session
+        await loadStudentsWithSession(activeSession.id);
+      } else {
+        setError('No active exam session found. Please contact your administrator to create an exam session.');
+        setIsLoading(false);
+      }
+    } catch (err: any) {
+      console.error('Error loading exam sessions:', err);
+      setError(err.message || 'Failed to load exam sessions');
+      setIsLoading(false);
+    }
+  };
+
+  const loadStudentsWithSession = async (examSessionId: string) => {
+    try {
       const data = await ProfessionalAssignmentService.getAssignedStudents({
-        exam_session: selectedExamSession || undefined,
+        exam_session: examSessionId,
       });
 
       console.log('Loaded students data:', data);
@@ -76,10 +111,6 @@ const SignatureRemarksManagement: React.FC<SignatureRemarksManagementProps> = ({
 
       setStudentsData(data);
 
-      if (!selectedExamSession && data.exam_session?.id) {
-        setSelectedExamSession(data.exam_session.id);
-      }
-
       if (data.students && data.students.length > 0 && data.students[0]?.education_level) {
         setEducationLevel(data.students[0].education_level);
       }
@@ -87,6 +118,24 @@ const SignatureRemarksManagement: React.FC<SignatureRemarksManagementProps> = ({
       console.error('Error loading students:', err);
       setError(err.response?.data?.error || err.message || 'Failed to load students');
     } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadStudents = async () => {
+    if (!selectedExamSession) {
+      console.warn('No exam session selected');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      await loadStudentsWithSession(selectedExamSession);
+    } catch (err: any) {
+      console.error('Error loading students:', err);
+      setError(err.response?.data?.error || err.message || 'Failed to load students');
       setIsLoading(false);
     }
   };

@@ -1,9 +1,11 @@
 from django.db import models
-from users.models import CustomUser
 from django.utils import timezone
 
+from tenants.models import TenantMixin
+from users.models import CustomUser
 
-class Message(models.Model):
+
+class Message(TenantMixin, models.Model):
     MESSAGE_TYPE_CHOICES = [
         ('in_app', 'In-App Message'),
         ('email', 'Email'),
@@ -79,7 +81,7 @@ class Message(models.Model):
         self.save(update_fields=['status', 'delivered_at'])
 
 
-class MessageTemplate(models.Model):
+class MessageTemplate(TenantMixin, models.Model):
     """Templates for common messages"""
     name = models.CharField(max_length=100)
     subject = models.CharField(max_length=255)
@@ -89,15 +91,15 @@ class MessageTemplate(models.Model):
     created_by = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name="messaging_templates")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
     def __str__(self):
         return self.name
-    
+
     class Meta:
         ordering = ['name']
 
 
-class BulkMessage(models.Model):
+class BulkMessage(TenantMixin, models.Model):
     """For sending messages to multiple recipients"""
     sender = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name="messaging_bulk_messages")
     subject = models.CharField(max_length=255)

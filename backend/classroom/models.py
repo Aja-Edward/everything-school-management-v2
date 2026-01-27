@@ -3,6 +3,7 @@ from django.conf import settings
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
 from academics.models import AcademicSession, Term
+from tenants.models import TenantMixin
 
 
 def get_current_date():
@@ -10,7 +11,7 @@ def get_current_date():
     return timezone.now().date()
 
 
-class GradeLevel(models.Model):
+class GradeLevel(TenantMixin, models.Model):
     """Educational grade levels (Nursery, Primary, Secondary)"""
 
     EDUCATION_LEVELS = [
@@ -33,13 +34,13 @@ class GradeLevel(models.Model):
     class Meta:
         db_table = "classroom_gradelevely"  # ADD THIS LINE to match existing table
         ordering = ["education_level", "order"]
-        unique_together = ["education_level", "order"]
+        unique_together = ["tenant", "education_level", "order"]
 
     def __str__(self):
         return self.name
 
 
-class Section(models.Model):
+class Section(TenantMixin, models.Model):
     """Class sections within a grade level"""
 
     name = models.CharField(max_length=50)
@@ -51,14 +52,14 @@ class Section(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ["grade_level", "name"]
+        unique_together = ["tenant", "grade_level", "name"]
         ordering = ["grade_level", "name"]
 
     def __str__(self):
         return f"{self.grade_level.name} - Section {self.name}"
 
 
-class Stream(models.Model):
+class Stream(TenantMixin, models.Model):
     """Stream model for Senior Secondary education (Science, Arts, Commercial, Technical)"""
 
     STREAM_CHOICES = [
@@ -69,7 +70,7 @@ class Stream(models.Model):
     ]
 
     name = models.CharField(max_length=50)
-    code = models.CharField(max_length=10, unique=True)
+    code = models.CharField(max_length=10)
     stream_type = models.CharField(max_length=20, choices=STREAM_CHOICES)
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
@@ -78,12 +79,13 @@ class Stream(models.Model):
 
     class Meta:
         ordering = ["stream_type", "name"]
+        unique_together = ["tenant", "code"]
 
     def __str__(self):
         return f"{self.name} ({self.get_stream_type_display()})"
 
 
-class Classroom(models.Model):
+class Classroom(TenantMixin, models.Model):
     """Main classroom model linking all components"""
 
     name = models.CharField(max_length=100)
@@ -143,7 +145,7 @@ class Classroom(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = [("section", "academic_session", "term", "name")]
+        unique_together = [("tenant", "section", "academic_session", "term", "name")]
         ordering = ["section__grade_level", "section__name", "academic_session"]
 
     @property
@@ -168,7 +170,7 @@ class Classroom(models.Model):
         return max(0, self.max_capacity - self.current_enrollment)
 
 
-class ClassroomTeacherAssignment(models.Model):
+class ClassroomTeacherAssignment(TenantMixin, models.Model):
     """Teacher assignment to classroom for specific subjects"""
     classroom = models.ForeignKey(Classroom, on_delete=models.CASCADE)
     teacher = models.ForeignKey(
@@ -198,7 +200,7 @@ class ClassroomTeacherAssignment(models.Model):
         return f"{self.teacher} - {self.subject} ({self.classroom})"
 
 
-class StudentEnrollment(models.Model):
+class StudentEnrollment(TenantMixin, models.Model):
     """Student enrollment in classroom"""
 
     student = models.ForeignKey("students.Student", on_delete=models.CASCADE)
@@ -219,7 +221,7 @@ class StudentEnrollment(models.Model):
         return f"{self.student} enrolled in {self.classroom}"
 
 
-class ClassSchedule(models.Model):
+class ClassSchedule(TenantMixin, models.Model):
     """Class schedule/timetable"""
 
     DAYS_OF_WEEK = [

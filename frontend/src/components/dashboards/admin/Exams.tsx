@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Plus, Edit, Trash2, Printer, Download, X, FileText, Check, XCircle } from 'lucide-react';
+import { Plus, Edit, Trash2, Printer, Download, X, FileText, Check, XCircle, Upload } from 'lucide-react';
 import { ExamService, Exam, ExamCreateData } from '@/services/ExamService';
 import { useSettings } from '@/contexts/SettingsContext';
 import { toast } from 'react-hot-toast';
 import api from '@/services/api';
 import { safeExamData } from '@/utils/examDataUtils';
+import { ExamDocumentUploader } from '@/components/shared/ExamDocumentUploader';
 
 interface ExamsPageProps {
   searchTerm?: string;
@@ -96,6 +97,7 @@ const ExamsPage: React.FC<ExamsPageProps> = ({
   const [backendDataLoading, setBackendDataLoading] = useState(true);
 
   const [showExamModal, setShowExamModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [selectedExamForPrint, setSelectedExamForPrint] = useState<Exam | null>(null);
@@ -1348,37 +1350,46 @@ const ExamsPage: React.FC<ExamsPageProps> = ({
   // Show loading state while backend data is being loaded
   if (backendDataLoading) {
     return (
-      <div className="bg-white rounded-lg shadow-sm">
-        <div className="p-6 border-b">
+      <div>
+        <div className="p-4 border-b border-gray-200">
           <div className="flex justify-between items-center">
             <div>
-              <h2 className="text-xl font-semibold text-gray-900">Exam Management</h2>
-              <p className="text-gray-600">Create, edit, and manage exam papers</p>
+              <h2 className="text-lg font-semibold text-gray-900">Exam Management</h2>
+              <p className="text-sm text-gray-500">Create, edit, and manage exam papers</p>
             </div>
           </div>
         </div>
         <div className="p-8 text-center">
-          <div className="text-gray-400 text-lg">Loading exam data...</div>
+          <div className="text-sm text-gray-400">Loading exam data...</div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-sm">
-      <div className="p-6 border-b">
+    <div>
+      <div className="p-4 border-b border-gray-200">
         <div className="flex justify-between items-center">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900">Exam Management</h2>
-            <p className="text-gray-600">Create, edit, and manage exam papers</p>
+            <h2 className="text-lg font-semibold text-gray-900">Exam Management</h2>
+            <p className="text-sm text-gray-500">Create, edit, and manage exam papers</p>
           </div>
-          <button
-            onClick={() => setShowExamModal(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Create Exam
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center text-sm font-medium"
+            >
+              <Upload className="w-4 h-4 mr-2" />
+              Upload Exam
+            </button>
+            <button
+              onClick={() => setShowExamModal(true)}
+              className="bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-800 flex items-center text-sm font-medium"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Create Exam
+            </button>
+          </div>
         </div>
       </div>
       
@@ -2489,6 +2500,29 @@ const ExamsPage: React.FC<ExamsPageProps> = ({
               >
                 {approvalAction === 'approve' ? 'Approve' : 'Reject'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upload Exam Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <ExamDocumentUploader
+                onImport={(examData) => {
+                  // Populate the exam form with uploaded data
+                  setNewExam({
+                    ...newExam,
+                    ...examData,
+                  });
+                  setShowUploadModal(false);
+                  setShowExamModal(true);
+                  toast.success('Exam imported successfully! Please review and save.');
+                }}
+                onCancel={() => setShowUploadModal(false)}
+              />
             </div>
           </div>
         </div>

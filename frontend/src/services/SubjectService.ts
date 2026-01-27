@@ -140,7 +140,7 @@ class SubjectService {
 async getSubjects(params?: SubjectFilters): Promise<Subject[]> {
   try {
     console.log('🔍 [SubjectService] Fetching subjects with params:', params);
-    const response = await api.get('/api/subjects/', { params });
+    const response = await api.get('/api/subjects/', params);
     console.log('🔍 [SubjectService] Raw API response:', response);
     
     // api.get() returns parsed JSON directly, not wrapped in .data

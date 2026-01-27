@@ -174,8 +174,8 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
 
         // Fetch academic session and exam sessions in parallel
         const [sessionRes, examsRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/api/classrooms/academic-sessions/current/`, { headers }),
-          fetch(`${API_BASE_URL}/api/results/exam-sessions/`, { headers }),
+          fetch(`${API_BASE_URL}/classrooms/academic-sessions/current/`, { headers }),
+          fetch(`${API_BASE_URL}/results/exam-sessions/`, { headers }),
         ]);
 
         if (!sessionRes.ok) throw new Error('Failed to load current academic session');
@@ -185,7 +185,7 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
 
         // Fetch terms for current session
         const termsRes = await fetch(
-          `${API_BASE_URL}/api/classrooms/academic-sessions/${currentSession.id}/terms/`,
+          `${API_BASE_URL}/classrooms/academic-sessions/${currentSession.id}/terms/`,
           { headers }
         );
 
@@ -205,7 +205,7 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
         try {
           // Step 1: Fetch all grade levels
           const gradesRes = await fetch(
-            `${API_BASE_URL}/api/classrooms/results-portal/grades/`,
+            `${API_BASE_URL}/classrooms/results-portal/grades/`,
             { headers }
           );
           
@@ -239,7 +239,7 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
             
             // Get sections for this grade
             const sectionsRes = await fetch(
-              `${API_BASE_URL}/api/classrooms/results-portal/grades/${grade.id}/sections/`,
+              `${API_BASE_URL}/classrooms/results-portal/grades/${grade.id}/sections/`,
               { headers }
             );
             
@@ -258,7 +258,7 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
               console.log(`      📌 Section: ${section.name} (ID: ${section.id})`);
               
               const classroomsRes = await fetch(
-                `${API_BASE_URL}/api/classrooms/results-portal/sections/${section.id}/classrooms/`,
+                `${API_BASE_URL}/classrooms/results-portal/sections/${section.id}/classrooms/`,
                 { headers }
               );
 

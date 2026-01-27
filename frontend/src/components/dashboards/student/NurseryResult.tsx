@@ -28,7 +28,11 @@ export interface SubjectResult {
   max_marks_obtainable: number;
   mark_obtained: number;
   grade?: string;
-  position?: string;
+  /**
+   * Primary field for subject position.
+   * Use formatPosition from resultHelpers for consistent display.
+   */
+  subject_position?: number | null;
   is_passed?: boolean;
   physical_development_score?: number;
   physical_development?: 'EXCELLENT' | 'VERY GOOD' | 'GOOD' | 'FAIR';
@@ -47,9 +51,11 @@ export interface NurseryResultData {
   total_score: number;
   max_marks_obtainable: number;
   mark_obtained: number;
-  position?: string;
-  total_pupils?: string;
-  class_position: number;
+  /**
+   * Overall class position.
+   * Use formatPosition from resultHelpers for consistent display.
+   */
+  class_position?: number | null;
   total_students: number;
   attendance: {
     times_opened: number;
@@ -495,13 +501,15 @@ export default function NurseryResult({ data, showOnlyPublished = false }: Nurse
               <div className="flex items-center">
                 <span className="font-semibold text-slate-700 mr-2">POSITION:</span>
                 <span className="border-b border-indigo-300 flex-1 text-slate-800 font-medium pb-0.5">
-                  {data.position || "N/A"}
+                  {data.class_position !== null && data.class_position !== undefined
+                    ? `${data.class_position}${getOrdinalSuffix(data.class_position)}`
+                    : "N/A"}
                 </span>
               </div>
               <div className="flex items-center">
                 <span className="font-semibold text-slate-700 mr-2">TOTAL PUPILS:</span>
                 <span className="border-b border-indigo-300 flex-1 text-slate-800 font-medium pb-0.5">
-                  {data.total_pupils || "N/A"}
+                  {data.total_students || "N/A"}
                 </span>
               </div>
               <div className="flex items-center">
@@ -584,19 +592,9 @@ export default function NurseryResult({ data, showOnlyPublished = false }: Nurse
                       <td className="border border-slate-300 py-2 text-center">{result.percentage.toFixed(1)}%</td>
                       <td className="border border-slate-300 py-2 text-center font-bold">{result.calculated_grade}</td>
                       <td className="border border-slate-300 py-2 text-center">
-                        {(() => {
-                          if (result.position) {
-                            if (typeof result.position === 'string' && 
-                                (result.position.includes('st') || result.position.includes('nd') || 
-                                 result.position.includes('rd') || result.position.includes('th'))) {
-                              return result.position;
-                            } else if (typeof result.position === 'number') {
-                              return `${result.position}${getOrdinalSuffix(result.position)}`;
-                            }
-                            return result.position;
-                          }
-                          return 'N/A';
-                        })()}
+                        {result.subject_position !== null && result.subject_position !== undefined
+                          ? `${result.subject_position}${getOrdinalSuffix(result.subject_position)}`
+                          : 'N/A'}
                       </td>
                       <td className="border border-slate-300 py-2 px-2 text-center">{result.calculated_remark}</td>
                     </tr>

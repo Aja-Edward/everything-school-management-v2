@@ -47,6 +47,7 @@ from .serializers import (
     CustomTokenObtainPairSerializer,
     SimpleLoginSerializer,
 )
+from .cookie_auth import set_auth_cookies, clear_auth_cookies, refresh_access_token_from_cookie
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -174,7 +175,12 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
 
 class SimpleLoginView(APIView):
-    """Alternative simple login view"""
+    """
+    Login view that sets JWT tokens in httpOnly cookies.
+
+    In production (HTTPS): Cookies work cross-origin with SameSite=None; Secure=True
+    In development (HTTP): Tokens also returned in body for Authorization header fallback
+    """
 
     permission_classes = [permissions.AllowAny]
 
@@ -195,24 +201,36 @@ class SimpleLoginView(APIView):
             access_token["role"] = user.role
             access_token["is_staff"] = user.is_staff
 
-            return Response(
-                {
-                    "message": "Login successful",
+            # Build response data
+            response_data = {
+                "message": "Login successful",
+                "user": {
+                    "id": user.id,
+                    "email": user.email,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "role": getattr(user, "role", "user"),
+                    "is_superuser": user.is_superuser,
+                    "is_staff": user.is_staff,
+                    "is_active": user.is_active,
+                },
+            }
+
+            # In development, also include tokens in body for cross-origin HTTP support
+            if getattr(settings, 'AUTH_RETURN_TOKENS_IN_BODY', False):
+                response_data["tokens"] = {
                     "access": str(access_token),
                     "refresh": str(refresh),
-                    "user": {
-                        "id": user.id,
-                        "email": user.email,
-                        "first_name": user.first_name,
-                        "last_name": user.last_name,
-                        "role": getattr(user, "role", "user"),
-                        "is_superuser": user.is_superuser,
-                        "is_staff": user.is_staff,
-                        "is_active": user.is_active,
-                    },
-                },
-                status=status.HTTP_200_OK,
-            )
+                }
+
+            response = Response(response_data, status=status.HTTP_200_OK)
+
+            # Set tokens in httpOnly cookies (works in production with HTTPS)
+            set_auth_cookies(response, str(access_token), str(refresh))
+
+            logger.info(f"User {user.email} logged in successfully")
+            return response
+
         logger.error(f"Login serializer errors: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -289,7 +307,7 @@ def jwt_login_view(request):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def simple_login_view(request):
-    """Simple login view (function-based)"""
+    """Simple login view (function-based) with httpOnly cookie authentication"""
     serializer = SimpleLoginSerializer(data=request.data, context={"request": request})
     if serializer.is_valid():
         user = serializer.validated_data["user"]  # type: ignore
@@ -304,25 +322,106 @@ def simple_login_view(request):
         access["role"] = user.role
         access["is_staff"] = user.is_staff
 
-        return Response(
-            {
-                "refresh": str(refresh),
-                "access": str(access),
-                "user": {
-                    "id": user.id,
-                    "email": user.email,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "role": user.role,
-                    "is_superuser": user.is_superuser,
-                    "is_staff": user.is_staff,
-                    "is_active": user.is_active,
-                },
+        # Build response data
+        response_data = {
+            "message": "Login successful",
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "role": user.role,
+                "is_superuser": user.is_superuser,
+                "is_staff": user.is_staff,
+                "is_active": user.is_active,
             },
-            status=status.HTTP_200_OK,
-        )
+        }
+
+        # In development, also include tokens in body for cross-origin HTTP support
+        if getattr(settings, 'AUTH_RETURN_TOKENS_IN_BODY', False):
+            response_data["tokens"] = {
+                "access": str(access),
+                "refresh": str(refresh),
+            }
+
+        response = Response(response_data, status=status.HTTP_200_OK)
+
+        # Set tokens in httpOnly cookies
+        set_auth_cookies(response, str(access), str(refresh))
+        return response
 
     return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
+
+
+# ============== COOKIE AUTH ENDPOINTS ==============
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def refresh_token_view(request):
+    """
+    Refresh access token using the refresh token from httpOnly cookie.
+
+    This endpoint reads the refresh token from the cookie, generates
+    a new access token, and sets both tokens in new cookies.
+    """
+    new_access, new_refresh = refresh_access_token_from_cookie(request)
+
+    if new_access is None:
+        return Response(
+            {"error": "Invalid or expired refresh token"},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+
+    response = Response(
+        {"message": "Token refreshed successfully"},
+        status=status.HTTP_200_OK
+    )
+
+    set_auth_cookies(response, new_access, new_refresh)
+    return response
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def csrf_token_view(request):
+    """
+    Get a CSRF token for the frontend.
+
+    The CSRF token is needed for non-GET requests when using cookie authentication.
+    Django automatically sets the csrftoken cookie when this view is called.
+    """
+    from django.middleware.csrf import get_token
+
+    csrf_token = get_token(request)
+    return Response({"csrfToken": csrf_token}, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def auth_status_view(request):
+    """
+    Check if the user is authenticated (via cookie).
+
+    Returns user info if authenticated, 401 if not.
+    """
+    user = request.user
+    return Response(
+        {
+            "authenticated": True,
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "role": getattr(user, "role", "user"),
+                "is_superuser": user.is_superuser,
+                "is_staff": user.is_staff,
+                "is_active": user.is_active,
+            },
+        },
+        status=status.HTTP_200_OK,
+    )
 
 
 # ============== UTILITY VIEWS ==============
@@ -485,25 +584,33 @@ def list_admins(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def logout_view(request):
-    """Logout user by blacklisting refresh token"""
-    refresh_token = request.data.get("refresh")
-    if not refresh_token:
-        return Response(
-            {"error": "Refresh token is required."}, status=status.HTTP_400_BAD_REQUEST
-        )
+    """
+    Logout user by blacklisting refresh token and clearing cookies.
 
-    try:
-        token = RefreshToken(refresh_token)
-        token.blacklist()
-        return Response(
-            {"message": "Successfully logged out."}, status=status.HTTP_200_OK
-        )
-    except Exception as e:
-        logger.error(f"Logout error: {str(e)}")
-        return Response(
-            {"error": "Invalid or expired refresh token."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+    Supports both cookie-based and body-based refresh token submission.
+    """
+    # Try to get refresh token from cookie first, then from request body
+    refresh_token = request.COOKIES.get(settings.AUTH_COOKIE_REFRESH) or request.data.get("refresh")
+
+    response = Response(
+        {"message": "Successfully logged out."}, status=status.HTTP_200_OK
+    )
+
+    # Clear auth cookies regardless of token blacklisting result
+    clear_auth_cookies(response)
+
+    if refresh_token:
+        try:
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+            logger.info(f"User logged out, refresh token blacklisted")
+        except Exception as e:
+            # Log but don't fail - cookies are cleared anyway
+            logger.warning(f"Could not blacklist refresh token: {str(e)}")
+    else:
+        logger.info("Logout without refresh token - cookies cleared")
+
+    return response
 
 
 # ============== PASSWORD RESET ==============

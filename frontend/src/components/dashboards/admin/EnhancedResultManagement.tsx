@@ -264,27 +264,26 @@ const EnhancedResultManagement: React.FC<EnhancedResultRecordingProps> = ({ onRe
   }
 
   return (
-    <div className={`min-h-screen bg-gradient-to-b from-slate-50 to-white dark:from-gray-950 dark:to-gray-900 ${themeClasses.textPrimary}`}>
+    <div className="min-h-screen bg-gray-50 p-6">
       {/* Header */}
-      <div className={`sticky top-0 z-10 backdrop-blur supports-[backdrop-filter]:bg-white/70 dark:supports-[backdrop-filter]:bg-gray-800/60 border-b ${themeClasses.border}`}>
-        <div className="max-w-7xl mx-auto px-6 py-6">
-          <div className="flex items-center justify-between mb-2">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">Result Management</h1>
-              <p className={`text-sm ${themeClasses.textSecondary}`}>
-                Manage and track student results across all education levels
-              </p>
-            </div>
-            
-            {/* Add Result Button */}
-            <button
-              onClick={() => setShowAddForm(true)}
-              className={`px-6 py-3 rounded-lg font-semibold flex items-center ${themeClasses.buttonPrimary} transition-all duration-200 active:scale-[.98] shadow-sm`}
-            >
-              <Plus className="w-5 h-5 mr-2" />
-              Add Result
-            </button>
+      <div className="max-w-7xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-xl font-semibold text-gray-900">Result Management</h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Manage and track student results across all education levels
+            </p>
           </div>
+
+          {/* Add Result Button */}
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Add Result
+          </button>
+        </div>
 
           {/* Search and Filters */}
           <div className="flex flex-col lg:flex-row gap-4">

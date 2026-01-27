@@ -1378,7 +1378,7 @@
 
 import React, { useState, useEffect } from "react";
 import { ObjectiveQuestion, TheoryQuestion, PracticalQuestion, CustomSection } from "@/types/types";
-import RichTextEditor from "./RichTextEditor";
+import { RichTextEditor } from "@/components/shared/ExamEditor";
 import { ExamCreateData, Exam } from '@/services/ExamService';
 import QuestionSectionObjectives from "./QuestionSectionObjectives";
 import QuestionSectionTheory from "./QuestionSectionTheory";

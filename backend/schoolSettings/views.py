@@ -21,9 +21,10 @@ import cloudinary
 import cloudinary.uploader
 import logging
 
+# Multi-tenant imports
+from tenants.models import Tenant, TenantSettings
 
 from .models import (
-    SchoolSettings,
     SchoolAnnouncement,
     CommunicationSettings,
     Permission,
@@ -31,7 +32,6 @@ from .models import (
     UserRole,
 )
 from .serializers import (
-    SchoolSettingsSerializer,
     SchoolAnnouncementSerializer,
     CommunicationSettingsSerializer,
     PermissionSerializer,
@@ -88,7 +88,8 @@ logger = logging.getLogger(__name__)
 
 class SchoolSettingsDetail(APIView):
     """
-    Retrieve and update school settings
+    Retrieve and update school settings using multi-tenant TenantSettings.
+    The school name comes from Tenant.name, other settings from TenantSettings.
     """
 
     permission_classes = [PublicReadOnly]
@@ -99,29 +100,134 @@ class SchoolSettingsDetail(APIView):
             return [AllowAny()]
         return [IsAuthenticated(), IsAdminUser()]
 
+    def _get_tenant(self, request):
+        """Get tenant from request or authenticated user"""
+        # First try from middleware (subdomain/header)
+        tenant = getattr(request, 'tenant', None)
+
+        # Fall back to user's tenant if authenticated
+        if not tenant and request.user.is_authenticated:
+            tenant = getattr(request.user, 'tenant', None)
+
+        # Final fallback: get the first active tenant (for development/single-tenant mode)
+        if not tenant:
+            tenant = Tenant.objects.filter(is_active=True).first()
+
+        return tenant
+
+    def _build_settings_response(self, tenant, tenant_settings):
+        """Build the settings response combining Tenant and TenantSettings data"""
+        return {
+            # From Tenant model
+            "school_name": tenant.name,
+            "site_name": tenant.name,
+
+            # From TenantSettings model
+            "school_code": tenant_settings.school_code,
+            "school_motto": tenant_settings.school_motto,
+            "school_address": tenant_settings.address,
+            "address": tenant_settings.address,
+            "city": tenant_settings.city,
+            "state": tenant_settings.state,
+            "country": tenant_settings.country,
+            "postal_code": tenant_settings.postal_code,
+            "school_phone": tenant_settings.phone,
+            "phone": tenant_settings.phone,
+            "school_email": tenant_settings.email,
+            "email": tenant_settings.email,
+            "website": tenant_settings.website,
+
+            # Branding
+            "logo": tenant_settings.logo,
+            "logo_url": tenant_settings.logo,
+            "favicon": tenant_settings.favicon,
+            "favicon_url": tenant_settings.favicon,
+            "primary_color": tenant_settings.primary_color,
+            "secondary_color": tenant_settings.secondary_color,
+            "theme": tenant_settings.theme,
+            "typography": tenant_settings.typography,
+
+            # Academic
+            "academic_year": str(tenant_settings.current_session) if tenant_settings.current_session else "",
+            "current_term": str(tenant_settings.current_term) if tenant_settings.current_term else "",
+
+            # Localization
+            "timezone": tenant_settings.timezone,
+            "date_format": tenant_settings.date_format,
+            "language": tenant_settings.language,
+            "currency": tenant_settings.currency,
+
+            # Registration & User Settings
+            "allow_self_registration": tenant_settings.allow_student_registration,
+            "allow_student_registration": tenant_settings.allow_student_registration,
+            "allow_parent_registration": tenant_settings.allow_parent_registration,
+            "registration_approval_required": tenant_settings.registration_approval_required,
+            "default_user_role": tenant_settings.default_user_role,
+
+            # Security & Authentication
+            "email_verification_required": tenant_settings.require_email_verification,
+            "session_timeout": tenant_settings.session_timeout_minutes,
+            "max_login_attempts": tenant_settings.max_login_attempts,
+            "account_lock_duration": tenant_settings.account_lock_duration_minutes,
+
+            # Password Policy
+            "password_min_length": tenant_settings.password_min_length,
+            "password_reset_interval": tenant_settings.password_reset_interval_days,
+            "password_require_numbers": tenant_settings.password_require_numbers,
+            "password_require_symbols": tenant_settings.password_require_symbols,
+            "password_require_uppercase": tenant_settings.password_require_uppercase,
+            "password_expiration": tenant_settings.password_expiration_days,
+
+            # Profile Settings
+            "allow_profile_image_upload": tenant_settings.allow_profile_image_upload,
+            "profile_image_max_size": tenant_settings.profile_image_max_size_mb,
+
+            # Notifications
+            "notifications_enabled": tenant_settings.notifications_enabled,
+
+            # Portal Access
+            "student_portal_enabled": tenant_settings.student_portal_enabled,
+            "teacher_portal_enabled": tenant_settings.teacher_portal_enabled,
+            "parent_portal_enabled": tenant_settings.parent_portal_enabled,
+
+            # Result Settings
+            "show_position_on_result": tenant_settings.show_position_on_result,
+            "show_class_average_on_result": tenant_settings.show_class_average_on_result,
+            "require_token_for_result": tenant_settings.require_token_for_result,
+
+            # Timestamps
+            "created_at": tenant_settings.created_at.isoformat() if tenant_settings.created_at else None,
+            "updated_at": tenant_settings.updated_at.isoformat() if tenant_settings.updated_at else None,
+        }
+
     def get(self, request):
-        """Get current school settings with caching"""
+        """Get current school settings from TenantSettings"""
         try:
-            # Try to get from cache first (5 minute cache)
-            cache_key = "school_settings"
+            tenant = self._get_tenant(request)
+
+            if not tenant:
+                return Response(
+                    {"error": "No tenant found. Please ensure you're accessing via subdomain or are logged in."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Use tenant-specific cache key
+            cache_key = f"tenant_settings_{tenant.id}"
             cached_data = cache.get(cache_key)
 
             if cached_data:
                 return Response(cached_data)
 
-            # Get from database
-            settings = SchoolSettings.objects.first()
-            if not settings:
-                settings = SchoolSettings.objects.create()
+            # Get or create TenantSettings
+            tenant_settings, created = TenantSettings.objects.get_or_create(tenant=tenant)
 
-            serializer = SchoolSettingsSerializer(
-                settings, context={"request": request}
-            )
+            # Build response data
+            response_data = self._build_settings_response(tenant, tenant_settings)
 
             # Cache the response
-            cache.set(cache_key, serializer.data, 300)  # 5 minutes
+            cache.set(cache_key, response_data, 300)  # 5 minutes
 
-            return Response(serializer.data)
+            return Response(response_data)
 
         except Exception as e:
             logger.error(f"Failed to fetch settings: {str(e)}", exc_info=True)
@@ -132,48 +238,120 @@ class SchoolSettingsDetail(APIView):
 
     @transaction.atomic
     def put(self, request):
-        """Update school settings with better validation"""
+        """Update school settings in TenantSettings"""
         try:
-            settings = SchoolSettings.objects.first()
-            if not settings:
-                settings = SchoolSettings.objects.create()
+            tenant = self._get_tenant(request)
 
-            # Clean data - remove read-only fields
-            data = request.data.copy()
-            readonly_fields = [
-                "logo_url",
-                "favicon_url",
-                "logo",
-                "favicon",
-                "id",
-                "created_at",
-                "updated_at",
-            ]
-            for field in readonly_fields:
-                data.pop(field, None)
-
-            # Validate required fields
-            if "school_name" in data and not data["school_name"].strip():
+            if not tenant:
                 return Response(
-                    {"error": "School name cannot be empty"},
+                    {"error": "No tenant found. Please ensure you're accessing via subdomain or are logged in."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # Perform update
-            serializer = SchoolSettingsSerializer(
-                settings, data=data, partial=True, context={"request": request}
-            )
+            # Get or create TenantSettings
+            tenant_settings, created = TenantSettings.objects.get_or_create(tenant=tenant)
 
-            if serializer.is_valid():
-                serializer.save()
+            data = request.data.copy()
 
-                # Clear cache after update
-                cache.delete("school_settings")
+            # Update Tenant.name if school_name is provided
+            if "school_name" in data:
+                school_name = data.get("school_name", "").strip()
+                if not school_name:
+                    return Response(
+                        {"error": "School name cannot be empty"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                tenant.name = school_name
+                tenant.save(update_fields=['name'])
 
-                return Response(serializer.data)
-            else:
-                logger.warning(f"Settings validation failed: {serializer.errors}")
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            # Map frontend fields to TenantSettings fields
+            field_mapping = {
+                # School Information
+                "school_code": "school_code",
+                "school_motto": "school_motto",
+                "motto": "school_motto",
+                "address": "address",
+                "school_address": "address",
+                "city": "city",
+                "state": "state",
+                "country": "country",
+                "postal_code": "postal_code",
+                "phone": "phone",
+                "school_phone": "phone",
+                "email": "email",
+                "school_email": "email",
+                "website": "website",
+
+                # Branding
+                "primary_color": "primary_color",
+                "secondary_color": "secondary_color",
+                "theme": "theme",
+                "typography": "typography",
+
+                # Localization
+                "timezone": "timezone",
+                "date_format": "date_format",
+                "language": "language",
+                "currency": "currency",
+
+                # Registration & User Settings
+                "allow_self_registration": "allow_student_registration",
+                "allow_student_registration": "allow_student_registration",
+                "allow_parent_registration": "allow_parent_registration",
+                "registration_approval_required": "registration_approval_required",
+                "default_user_role": "default_user_role",
+
+                # Security & Authentication
+                "email_verification_required": "require_email_verification",
+                "session_timeout": "session_timeout_minutes",
+                "max_login_attempts": "max_login_attempts",
+                "account_lock_duration": "account_lock_duration_minutes",
+
+                # Password Policy
+                "password_min_length": "password_min_length",
+                "password_reset_interval": "password_reset_interval_days",
+                "password_require_numbers": "password_require_numbers",
+                "password_require_symbols": "password_require_symbols",
+                "password_require_uppercase": "password_require_uppercase",
+                "password_expiration": "password_expiration_days",
+
+                # Profile Settings
+                "allow_profile_image_upload": "allow_profile_image_upload",
+                "profile_image_max_size": "profile_image_max_size_mb",
+
+                # Notifications
+                "notifications_enabled": "notifications_enabled",
+
+                # Portal Access
+                "student_portal_enabled": "student_portal_enabled",
+                "teacher_portal_enabled": "teacher_portal_enabled",
+                "parent_portal_enabled": "parent_portal_enabled",
+
+                # Result Settings
+                "show_position_on_result": "show_position_on_result",
+                "show_class_average_on_result": "show_class_average_on_result",
+                "require_token_for_result": "require_token_for_result",
+            }
+
+            # Update TenantSettings fields
+            updated_fields = []
+            for frontend_field, model_field in field_mapping.items():
+                if frontend_field in data:
+                    value = data[frontend_field]
+                    setattr(tenant_settings, model_field, value)
+                    if model_field not in updated_fields:
+                        updated_fields.append(model_field)
+
+            if updated_fields:
+                tenant_settings.save(update_fields=updated_fields + ['updated_at'])
+
+            # Clear cache
+            cache.delete(f"tenant_settings_{tenant.id}")
+
+            # Build and return response
+            response_data = self._build_settings_response(tenant, tenant_settings)
+
+            return Response(response_data)
 
         except Exception as e:
             logger.error(f"Failed to update settings: {str(e)}", exc_info=True)
@@ -340,24 +518,26 @@ def upload_logo(request):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        # Update database - CRITICAL FIX
+        # Update database - Using TenantSettings
         try:
+            # Get tenant from user
+            tenant = getattr(request.user, 'tenant', None)
+            if not tenant:
+                return Response(
+                    {"error": "No tenant found for user."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             with transaction.atomic():
-                # settings, created = SchoolSettings.objects.get_or_create(pk=1)
-                settings = SchoolSettings.objects.first()
-                if not settings:
-                    return Response(
-                        {"error": "No SchoolSettings record found."},
-                        status=status.HTTP_404_NOT_FOUND,
-                    )
-                settings.logo = logo_url
-                # CRITICAL: Only update logo field to avoid querying missing columns
-                settings.save(update_fields=["logo", "updated_at"])
+                # Get or create TenantSettings
+                tenant_settings, created = TenantSettings.objects.get_or_create(tenant=tenant)
+                tenant_settings.logo = logo_url
+                tenant_settings.save(update_fields=["logo", "updated_at"])
 
             logger.info(f"Logo URL saved to database: {logo_url}")
 
             # Clear cache
-            cache.delete("school_settings")
+            cache.delete(f"tenant_settings_{tenant.id}")
 
             return Response(
                 {
@@ -467,31 +647,31 @@ def upload_favicon(request):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        # Update database - CRITICAL FIX
+        # Update database - Using TenantSettings
         try:
-            from datetime import datetime
+            # Get tenant from user
+            tenant = getattr(request.user, 'tenant', None)
+            if not tenant:
+                return Response(
+                    {"error": "No tenant found for user."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             with transaction.atomic():
-
-                settings = SchoolSettings.objects.first()
-                if not settings:
-                    return Response(
-                        {"error": "No SchoolSettings record found."},
-                        status=status.HTTP_404_NOT_FOUND,
-                    )
+                # Get or create TenantSettings
+                tenant_settings, created = TenantSettings.objects.get_or_create(tenant=tenant)
                 logger.info(
                     f"🔍 About to save favicon URL (length: {len(favicon_url)})"
                 )
                 logger.info(f"🔍 Favicon URL being saved: {favicon_url}")
 
-                settings.favicon = favicon_url
-                # CRITICAL: Only update favicon field to avoid triggering NOT NULL constraints on other fields
-                settings.save(update_fields=["favicon"])
+                tenant_settings.favicon = favicon_url
+                tenant_settings.save(update_fields=["favicon", "updated_at"])
 
             logger.info(f"✅ Favicon URL saved to database: {favicon_url}")
 
             # Clear cache
-            cache.delete("school_settings")
+            cache.delete(f"tenant_settings_{tenant.id}")
 
             return Response(
                 {
@@ -1369,90 +1549,6 @@ def force_migrate(request):
         return Response({"status": "Migrations applied successfully ✅"})
     except Exception as e:
         return Response({"error": str(e)})
-
-
-@api_view(["POST"])
-@parser_classes([MultiPartParser, FormParser])
-@permission_classes([IsAuthenticated, IsAdminUser])
-def upload_logo(request):
-    """Upload school logo to Cloudinary"""
-    try:
-        if "logo" not in request.FILES:
-            return Response(
-                {"error": "No logo file provided. Expected field name: logo"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        uploaded_file = request.FILES["logo"]
-
-        # Validate file type
-        allowed_types = ["image/jpeg", "image/png", "image/gif", "image/svg+xml"]
-        if uploaded_file.content_type not in allowed_types:
-            return Response(
-                {
-                    "error": f'Invalid file type: {uploaded_file.content_type}. Allowed: {", ".join(allowed_types)}'
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Validate file size (max 5MB)
-        if uploaded_file.size > 5 * 1024 * 1024:
-            return Response(
-                {"error": "File size too large. Maximum size is 5MB"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Upload to Cloudinary
-        try:
-            upload_result = cloudinary.uploader.upload(
-                uploaded_file,
-                folder="school_logos",  # Organize in a folder
-                resource_type="image",
-                transformation=[
-                    {
-                        "width": 500,
-                        "height": 500,
-                        "crop": "limit",
-                    },  # Resize if too large
-                    {"quality": "auto:good"},  # Optimize quality
-                ],
-            )
-
-            logo_url = upload_result.get("secure_url")
-
-            if not logo_url:
-                raise Exception("Failed to get Cloudinary URL")
-
-        except Exception as cloudinary_error:
-            return Response(
-                {"error": f"Cloudinary upload failed: {str(cloudinary_error)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        # Get or create settings instance
-        settings = SchoolSettings.objects.first()
-        if not settings:
-            settings = SchoolSettings.objects.create()
-
-        # Save the Cloudinary URL to the database
-        settings.logo = logo_url
-        settings.save()
-
-        return Response(
-            {"logoUrl": logo_url, "message": "Logo uploaded successfully"},
-            status=status.HTTP_201_CREATED,
-        )
-
-    except Exception as e:
-        import traceback
-
-        return Response(
-            {
-                "error": f"Failed to upload logo: {str(e)}",
-                "traceback": traceback.format_exc(),
-            },
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
 
 
 class SchoolAnnouncementViewSet(viewsets.ModelViewSet):

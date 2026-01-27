@@ -6,6 +6,13 @@ from .views import (
     ExamRegistrationViewSet,
     ResultViewSet,
     ExamStatisticsViewSet,
+    QuestionBankViewSet,
+    ExamTemplateViewSet,
+    ExamReviewViewSet,
+)
+from .document_views import (
+    parse_exam_document,
+    document_parser_status,
 )
 
 # Create router for ViewSets
@@ -15,6 +22,9 @@ router.register(r"schedules", ExamScheduleViewSet, basename="exam-schedule")
 router.register(r"registrations", ExamRegistrationViewSet, basename="exam-registration")
 router.register(r"results", ResultViewSet, basename="result")
 router.register(r"statistics", ExamStatisticsViewSet, basename="exam-statistics")
+router.register(r"question-bank", QuestionBankViewSet, basename="question-bank")
+router.register(r"exam-templates", ExamTemplateViewSet, basename="exam-template")
+router.register(r"exam-reviews", ExamReviewViewSet, basename="exam-review")
 
 # Custom URL patterns for specific exam endpoints
 custom_patterns = [
@@ -267,6 +277,17 @@ custom_patterns = [
         "export/exam-timetable/<int:schedule_id>/",
         ExamViewSet.as_view({"get": "export_timetable"}),
         name="export-timetable",
+    ),
+    # Document upload and parsing
+    path(
+        "parse-document/",
+        parse_exam_document,
+        name="parse-exam-document",
+    ),
+    path(
+        "parser-status/",
+        document_parser_status,
+        name="document-parser-status",
     ),
 ]
 

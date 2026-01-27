@@ -71,10 +71,10 @@ class StreamConfigurationService {
     }
   }
 
-  // Get stream configurations for a school
-  async getStreamConfigurations(schoolId: number): Promise<StreamConfiguration[]> {
+  // Get stream configurations for current tenant
+  async getStreamConfigurations(): Promise<StreamConfiguration[]> {
     try {
-      const response = await api.get(`/api/subjects/stream-configurations/?school_id=${schoolId}`);
+      const response = await api.get('/api/subjects/stream-configurations/');
       console.log('🔍 Configurations API response:', response);
       console.log('🔍 Configurations response.data:', response.data);
       console.log('🔍 Configurations response.data type:', typeof response.data);
@@ -165,10 +165,10 @@ class StreamConfigurationService {
     }
   }
 
-  // Get stream configuration summary
-  async getStreamConfigurationSummary(schoolId: number): Promise<any> {
+  // Get stream configuration summary for current tenant
+  async getStreamConfigurationSummary(): Promise<any> {
     try {
-      const response = await api.get(`/api/subjects/stream-configurations/summary/?school_id=${schoolId}`);
+      const response = await api.get('/api/subjects/stream-configurations/summary/');
       return response.data;
     } catch (error) {
       console.error('Error fetching stream configuration summary:', error);
@@ -176,12 +176,10 @@ class StreamConfigurationService {
     }
   }
 
-  // Setup default configurations
-  async setupDefaultConfigurations(schoolId: number): Promise<any> {
+  // Setup default configurations for current tenant
+  async setupDefaultConfigurations(): Promise<any> {
     try {
-      const response = await api.post('/api/subjects/stream-configurations/setup_defaults/', {
-        school_id: schoolId
-      });
+      const response = await api.post('/api/subjects/stream-configurations/setup_defaults/', {});
       return response.data;
     } catch (error) {
       console.error('Error setting up default configurations:', error);

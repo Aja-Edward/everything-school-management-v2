@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, BookOpen, Calendar, Loader2, Trophy, Clock, AlertCircle, DollarSign, TrendingUp, Bell, CheckCircle, XCircle, Target, GraduationCap, BookA, MessageSquare } from 'lucide-react';
+import { Users, BookOpen, Calendar, Loader2, Trophy, Clock, AlertCircle, TrendingUp, Bell, CheckCircle, Target, GraduationCap, MessageSquare, ChevronRight } from 'lucide-react';
 import StudentService from '@/services/StudentService';
 
 interface DashboardData {
@@ -114,10 +114,10 @@ const DashboardContent = () => {
 
   if (loading) {
     return (
-      <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 shadow-xl border border-gray-100 dark:border-slate-700">
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-          <span className="ml-2 text-gray-600 dark:text-slate-300">Loading dashboard...</span>
+      <div className="bg-white dark:bg-gray-900 rounded-2xl p-8 shadow-sm border border-gray-200 dark:border-gray-800">
+        <div className="flex flex-col items-center justify-center h-64">
+          <div className="w-12 h-12 border-3 border-blue-600 border-t-transparent rounded-full animate-spin mb-4" />
+          <span className="text-gray-600 dark:text-gray-400 font-medium text-sm">Loading dashboard...</span>
         </div>
       </div>
     );
@@ -125,13 +125,16 @@ const DashboardContent = () => {
 
   if (error) {
     return (
-      <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 shadow-xl border border-gray-100 dark:border-slate-700">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl p-8 shadow-sm border border-gray-200 dark:border-gray-800">
         <div className="text-center">
-          <div className="text-red-600 text-lg font-semibold mb-2">Error</div>
-          <p className="text-gray-600 dark:text-slate-300">{error}</p>
-          <button 
-            onClick={() => window.location.reload()} 
-            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          <div className="w-16 h-16 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <AlertCircle className="w-8 h-8 text-red-600 dark:text-red-400" />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Error Loading Dashboard</h3>
+          <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 font-medium text-sm"
           >
             Retry
           </button>
@@ -143,11 +146,14 @@ const DashboardContent = () => {
   // Check if dashboardData exists and has required properties
   if (!dashboardData || !dashboardData.student_info || !dashboardData.statistics) {
     return (
-      <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 shadow-xl border border-gray-100 dark:border-slate-700">
-        <div className="text-center">
-          <AlertCircle className="mx-auto text-gray-400 mb-4" size={48} />
-          <p className="text-gray-600 dark:text-slate-300">No dashboard data available</p>
-          <p className="text-sm text-gray-400 mt-2">Please contact your administrator</p>
+      <div className="bg-white dark:bg-gray-900 rounded-2xl p-8 shadow-sm border border-gray-200 dark:border-gray-800">
+        <div className="text-center py-8">
+          <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
+            <AlertCircle className="w-8 h-8 text-gray-400" />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No Dashboard Data</h3>
+          <p className="text-gray-600 dark:text-gray-400 text-sm">No dashboard data available</p>
+          <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">Please contact your administrator</p>
         </div>
       </div>
     );
@@ -158,432 +164,282 @@ const DashboardContent = () => {
   const statistics = dashboardData.statistics || {};
   const recentActivities = dashboardData.recent_activities || [];
   const announcements = dashboardData.announcements || [];
-  const upcomingEvents = dashboardData.upcoming_events || [];
   const academicCalendar = dashboardData.academic_calendar || [];
 
-  const getActivityIcon = (type: string) => {
-    switch (type) {
-      case 'result':
-        return <div className="w-2 h-2 bg-blue-600 rounded-full"></div>;
-      case 'attendance':
-        return <div className="w-2 h-2 bg-green-600 rounded-full"></div>;
-      default:
-        return <div className="w-2 h-2 bg-purple-600 rounded-full"></div>;
-    }
-  };
-
   return (
-    <div className="space-y-8">
-      {/* Welcome Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-3xl p-8 text-white">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">
+    <div className="space-y-6">
+      {/* Welcome Header - Simple and Clean */}
+      <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 shadow-sm border border-gray-200 dark:border-gray-800">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="flex-1">
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white mb-1">
               Welcome back, {studentInfo.name || 'Student'}!
             </h1>
-            <p className="text-blue-100 text-lg">
+            <p className="text-gray-600 dark:text-gray-400 text-sm md:text-base">
               {studentInfo.class || 'N/A'} • {studentInfo.education_level || 'N/A'}
             </p>
-            {studentInfo.admission_date && (
-              <p className="text-blue-200 text-sm mt-1">
-                Admitted: {new Date(studentInfo.admission_date).toLocaleDateString()}
-              </p>
-            )}
           </div>
-          <div className="text-right">
-            <p className="text-blue-100">Student ID</p>
-            <p className="text-xl font-semibold">{studentInfo.registration_number || 'N/A'}</p>
-            <div className="mt-4 text-center">
-              <div className="bg-white/20 rounded-lg px-4 py-2">
-                <p className="text-sm text-blue-100">Today</p>
-                <p className="text-lg font-semibold">{new Date().toLocaleDateString()}</p>
-              </div>
+          <div className="flex gap-3">
+            <div className="px-4 py-2 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">Student ID</p>
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">{studentInfo.registration_number || 'N/A'}</p>
+            </div>
+            <div className="px-4 py-2 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">Date</p>
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">{new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Key Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-lg border border-gray-100 dark:border-slate-700">
+      {/* Key Metrics Grid - Minimal Color */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-800 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-              <Trophy className="text-blue-600 dark:text-blue-400" size={24} />
+            <div className="p-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
+              <Trophy className="text-gray-700 dark:text-gray-300" size={20} />
             </div>
-            <span className="text-green-600 dark:text-green-400 text-sm font-medium">↗ +5.2%</span>
           </div>
-          <h3 className="text-2xl font-bold text-gray-800 dark:text-slate-100">
+          <h3 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
             {statistics.performance?.average_score || 0}%
           </h3>
-          <p className="text-sm text-gray-600 dark:text-slate-400">Overall GPA</p>
-          <div className="mt-2 bg-blue-200 dark:bg-blue-900/30 rounded-full h-2">
-            <div 
-              className="bg-blue-600 dark:bg-blue-500 h-2 rounded-full" 
+          <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">Overall Performance</p>
+          <div className="mt-3 bg-gray-200 dark:bg-gray-800 rounded-full h-1.5">
+            <div
+              className="bg-gray-900 dark:bg-white h-1.5 rounded-full transition-all duration-500"
               style={{ width: `${statistics.performance?.average_score || 0}%` }}
             ></div>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-lg border border-gray-100 dark:border-slate-700">
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-800 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-lg">
-              <Clock className="text-green-600 dark:text-green-400" size={24} />
+            <div className="p-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
+              <Clock className="text-gray-700 dark:text-gray-300" size={20} />
             </div>
-            <span className="text-red-600 dark:text-red-400 text-sm font-medium">↓ -2.1%</span>
           </div>
-          <h3 className="text-2xl font-bold text-gray-800 dark:text-slate-100">
+          <h3 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
             {statistics.attendance?.rate || 0}%
           </h3>
-          <p className="text-sm text-gray-600 dark:text-slate-400">Attendance Rate</p>
-          <div className="mt-2 bg-green-200 dark:bg-green-900/30 rounded-full h-2">
-            <div 
-              className="bg-green-600 dark:bg-green-500 h-2 rounded-full" 
+          <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">Attendance Rate</p>
+          <div className="mt-3 bg-gray-200 dark:bg-gray-800 rounded-full h-1.5">
+            <div
+              className="bg-gray-900 dark:bg-white h-1.5 rounded-full transition-all duration-500"
               style={{ width: `${statistics.attendance?.rate || 0}%` }}
             ></div>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-lg border border-gray-100 dark:border-slate-700">
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-800 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
-              <BookOpen className="text-purple-600 dark:text-purple-400" size={24} />
+            <div className="p-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
+              <BookOpen className="text-gray-700 dark:text-gray-300" size={20} />
             </div>
-            <span className="text-blue-600 dark:text-blue-400 text-sm font-medium">Active</span>
           </div>
-          <h3 className="text-2xl font-bold text-gray-800 dark:text-slate-100">
+          <h3 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
             {statistics.subjects?.count || 0}
           </h3>
-          <p className="text-sm text-gray-600 dark:text-slate-400">Enrolled Subjects</p>
-          <p className="text-xs text-purple-600 dark:text-purple-400 mt-1">3 pending assignments</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">Enrolled Subjects</p>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-lg border border-gray-100 dark:border-slate-700">
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-800 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
-              <Target className="text-orange-600 dark:text-orange-400" size={24} />
+            <div className="p-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
+              <Calendar className="text-gray-700 dark:text-gray-300" size={20} />
             </div>
-            <span className="text-orange-600 dark:text-orange-400 text-sm font-medium">Rank #12</span>
           </div>
-          <h3 className="text-2xl font-bold text-gray-800 dark:text-slate-100">8.5/10</h3>
-          <p className="text-sm text-gray-600 dark:text-slate-400">Class Position</p>
-          <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">Top 15% of class</p>
+          <h3 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+            {statistics.schedule?.classes_today || 0}
+          </h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">Classes Today</p>
         </div>
       </div>
 
       {/* Today's Schedule & Announcements */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Today's Schedule */}
-        <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-lg border border-gray-100 dark:border-slate-700">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-gray-800 dark:text-slate-100 flex items-center">
-              <Calendar className="mr-2 text-blue-600 dark:text-blue-400" size={20} />
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-800">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
+              <Calendar className="mr-2 text-gray-700 dark:text-gray-300" size={20} />
               Today's Schedule
             </h3>
-            <span className="text-sm text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-3 py-1 rounded-full">
+            <span className="text-xs text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2.5 py-1 rounded-md font-medium">
               {statistics.schedule?.classes_today || 0} classes
             </span>
           </div>
-          <div className="space-y-4">
+          <div className="space-y-3">
             {dashboardData.today_schedule && dashboardData.today_schedule.length > 0 ? (
-              dashboardData.today_schedule.map((scheduleItem: any, index: number) => {
-                const timeColors = ['bg-blue-600', 'bg-green-600', 'bg-purple-600', 'bg-orange-600'];
-                const bgColors = ['bg-blue-50 dark:bg-blue-900/20', 'bg-gray-50 dark:bg-slate-700/50'];
-                return (
-                  <div key={index} className={`flex items-center p-3 ${bgColors[index % 2]} rounded-lg`}>
-                    <div className={`w-12 h-12 ${timeColors[index % timeColors.length]} dark:opacity-90 rounded-lg flex items-center justify-center text-white font-semibold text-xs`}>
-                      {scheduleItem.start_time?.substring(0, 5) || '00:00'}
-                    </div>
-                    <div className="ml-4 flex-1">
-                      <p className="font-medium text-gray-800 dark:text-slate-100">{scheduleItem.subject_name || 'Unknown'}</p>
-                      <p className="text-sm text-gray-600 dark:text-slate-400">
-                        {scheduleItem.classroom_name || 'TBA'} • {scheduleItem.teacher_name || 'TBA'}
-                      </p>
-                    </div>
-                    <div className={`${scheduleItem.is_completed ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}`}>
-                      {scheduleItem.is_completed ? <CheckCircle size={20} /> : <Clock size={20} />}
-                    </div>
+              dashboardData.today_schedule.slice(0, 5).map((scheduleItem: any, index: number) => (
+                <div key={index} className="flex items-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <div className="w-14 h-14 bg-gray-900 dark:bg-white rounded-lg flex flex-col items-center justify-center text-white dark:text-gray-900 font-semibold flex-shrink-0">
+                    <span className="text-xs">{scheduleItem.start_time?.substring(0, 5) || '00:00'}</span>
                   </div>
-                );
-              })
+                  <div className="ml-3 flex-1 min-w-0">
+                    <p className="font-medium text-gray-900 dark:text-white text-sm truncate">{scheduleItem.subject_name || 'Unknown'}</p>
+                    <p className="text-xs text-gray-600 dark:text-gray-400 truncate">
+                      {scheduleItem.classroom_name || 'TBA'} • {scheduleItem.teacher_name || 'TBA'}
+                    </p>
+                  </div>
+                  {scheduleItem.is_completed && (
+                    <CheckCircle className="text-gray-400 flex-shrink-0 ml-2" size={18} />
+                  )}
+                </div>
+              ))
             ) : (
-              <div className="text-center py-8">
-                <Calendar className="mx-auto text-gray-400 mb-4" size={48} />
-                <p className="text-gray-500 dark:text-slate-400">No classes scheduled for today</p>
-                <p className="text-sm text-gray-400 dark:text-slate-500">Enjoy your day!</p>
+              <div className="text-center py-12">
+                <Calendar className="mx-auto text-gray-300 dark:text-gray-700 mb-3" size={40} />
+                <p className="text-gray-500 dark:text-gray-400 text-sm font-medium">No classes scheduled for today</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Enjoy your day!</p>
               </div>
             )}
           </div>
         </div>
 
-        {/* Announcements & Notifications */}
-        <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-lg border border-gray-100 dark:border-slate-700">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-gray-800 dark:text-slate-100 flex items-center">
-              <Bell className="mr-2 text-orange-600 dark:text-orange-400" size={20} />
+        {/* Announcements */}
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-800">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
+              <Bell className="mr-2 text-gray-700 dark:text-gray-300" size={20} />
               Announcements
             </h3>
-            <span className="text-sm text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/30 px-3 py-1 rounded-full">
+            <span className="text-xs text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2.5 py-1 rounded-md font-medium">
               {announcements.length} new
             </span>
           </div>
-          <div className="space-y-4">
-            {announcements.length > 0 ? (
-              announcements.map((announcement) => {
-                const getTypeColor = (type: string) => {
-                  switch (type) {
-                    case 'emergency':
-                      return 'border-red-500 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400';
-                    case 'academic':
-                      return 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400';
-                    case 'event':
-                      return 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400';
-                    default:
-                      return 'border-gray-500 bg-gray-50 dark:bg-slate-700/50 text-gray-700 dark:text-slate-300';
-                  }
-                };
-                
-                const getTypeIcon = (type: string) => {
-                  switch (type) {
-                    case 'emergency':
-                      return <AlertCircle className="text-red-500 dark:text-red-400 mr-2" size={16} />;
-                    case 'academic':
-                      return <BookA className="text-blue-500 dark:text-blue-400 mr-2" size={16} />;
-                    case 'event':
-                      return <Trophy className="text-green-500 dark:text-green-400 mr-2" size={16} />;
-                    default:
-                      return <Bell className="text-gray-500 dark:text-gray-400 mr-2" size={16} />;
-                  }
-                };
-                
-                const getTypeLabel = (type: string) => {
-                  switch (type) {
-                    case 'emergency':
-                      return 'Important';
-                    case 'academic':
-                      return 'Academic';
-                    case 'event':
-                      return 'Event';
-                    default:
-                      return 'General';
-                  }
-                };
-                
-                return (
-                  <div key={announcement.id} className={`border-l-4 p-4 rounded-r-lg ${getTypeColor(announcement.type)}`}>
-                    <div className="flex items-center mb-2">
-                      {getTypeIcon(announcement.type)}
-                      <span className="text-sm font-medium">{getTypeLabel(announcement.type)}</span>
-                      {announcement.is_pinned && (
-                        <span className="ml-2 text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-400 px-2 py-1 rounded-full">
-                          Pinned
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm mb-1">{announcement.content}</p>
-                    <p className="text-xs opacity-75">{announcement.time_ago}</p>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="text-center py-8">
-                <Bell className="mx-auto text-gray-400 mb-4" size={48} />
-                <p className="text-gray-500 dark:text-slate-400">No announcements at the moment</p>
-                <p className="text-sm text-gray-400 dark:text-slate-500">Check back later for updates</p>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Actions & Academic Progress */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Quick Actions */}
-        <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-lg border border-gray-100 dark:border-slate-700">
-          <h3 className="text-lg font-semibold text-gray-800 dark:text-slate-100 mb-6">Quick Actions</h3>
           <div className="space-y-3">
-            <button className="w-full flex items-center p-3 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors">
-              <GraduationCap className="text-blue-600 dark:text-blue-400 mr-3" size={20} />
-              <span className="text-blue-800 dark:text-blue-300 font-medium">View Results (Portal)</span>
-            </button>
-            <button className="w-full flex items-center p-3 bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-lg transition-colors">
-              <Calendar className="text-green-600 dark:text-green-400 mr-3" size={20} />
-              <span className="text-green-800 dark:text-green-300 font-medium">Check Attendance</span>
-            </button>
-            <button className="w-full flex items-center p-3 bg-purple-50 dark:bg-purple-900/20 hover:bg-purple-100 dark:hover:bg-purple-900/30 rounded-lg transition-colors">
-              <BookOpen className="text-purple-600 dark:text-purple-400 mr-3" size={20} />
-              <span className="text-purple-800 dark:text-purple-300 font-medium">Assignments</span>
-            </button>
-            <button className="w-full flex items-center p-3 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/30 rounded-lg transition-colors">
-              <DollarSign className="text-orange-600 dark:text-orange-400 mr-3" size={20} />
-              <span className="text-orange-800 dark:text-orange-300 font-medium">Fee Payment</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Academic Progress */}
-        <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-xl p-6 shadow-lg border border-gray-100 dark:border-slate-700">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-gray-800 dark:text-slate-100 flex items-center">
-              <TrendingUp className="mr-2 text-green-600 dark:text-green-400" size={20} />
-              Academic Progress
-            </h3>
-            <span className="text-sm text-gray-500 dark:text-slate-400">Current Term</span>
-          </div>
-          <div className="space-y-4">
-            {dashboardData.subject_performance && dashboardData.subject_performance.length > 0 ? (
-              dashboardData.subject_performance.slice(0, 5).map((subject: any, index: number) => {
-                const score = subject.average_score || subject.score || 0;
-                const getGrade = (score: number) => {
-                  if (score >= 90) return 'A+';
-                  if (score >= 80) return 'A';
-                  if (score >= 70) return 'B+';
-                  if (score >= 60) return 'B';
-                  if (score >= 50) return 'C';
-                  return 'D';
-                };
-                const getColor = (score: number) => {
-                  if (score >= 80) return 'green';
-                  if (score >= 60) return 'blue';
-                  if (score >= 50) return 'yellow';
-                  return 'red';
-                };
-                const color = getColor(score);
-                return (
-                  <div key={index} className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium text-gray-800 dark:text-slate-100">{subject.subject_name || subject.name}</p>
-                      <p className="text-sm text-gray-600 dark:text-slate-400">
-                        Latest: {score}% {subject.next_assignment ? `| ${subject.next_assignment}` : ''}
-                      </p>
+            {announcements.length > 0 ? (
+              announcements.slice(0, 4).map((announcement) => (
+                <div key={announcement.id} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-gray-900 dark:bg-white rounded-full"></div>
+                      <span className="text-xs text-gray-600 dark:text-gray-400 font-medium">{announcement.type || 'General'}</span>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <div className="w-16 bg-gray-200 dark:bg-slate-600 rounded-full h-2">
-                        <div className={`bg-${color}-600 dark:bg-${color}-500 h-2 rounded-full`} style={{ width: `${score}%` }}></div>
-                      </div>
-                      <span className={`text-sm font-medium text-${color}-600 dark:text-${color}-400`}>{getGrade(score)}</span>
-                    </div>
+                    {announcement.is_pinned && (
+                      <span className="text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2 py-0.5 rounded font-medium">
+                        Pinned
+                      </span>
+                    )}
                   </div>
-                );
-              })
+                  <p className="text-sm text-gray-900 dark:text-white font-medium mb-1">{announcement.content}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-500">{announcement.time_ago}</p>
+                </div>
+              ))
             ) : (
-              <div className="text-center py-8">
-                <BookOpen className="mx-auto text-gray-400 mb-4" size={48} />
-                <p className="text-gray-500 dark:text-slate-400">No performance data available</p>
-                <p className="text-sm text-gray-400 dark:text-slate-500">Performance data will appear after assessments</p>
+              <div className="text-center py-12">
+                <Bell className="mx-auto text-gray-300 dark:text-gray-700 mb-3" size={40} />
+                <p className="text-gray-500 dark:text-gray-400 text-sm font-medium">No announcements</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Check back later for updates</p>
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* Academic Calendar */}
-      <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-lg border border-gray-100 dark:border-slate-700">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-semibold text-gray-800 dark:text-slate-100 flex items-center">
-            <Calendar className="mr-2 text-purple-600 dark:text-purple-400" size={20} />
-            Academic Calendar
+      {/* Academic Progress */}
+      <div className="bg-white dark:bg-gray-900 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-800">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
+            <TrendingUp className="mr-2 text-gray-700 dark:text-gray-300" size={20} />
+            Academic Progress
           </h3>
-          <span className="text-sm text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/30 px-3 py-1 rounded-full">
-            {academicCalendar.length} upcoming events
-          </span>
+          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Current Term</span>
         </div>
         <div className="space-y-4">
-          {academicCalendar.length > 0 ? (
-            academicCalendar.map((event) => {
-              const getEventTypeColor = (type: string) => {
-                switch (type) {
-                  case 'EXAM':
-                    return 'bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-400 border-red-200 dark:border-red-800';
-                  case 'HOLIDAY':
-                    return 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800';
-                  case 'SPORTS':
-                    return 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-400 border-green-200 dark:border-green-800';
-                  case 'CULTURAL':
-                    return 'bg-purple-100 dark:bg-purple-900/20 text-purple-800 dark:text-purple-400 border-purple-200 dark:border-purple-800';
-                  case 'MEETING':
-                    return 'bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-400 border-blue-200 dark:border-blue-800';
-                  default:
-                    return 'bg-gray-100 dark:bg-slate-700/50 text-gray-800 dark:text-slate-300 border-gray-200 dark:border-slate-600';
-                }
+          {dashboardData.subject_performance && dashboardData.subject_performance.length > 0 ? (
+            dashboardData.subject_performance.slice(0, 6).map((subject: any, index: number) => {
+              const score = subject.average_score || subject.score || 0;
+              const getGrade = (score: number) => {
+                if (score >= 90) return 'A+';
+                if (score >= 80) return 'A';
+                if (score >= 70) return 'B';
+                if (score >= 60) return 'C';
+                if (score >= 50) return 'D';
+                return 'F';
               };
-              
-              const getEventTypeIcon = (type: string) => {
-                switch (type) {
-                  case 'EXAM':
-                    return <BookOpen className="w-4 h-4" />;
-                  case 'HOLIDAY':
-                    return <Calendar className="w-4 h-4" />;
-                  case 'SPORTS':
-                    return <Trophy className="w-4 h-4" />;
-                  case 'CULTURAL':
-                    return <Users className="w-4 h-4" />;
-                  case 'MEETING':
-                    return <MessageSquare className="w-4 h-4" />;
-                  default:
-                    return <Calendar className="w-4 h-4" />;
-                }
-              };
-              
               return (
-                <div key={event.id} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-slate-700/50 rounded-lg">
-                  <div className="flex items-center space-x-4">
-                    <div className={`p-2 rounded-lg border ${getEventTypeColor(event.type)}`}>
-                      {getEventTypeIcon(event.type)}
-                    </div>
-                    <div>
-                      <h4 className="font-medium text-gray-800 dark:text-slate-100">{event.title}</h4>
-                      <p className="text-sm text-gray-600 dark:text-slate-400">{event.description}</p>
-                      {event.location && (
-                        <p className="text-xs text-gray-500 dark:text-slate-500">📍 {event.location}</p>
-                      )}
-                    </div>
+                <div key={index} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-900 dark:text-white text-sm truncate">{subject.subject_name || subject.name}</p>
+                    <p className="text-xs text-gray-600 dark:text-gray-400">Score: {score}%</p>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm font-medium text-gray-800 dark:text-slate-100">
-                      {new Date(event.start_date).toLocaleDateString()}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-slate-400">
-                      {event.days_until > 0 ? `in ${event.days_until} days` : 'Today'}
-                    </p>
+                  <div className="flex items-center gap-3 ml-4">
+                    <div className="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                      <div className="bg-gray-900 dark:bg-white h-1.5 rounded-full transition-all duration-500" style={{ width: `${score}%` }}></div>
+                    </div>
+                    <span className="text-sm font-semibold text-gray-900 dark:text-white min-w-[2rem] text-right">{getGrade(score)}</span>
                   </div>
                 </div>
               );
             })
           ) : (
-            <div className="text-center py-8">
-              <Calendar className="mx-auto text-gray-400 mb-4" size={48} />
-              <p className="text-gray-500 dark:text-slate-400">No upcoming academic events</p>
-              <p className="text-sm text-gray-400 dark:text-slate-500">Check back for calendar updates</p>
+            <div className="text-center py-12">
+              <BookOpen className="mx-auto text-gray-300 dark:text-gray-700 mb-3" size={40} />
+              <p className="text-gray-500 dark:text-gray-400 text-sm font-medium">No performance data available</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Performance data will appear after assessments</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Recent Activity */}
-      <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-lg border border-gray-100 dark:border-slate-700">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-slate-100 mb-6">Recent Academic Activities</h3>
-        {recentActivities.length > 0 ? (
-          <div className="space-y-4">
-            {recentActivities.map((activity, index) => (
-              <div key={index} className="flex items-center gap-4 p-4 bg-gray-50 dark:bg-slate-700/50 rounded-lg">
-                {getActivityIcon(activity.type)}
-                <div className="flex-1">
-                  <p className="text-gray-800 dark:text-slate-100 font-medium">{activity.title}</p>
-                  <p className="text-sm text-gray-600 dark:text-slate-400">{activity.description}</p>
-                  <p className="text-xs text-gray-500 dark:text-slate-500 mt-1">{activity.date}</p>
+      {/* Academic Calendar */}
+      {academicCalendar.length > 0 && (
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-800">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
+              <Calendar className="mr-2 text-gray-700 dark:text-gray-300" size={20} />
+              Upcoming Events
+            </h3>
+            <span className="text-xs text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2.5 py-1 rounded-md font-medium">
+              {academicCalendar.length} events
+            </span>
+          </div>
+          <div className="space-y-3">
+            {academicCalendar.slice(0, 5).map((event) => (
+              <div key={event.id} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <div className="w-12 h-12 bg-gray-900 dark:bg-white rounded-lg flex flex-col items-center justify-center flex-shrink-0">
+                    <span className="text-xs text-white dark:text-gray-900 font-semibold">
+                      {new Date(event.start_date).toLocaleDateString('en-US', { month: 'short' })}
+                    </span>
+                    <span className="text-lg text-white dark:text-gray-900 font-bold leading-none">
+                      {new Date(event.start_date).getDate()}
+                    </span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-medium text-gray-900 dark:text-white text-sm truncate">{event.title}</h4>
+                    <p className="text-xs text-gray-600 dark:text-gray-400 truncate">{event.description}</p>
+                    {event.location && (
+                      <p className="text-xs text-gray-500 dark:text-gray-500 mt-0.5 truncate">{event.location}</p>
+                    )}
+                  </div>
                 </div>
-                <span className="text-sm text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-3 py-1 rounded-full">{activity.time_ago}</span>
+                <ChevronRight className="text-gray-400 flex-shrink-0 ml-2" size={16} />
               </div>
             ))}
           </div>
-        ) : (
-          <div className="text-center py-8">
-            <BookOpen className="mx-auto text-gray-400 mb-4" size={48} />
-            <p className="text-gray-500 dark:text-slate-400">No recent activities</p>
-            <p className="text-sm text-gray-400 dark:text-slate-500">Your academic activities will appear here</p>
+        </div>
+      )}
+
+      {/* Recent Activities */}
+      {recentActivities.length > 0 && (
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-800">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-5">Recent Activities</h3>
+          <div className="space-y-3">
+            {recentActivities.slice(0, 5).map((activity, index) => (
+              <div key={index} className="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                <div className="w-2 h-2 bg-gray-900 dark:bg-white rounded-full mt-1.5 flex-shrink-0"></div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-gray-900 dark:text-white font-medium truncate">{activity.title}</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 truncate">{activity.description}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">{activity.time_ago}</p>
+                </div>
+              </div>
+            ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

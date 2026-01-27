@@ -12,6 +12,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import StudentService, { StudentService as StudentServiceClass, Student, CreateStudentData, UpdateStudentData, Parent } from '@/services/StudentService';
+import { API_BASE_URL } from '@/services/api';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 
@@ -106,7 +107,7 @@ const StudentsComponent = () => {
   const loadStreams = useCallback(async () => {
     try {
       console.log('🔄 Loading streams...');
-      const response = await fetch('/api/classrooms/streams/');
+      const response = await fetch(`${API_BASE_URL}/classrooms/streams/`);
       console.log('📊 Streams response status:', response.status);
       if (response.ok) {
         const data = await response.json();

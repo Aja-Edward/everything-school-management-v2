@@ -576,3 +576,281 @@ export async function deleteLessonAttendance(id: number) {
 export async function getLessonEnrolledStudents(lessonId: number) {
   return api.get(`/lessons/${lessonId}/enrolled_students/`);
 }
+
+// ============================================================================
+// LESSON RESOURCES SERVICE
+// ============================================================================
+
+export interface LessonResource {
+  id: number;
+  lesson: number;
+  lesson_details?: any;
+  title: string;
+  description?: string;
+  resource_type: 'document' | 'video' | 'link' | 'image' | 'audio' | 'other';
+  resource_type_display?: string;
+  file_url?: string;
+  external_url?: string;
+  is_required: boolean;
+  uploaded_at: string;
+  file_size?: number;
+  file_format?: string;
+}
+
+export interface CreateLessonResourceData {
+  lesson: number;
+  title: string;
+  description?: string;
+  resource_type: string;
+  file?: File;
+  external_url?: string;
+  is_required?: boolean;
+}
+
+export interface UpdateLessonResourceData extends Partial<CreateLessonResourceData> {}
+
+export class LessonResourceService {
+  private static baseUrl = '/api/lessons/resources';
+
+  /**
+   * Get all lesson resources
+   */
+  static async getLessonResources(params?: {
+    lesson_id?: number;
+    resource_type?: string;
+    is_required?: boolean;
+  }): Promise<LessonResource[]> {
+    try {
+      const response = await api.get(this.baseUrl, params);
+      return response.results || response;
+    } catch (error) {
+      console.error('Error fetching lesson resources:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get a single lesson resource
+   */
+  static async getLessonResource(id: number): Promise<LessonResource> {
+    try {
+      const response = await api.get(`${this.baseUrl}/${id}/`);
+      return response;
+    } catch (error) {
+      console.error(`Error fetching lesson resource ${id}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a lesson resource
+   */
+  static async createLessonResource(data: CreateLessonResourceData): Promise<LessonResource> {
+    try {
+      // If file upload, use FormData
+      if (data.file) {
+        const formData = new FormData();
+        formData.append('lesson', data.lesson.toString());
+        formData.append('title', data.title);
+        if (data.description) formData.append('description', data.description);
+        formData.append('resource_type', data.resource_type);
+        formData.append('file', data.file);
+        if (data.is_required !== undefined) formData.append('is_required', data.is_required.toString());
+
+        const response = await fetch(this.baseUrl + '/', {
+          method: 'POST',
+          body: formData,
+          credentials: 'include',
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        return response.json();
+      } else {
+        // Regular JSON request
+        const response = await api.post(this.baseUrl, data);
+        return response;
+      }
+    } catch (error) {
+      console.error('Error creating lesson resource:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update a lesson resource
+   */
+  static async updateLessonResource(id: number, data: UpdateLessonResourceData): Promise<LessonResource> {
+    try {
+      const response = await api.patch(`${this.baseUrl}/${id}/`, data);
+      return response;
+    } catch (error) {
+      console.error(`Error updating lesson resource ${id}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a lesson resource
+   */
+  static async deleteLessonResource(id: number): Promise<void> {
+    try {
+      await api.delete(`${this.baseUrl}/${id}/`);
+    } catch (error) {
+      console.error(`Error deleting lesson resource ${id}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get resources for a specific lesson
+   */
+  static async getResourcesForLesson(lessonId: number): Promise<LessonResource[]> {
+    return this.getLessonResources({ lesson_id: lessonId });
+  }
+
+  /**
+   * Get required resources for a lesson
+   */
+  static async getRequiredResources(lessonId: number): Promise<LessonResource[]> {
+    return this.getLessonResources({ lesson_id: lessonId, is_required: true });
+  }
+}
+
+// ============================================================================
+// LESSON ASSESSMENTS SERVICE
+// ============================================================================
+
+export interface LessonAssessment {
+  id: number;
+  lesson: number;
+  lesson_details?: any;
+  title: string;
+  description?: string;
+  assessment_type: 'quiz' | 'assignment' | 'project' | 'presentation' | 'test' | 'exam' | 'other';
+  assessment_type_display?: string;
+  total_points: number;
+  weight_percentage: number;
+  due_date?: string;
+  instructions?: string;
+  rubric_url?: string;
+  is_graded: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateLessonAssessmentData {
+  lesson: number;
+  title: string;
+  description?: string;
+  assessment_type: string;
+  total_points: number;
+  weight_percentage: number;
+  due_date?: string;
+  instructions?: string;
+  rubric_url?: string;
+}
+
+export interface UpdateLessonAssessmentData extends Partial<CreateLessonAssessmentData> {
+  is_graded?: boolean;
+}
+
+export class LessonAssessmentService {
+  private static baseUrl = '/api/lessons/assessments';
+
+  /**
+   * Get all lesson assessments
+   */
+  static async getLessonAssessments(params?: {
+    lesson_id?: number;
+    assessment_type?: string;
+    due_date?: string;
+  }): Promise<LessonAssessment[]> {
+    try {
+      const response = await api.get(this.baseUrl, params);
+      return response.results || response;
+    } catch (error) {
+      console.error('Error fetching lesson assessments:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get a single lesson assessment
+   */
+  static async getLessonAssessment(id: number): Promise<LessonAssessment> {
+    try {
+      const response = await api.get(`${this.baseUrl}/${id}/`);
+      return response;
+    } catch (error) {
+      console.error(`Error fetching lesson assessment ${id}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a lesson assessment
+   */
+  static async createLessonAssessment(data: CreateLessonAssessmentData): Promise<LessonAssessment> {
+    try {
+      const response = await api.post(this.baseUrl, data);
+      return response;
+    } catch (error) {
+      console.error('Error creating lesson assessment:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update a lesson assessment
+   */
+  static async updateLessonAssessment(id: number, data: UpdateLessonAssessmentData): Promise<LessonAssessment> {
+    try {
+      const response = await api.patch(`${this.baseUrl}/${id}/`, data);
+      return response;
+    } catch (error) {
+      console.error(`Error updating lesson assessment ${id}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a lesson assessment
+   */
+  static async deleteLessonAssessment(id: number): Promise<void> {
+    try {
+      await api.delete(`${this.baseUrl}/${id}/`);
+    } catch (error) {
+      console.error(`Error deleting lesson assessment ${id}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get assessments for a specific lesson
+   */
+  static async getAssessmentsForLesson(lessonId: number): Promise<LessonAssessment[]> {
+    return this.getLessonAssessments({ lesson_id: lessonId });
+  }
+
+  /**
+   * Get upcoming assessments
+   */
+  static async getUpcomingAssessments(): Promise<LessonAssessment[]> {
+    const today = new Date().toISOString().split('T')[0];
+    const assessments = await this.getLessonAssessments({ due_date: today });
+    return assessments.filter(a => a.due_date && a.due_date >= today);
+  }
+
+  /**
+   * Mark assessment as graded
+   */
+  static async markAsGraded(id: number): Promise<LessonAssessment> {
+    return this.updateLessonAssessment(id, { is_graded: true });
+  }
+}
+
+export const lessonResourceService = LessonResourceService;
+export const lessonAssessmentService = LessonAssessmentService;

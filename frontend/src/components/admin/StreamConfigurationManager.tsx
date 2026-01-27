@@ -77,8 +77,8 @@ const StreamConfigurationManager: React.FC = () => {
 
   const loadConfigurations = async () => {
     try {
-      console.log('🔄 Loading configurations for school:', selectedSchool);
-      const configs = await StreamConfigurationService.getStreamConfigurations(selectedSchool);
+      console.log('🔄 Loading configurations for current tenant');
+      const configs = await StreamConfigurationService.getStreamConfigurations();
       console.log('✅ Configurations loaded successfully:', configs);
       console.log('🔍 Configs type:', typeof configs);
       console.log('🔍 Configs is array:', Array.isArray(configs));
@@ -276,7 +276,7 @@ const StreamConfigurationManager: React.FC = () => {
               onClick={async () => {
                 try {
                   setIsLoading(true);
-                  await StreamConfigurationService.setupDefaultConfigurations(selectedSchool);
+                  await StreamConfigurationService.setupDefaultConfigurations();
                   toast.success('Default configurations set up successfully!');
                   loadConfigurations();
                 } catch (error) {
@@ -489,7 +489,7 @@ const StreamConfigurationManager: React.FC = () => {
                             onClick={async () => {
                               try {
                                 setIsLoading(true);
-                                await StreamConfigurationService.setupDefaultConfigurations(selectedSchool);
+                                await StreamConfigurationService.setupDefaultConfigurations();
                                 toast.success('Default configurations set up successfully!');
                                 loadConfigurations();
                               } catch (error) {

@@ -1,10 +1,11 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { Search, Plus, X, Filter, Edit2, Printer, CheckCircle, Trash2, Calendar, BookOpen, GraduationCap, FileText, ChevronDown } from "lucide-react";
+import { Search, Plus, X, Filter, Edit2, Printer, CheckCircle, Trash2, Calendar, BookOpen, GraduationCap, FileText, ChevronDown, Upload } from "lucide-react";
 import { Exam, ExamCreateData, ExamUpdateData, ExamFilters, ExamService } from "@/services/ExamService";
 import ExamFormModal from "./ExamFormModal";
 import PrintPreviewModal from "./PrintPreviewModal";
 import ApprovalModal from "./ApprovalModal";
 import { normalizeExamDataForDisplay, normalizeExamDataForEdit } from "@/utils/examDataNormalizer";
+import { ExamDocumentUploader } from "@/components/shared/ExamDocumentUploader";
 
 interface ExamsPageProps {
   searchTerm?: string;
@@ -29,6 +30,7 @@ const ExamsPage: React.FC<ExamsPageProps> = ({
 
   // Modal and selected objects
   const [showExamModal, setShowExamModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [selectedExamForPrint, setSelectedExamForPrint] = useState<Exam | null>(null);
@@ -296,16 +298,25 @@ const handleEditExam = useCallback((exam: Exam) => {
                 <p className="text-sm text-slate-600 mt-0.5">Create, manage, and track assessments</p>
               </div>
             </div>
-            <button
-              onClick={() => {
-                setEditingExam(null);
-                setShowExamModal(true);
-              }}
-              className="flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-lg hover:shadow-xl font-medium"
-            >
-              <Plus className="w-5 h-5" />
-              <span>New Exam</span>
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowUploadModal(true)}
+                className="flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all duration-200 shadow-lg hover:shadow-xl font-medium"
+              >
+                <Upload className="w-5 h-5" />
+                <span>Upload Exam</span>
+              </button>
+              <button
+                onClick={() => {
+                  setEditingExam(null);
+                  setShowExamModal(true);
+                }}
+                className="flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-lg hover:shadow-xl font-medium"
+              >
+                <Plus className="w-5 h-5" />
+                <span>New Exam</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -690,6 +701,28 @@ const handleEditExam = useCallback((exam: Exam) => {
         }}
         onSubmit={handleCreateExam}
       />
+
+      {/* Upload Exam Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <ExamDocumentUploader
+                onImport={(examData) => {
+                  // Populate the exam form with uploaded data
+                  setEditingExam({
+                    ...examData,
+                    id: 0, // New exam
+                  } as Exam);
+                  setShowUploadModal(false);
+                  setShowExamModal(true);
+                }}
+                onCancel={() => setShowUploadModal(false)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <PrintPreviewModal
         open={showPrintPreview}

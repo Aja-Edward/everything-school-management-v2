@@ -2,6 +2,7 @@ from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
+from tenants.models import TenantMixin
 
 
 # Updated subject categories to match your school structure
@@ -47,7 +48,7 @@ SS_SUBJECT_TYPES = [
 
 
 # Subject model must be defined first since other models reference it
-class Subject(models.Model):
+class Subject(TenantMixin, models.Model):
     """Enhanced Subject model with flexible stream configuration"""
 
     name = models.CharField(
@@ -63,8 +64,7 @@ class Subject(models.Model):
 
     code = models.CharField(
         max_length=15,
-        unique=True,
-        help_text="Unique subject code (e.g., MATH-NUR, ENG-PRI, PHY-SS)",
+        help_text="Subject code (e.g., MATH-NUR, ENG-PRI, PHY-SS)",
     )
 
     description = models.TextField(
@@ -165,6 +165,7 @@ class Subject(models.Model):
         ordering = ["education_levels", "category", "subject_order", "name"]
         verbose_name = "Subject"
         verbose_name_plural = "Subjects"
+        unique_together = ["tenant", "code"]
 
     def __str__(self):
         return f"{self.name} ({self.code})"
@@ -291,12 +292,8 @@ class Subject(models.Model):
 
 
 # New model for school-specific stream configurations
-class SchoolStreamConfiguration(models.Model):
+class SchoolStreamConfiguration(TenantMixin, models.Model):
     """Allows schools to configure their own stream subject structure"""
-
-    school_id = models.IntegerField(
-        default=1, help_text="School ID (default: 1 for single-school systems)"
-    )
 
     stream = models.ForeignKey(
         "classroom.Stream",  # Using the existing Stream model from classroom app
@@ -345,17 +342,17 @@ class SchoolStreamConfiguration(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ["school_id", "stream", "subject_role"]
-        ordering = ["school_id", "stream", "display_order"]
+        unique_together = ["tenant", "stream", "subject_role"]
+        ordering = ["tenant", "stream", "display_order"]
         verbose_name = "School Stream Configuration"
         verbose_name_plural = "School Stream Configurations"
 
     def __str__(self):
-        # Fixed: Use stream.name instead of non-existent school.name
-        return f"School {self.school_id} - {self.stream.name} - {self.get_subject_role_display()}"
+        tenant_name = self.tenant.name if self.tenant else "No Tenant"
+        return f"{tenant_name} - {self.stream.name} - {self.get_subject_role_display()}"
 
 
-class SchoolStreamSubjectAssignment(models.Model):
+class SchoolStreamSubjectAssignment(TenantMixin, models.Model):
     """Links specific subjects to school stream configurations"""
 
     stream_config = models.ForeignKey(

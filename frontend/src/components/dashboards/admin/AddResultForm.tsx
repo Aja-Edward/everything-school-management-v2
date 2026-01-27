@@ -264,7 +264,7 @@ const AddResultForm: React.FC<AddResultFormProps> = ({ onClose, onSuccess, preSe
   const loadDropdownData = async () => {
     try {
       setLoadingData(true);
-      
+
       // Only load exam sessions initially, students will be loaded based on filters
       const examSessionsResponse = await ResultService.getExamSessions();
       setExamSessions(examSessionsResponse);
@@ -276,7 +276,7 @@ const AddResultForm: React.FC<AddResultFormProps> = ({ onClose, onSuccess, preSe
       } catch (error) {
         console.warn('🔍 [AddResultForm] Could not load fallback subjects:', error);
       }
-      
+
       // If preSelectedStudent is provided, load that specific student
       if (preSelectedStudent) {
         try {
@@ -286,12 +286,17 @@ const AddResultForm: React.FC<AddResultFormProps> = ({ onClose, onSuccess, preSe
           setSelectedClass(studentResponse.student_class);
         } catch (error) {
           console.error('Error loading pre-selected student:', error);
+          toast.error('Failed to load student information');
         }
       }
-      
+
     } catch (error) {
       console.error('Error loading dropdown data:', error);
-      toast.error('Failed to load form data');
+      // Only show error toast for actual API failures, not for empty data states
+      // Empty exam sessions are handled gracefully with UI warnings
+      if (error instanceof Error && error.message && !error.message.includes('exam session')) {
+        toast.error('Failed to load form data. Please try again.');
+      }
     } finally {
       setLoadingData(false);
     }
@@ -1552,7 +1557,12 @@ const handleSubmit = async (e: React.FormEvent) => {
                     } ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500`}
                     disabled={loading}
                   >
-                    <option value="">Select Exam Session</option>
+                    <option value="">
+                      {examSessions.length === 0
+                        ? "No exam sessions available - Create one in Settings"
+                        : "Select Exam Session"
+                      }
+                    </option>
                     {examSessions.map(session => (
                       <option key={session.id} value={session.id}>
                         {session.name} - {typeof session.academic_session === 'object' && session.academic_session.name !== null ? (session.academic_session as AcademicSession).name : (session.academic_session ? String(session.academic_session) : 'No Session')}
@@ -1560,6 +1570,11 @@ const handleSubmit = async (e: React.FormEvent) => {
                     ))}
                   </select>
                   {errors.exam_session && <p className="text-red-500 text-xs mt-1">{errors.exam_session}</p>}
+                  {examSessions.length === 0 && (
+                    <p className="text-yellow-600 dark:text-yellow-400 text-xs mt-1">
+                      ⚠️ No exam sessions found. Please create an exam session in Settings → Academic Calendar first.
+                    </p>
+                  )}
                 </div>
 
                 <div>

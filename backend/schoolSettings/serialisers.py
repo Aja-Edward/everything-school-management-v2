@@ -1,7 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import (
-    SchoolSettings,
     NotificationSettings,
     SystemPreferences,
     CommunicationSettings,
@@ -76,90 +75,6 @@ class SchoolAnnouncementSerializer(serializers.ModelSerializer):
             "end_date",
             "created_at",
             "updated_at",
-        ]
-
-
-class SchoolSettingsSerializer(serializers.ModelSerializer):
-    # Custom fields for frontend compatibility
-    logo_url = serializers.SerializerMethodField()
-    favicon_url = serializers.SerializerMethodField()
-
-    # Field aliases for frontend compatibility
-    address = serializers.CharField(source="school_address", read_only=True)
-    phone = serializers.CharField(source="school_phone", read_only=True)
-    email = serializers.EmailField(source="school_email", read_only=True)
-    motto = serializers.CharField(source="school_motto", read_only=True)
-
-    class Meta:
-        model = SchoolSettings
-        fields = [
-            # General Settings
-            "id",
-            "school_name",
-            "school_address",
-            "school_phone",
-            "school_email",
-            "school_website",
-            "academic_year",
-            "current_term",
-            "school_motto",
-            "logo_url",
-            "favicon_url",
-            # Frontend compatibility aliases
-            "address",
-            "phone",
-            "email",
-            "motto",
-            # System Settings
-            "timezone",
-            "date_format",
-            "language",
-            # Portal Access Control
-            "student_portal_enabled",
-            "parent_portal_enabled",
-            "teacher_portal_enabled",
-            # General Preferences
-            "auto_save",
-            "notifications_enabled",
-            "dark_mode",
-            "maintenance_mode",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = ["id", "created_at", "updated_at"]
-
-    def to_representation(self, instance):
-        """Custom representation to include logo and favicon URLs"""
-        data = super().to_representation(instance)
-        data["logo_url"] = instance.logo if instance.logo else None
-        data["favicon_url"] = instance.favicon if instance.favicon else None
-        return data
-
-
-class SchoolSettingsUpdateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SchoolSettings
-        fields = [
-            "school_name",
-            "school_address",
-            "school_phone",
-            "school_email",
-            "school_website",
-            "academic_year",
-            "current_term",
-            "school_motto",
-            "timezone",
-            "date_format",
-            "language",
-            # Portal Access Control
-            "student_portal_enabled",
-            "parent_portal_enabled",
-            "teacher_portal_enabled",
-            # General Preferences
-            "auto_save",
-            "notifications_enabled",
-            "dark_mode",
-            "maintenance_mode",
         ]
 
 

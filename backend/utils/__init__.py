@@ -1,38 +1,52 @@
 from datetime import datetime
 
 
-def generate_unique_username(role: str, registration_number: str = None, employee_id: str = None, school_code: str = None) -> str:
+def generate_unique_username(role: str, registration_number: str = None, employee_id: str = None, school_code: str = None, tenant=None) -> str:
     """
     Generate a unique username in the format:
     PREFIX/SCHOOL_CODE/MONTH/YEAR/ID
-    
+
     Args:
         role: User role (student, teacher, parent, admin)
         registration_number: For students
         employee_id: For teachers
-        school_code: Override school code (if None, will fetch from SchoolSettings)
-    
+        school_code: Override school code (if None, will fetch from TenantSettings)
+        tenant: Tenant object to get school code from
+
     Returns:
         Generated username string
     """
     from users.models import CustomUser  # Import inside the function to avoid AppRegistryNotReady
-    
+
     prefix_map = {
         'student': 'STU',
         'teacher': 'TCH',
         'parent': 'PAR',
         'admin': 'ADM',
+        'superadmin': 'ADM',
+        'secondary_admin': 'ADM',
+        'senior_secondary_admin': 'ADM',
+        'junior_secondary_admin': 'ADM',
+        'primary_admin': 'ADM',
+        'nursery_admin': 'ADM',
     }
     prefix = prefix_map.get(role.lower(), 'USR')
-    
-    # Get school code from parameter or database
+
+    # Get school code from parameter, tenant, or fallback
     if school_code is None:
         try:
-            from schoolSettings.models import SchoolSettings
-            settings = SchoolSettings.objects.first()
-            school_code = settings.school_code if settings else "SCH"
+            if tenant and hasattr(tenant, 'settings'):
+                school_code = tenant.settings.school_code or "SCH"
+            else:
+                # Try to get from first active tenant as fallback
+                from tenants.models import Tenant
+                first_tenant = Tenant.objects.filter(is_active=True).first()
+                if first_tenant and hasattr(first_tenant, 'settings'):
+                    school_code = first_tenant.settings.school_code or "SCH"
+                else:
+                    school_code = "SCH"
         except Exception:
-            # Fallback if SchoolSettings doesn't exist or database not ready
+            # Fallback if TenantSettings doesn't exist or database not ready
             school_code = "SCH"
     
     now = datetime.now()

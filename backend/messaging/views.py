@@ -3,6 +3,8 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.db.models import Q, Count
 from django.utils import timezone
+from tenants.mixins import TenantFilterMixin
+from utils.pagination import StandardResultsPagination
 from .models import Message, MessageTemplate, BulkMessage
 from .serializers import (
     MessageSerializer, MessageCreateSerializer, MessageUpdateSerializer,
@@ -12,17 +14,26 @@ from .permissions import IsParentTeacherOrAdmin
 from users.models import CustomUser
 
 
-class MessageViewSet(viewsets.ModelViewSet):
+class MessageViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    """CRITICAL: TenantFilterMixin ensures tenant isolation."""
+    queryset = Message.objects.all()  # Base queryset - will be filtered by mixins and get_queryset()
     serializer_class = MessageSerializer
     permission_classes = [permissions.IsAuthenticated, IsParentTeacherOrAdmin]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate messages
 
     def get_queryset(self):
+        # CRITICAL: Call super() to get tenant-filtered queryset first
+        queryset = super().get_queryset()
+
+        # PERFORMANCE: Optimize queries by selecting related users
+        queryset = queryset.select_related('sender', 'recipient')
+
         user = self.request.user
         msg_type = self.request.query_params.get("type", None)
         is_archived = self.request.query_params.get("archived", "false").lower() == "true"
         is_deleted = self.request.query_params.get("deleted", "false").lower() == "true"
 
-        queryset = Message.objects.filter(is_deleted=is_deleted)
+        queryset = queryset.filter(is_deleted=is_deleted)
 
         if msg_type == "inbox":
             queryset = queryset.filter(recipient=user, is_archived=is_archived)
@@ -124,10 +135,21 @@ class MessageViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
-class MessageTemplateViewSet(viewsets.ModelViewSet):
+class MessageTemplateViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    """CRITICAL: TenantFilterMixin ensures tenant isolation."""
     queryset = MessageTemplate.objects.filter(is_active=True)
     serializer_class = MessageTemplateSerializer
     permission_classes = [permissions.IsAuthenticated, IsParentTeacherOrAdmin]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate templates
+
+    def get_queryset(self):
+        # CRITICAL: Call super() to get tenant-filtered queryset first
+        queryset = super().get_queryset()
+
+        # PERFORMANCE: Optimize queries by selecting related created_by user
+        queryset = queryset.select_related('created_by')
+
+        return queryset
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
@@ -143,12 +165,21 @@ class MessageTemplateViewSet(viewsets.ModelViewSet):
         })
 
 
-class BulkMessageViewSet(viewsets.ModelViewSet):
+class BulkMessageViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    """CRITICAL: TenantFilterMixin ensures tenant isolation."""
+    queryset = BulkMessage.objects.all()  # Base queryset - will be filtered by mixins and get_queryset()
     serializer_class = BulkMessageSerializer
     permission_classes = [permissions.IsAuthenticated, IsParentTeacherOrAdmin]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate bulk messages
 
     def get_queryset(self):
-        return BulkMessage.objects.filter(sender=self.request.user)
+        # CRITICAL: Call super() to get tenant-filtered queryset first
+        queryset = super().get_queryset()
+
+        # PERFORMANCE: Optimize queries by selecting related sender
+        queryset = queryset.select_related('sender')
+
+        return queryset.filter(sender=self.request.user)
 
     def perform_create(self, serializer):
         bulk_message = serializer.save(sender=self.request.user)

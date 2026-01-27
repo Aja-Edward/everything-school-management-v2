@@ -171,7 +171,7 @@ const AdminRemarksManager: React.FC<AdminRemarksManagerProps> = () => {
 
   const fetchExamSessions = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/results/exam-sessions/`, {
+      const response = await fetch(`${API_BASE_URL}/results/exam-sessions/`, {
         headers: getAuthHeaders()
       });
       
@@ -199,7 +199,7 @@ const AdminRemarksManager: React.FC<AdminRemarksManagerProps> = () => {
       let totalCount = 0;
 
       for (const level of levels) {
-        const endpoint = `${API_BASE_URL}/api/results/${level.toLowerCase().replace('_', '-')}/term-reports/`;
+        const endpoint = `${API_BASE_URL}/results/${level.toLowerCase().replace('_', '-')}/term-reports/`;
         
         // Build query parameters
         const params = new URLSearchParams({
@@ -457,7 +457,7 @@ const AdminRemarksManager: React.FC<AdminRemarksManagerProps> = () => {
       const formData = new FormData();
       formData.append('stamp_image', schoolStampFile);
 
-      const url = `${API_BASE_URL}/api/results/admin-remarks/upload-school-stamp/`;
+      const url = `${API_BASE_URL}/results/admin-remarks/upload-school-stamp/`;
 
       const response = await fetch(url, {
         method: 'POST',
@@ -538,7 +538,7 @@ const AdminRemarksManager: React.FC<AdminRemarksManagerProps> = () => {
         formData.append('education_level', level);
         formData.append('term_report_ids', JSON.stringify(reportIds));
 
-        const url = `${API_BASE_URL}/api/results/admin-remarks/apply-school-stamp/`;
+        const url = `${API_BASE_URL}/results/admin-remarks/apply-school-stamp/`;
 
         const response = await fetch(url, {
           method: 'POST',

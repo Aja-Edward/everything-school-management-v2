@@ -58,34 +58,54 @@ const TeacherProfile: React.FC<TeacherProfileProps> = ({ onRefresh }) => {
     try {
       setIsLoading(true);
       setError(null);
-      
+
+      console.log('🔍 Looking for teacher ID...');
+      console.log('User object:', user);
+      console.log('Teacher data:', teacherData);
+
       let teacherId = null;
-      
+
+      // Check various possible locations for teacher ID
       if ((user as any)?.teacher_data?.id) {
         teacherId = (user as any).teacher_data.id;
+        console.log('✅ Found teacher ID in user.teacher_data:', teacherId);
+      } else if ((user as any)?.profile?.teacher_data?.id) {
+        teacherId = (user as any).profile.teacher_data.id;
+        console.log('✅ Found teacher ID in user.profile.teacher_data:', teacherId);
       } else if (teacherData?.id) {
         teacherId = teacherData.id;
+        console.log('✅ Found teacher ID in teacherData:', teacherId);
       } else if (user?.id) {
+        console.log('🔎 Searching for teacher by user ID/email...');
         try {
-          const teachersResponse = await TeacherService.getTeachers({ 
-            search: user.email || user.username 
+          const teachersResponse = await TeacherService.getTeachers({
+            user: user.id
           });
-          
+
+          console.log('Teachers response:', teachersResponse);
+
           if (teachersResponse.results && teachersResponse.results.length > 0) {
-            const teacher = teachersResponse.results.find((t: any) => 
-              t.user?.id === user.id || t.user?.email === user.email
+            const teacher = teachersResponse.results.find((t: any) =>
+              t.user?.id === user.id || t.user === user.id || t.user?.email === user.email
             );
-            
+
             if (teacher) {
               teacherId = teacher.id;
+              console.log('✅ Found teacher ID via search:', teacherId);
+            } else {
+              // If no exact match, use the first result
+              teacherId = teachersResponse.results[0].id;
+              console.log('✅ Using first teacher result:', teacherId);
             }
           }
         } catch (error) {
           console.warn('Failed to find teacher by user lookup:', error);
         }
       }
-      
+
       if (!teacherId) {
+        console.error('❌ Teacher ID not found');
+        console.log('Available user data:', JSON.stringify(user, null, 2));
         throw new Error("Teacher ID not found. Please ensure your teacher profile is properly set up.");
       }
 
@@ -259,46 +279,44 @@ const TeacherProfile: React.FC<TeacherProfileProps> = ({ onRefresh }) => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
-      {/* Mobile-Optimized Header */}
-      <div className="bg-blue-600 text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 overflow-x-hidden">
+      {/* Profile Header */}
+      <div className="bg-gradient-to-r from-slate-800 to-slate-900 dark:from-slate-900 dark:to-slate-950">
+        <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6">
             <div className="relative flex-shrink-0">
-              <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center overflow-hidden ring-4 ring-white/30">
+              <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl bg-slate-700/50 flex items-center justify-center overflow-hidden">
                 {getProfilePicture() ? (
                   <img src={getProfilePicture()} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
-                  <span className="text-2xl sm:text-3xl font-bold text-white">
+                  <span className="text-2xl sm:text-3xl font-bold text-slate-300">
                     {user?.first_name?.charAt(0)}{user?.last_name?.charAt(0)}
                   </span>
                 )}
               </div>
               {isEditing && (
-                <button className="absolute -bottom-2 -right-2 w-10 h-10 bg-white text-blue-600 rounded-xl flex items-center justify-center shadow-lg hover:scale-110 transition-transform">
+                <button className="absolute -bottom-2 -right-2 w-10 h-10 bg-slate-700 text-white rounded-lg flex items-center justify-center shadow-lg hover:bg-slate-600 transition-colors">
                   <Camera className="w-5 h-5" />
                 </button>
               )}
             </div>
-            
-            <div className="flex-1 min-w-0">
-              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold mb-2">
+
+            <div className="flex-1 min-w-0 w-full sm:w-auto">
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-white mb-2 break-words">
                 {profileData?.user?.first_name || user?.first_name} {profileData?.user?.last_name || user?.last_name}
               </h1>
-              <div className="flex flex-wrap items-center gap-2 text-sm sm:text-base">
-                <span className="px-3 py-1 bg-white/20 backdrop-blur-sm rounded-lg font-medium">
-                  {profileData?.staff_type || "Teaching Staff"}
-                </span>
-                <span className="text-white/70">•</span>
-                <span className="text-white/90">ID: {profileData?.employee_id || "N/A"}</span>
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs sm:text-sm text-slate-400">
+                <span className="truncate">{profileData?.staff_type || "Teaching Staff"}</span>
+                <span>•</span>
+                <span className="truncate">ID: {profileData?.employee_id || "N/A"}</span>
               </div>
             </div>
-            
-            <div className="flex gap-2 w-full sm:w-auto">
+
+            <div className="flex gap-2 w-full sm:w-auto flex-shrink-0">
               {!isEditing ? (
                 <button
                   onClick={() => setIsEditing(true)}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-3 bg-white text-blue-600 rounded-xl hover:bg-blue-50 transition-all font-medium shadow-lg active:scale-95"
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors font-medium text-sm"
                 >
                   <Edit className="w-4 h-4" />
                   <span>Edit Profile</span>
@@ -308,14 +326,14 @@ const TeacherProfile: React.FC<TeacherProfileProps> = ({ onRefresh }) => {
                   <button
                     onClick={handleSave}
                     disabled={isLoading}
-                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-3 bg-white text-blue-600 rounded-xl hover:bg-blue-50 transition-all font-medium shadow-lg disabled:opacity-50 active:scale-95"
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 bg-white text-slate-800 rounded-lg hover:bg-slate-100 transition-colors font-medium disabled:opacity-50 text-sm"
                   >
                     <Save className="w-4 h-4" />
                     <span>{isLoading ? "Saving..." : "Save"}</span>
                   </button>
                   <button
                     onClick={handleCancel}
-                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-3 bg-white/20 backdrop-blur-sm text-white rounded-xl hover:bg-white/30 transition-all font-medium active:scale-95"
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors font-medium text-sm"
                   >
                     <X className="w-4 h-4" />
                     <span>Cancel</span>
@@ -328,41 +346,42 @@ const TeacherProfile: React.FC<TeacherProfileProps> = ({ onRefresh }) => {
       </div>
 
       {successMessage && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-4 flex items-start gap-3">
             <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
-            <p className="text-green-800 dark:text-green-200 font-medium text-sm sm:text-base">{successMessage}</p>
+            <p className="text-green-800 dark:text-green-200 font-medium text-sm sm:text-base break-words">{successMessage}</p>
           </div>
         </div>
       )}
 
       {error && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-            <p className="text-red-800 dark:text-red-200 font-medium text-sm sm:text-base">{error}</p>
+            <p className="text-red-800 dark:text-red-200 font-medium text-sm sm:text-base break-words">{error}</p>
           </div>
         </div>
       )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         <div className="mb-6 sm:mb-8">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl p-2 shadow-sm border border-slate-200 dark:border-slate-700">
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-2 shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <div className="flex overflow-x-auto gap-2 pb-1 scrollbar-hide -mx-2 px-2">
               {tabs.map((tab) => {
                 const Icon = tab.icon;
                 return (
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-2 py-2.5 sm:px-4 rounded-xl font-medium text-xs sm:text-sm transition-all ${
+                    className={`flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2.5 sm:px-4 sm:py-3 rounded-xl font-medium text-xs sm:text-sm transition-all whitespace-nowrap flex-shrink-0 ${
                       activeTab === tab.id
                         ? "bg-blue-600 text-white shadow-md"
                         : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
                     }`}
                   >
-                    <Icon className="w-4 h-4 flex-shrink-0" />
-                    <span className="text-center leading-tight">{tab.name}</span>
+                    <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
+                    <span className="hidden sm:inline">{tab.name}</span>
+                    <span className="sm:hidden">{tab.name.split(' ')[0]}</span>
                   </button>
                 );
               })}
@@ -750,36 +769,36 @@ const TeacherProfile: React.FC<TeacherProfileProps> = ({ onRefresh }) => {
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-                  <div className="bg-slate-50 dark:bg-slate-700/50 rounded-2xl p-4 sm:p-6">
+                  <div className="bg-white dark:bg-slate-700 rounded-2xl p-4 sm:p-6 border border-slate-200 dark:border-slate-600">
                     <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mb-3 sm:mb-4">Student Performance</h3>
                     <div className="space-y-3 sm:space-y-4">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">Class Average</span>
+                        <span className="text-xs sm:text-sm text-slate-700 dark:text-slate-300">Class Average</span>
                         <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">87.5%</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">Students Improved</span>
+                        <span className="text-xs sm:text-sm text-slate-700 dark:text-slate-300">Students Improved</span>
                         <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">78%</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">Pass Rate</span>
+                        <span className="text-xs sm:text-sm text-slate-700 dark:text-slate-300">Pass Rate</span>
                         <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">94%</span>
                       </div>
                     </div>
                   </div>
-                  <div className="bg-slate-50 dark:bg-slate-700/50 rounded-2xl p-4 sm:p-6">
+                  <div className="bg-white dark:bg-slate-700 rounded-2xl p-4 sm:p-6 border border-slate-200 dark:border-slate-600">
                     <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mb-3 sm:mb-4">Development</h3>
                     <div className="space-y-3 sm:space-y-4">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">Training Hours</span>
+                        <span className="text-xs sm:text-sm text-slate-700 dark:text-slate-300">Training Hours</span>
                         <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">48 hrs</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">Certifications</span>
+                        <span className="text-xs sm:text-sm text-slate-700 dark:text-slate-300">Certifications</span>
                         <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">3</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">Workshops</span>
+                        <span className="text-xs sm:text-sm text-slate-700 dark:text-slate-300">Workshops</span>
                         <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">12</span>
                       </div>
                     </div>

@@ -657,7 +657,7 @@ export interface UserContactInfo {
 }
 
 export interface LoginCredentials {
-  username: string;
+  email: string;
   password: string;
   role: UserRole;
   rememberMe: boolean;
@@ -2368,7 +2368,17 @@ export interface BaseStandardResult {
 
   exam_score: number;
 
+  /**
+   * @deprecated Use subject_position instead.
+   * This field is maintained for backward compatibility only.
+   */
   position?: number;
+
+  /**
+   * Primary field for subject position in class.
+   * This is the single source of truth for position data.
+   * Use validatePosition() from resultHelpers to ensure validity.
+   */
   subject_position?: number;
 
   class_average?: number;
@@ -2504,8 +2514,20 @@ export interface NurseryResultData {
   grade: string;
   grade_point?: number;
   is_passed: boolean;
+
+  /**
+   * @deprecated Use subject_position instead.
+   * This field is maintained for backward compatibility only.
+   */
   position?: number;
+
+  /**
+   * Primary field for subject position in class.
+   * This is the single source of truth for position data.
+   * Use validatePosition() from resultHelpers to ensure validity.
+   */
   subject_position?: number;
+
   academic_comment?: string;
   physical_development?: string;
   health?: string;
@@ -3198,20 +3220,226 @@ export interface StudentResult {
 export interface ParentProfile extends BaseEntity {
   user: CustomUser;
   students: Student[];
-  
+
   // Contact preferences
   preferred_contact_method: 'email' | 'phone' | 'sms' | 'app';
   notification_preferences: NotificationPreferences;
-  
+
   // Emergency contact info
   work_phone?: string;
   home_address?: string;
   work_address?: string;
-  
+
   // Computed properties
   readonly full_name: string;
   readonly children_count: number;
   readonly children_names: string[];
+}
+
+// ==========================================
+// BILLING TYPES
+// ==========================================
+
+/**
+ * Invoice status tracking
+ */
+export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'partially_paid' | 'overdue' | 'cancelled';
+
+/**
+ * Payment method options
+ */
+export type PaymentMethod = 'paystack' | 'bank_transfer';
+
+/**
+ * Feature pricing tier
+ */
+export interface FeaturePricing extends BaseEntity {
+  feature_id: string;
+  feature_name: string;
+  description?: string;
+  price_per_student: number;
+  is_active: boolean;
+}
+
+/**
+ * Student snapshot for invoice audit trail
+ */
+export interface StudentSnapshot {
+  student_id: string;
+  name: string;
+  class: string;
+  enrolled_at: string;
+}
+
+/**
+ * Invoice line item
+ */
+export interface InvoiceItem {
+  id: string;
+  feature_id: string;
+  feature_name: string;
+  quantity: number;       // Student count
+  unit_price: number;     // Price per student
+  total: number;
+}
+
+/**
+ * Complete invoice data structure
+ */
+export interface Invoice extends BaseEntity {
+  tenant_id: string;
+  invoice_number: string;  // INV-2026-001
+
+  // Period
+  academic_session_id: string;
+  academic_session?: AcademicSession;
+  term_id: string;
+  term?: Term;
+
+  // Line Items
+  items: InvoiceItem[];
+  subtotal: number;
+  tax: number;  // Future use
+  total: number;
+
+  // Student Count (snapshot)
+  student_count: number;
+  student_snapshot: StudentSnapshot[];  // For audit
+
+  // Status
+  status: InvoiceStatus;
+  due_date: string;
+
+  // Payment
+  amount_paid: number;
+  payment_method?: PaymentMethod;
+  payment_reference?: string;
+  paid_at?: string;
+
+  // Metadata
+  notes?: string;
+  created_by: string;
+}
+
+/**
+ * Invoice creation request payload
+ */
+export interface CreateInvoiceRequest {
+  academic_session_id: string;
+  term_id: string;
+  feature_ids: string[];
+  due_date: string;
+  notes?: string;
+}
+
+/**
+ * Invoice generation response
+ */
+export interface InvoiceGenerationResponse {
+  invoice: Invoice;
+  pdf_url?: string;
+  message: string;
+}
+
+/**
+ * Paystack payment initialization response
+ */
+export interface PaystackInit {
+  authorization_url: string;
+  access_code: string;
+  reference: string;
+}
+
+/**
+ * Payment verification response
+ */
+export interface PaymentVerification {
+  success: boolean;
+  message: string;
+  invoice?: Invoice;
+  payment_data?: {
+    reference: string;
+    amount: number;
+    currency: string;
+    status: string;
+    paid_at: string;
+  };
+}
+
+/**
+ * Bank transfer notification request
+ */
+export interface BankTransferNotification {
+  invoice_id: string;
+  payment_reference: string;
+  amount: number;
+  transfer_date: string;
+  notes?: string;
+}
+
+/**
+ * Feature access check response
+ */
+export interface FeatureAccess {
+  has_access: boolean;
+  feature_id: string;
+  feature_name: string;
+  expires_at?: string;
+  loading?: boolean;
+}
+
+/**
+ * Feature activation request
+ */
+export interface FeatureActivationRequest {
+  tenant_id: string;
+  feature_ids: string[];
+  academic_session_id: string;
+  term_id: string;
+  invoice_id?: string;
+}
+
+/**
+ * Billing summary for dashboard
+ */
+export interface BillingSummary {
+  current_term_total: number;
+  total_paid: number;
+  total_outstanding: number;
+  active_features: string[];
+  upcoming_renewals: {
+    feature_name: string;
+    expires_at: string;
+  }[];
+  payment_history: {
+    date: string;
+    amount: number;
+    invoice_number: string;
+    method: PaymentMethod;
+  }[];
+}
+
+/**
+ * Pending payment for platform admin
+ */
+export interface PendingPayment {
+  id: string;
+  tenant_name: string;
+  invoice: Invoice;
+  notification_date: string;
+  payment_reference: string;
+  amount: number;
+  transfer_date: string;
+  notes?: string;
+}
+
+/**
+ * Payment confirmation request (platform admin)
+ */
+export interface PaymentConfirmationRequest {
+  payment_id: string;
+  confirmed: boolean;
+  admin_notes?: string;
 }
 
 

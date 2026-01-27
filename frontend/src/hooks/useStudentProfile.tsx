@@ -257,7 +257,7 @@ export const useStudentProfile = (): UseStudentProfileReturn => {
       console.log('🔑 Using token:', token ? 'Token present' : 'No token');
       console.log('👤 User info:', user);
 
-      const response = await fetch(`${API_BASE_URL}/api/students/students/profile/`, {
+      const response = await fetch(`${API_BASE_URL}/students/students/profile/`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -305,7 +305,7 @@ export const useStudentProfile = (): UseStudentProfileReturn => {
       console.log('📝 Updating profile at:', url);
       console.log('📝 Update data:', data);
 
-      const response = await fetch(`${API_BASE_URL}/api/students/students/${profile.id}/`, {
+      const response = await fetch(`${API_BASE_URL}/students/students/${profile.id}/`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

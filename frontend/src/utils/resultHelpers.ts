@@ -300,14 +300,49 @@ export const getPositionSuffix = (position: number): string => {
  */
 export const formatPosition = (position: number, totalStudents?: number): string => {
   if (!position || position <= 0) return 'N/A';
-  
+
   const positionText = getPositionSuffix(position);
-  
+
   if (totalStudents && totalStudents > 0) {
     return `${positionText} of ${totalStudents}`;
   }
-  
+
   return positionText;
+};
+
+/**
+ * Validate and normalize position value
+ * Returns null for invalid positions (null, undefined, NaN, or < 1)
+ * Returns the position as a number for valid values
+ *
+ * @param position - The position value to validate (can be any type)
+ * @returns number | null - Valid position number or null
+ *
+ * @example
+ * validatePosition(1) // 1
+ * validatePosition("3") // 3
+ * validatePosition(0) // null
+ * validatePosition(-1) // null
+ * validatePosition(null) // null
+ * validatePosition(undefined) // null
+ * validatePosition("abc") // null
+ */
+export const validatePosition = (position: any): number | null => {
+  // Handle null or undefined
+  if (position === null || position === undefined) {
+    return null;
+  }
+
+  // Convert to number
+  const numPosition = Number(position);
+
+  // Check if conversion resulted in NaN or position is less than 1
+  if (isNaN(numPosition) || numPosition < 1) {
+    return null;
+  }
+
+  // Return valid position
+  return numPosition;
 };
 
 // ============================================================================
@@ -500,7 +535,8 @@ export default {
   // Positions
   getPositionSuffix,
   formatPosition,
-  
+  validatePosition,
+
   // Validation
   isValidStudentId,
   isValidExamSessionId,

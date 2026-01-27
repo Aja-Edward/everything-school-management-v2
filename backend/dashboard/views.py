@@ -563,7 +563,7 @@
 #         # 🚀 OPTIMIZED QUERY
 #         # ============================================
 
-#         student = Student.objects.select_related("user", "classroom").get(id=student_id)
+#         student = Student.objects.select_related("user").get(id=student_id)  # ✅ FIXED: classroom is CharField
 
 #         today = timezone.now().date()
 
@@ -956,7 +956,7 @@
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from django.db.models import Count, Q, Prefetch, Avg, Sum
+from django.db.models import Count, Q, Prefetch, Avg, Sum, F, DecimalField, Case, When
 from django.utils import timezone
 from datetime import timedelta, datetime
 from events.models import Event
@@ -972,6 +972,7 @@ from exam.models import Exam
 from result.models import StudentResult
 from schoolSettings.models import SchoolAnnouncement
 from classroom.models import ClassroomTeacherAssignment
+from fee.models import Payment, FeeStructure, StudentFee
 
 
 logger = logging.getLogger(__name__)
@@ -1382,9 +1383,9 @@ def parent_dashboard_summary(request, parent_id=None):
             .prefetch_related(
                 Prefetch(
                     "children",
-                    queryset=Student.objects.select_related("classroom").filter(
+                    queryset=Student.objects.filter(
                         is_active=True
-                    ),
+                    ),  # ✅ FIXED: classroom is CharField, removed select_related
                 )
             )
             .get(id=parent_id)
@@ -1458,14 +1459,7 @@ def parent_dashboard_summary(request, parent_id=None):
                 {
                     "id": child.id,
                     "full_name": f"{child.user.first_name} {child.user.last_name}",
-                    "classroom": (
-                        {
-                            "id": child.classroom.id,
-                            "name": child.classroom.name,
-                        }
-                        if child.classroom
-                        else None
-                    ),
+                    "classroom": child.classroom if child.classroom else None,  # ✅ FIXED: classroom is CharField
                     "attendance_today": (
                         attendance_today["status"] if attendance_today else "not_marked"
                     ),
@@ -1540,7 +1534,7 @@ def student_dashboard_summary(request, student_id=None):
         # 🚀 OPTIMIZED QUERY
         # ============================================
 
-        student = Student.objects.select_related("user", "classroom").get(id=student_id)
+        student = Student.objects.select_related("user").get(id=student_id)  # ✅ FIXED: classroom is CharField
 
         today = timezone.now().date()
 
@@ -1648,14 +1642,7 @@ def student_dashboard_summary(request, student_id=None):
                 "user_id": student.user.id,
                 "full_name": f"{student.user.first_name} {student.user.last_name}",
                 "email": student.user.email,
-                "classroom": (
-                    {
-                        "id": student.classroom.id,
-                        "name": student.classroom.name,
-                    }
-                    if student.classroom
-                    else None
-                ),
+                "classroom": student.classroom if student.classroom else None,  # ✅ FIXED: classroom is CharField
             },
             "today_schedule": list(todays_lessons),
             "attendance_summary": attendance_stats,
@@ -1935,15 +1922,15 @@ def admin_dashboard_extended(request):
 
         # Recent enrollments
         recent_students = (
-            Student.objects.filter(created_at__gte=last_month)
-            .select_related("user", "classroom")
-            .order_by("-created_at")
+            Student.objects.filter(admission_date__gte=last_month)
+            .select_related("user")  # ✅ FIXED: classroom is CharField
+            .order_by("-admission_date")
             .values(
                 "id",
                 "user__first_name",
                 "user__last_name",
-                "classroom__name",
-                "created_at",
+                "classroom",  # ✅ FIXED: Access classroom CharField directly
+                "admission_date",
             )[:10]
         )
 
@@ -1961,6 +1948,429 @@ def admin_dashboard_extended(request):
         return Response(
             {"error": "Failed to load extended data", "detail": str(e)}, status=500
         )
+
+
+# ============================================================================
+# 📊 ENHANCED ADMIN DASHBOARD STATISTICS (DASH-001)
+# ============================================================================
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def admin_dashboard_enhanced_stats(request):
+    """
+    📊 ENHANCED ADMIN DASHBOARD STATISTICS
+
+    GET /api/dashboard/admin/enhanced-stats/
+
+    Returns comprehensive dashboard data including:
+    - Payment statistics (total fees, collected, pending, overdue)
+    - Attendance trends with chart data (last 30 days)
+    - Grade distribution with pass rates
+    - Recent activity feed
+    - System alerts and notifications
+
+    This endpoint is designed for DASH-001 dashboard widgets.
+    """
+
+    try:
+        today = timezone.now().date()
+        last_30_days = today - timedelta(days=30)
+        last_7_days = today - timedelta(days=7)
+        current_month_start = today.replace(day=1)
+
+        # ============================================
+        # 💰 PAYMENT STATISTICS
+        # ============================================
+
+        # Get total fees from student fees (current academic year)
+        # Sum up all student fee amounts due (exclude cancelled)
+        total_fees_expected = StudentFee.objects.exclude(
+            status='CANCELLED'
+        ).aggregate(
+            total=Sum('amount_due')
+        )['total'] or 0
+
+        # Payment statistics
+        # Note: Payment model uses 'status' field, not 'payment_status'
+        # Payment status values: 'PENDING', 'PARTIAL', 'PAID', 'OVERDUE', 'CANCELLED'
+        payment_stats = Payment.objects.aggregate(
+            total_collected=Sum('amount', filter=Q(verified=True)),
+            total_pending=Sum('amount', filter=Q(verified=False, status='PENDING')),
+            total_failed=Sum('amount', filter=Q(verified=False, gateway_status='FAILED')),
+            payments_this_month=Sum('amount', filter=Q(
+                verified=True,
+                payment_date__gte=current_month_start
+            )),
+            payments_count=Count('id'),
+            completed_count=Count('id', filter=Q(verified=True)),
+            pending_count=Count('id', filter=Q(verified=False)),
+        )
+
+        # Calculate overdue payments from StudentFee (due_date is on StudentFee, not Payment)
+        overdue_amount = StudentFee.objects.filter(
+            is_overdue=True,
+            status__in=['PENDING', 'PARTIAL', 'OVERDUE']
+        ).aggregate(total=Sum(F('amount_due') - F('amount_paid')))['total'] or 0
+
+        # Payment trends (last 30 days) - only verified payments
+        payment_trends = (
+            Payment.objects.filter(
+                verified=True,
+                payment_date__gte=last_30_days
+            )
+            .values('payment_date')
+            .annotate(
+                amount=Sum('amount'),
+                count=Count('id')
+            )
+            .order_by('payment_date')
+        )
+
+        payment_data = {
+            'total_fees_expected': float(total_fees_expected),
+            'total_collected': float(payment_stats['total_collected'] or 0),
+            'total_pending': float(payment_stats['total_pending'] or 0),
+            'total_failed': float(payment_stats['total_failed'] or 0),
+            'total_overdue': float(overdue_amount),
+            'this_month_collected': float(payment_stats['payments_this_month'] or 0),
+            'collection_rate': round(
+                (float(payment_stats['total_collected'] or 0) / float(total_fees_expected) * 100)
+                if total_fees_expected > 0 else 0,
+                1
+            ),
+            'payments_count': payment_stats['payments_count'],
+            'completed_count': payment_stats['completed_count'],
+            'pending_count': payment_stats['pending_count'],
+            'payment_trends': [
+                {
+                    'date': item['payment_date'].isoformat(),
+                    'amount': float(item['amount']),
+                    'count': item['count']
+                }
+                for item in payment_trends
+            ]
+        }
+
+        # ============================================
+        # 📊 ATTENDANCE TRENDS (Chart Data)
+        # ============================================
+
+        # Daily attendance for last 30 days
+        attendance_trends = (
+            Attendance.objects.filter(date__gte=last_30_days)
+            .values('date')
+            .annotate(
+                total=Count('id'),
+                present=Count('id', filter=Q(status='P')),
+                absent=Count('id', filter=Q(status='A')),
+                late=Count('id', filter=Q(status='L')),
+                excused=Count('id', filter=Q(status='E'))
+            )
+            .order_by('date')
+        )
+
+        # Calculate attendance rates for each day
+        attendance_chart_data = []
+        for day in attendance_trends:
+            rate = round((day['present'] / day['total'] * 100) if day['total'] > 0 else 0, 1)
+            attendance_chart_data.append({
+                'date': day['date'].isoformat(),
+                'total': day['total'],
+                'present': day['present'],
+                'absent': day['absent'],
+                'late': day['late'],
+                'excused': day['excused'],
+                'attendance_rate': rate
+            })
+
+        # Overall attendance statistics
+        attendance_overall = Attendance.objects.filter(
+            date__gte=last_30_days
+        ).aggregate(
+            total=Count('id'),
+            present=Count('id', filter=Q(status='P')),
+            absent=Count('id', filter=Q(status='A')),
+            late=Count('id', filter=Q(status='L'))
+        )
+
+        overall_attendance_rate = round(
+            (attendance_overall['present'] / attendance_overall['total'] * 100)
+            if attendance_overall['total'] > 0 else 0,
+            1
+        )
+
+        attendance_data = {
+            'overall_rate': overall_attendance_rate,
+            'total_records': attendance_overall['total'],
+            'present_count': attendance_overall['present'],
+            'absent_count': attendance_overall['absent'],
+            'late_count': attendance_overall['late'],
+            'chart_data': attendance_chart_data,
+            'period': 'Last 30 Days'
+        }
+
+        # ============================================
+        # 📈 GRADE DISTRIBUTION & ACADEMIC PERFORMANCE
+        # ============================================
+
+        # Get recent results (current term/semester)
+        grade_distribution = (
+            StudentResult.objects.all()
+            .values('grade')
+            .annotate(count=Count('id'))
+            .order_by('grade')
+        )
+
+        # Calculate pass/fail statistics
+        total_results = StudentResult.objects.count()
+        passing_grades = ['A', 'B', 'C', 'D']  # Configure based on your grading system
+
+        pass_count = StudentResult.objects.filter(
+            grade__in=passing_grades
+        ).count()
+
+        fail_count = total_results - pass_count
+        pass_rate = round((pass_count / total_results * 100) if total_results > 0 else 0, 1)
+
+        # Average scores by subject (StudentResult has direct subject FK, not through exam_session)
+        subject_performance = (
+            StudentResult.objects.values('subject__name')
+            .annotate(
+                avg_score=Avg('total_score'),
+                count=Count('id')
+            )
+            .order_by('-avg_score')[:10]
+        )
+
+        grade_data = {
+            'distribution': [
+                {
+                    'grade': item['grade'],
+                    'count': item['count'],
+                    'percentage': round((item['count'] / total_results * 100) if total_results > 0 else 0, 1)
+                }
+                for item in grade_distribution
+            ],
+            'pass_rate': pass_rate,
+            'pass_count': pass_count,
+            'fail_count': fail_count,
+            'total_results': total_results,
+            'top_subjects': [
+                {
+                    'subject': item['subject__name'],
+                    'average': round(float(item['avg_score']), 1),
+                    'student_count': item['count']
+                }
+                for item in subject_performance
+            ]
+        }
+
+        # ============================================
+        # 📋 ACTIVITY FEED (Recent Activities)
+        # ============================================
+
+        activities = []
+
+        # Recent student enrollments
+        recent_students = (
+            Student.objects.filter(admission_date__gte=last_7_days)
+            .select_related('user')  # ✅ FIXED: classroom is CharField, not ForeignKey
+            .order_by('-admission_date')[:5]
+        )
+
+        for student in recent_students:
+            activities.append({
+                'type': 'enrollment',
+                'icon': '👨‍🎓',
+                'title': 'New Student Enrollment',
+                'description': f"{student.user.first_name} {student.user.last_name} enrolled in {student.classroom if student.classroom else 'No classroom'}",  # ✅ FIXED: classroom is CharField
+                'timestamp': student.admission_date.isoformat(),
+                'priority': 'normal'
+            })
+
+        # Recent exam completions
+        recent_exams = (
+            Exam.objects.filter(
+                exam_date__gte=last_7_days,
+                status='completed'
+            )
+            .select_related('subject', 'grade_level', 'section')
+            .order_by('-exam_date')[:5]
+        )
+
+        for exam in recent_exams:
+            # Build description with grade_level and optional section
+            exam_location = exam.grade_level.name if exam.grade_level else 'Unknown grade'
+            if exam.section:
+                exam_location += f" - {exam.section.name}"
+
+            activities.append({
+                'type': 'exam',
+                'icon': '📝',
+                'title': 'Exam Completed',
+                'description': f"{exam.subject.name} exam completed for {exam_location}",
+                'timestamp': timezone.datetime.combine(exam.exam_date, exam.start_time).isoformat() if exam.start_time else exam.exam_date.isoformat(),
+                'priority': 'normal'
+            })
+
+        # Recent announcements
+        recent_announcements = (
+            SchoolAnnouncement.objects.filter(
+                is_active=True,
+                created_at__gte=last_7_days
+            )
+            .order_by('-created_at')[:5]
+        )
+
+        for announcement in recent_announcements:
+            activities.append({
+                'type': 'announcement',
+                'icon': '📢',
+                'title': 'New Announcement',
+                'description': announcement.title,
+                'timestamp': announcement.created_at.isoformat(),
+                'priority': 'high' if announcement.is_pinned else 'normal'
+            })
+
+        # Sort activities by timestamp (most recent first)
+        activities.sort(key=lambda x: x['timestamp'], reverse=True)
+
+        # ============================================
+        # ⚠️ ALERTS & NOTIFICATIONS
+        # ============================================
+
+        alerts = []
+
+        # Low attendance alert
+        if overall_attendance_rate < 85:
+            alerts.append({
+                'type': 'warning',
+                'severity': 'medium',
+                'icon': '⚠️',
+                'title': 'Low Attendance Rate',
+                'message': f'Overall attendance is {overall_attendance_rate}% (below 85% threshold)',
+                'action': 'View Attendance Report',
+                'action_url': '/admin/attendance'
+            })
+
+        # Overdue payments alert (use StudentFee since it has due_date, not Payment)
+        if overdue_amount > 0:
+            overdue_count = StudentFee.objects.filter(
+                is_overdue=True,
+                status__in=['PENDING', 'PARTIAL', 'OVERDUE']
+            ).count()
+
+            alerts.append({
+                'type': 'error',
+                'severity': 'high',
+                'icon': '💰',
+                'title': 'Overdue Payments',
+                'message': f'{overdue_count} payments overdue (Total: ${overdue_amount:,.2f})',
+                'action': 'View Payment Dashboard',
+                'action_url': '/admin/payments'
+            })
+
+        # Pending exam results alert
+        pending_results_count = (
+            Exam.objects.filter(
+                exam_date__lt=today,
+                status='completed'
+            )
+            .exclude(
+                id__in=StudentResult.objects.values_list('exam_session_id', flat=True)
+            )
+            .count()
+        )
+
+        if pending_results_count > 0:
+            alerts.append({
+                'type': 'info',
+                'severity': 'low',
+                'icon': '📊',
+                'title': 'Pending Results',
+                'message': f'{pending_results_count} completed exams have pending results',
+                'action': 'Publish Results',
+                'action_url': '/admin/results'
+            })
+
+        # Low teacher count per class alert
+        classrooms_without_teachers = Classroom.objects.annotate(
+            teacher_count=Count('classroomteacherassignment')
+        ).filter(teacher_count=0).count()
+
+        if classrooms_without_teachers > 0:
+            alerts.append({
+                'type': 'warning',
+                'severity': 'medium',
+                'icon': '👨‍🏫',
+                'title': 'Unassigned Classes',
+                'message': f'{classrooms_without_teachers} classrooms have no assigned teachers',
+                'action': 'Assign Teachers',
+                'action_url': '/admin/classrooms'
+            })
+
+        # Inactive students with unpaid fees (use StudentFee, not Payment)
+        inactive_students_with_debt = Student.objects.filter(
+            is_active=False
+        ).filter(
+            id__in=StudentFee.objects.filter(
+                status__in=['PENDING', 'PARTIAL', 'OVERDUE']
+            ).values_list('student_id', flat=True)
+        ).count()
+
+        if inactive_students_with_debt > 0:
+            alerts.append({
+                'type': 'info',
+                'severity': 'low',
+                'icon': 'ℹ️',
+                'title': 'Inactive Students with Pending Fees',
+                'message': f'{inactive_students_with_debt} inactive students have outstanding payments',
+                'action': 'Review Cases',
+                'action_url': '/admin/students?filter=inactive'
+            })
+
+        # ============================================
+        # 📦 PREPARE RESPONSE
+        # ============================================
+
+        response_data = {
+            'payment_statistics': payment_data,
+            'attendance_trends': attendance_data,
+            'grade_distribution': grade_data,
+            'recent_activities': activities[:20],  # Limit to 20 most recent
+            'alerts': alerts,
+            'summary': {
+                'total_students': Student.objects.filter(is_active=True).count(),
+                'total_teachers': Teacher.objects.filter(is_active=True).count(),
+                'total_classrooms': Classroom.objects.count(),
+                'attendance_rate': overall_attendance_rate,
+                'collection_rate': payment_data['collection_rate'],
+                'pass_rate': pass_rate
+            },
+            'generated_at': timezone.now().isoformat(),
+            'period': f'{last_30_days.isoformat()} to {today.isoformat()}'
+        }
+
+        logger.info(
+            f"✅ Enhanced admin dashboard stats generated: "
+            f"Attendance: {overall_attendance_rate}%, "
+            f"Collection: {payment_data['collection_rate']}%, "
+            f"Pass Rate: {pass_rate}%"
+        )
+
+        return Response(response_data)
+
+    except Exception as e:
+        logger.error(f"❌ Enhanced admin dashboard stats error: {str(e)}", exc_info=True)
+        return Response(
+            {
+                'error': 'Failed to generate enhanced dashboard statistics',
+                'detail': str(e)
+            },
+            status=500
+        )
+
 
 # ============================================================================
 # 🔧 HELPER FUNCTIONS
@@ -2019,3 +2429,330 @@ def get_student_id_from_user(user):
 
     student = Student.objects.filter(user=user).first()
     return student.id if student else None
+
+
+# ============================================================================
+# 🚀 OPTIMIZED ADMIN DASHBOARD ENDPOINT (PERF-001)
+# ============================================================================
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def admin_dashboard_optimized(request):
+    """
+    🚀 OPTIMIZED ADMIN DASHBOARD - Single API Call
+
+    GET /api/dashboard/admin/optimized/
+
+    Returns ALL dashboard data in one optimized call:
+    - Dashboard statistics
+    - Students list (paginated)
+    - Teachers list (paginated)
+    - Parents list (paginated)
+    - Attendance data summary
+    - Classrooms
+    - Messages
+    - User profile
+
+    This eliminates the N+1 problem by reducing 8 API calls to 1.
+    Performance: <2 seconds vs 30-60 seconds
+    """
+
+    try:
+        today = timezone.now().date()
+
+        # ==================================================================
+        # 📊 STATISTICS (Aggregated - Single Query)
+        # ==================================================================
+
+        student_stats = Student.objects.aggregate(
+            total=Count("id"),
+            active=Count("id", filter=Q(is_active=True)),
+            inactive=Count("id", filter=Q(is_active=False)),
+        )
+
+        teacher_stats = Teacher.objects.aggregate(
+            total=Count("id"),
+            active=Count("id", filter=Q(is_active=True)),
+            inactive=Count("id", filter=Q(is_active=False)),
+        )
+
+        parent_stats = ParentProfile.objects.aggregate(
+            total=Count("id"),
+            active=Count("id", filter=Q(user__is_active=True)),
+        )
+
+        classroom_count = Classroom.objects.count()
+
+        # ==================================================================
+        # 👥 USERS DATA (Optimized with select_related)
+        # ==================================================================
+
+        # Get pagination params
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 100))
+        offset = (page - 1) * page_size
+
+        # Students - optimized query with select_related
+        students = (
+            Student.objects.select_related('user')
+            .only(
+                'id', 'registration_number', 'gender', 'date_of_birth', 'admission_date',
+                'classroom', 'is_active',
+                'user__id', 'user__first_name', 'user__last_name',
+                'user__email', 'user__is_active', 'user__date_joined'
+            )
+            .order_by('-admission_date')[offset:offset + page_size]
+        )
+
+        students_data = [
+            {
+                'id': s.id,
+                'registration_number': s.registration_number,
+                'user': {
+                    'id': s.user.id,
+                    'first_name': s.user.first_name,
+                    'last_name': s.user.last_name,
+                    'email': s.user.email,
+                    'is_active': s.user.is_active,
+                    'created_at': s.user.date_joined.isoformat() if s.user.date_joined else None,
+                    'role': 'STUDENT'
+                },
+                'full_name': f"{s.user.first_name} {s.user.last_name}",
+                'classroom': s.classroom,
+                'gender': s.gender,
+                'date_of_birth': s.date_of_birth.isoformat() if s.date_of_birth else None,
+                'admission_date': s.admission_date.isoformat() if s.admission_date else None,
+                'is_active': s.is_active,
+            }
+            for s in students
+        ]
+
+        # Teachers - optimized query
+        teachers = (
+            Teacher.objects.select_related('user')
+            .only(
+                'id', 'employee_id', 'phone_number', 'is_active',
+                'hire_date', 'created_at', 'updated_at',
+                'user__id', 'user__first_name', 'user__last_name',
+                'user__email', 'user__is_active', 'user__date_joined'
+            )
+            .order_by('-created_at')[offset:offset + page_size]
+        )
+
+        teachers_data = [
+            {
+                'id': t.id,
+                'employee_id': t.employee_id,
+                'user': {
+                    'id': t.user.id,
+                    'first_name': t.user.first_name,
+                    'last_name': t.user.last_name,
+                    'email': t.user.email,
+                    'is_active': t.user.is_active,
+                    'created_at': t.user.date_joined.isoformat() if t.user.date_joined else None,
+                    'role': 'TEACHER'
+                },
+                'full_name': f"{t.user.first_name} {t.user.last_name}",
+                'phone_number': t.phone_number,
+                'hire_date': t.hire_date.isoformat() if t.hire_date else None,
+                'is_active': t.is_active,
+                'created_at': t.created_at.isoformat() if t.created_at else None,
+                'updated_at': t.updated_at.isoformat() if t.updated_at else None,
+            }
+            for t in teachers
+        ]
+
+        # Parents - optimized query
+        parents = (
+            ParentProfile.objects.select_related('user')
+            .only(
+                'id', 'phone', 'address', 'created_at', 'updated_at',
+                'user__id', 'user__first_name', 'user__last_name',
+                'user__email', 'user__is_active', 'user__date_joined'
+            )
+            .order_by('-created_at')[offset:offset + page_size]
+        )
+
+        parents_data = [
+            {
+                'id': p.id,
+                'user': {
+                    'id': p.user.id,
+                    'first_name': p.user.first_name,
+                    'last_name': p.user.last_name,
+                    'email': p.user.email,
+                    'is_active': p.user.is_active,
+                    'created_at': p.user.date_joined.isoformat() if p.user.date_joined else None,
+                    'role': 'PARENT'
+                },
+                'full_name': f"{p.user.first_name} {p.user.last_name}",
+                'phone': p.phone,
+                'address': p.address,
+                'is_active': p.user.is_active,
+                'created_at': p.created_at.isoformat() if p.created_at else None,
+                'updated_at': p.updated_at.isoformat() if p.updated_at else None,
+            }
+            for p in parents
+        ]
+
+        # ==================================================================
+        # 📊 ATTENDANCE DATA (Summary)
+        # ==================================================================
+
+        # Last 30 days attendance
+        last_30_days = today - timedelta(days=30)
+        attendance_summary = Attendance.objects.filter(
+            date__gte=last_30_days
+        ).aggregate(
+            total=Count('id'),
+            present=Count('id', filter=Q(status='P')),
+            absent=Count('id', filter=Q(status='A')),
+            late=Count('id', filter=Q(status='L')),
+            excused=Count('id', filter=Q(status='E'))
+        )
+
+        attendance_rate = round(
+            (attendance_summary['present'] / attendance_summary['total'] * 100)
+            if attendance_summary['total'] > 0 else 0,
+            1
+        )
+
+        attendance_data = {
+            'totalPresent': attendance_summary['present'],
+            'totalAbsent': attendance_summary['absent'],
+            'totalLate': attendance_summary['late'],
+            'totalExcused': attendance_summary['excused'],
+            'totalStudents': attendance_summary['total'],
+            'attendanceRate': attendance_rate,
+            'period': 'Last 30 Days'
+        }
+
+        # ==================================================================
+        # 🏫 CLASSROOMS
+        # ==================================================================
+
+        classrooms = Classroom.objects.select_related(
+            'section', 'section__grade_level'
+        ).only(
+            'id', 'name', 'max_capacity', 'is_active',
+            'section__id', 'section__name',
+            'section__grade_level__id', 'section__grade_level__name'
+        ).order_by('section__grade_level__order', 'section__name')[:100]
+
+        classrooms_data = [
+            {
+                'id': c.id,
+                'name': c.name,
+                'grade_level': c.section.grade_level.name if c.section and c.section.grade_level else None,
+                'section': c.section.name if c.section else None,
+                'capacity': c.max_capacity,
+                'is_active': c.is_active,
+            }
+            for c in classrooms
+        ]
+
+        # ==================================================================
+        # 💬 MESSAGES (Recent)
+        # ==================================================================
+
+        from messaging.models import Message as MessagingMessage
+        messages = MessagingMessage.objects.select_related(
+            'sender'
+        ).only(
+            'id', 'subject', 'content', 'created_at', 'is_read',
+            'sender__id', 'sender__first_name', 'sender__last_name'
+        ).order_by('-created_at')[:20]
+
+        messages_data = [
+            {
+                'id': m.id,
+                'subject': m.subject,
+                'body': m.content[:200] if m.content else '',  # Truncate content
+                'sender': {
+                    'id': m.sender.id if m.sender else None,
+                    'name': f"{m.sender.first_name} {m.sender.last_name}" if m.sender else 'System',
+                },
+                'created_at': m.created_at.isoformat() if m.created_at else None,
+                'is_read': m.is_read,
+            }
+            for m in messages
+        ]
+
+        # ==================================================================
+        # 👤 USER PROFILE
+        # ==================================================================
+
+        user_profile = {
+            'id': request.user.id,
+            'email': request.user.email,
+            'first_name': request.user.first_name,
+            'last_name': request.user.last_name,
+            'full_name': f"{request.user.first_name} {request.user.last_name}",
+            'role': request.user.role if hasattr(request.user, 'role') else 'ADMIN',
+            'is_active': request.user.is_active,
+        }
+
+        # ==================================================================
+        # 📦 PREPARE RESPONSE
+        # ==================================================================
+
+        response_data = {
+            'dashboardStats': {
+                'totalStudents': student_stats['total'],
+                'totalTeachers': teacher_stats['total'],
+                'totalParents': parent_stats['total'],
+                'totalClasses': classroom_count,
+                'totalUsers': student_stats['total'] + teacher_stats['total'] + parent_stats['total'],
+                'activeUsers': student_stats['active'] + teacher_stats['active'],
+                'inactiveUsers': student_stats['inactive'] + teacher_stats['inactive'],
+                'pendingVerifications': 0,
+                'recentRegistrations': 0
+            },
+            'students': {
+                'results': students_data,
+                'total': student_stats['total'],
+                'page': page,
+                'page_size': page_size,
+            },
+            'teachers': {
+                'results': teachers_data,
+                'total': teacher_stats['total'],
+                'page': page,
+                'page_size': page_size,
+            },
+            'parents': {
+                'results': parents_data,
+                'total': parent_stats['total'],
+                'page': page,
+                'page_size': page_size,
+            },
+            'attendanceData': attendance_data,
+            'classrooms': classrooms_data,
+            'messages': messages_data,
+            'userProfile': user_profile,
+            'loadedAt': timezone.now().isoformat(),
+            'dataScope': 'optimized_load',
+            'performance': {
+                'apiCalls': 1,
+                'description': 'All data loaded in single optimized request'
+            }
+        }
+
+        logger.info(
+            f"✅ Optimized admin dashboard loaded: "
+            f"{student_stats['total']} students, "
+            f"{teacher_stats['total']} teachers, "
+            f"Attendance: {attendance_rate}% (1 API call)"
+        )
+
+        return Response(response_data)
+
+    except Exception as e:
+        logger.error(f"❌ Optimized admin dashboard error: {str(e)}", exc_info=True)
+        return Response(
+            {
+                'error': 'Failed to load optimized dashboard',
+                'detail': str(e)
+            },
+            status=500
+        )

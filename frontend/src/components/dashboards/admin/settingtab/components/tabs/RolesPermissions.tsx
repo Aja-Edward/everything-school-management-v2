@@ -172,7 +172,7 @@ const RolesPermissions = () => {
   const loadCurrentUser = async () => {
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/api/auth/profile/`, {
+      const response = await fetch(`${API_BASE_URL}/auth/profile/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -201,7 +201,7 @@ const RolesPermissions = () => {
     try {
       setLoading(true);
       const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/api/school-settings/roles/`, {
+      const response = await fetch(`${API_BASE_URL}/school-settings/roles/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -223,7 +223,7 @@ const RolesPermissions = () => {
     try {
       const token = localStorage.getItem('authToken');
       
-      const response = await fetch(`${API_BASE_URL}/api/profiles/all_users/`, {
+      const response = await fetch(`${API_BASE_URL}/profiles/all_users/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -236,7 +236,7 @@ const RolesPermissions = () => {
       } else {
         console.error('Failed to load users:', response.status, response.statusText);
         try {
-          const teachersResponse = await fetch(`${API_BASE_URL}/api/teachers/teachers/`, {
+          const teachersResponse = await fetch(`${API_BASE_URL}/teachers/teachers/`, {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
@@ -269,7 +269,7 @@ const RolesPermissions = () => {
   const loadUserRoles = async () => {
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/api/school-settings/user-roles/`, {
+      const response = await fetch(`${API_BASE_URL}/school-settings/user-roles/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -288,7 +288,7 @@ const RolesPermissions = () => {
   const loadPermissions = async () => {
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/api/school-settings/permissions/`, {
+      const response = await fetch(`${API_BASE_URL}/school-settings/permissions/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -307,7 +307,7 @@ const RolesPermissions = () => {
   const viewRoleUsers = async (role: Role) => {
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/api/school-settings/roles/${role.id}/users/`, {
+      const response = await fetch(`${API_BASE_URL}/school-settings/roles/${role.id}/users/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -337,7 +337,7 @@ const RolesPermissions = () => {
     try {
       setSaving(true);
       const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/api/school-settings/roles/`, {
+      const response = await fetch(`${API_BASE_URL}/school-settings/roles/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -387,8 +387,8 @@ const RolesPermissions = () => {
       
       const method = existingUserRole ? 'PUT' : 'POST';
       const url = existingUserRole 
-        ? `${API_BASE_URL}/api/school-settings/user-roles/${existingUserRole.id}/`
-        : `${API_BASE_URL}/api/school-settings/user-roles/`;
+        ? `${API_BASE_URL}/school-settings/user-roles/${existingUserRole.id}/`
+        : `${API_BASE_URL}/school-settings/user-roles/`;
       
       const response = await fetch(url, {
         method,
@@ -439,7 +439,7 @@ const RolesPermissions = () => {
 
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/api/school-settings/roles/${roleId}/`, {
+      const response = await fetch(`${API_BASE_URL}/school-settings/roles/${roleId}/`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -467,7 +467,7 @@ const RolesPermissions = () => {
 
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/api/school-settings/roles/${role.id}/duplicate/`, {
+      const response = await fetch(`${API_BASE_URL}/school-settings/roles/${role.id}/duplicate/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -554,7 +554,7 @@ const RolesPermissions = () => {
         is_active: editingRolePermissions.is_active
       };
 
-      const response = await fetch(`${API_BASE_URL}/api/school-settings/roles/${editingRolePermissions.id}/`, {
+      const response = await fetch(`${API_BASE_URL}/school-settings/roles/${editingRolePermissions.id}/`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -623,7 +623,7 @@ const RolesPermissions = () => {
         permissions: secondaryPermissions
       };
 
-      const response = await fetch(`${API_BASE_URL}/api/school-settings/roles/`, {
+      const response = await fetch(`${API_BASE_URL}/school-settings/roles/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -656,7 +656,7 @@ const RolesPermissions = () => {
 
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/api/school-settings/user-roles/${userRoleId}/`, {
+      const response = await fetch(`${API_BASE_URL}/school-settings/user-roles/${userRoleId}/`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,

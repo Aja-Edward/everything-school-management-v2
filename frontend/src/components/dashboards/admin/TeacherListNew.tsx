@@ -1,36 +1,29 @@
-import { useState, useEffect } from 'react';
-import { 
-  Users, 
-  Search, 
-  Filter, 
-  Edit3, 
-  Trash2, 
-  Eye, 
-  Phone, 
-  GraduationCap,
+import { useState, useEffect, useCallback } from 'react';
+import {
+  Users,
+  Search,
+  Filter,
+  Edit3,
+  Trash2,
+  Eye,
+  Phone,
   Calendar,
   X,
-  Check,
   AlertCircle,
   BookOpen,
-  Baby,
-  School,
-  Award,
   Grid3X3,
-  List
+  List,
+  ChevronDown,
+  Award,
+  Plus
 } from 'lucide-react';
-import { useSettings } from '@/contexts/SettingsContext';
-import { useGlobalTheme } from '@/contexts/GlobalThemeContext';
 import TeacherService, { Teacher, UpdateTeacherData } from '@/services/TeacherService';
 import { toast } from 'react-toastify';
 import EditTeacherForm from './EditTeacherForm';
+import { useNavigate } from 'react-router-dom';
 
-
-
-//  const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://school-project-with-edward.onrender.com/api';
 const TeacherList = () => {
-  const { settings } = useSettings();
-  const { theme } = useGlobalTheme();
+  const navigate = useNavigate();
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [filteredTeachers, setFilteredTeachers] = useState<Teacher[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -42,72 +35,41 @@ const TeacherList = () => {
   const [showProfile, setShowProfile] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [teacherToEdit, setTeacherToEdit] = useState<Teacher | null>(null);
-  const [viewMode, setViewMode] = useState<'cards' | 'list'>('cards');
+  const [viewMode, setViewMode] = useState<'cards' | 'list'>('list');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
-  // Theme-aware color classes
-  const isDark = theme === 'dark';
-  
-  const themeClasses = {
-    bgPrimary: isDark ? 'bg-gray-900' : 'bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100',
-    bgCard: isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100',
-    bgModal: isDark ? 'bg-gray-800' : 'bg-white',
-    textPrimary: isDark ? 'text-gray-100' : 'text-gray-900',
-    textSecondary: isDark ? 'text-gray-300' : 'text-gray-600',
-    textTertiary: isDark ? 'text-gray-400' : 'text-gray-500',
-    textMuted: isDark ? 'text-gray-500' : 'text-gray-400',
-    borderPrimary: isDark ? 'border-gray-700' : 'border-gray-200',
-    inputBg: isDark ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-200',
-    inputFocus: isDark ? 'focus:ring-blue-500 focus:border-blue-500' : 'focus:ring-blue-500 focus:border-blue-500',
-    hoverCard: isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-50',
-    statusActive: isDark ? 'bg-green-900 text-green-300' : 'bg-green-100 text-green-800',
-    statusInactive: isDark ? 'bg-red-900 text-red-300' : 'bg-red-100 text-red-800',
-    levelNursery: isDark ? 'bg-pink-900 text-pink-300' : 'bg-pink-100 text-pink-800',
-    levelPrimary: isDark ? 'bg-blue-900 text-blue-300' : 'bg-blue-100 text-blue-800',
-    levelSecondary: isDark ? 'bg-purple-900 text-purple-300' : 'bg-purple-100 text-purple-800',
-    iconPrimary: isDark ? 'text-blue-400' : 'text-blue-600',
-    iconSecondary: isDark ? 'text-gray-400' : 'text-gray-400',
-    iconSuccess: isDark ? 'text-green-400' : 'text-green-600',
-    iconDanger: isDark ? 'text-red-400' : 'text-red-600',
-    btnPrimary: isDark ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white',
-    btnSecondary: isDark ? 'bg-gray-700 hover:bg-gray-600 text-gray-200' : 'bg-gray-200 hover:bg-gray-300 text-gray-700',
-    btnSuccess: isDark ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-green-600 hover:bg-green-700 text-white',
-    btnDanger: isDark ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white',
-    actionView: isDark ? 'bg-blue-900 hover:bg-blue-800 text-blue-300' : 'bg-blue-50 hover:bg-blue-100 text-blue-700',
-    actionEdit: isDark ? 'bg-green-900 hover:bg-green-800 text-green-300' : 'bg-green-50 hover:bg-green-100 text-green-700',
-    actionDelete: isDark ? 'bg-red-900 hover:bg-red-800 text-red-300' : 'bg-red-50 hover:bg-red-100 text-red-700',
-  };
+  useEffect(() => {
+    const timer = setTimeout(() => setMounted(true), 50);
+    return () => clearTimeout(timer);
+  }, []);
 
-  // Load teachers data function
-  const loadTeachers = async () => {
+  const loadTeachers = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
       const response = await TeacherService.getTeachers();
-      console.log('TeacherService response:', response);
-      const teachersData = Array.isArray(response.results) ? response.results : 
-                         Array.isArray(response) ? response : [];
-      console.log('Processed teachers data:', teachersData);
+      const teachersData = Array.isArray(response.results) ? response.results :
+        Array.isArray(response) ? response : [];
       setTeachers(teachersData);
       setFilteredTeachers(teachersData);
     } catch (err: any) {
       console.error('Error loading teachers:', err);
       setError(err.response?.data?.message || 'Failed to load teachers');
-      toast.error('Failed to load teachers');
       setTeachers([]);
       setFilteredTeachers([]);
     } finally {
       setLoading(false);
     }
-  };
-
-  // Load teachers data
-  useEffect(() => {
-    loadTeachers();
   }, []);
 
-  // Filter teachers
+  useEffect(() => {
+    loadTeachers();
+  }, [loadTeachers]);
+
   useEffect(() => {
     let filtered = Array.isArray(teachers) ? teachers : [];
 
@@ -117,15 +79,12 @@ const TeacherList = () => {
         const teacherEmail = teacher.email || '';
         return teacherName.toLowerCase().includes(searchTerm.toLowerCase()) ||
           teacherEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          (teacher.assigned_subjects && Array.isArray(teacher.assigned_subjects) && teacher.assigned_subjects.some(subject => 
-            (subject?.name || '').toLowerCase().includes(searchTerm.toLowerCase())
-          )) ||
           (teacher.qualification || '').toLowerCase().includes(searchTerm.toLowerCase());
       });
     }
 
     if (statusFilter !== 'all') {
-      filtered = filtered.filter(teacher => 
+      filtered = filtered.filter(teacher =>
         statusFilter === 'active' ? teacher.is_active : !teacher.is_active
       );
     }
@@ -145,36 +104,20 @@ const TeacherList = () => {
   const confirmDelete = async () => {
     if (teacherToDelete) {
       try {
-        console.log('Attempting to delete teacher:', teacherToDelete.id);
-        const response = await TeacherService.deleteTeacher(teacherToDelete.id);
-        
-        // Update the UI immediately after successful deletion
+        setDeleting(true);
+        await TeacherService.deleteTeacher(teacherToDelete.id);
         const teachersArray = Array.isArray(teachers) ? teachers : [];
-        const updatedTeachers = teachersArray.filter(t => t.id !== teacherToDelete.id);
-        setTeachers(updatedTeachers);
-        
-        // Close modal and reset state
+        setTeachers(teachersArray.filter(t => t.id !== teacherToDelete.id));
         setShowDeleteModal(false);
         setTeacherToDelete(null);
-        
-        // Show success message from backend response
-        const successMessage = response?.message || 'Teacher deleted successfully';
-        toast.success(successMessage);
-        
-        console.log('Teacher deleted successfully, UI updated');
+        toast.success('Teacher deleted successfully');
       } catch (err: any) {
-        console.error('Error deleting teacher:', err);
-        
-        // Show detailed error message
-        const errorMessage = err.response?.data?.error || 
-                           err.response?.data?.message || 
-                           err.message || 
-                           'Failed to delete teacher';
-        
+        const errorMessage = err.response?.data?.error ||
+          err.response?.data?.message ||
+          'Failed to delete teacher';
         toast.error(errorMessage);
-        
-        // Keep modal open on error so user can try again
-        console.log('Delete failed, keeping modal open');
+      } finally {
+        setDeleting(false);
       }
     }
   };
@@ -191,19 +134,15 @@ const TeacherList = () => {
 
   const handleUpdateTeacher = async (updatedData: UpdateTeacherData) => {
     if (!teacherToEdit) return;
-    
+
     try {
-      // Convert level to the expected type
       const processedData = {
         ...updatedData,
         level: updatedData.level === null ? undefined : updatedData.level
       };
-      
-      const updatedTeacher = await TeacherService.updateTeacher(teacherToEdit.id, processedData);
-      
-      // Refresh the entire teachers list to get fresh data
+
+      await TeacherService.updateTeacher(teacherToEdit.id, processedData);
       await loadTeachers();
-      
       setShowEditModal(false);
       setTeacherToEdit(null);
       toast.success('Teacher updated successfully');
@@ -212,122 +151,43 @@ const TeacherList = () => {
     }
   };
 
-  const handleToggleActive = async (teacher: Teacher) => {
-    try {
-      if (teacher.is_active) {
-        await TeacherService.deactivateTeacher(teacher.id);
-      } else {
-        await TeacherService.activateTeacher(teacher.id);
-      }
-      
-      // Update the teacher's active status in the list
-      const teachersArray = Array.isArray(teachers) ? teachers : [];
-      setTeachers(teachersArray.map(t => 
-        t.id === teacher.id ? { ...t, is_active: !t.is_active } : t
-      ));
-      
-      toast.success(`Teacher ${teacher.is_active ? 'deactivated' : 'activated'} successfully`);
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to update teacher status');
-    }
+  const getLevelLabel = (level: string | null) => {
+    const labels: Record<string, string> = {
+      'nursery': 'Nursery',
+      'primary': 'Primary',
+      'junior_secondary': 'Junior Secondary',
+      'senior_secondary': 'Senior Secondary',
+      'secondary': 'Secondary'
+    };
+    return level ? labels[level] || level : 'Not assigned';
   };
 
-  const getLevelIcon = (level: 'nursery' | 'primary' | 'junior_secondary' | 'senior_secondary' | 'secondary' | null) => {
-    switch(level) {
-      case 'nursery': return <Baby size={14} className="mr-1" />;
-      case 'primary': return <BookOpen size={14} className="mr-1" />;
-      case 'junior_secondary':
-      case 'senior_secondary':
-      case 'secondary': return <School size={14} className="mr-1" />;
-      default: return <GraduationCap size={14} className="mr-1" />;
-    }
-  };
-
-  const getLevelColor = (level: 'nursery' | 'primary' | 'junior_secondary' | 'senior_secondary' | 'secondary' | null) => {
-    switch(level) {
-      case 'nursery': return themeClasses.levelNursery;
-      case 'primary': return themeClasses.levelPrimary;
-      case 'junior_secondary':
-      case 'senior_secondary':
-      case 'secondary': return themeClasses.levelSecondary;
-      default: return isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const getLevelStats = () => {
-    const teachersArray = Array.isArray(teachers) ? teachers : [];
-    const nursery = teachersArray.filter(t => t?.level === 'nursery' && t?.is_active).length;
-    const primary = teachersArray.filter(t => t?.level === 'primary' && t?.is_active).length;
-    const seniorSecondary = teachersArray.filter(t => t?.level === 'senior_secondary' && t?.is_active).length;
-    const juniorSecondary = teachersArray.filter(t => t?.level === 'junior_secondary' && t?.is_active).length;
-    const secondary = teachersArray.filter(t => t?.level === 'secondary' && t?.is_active).length;
-    return { nursery, primary, secondary, juniorSecondary, seniorSecondary };
-  };
-
-  const levelStats = getLevelStats();
-  console.log('Levelstarts:', levelStats.juniorSecondary);
-    console.log('Levelstarts:', levelStats.seniorSecondary);
-
-  // Helper function to get initials from name
   const getInitials = (firstName: string, lastName: string) => {
     const first = firstName?.charAt(0) || '';
     const last = lastName?.charAt(0) || '';
     return `${first}${last}`.toUpperCase();
   };
 
-  // Enhanced profile picture rendering with debugging
-  const renderProfilePicture = (teacher: Teacher) => {
-    
-    console.log(`🖼️ Rendering profile for ${teacher.first_name} ${teacher.last_name}:`, teacher.photo);
-    
-    if (teacher.photo) {
-      // Check if it's a full URL or just a path
-      const imageUrl = teacher.photo.startsWith('http') 
-        ? teacher.photo 
-        : `${import.meta.env.VITE_API_URL || 'https://school-project-with-edward.onrender.com/api'}${teacher.photo}`;
-      
-      console.log(`🖼️ Final image URL for ${teacher.first_name} ${teacher.last_name}:`, imageUrl);
-      
-      return (
-        <img
-          src={imageUrl}
-          alt={`${teacher.first_name} ${teacher.last_name}`}
-          className="w-16 h-16 rounded-full object-cover border-2 border-gray-200 bg-gray-100"
-          style={{objectPosition: 'center'}}
-          onError={(e) => {
-            console.error(`❌ Failed to load image for ${teacher.first_name} ${teacher.last_name}:`, imageUrl);
-            // Hide the broken image and show initials instead
-            e.currentTarget.style.display = 'none';
-            e.currentTarget.nextElementSibling?.classList.remove('hidden');
-          }}
-          onLoad={() => {
-            console.log(`✅ Successfully loaded image for ${teacher.first_name} ${teacher.last_name}`);
-          }}
-        />
-      );
-    }
-    
-    return null;
-  };
+  const activeFiltersCount = [
+    statusFilter !== 'all' ? statusFilter : '',
+    levelFilter !== 'all' ? levelFilter : ''
+  ].filter(Boolean).length;
 
-  const renderInitialsAvatar = (teacher: Teacher) => {
-    return (
-      <div className={`w-16 h-16 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 flex items-center justify-center ${teacher.photo ? 'hidden' : ''}`}>
-        <span className="text-lg font-bold text-white">
-          {getInitials(teacher.first_name, teacher.last_name)}
-        </span>
-      </div>
-    );
+  const stats = {
+    total: teachers.length,
+    active: teachers.filter(t => t?.is_active).length,
+    nursery: teachers.filter(t => t?.level === 'nursery' && t?.is_active).length,
+    primary: teachers.filter(t => t?.level === 'primary' && t?.is_active).length,
+    juniorSecondary: teachers.filter(t => t?.level === 'junior_secondary' && t?.is_active).length,
+    seniorSecondary: teachers.filter(t => t?.level === 'senior_secondary' && t?.is_active).length,
   };
 
   if (loading) {
     return (
-      <div className={`${themeClasses.bgPrimary} transition-colors duration-300`}>
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className={`${themeClasses.textSecondary}`}>Loading teachers...</p>
-          </div>
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-gray-200 border-t-gray-800 rounded-full animate-spin mx-auto" />
+          <p className="text-sm text-gray-500 mt-4">Loading teachers...</p>
         </div>
       </div>
     );
@@ -335,425 +195,250 @@ const TeacherList = () => {
 
   if (error) {
     return (
-      <div className={`${themeClasses.bgPrimary} transition-colors duration-300`}>
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center py-12">
-            <AlertCircle size={48} className={`mx-auto ${themeClasses.textMuted} mb-4`} />
-            <p className={`${themeClasses.textSecondary} text-lg`}>Error loading teachers</p>
-            <p className={`${themeClasses.textTertiary} text-sm mt-2`}>{error}</p>
-            <button
-              onClick={() => window.location.reload()}
-              className={`mt-4 px-4 py-2 ${themeClasses.btnPrimary} rounded-lg`}
-            >
-              Retry
-            </button>
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="text-center max-w-sm">
+          <div className="w-12 h-12 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
+            <AlertCircle className="w-6 h-6 text-red-500" />
           </div>
+          <h3 className="text-base font-semibold text-gray-900 mb-2">Failed to load teachers</h3>
+          <p className="text-sm text-gray-500 mb-4">{error}</p>
+          <button
+            onClick={loadTeachers}
+            className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+          >
+            Try again
+          </button>
         </div>
       </div>
     );
   }
-  console.log('Levelstarts:', levelStats.juniorSecondary);
-    console.log('Levelstarts:', levelStats.seniorSecondary);
 
   return (
-    <div className={`${themeClasses.bgPrimary} transition-colors duration-300`}>
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div>
-              <h1 className={`text-4xl font-bold ${themeClasses.textPrimary} mb-2 transition-colors duration-300`}>
-                {settings?.school_name || "God's Treasure School"}
-              </h1>
-              <p className={`${themeClasses.textSecondary} transition-colors duration-300`}>
-                Teacher Management System - Nursery, Primary & Secondary
-              </p>
-            </div>
-
+    <div className="space-y-6">
+      {/* Header */}
+      <div className={`transition-all duration-500 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'}`}>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold text-gray-900">Teachers</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              {filteredTeachers.length} of {teachers.length} teachers
+            </p>
           </div>
+          <button
+            onClick={() => navigate('/admin/teachers/add')}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Add Teacher
+          </button>
         </div>
+      </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
-          <div className={`${themeClasses.bgCard} rounded-xl p-6 shadow-lg border transition-all duration-300 hover:shadow-xl`}>
-            <div className="flex flex-col justify-center text-center items-center">
-              <div className={`p-3 rounded-full ${isDark ? 'bg-blue-900 text-blue-300' : 'bg-blue-100 text-blue-600'}`}>
-                <Users size={24} />
-              </div>
-              <div className="ml-4">
-                <p className={`${themeClasses.textSecondary} text-sm`}>Total Teachers</p>
-                <p className={`text-2xl font-bold ${themeClasses.textPrimary}`}>{teachers.length}</p>
-              </div>
-            </div>
+      {/* Stats */}
+      <div className={`grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 transition-all duration-500 delay-100 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+        {[
+          { label: 'Total', value: stats.total, color: 'gray' },
+          { label: 'Active', value: stats.active, color: 'emerald' },
+          { label: 'Nursery', value: stats.nursery, color: 'pink' },
+          { label: 'Primary', value: stats.primary, color: 'blue' },
+          { label: 'Junior Sec', value: stats.juniorSecondary, color: 'violet' },
+          { label: 'Senior Sec', value: stats.seniorSecondary, color: 'amber' }
+        ].map((stat) => (
+          <div key={stat.label} className="bg-white rounded-xl border border-gray-200 p-4">
+            <p className="text-xs font-medium text-gray-500 mb-1">{stat.label}</p>
+            <p className="text-2xl font-semibold text-gray-900">{stat.value}</p>
           </div>
-          
-          <div className={`${themeClasses.bgCard} rounded-xl p-6 shadow-lg border transition-all duration-300 hover:shadow-xl`}>
-            <div className="flex flex-col items-center text-center">
-              <div className={`p-3 rounded-full mb-3 ${isDark ? 'bg-pink-900 text-pink-300' : 'bg-pink-100 text-pink-600'}`}>
-                <Baby size={24} />
-              </div>
-              <p className={`${themeClasses.textSecondary} text-sm mb-1`}>Nursery</p>
-              <p className={`text-2xl font-bold ${themeClasses.textPrimary}`}>{levelStats.nursery}</p>
-            </div>
-          </div>
+        ))}
+      </div>
 
-          <div className={`${themeClasses.bgCard} rounded-xl p-6 shadow-lg border transition-all duration-300 hover:shadow-xl`}>
-            <div className="flex flex-col items-center text-center">
-              <div className={`p-3 rounded-full mb-3 ${isDark ? 'bg-blue-900 text-blue-300' : 'bg-blue-100 text-blue-600'}`}>
-                <BookOpen size={24} />
-              </div>
-              <p className={`${themeClasses.textSecondary} text-sm mb-1`}>Primary</p>
-              <p className={`text-2xl font-bold ${themeClasses.textPrimary}`}>{levelStats.primary}</p>
-            </div>
-          </div>
-
-          <div className={`${themeClasses.bgCard} rounded-xl p-6 shadow-lg border transition-all duration-300 hover:shadow-xl`}>
-            <div className="flex flex-col items-center text-center">
-              <div className={`p-3 rounded-full mb-3 ${isDark ? 'bg-purple-900 text-purple-300' : 'bg-purple-100 text-purple-600'}`}>
-                <School size={24} />
-              </div>
-              <p className={`${themeClasses.textSecondary} text-sm mb-1`}>Junior Secondary</p>
-              <p className={`text-2xl font-bold ${themeClasses.textPrimary}`}>{levelStats.juniorSecondary}</p>
-            </div>
-          </div>
-          <div className={`${themeClasses.bgCard} rounded-xl p-6 shadow-lg border transition-all duration-300 hover:shadow-xl`}>
-            <div className="flex flex-col items-center text-center">
-              <div className={`p-3 rounded-full mb-3 ${isDark ? 'bg-purple-900 text-purple-300' : 'bg-purple-100 text-purple-600'}`}>
-                <School size={24} />
-              </div>
-              <p className={`${themeClasses.textSecondary} text-sm mb-1`}>Senior Secondary</p>
-              <p className={`text-2xl font-bold ${themeClasses.textPrimary}`}>{levelStats.seniorSecondary} </p>
-            </div>
-          </div>
-
-          <div className={`${themeClasses.bgCard} rounded-xl p-6 shadow-lg border transition-all duration-300 hover:shadow-xl`}>
-            <div className="flex flex-col items-center text-center">
-              <div className={`p-3 rounded-full mb-3 ${isDark ? 'bg-green-900 text-green-300' : 'bg-green-100 text-green-600'}`}>
-                <Check size={24} />
-              </div>
-              <p className={`${themeClasses.textSecondary} text-sm mb-1`}>Active</p>
-              <p className={`text-2xl font-bold ${themeClasses.textPrimary}`}>
-                {teachers.filter(t => t?.is_active).length}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Search and Filter */}
-        <div className={`${themeClasses.bgCard} rounded-xl p-6 shadow-lg border mb-8 transition-all duration-300`}>
-          <div className="flex flex-col lg:flex-row gap-4">
+      {/* Search & Filters */}
+      <div className={`bg-white rounded-xl border border-gray-200 transition-all duration-500 delay-150 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+        <div className="p-4">
+          <div className="flex flex-col lg:flex-row lg:items-center gap-3">
             <div className="relative flex-1">
-              <Search className={`absolute left-3 top-3 ${themeClasses.textMuted}`} size={20} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search teachers by name, email, subject, or qualification..."
+                placeholder="Search by name, email, or qualification..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all duration-300 ${themeClasses.inputBg} ${themeClasses.inputFocus} ${themeClasses.textPrimary}`}
+                className="w-full h-10 pl-10 pr-4 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-shadow"
               />
             </div>
-            <div className="flex gap-4">
-              <div className="relative">
-                <Filter className={`absolute left-3 top-3 ${themeClasses.textMuted}`} size={20} />
-                <select
-                  value={levelFilter}
-                  onChange={(e) => setLevelFilter(e.target.value)}
-                  className={`pl-10 pr-8 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all duration-300 ${themeClasses.inputBg} ${themeClasses.inputFocus} ${themeClasses.textPrimary}`}
-                >
-                  <option value="all">All Levels</option>
-                  <option value="nursery">Nursery</option>
-                  <option value="primary">Primary</option>
-                  <option value="junior_secondary">Junior Secondary</option>
-                  <option value="senior_secondary">Senior Secondary</option>
-                  <option value="secondary">Secondary (Legacy)</option>
-                </select>
-              </div>
-              <div className="relative">
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className={`px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all duration-300 ${themeClasses.inputBg} ${themeClasses.inputFocus} ${themeClasses.textPrimary}`}
-                >
-                  <option value="all">All Status</option>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-              </div>
-              <div className={`flex ${isDark ? 'bg-gray-700' : 'bg-gray-100'} rounded-lg p-1 transition-all duration-300`}>
-                <button
-                  onClick={() => setViewMode('cards')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-all duration-200 ${
-                    viewMode === 'cards'
-                      ? `${isDark ? 'bg-gray-600 text-blue-300' : 'bg-white text-blue-600'} shadow-sm`
-                      : `${themeClasses.textSecondary} hover:text-blue-600`
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className={`flex items-center gap-2 h-10 px-4 rounded-lg text-sm font-medium transition-colors ${showFilters || activeFiltersCount > 0
+                    ? 'bg-gray-900 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
-                >
-                  <Grid3X3 size={18} />
-                  Cards
-                </button>
+              >
+                <Filter className="w-4 h-4" />
+                Filters
+                {activeFiltersCount > 0 && (
+                  <span className="w-5 h-5 bg-white text-gray-900 rounded-full text-xs flex items-center justify-center font-semibold">
+                    {activeFiltersCount}
+                  </span>
+                )}
+              </button>
+
+              <div className="flex bg-gray-100 rounded-lg p-1">
                 <button
                   onClick={() => setViewMode('list')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-all duration-200 ${
-                    viewMode === 'list'
-                      ? `${isDark ? 'bg-gray-600 text-blue-300' : 'bg-white text-blue-600'} shadow-sm`
-                      : `${themeClasses.textSecondary} hover:text-blue-600`
-                  }`}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                    }`}
                 >
-                  <List size={18} />
-                  List
+                  <List className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setViewMode('cards')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'cards' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                  <Grid3X3 className="w-4 h-4" />
                 </button>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Teachers Display */}
-        {viewMode === 'cards' ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {filteredTeachers.map((teacher) => (
-              <div
-                key={teacher.id}
-                className={`${themeClasses.bgCard} rounded-xl shadow-lg border overflow-hidden hover:shadow-xl transition-all duration-300 transform hover:scale-105 flex flex-col`}
-                style={{ minHeight: '480px' }}
-              >
-                {/* Card Header */}
-                <div className="p-6 pb-4">
-                  <div className="flex items-start space-x-4">
-                    <div className="flex-shrink-0 relative">
-                      {renderProfilePicture(teacher)}
-                      {renderInitialsAvatar(teacher)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className={`text-lg font-bold ${themeClasses.textPrimary} leading-tight mb-1`}>
-                        {teacher.first_name} {teacher.last_name}
-                      </h3>
-                      <p className={`${themeClasses.iconPrimary} font-semibold text-sm mb-3 leading-tight`}>
-                        {teacher.staff_type === 'teaching' ? 'Teaching Staff' : 'Non-Teaching Staff'}
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {teacher.level && (
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${getLevelColor(teacher.level)}`}>
-                            {getLevelIcon(teacher.level)}
-                            {teacher.level.charAt(0)?.toUpperCase() + teacher.level.slice(1) || teacher.level}
-                          </span>
-                        )}
-                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
-                          teacher.is_active 
-                            ? themeClasses.statusActive
-                            : themeClasses.statusInactive
-                        }`}>
-                          {teacher.is_active ? 'ACTIVE' : 'INACTIVE'}
-                        </span>
-                      </div>
-                    </div>
+          {showFilters && (
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1.5">Level</label>
+                  <div className="relative">
+                    <select
+                      value={levelFilter}
+                      onChange={(e) => setLevelFilter(e.target.value)}
+                      className="w-full h-10 px-3 pr-8 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent appearance-none"
+                    >
+                      <option value="all">All Levels</option>
+                      <option value="nursery">Nursery</option>
+                      <option value="primary">Primary</option>
+                      <option value="junior_secondary">Junior Secondary</option>
+                      <option value="senior_secondary">Senior Secondary</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                   </div>
                 </div>
 
-                {/* Card Body */}
-                <div className="px-6 pb-4 flex-1">
-                  <div className="space-y-3">
-                    <div className={`flex items-center ${themeClasses.textSecondary}`}>
-                      <Users size={16} className={`mr-3 flex-shrink-0 ${themeClasses.iconSecondary}`} />
-                      <span className="text-sm break-all leading-relaxed">
-                      {teacher.first_name} {teacher.last_name}
-                    </span>
-                    </div>
-                    
-                    <div className={`flex items-center ${themeClasses.textSecondary}`}>
-                      <Phone size={16} className={`mr-3 flex-shrink-0 ${themeClasses.iconSecondary}`} />
-                      <span className="text-sm">{teacher.phone_number || 'No phone'}</span>
-                    </div>
-                    
-                    <div className={`flex items-start ${themeClasses.textSecondary}`}>
-                      <Award size={16} className={`mr-3 flex-shrink-0 ${themeClasses.iconSecondary} mt-0.5`} />
-                      <span className="text-sm">{teacher.qualification || 'No qualification'}</span>
-                    </div>
-                    
-                    <div className={`flex items-start ${themeClasses.textSecondary}`}>
-                      <Calendar size={16} className={`mr-3 flex-shrink-0 ${themeClasses.iconSecondary} mt-0.5`} />
-                      <div>
-                        <span className="text-sm font-medium block">Hire Date:</span>
-                        <span className="text-sm text-gray-500 leading-relaxed">
-                          {new Date(teacher.hire_date).toLocaleDateString()}
-                        </span>
-                      </div>
-                    </div>
-
-                    {teacher.assigned_subjects && Array.isArray(teacher.assigned_subjects) && teacher.assigned_subjects.length > 0 && (
-                      <div className={`flex items-start ${themeClasses.textSecondary}`}>
-                        <BookOpen size={16} className={`mr-3 flex-shrink-0 ${themeClasses.iconSecondary} mt-0.5`} />
-                        <div>
-                          <span className="text-sm font-medium block">Subjects:</span>
-                          <span className="text-sm text-gray-500 leading-relaxed">
-                            {teacher.assigned_subjects.map(s => s.name).join(', ')}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Display detailed assignments if available */}
-                    {teacher.teacher_assignments && Array.isArray(teacher.teacher_assignments) && teacher.teacher_assignments.length > 0 && (
-                      <div className={`flex items-start ${themeClasses.textSecondary}`}>
-                        <School size={16} className={`mr-3 flex-shrink-0 ${themeClasses.iconSecondary} mt-0.5`} />
-                        <div>
-                          <span className="text-sm font-medium block">Classes & Sections:</span>
-                          <div className="text-xs text-gray-500 space-y-1 mt-1">
-                            {teacher.teacher_assignments.slice(0, 3).map((assignment, idx) => (
-                              <div key={idx} className="flex items-center">
-                                <span className="bg-blue-100 text-blue-800 px-1 rounded text-xs mr-1">
-                                  {assignment.grade_level_name} {assignment.section_name}
-                                </span>
-                                <span>{assignment.subject_name}</span>
-                              </div>
-                            ))}
-                            {teacher.teacher_assignments && Array.isArray(teacher.teacher_assignments) && teacher.teacher_assignments.length > 3 && (
-                              <div className="text-xs text-blue-600">
-                                +{teacher.teacher_assignments.length - 3} more classes
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Card Footer */}
-                <div className="p-6 pt-0 mt-auto">
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleViewProfile(teacher)}
-                      className={`flex-1 px-3 py-2.5 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-colors duration-200 text-sm ${themeClasses.actionView}`}
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1.5">Status</label>
+                  <div className="relative">
+                    <select
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value)}
+                      className="w-full h-10 px-3 pr-8 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent appearance-none"
                     >
-                      <Eye size={16} />
-                    </button>
-                    <button
-                      onClick={() => handleEdit(teacher)}
-                      className={`flex-1 px-3 py-2.5 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-colors duration-200 text-sm ${themeClasses.actionEdit}`}
-                    >
-                      <Edit3 size={16} />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(teacher)}
-                      className={`flex-1 px-3 py-2.5 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-colors duration-200 text-sm ${themeClasses.actionDelete}`}
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                      <option value="all">All Status</option>
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
-        ) : (
-          <div className={`${themeClasses.bgCard} rounded-xl shadow-lg border overflow-hidden transition-all duration-300`}>
+
+              {activeFiltersCount > 0 && (
+                <div className="mt-3 flex justify-end">
+                  <button
+                    onClick={() => {
+                      setLevelFilter('all');
+                      setStatusFilter('all');
+                    }}
+                    className="text-sm text-gray-500 hover:text-gray-700"
+                  >
+                    Clear all filters
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Teachers Display */}
+      <div className={`transition-all duration-500 delay-200 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+        {viewMode === 'list' ? (
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className={`${isDark ? 'bg-gray-700' : 'bg-gray-50'} ${themeClasses.borderPrimary} border-b`}>
-                  <tr>
-                    <th className={`px-6 py-4 text-left text-xs font-semibold ${themeClasses.textSecondary} uppercase tracking-wider`}>
-                      Teacher
-                    </th>
-                    <th className={`px-6 py-4 text-left text-xs font-semibold ${themeClasses.textSecondary} uppercase tracking-wider`}>
-                      Contact
-                    </th>
-                    <th className={`px-6 py-4 text-left text-xs font-semibold ${themeClasses.textSecondary} uppercase tracking-wider`}>
-                      Level & Type
-                    </th>
-                    <th className={`px-6 py-4 text-left text-xs font-semibold ${themeClasses.textSecondary} uppercase tracking-wider`}>
-                      Qualification
-                    </th>
-                    <th className={`px-6 py-4 text-left text-xs font-semibold ${themeClasses.textSecondary} uppercase tracking-wider`}>
-                      Status
-                    </th>
-                    <th className={`px-6 py-4 text-left text-xs font-semibold ${themeClasses.textSecondary} uppercase tracking-wider`}>
-                      Actions
-                    </th>
+                <thead>
+                  <tr className="border-b border-gray-100">
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Teacher</th>
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Contact</th>
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Level</th>
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Qualification</th>
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Status</th>
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Actions</th>
                   </tr>
                 </thead>
-                <tbody className={`divide-y ${themeClasses.borderPrimary}`}>
+                <tbody className="divide-y divide-gray-100">
                   {filteredTeachers.map((teacher) => (
-                    <tr key={teacher.id} className={`${themeClasses.hoverCard} transition-colors duration-200`}>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <div className="relative">
+                    <tr key={teacher.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center">
                             {teacher.photo ? (
                               <img
-                                src={teacher.photo.startsWith('http') ? teacher.photo : `${import.meta.env.VITE_API_URL || 'http://localhost:8000/api'}${teacher.photo}`}
+                                src={teacher.photo.startsWith('http') ? teacher.photo : `${import.meta.env.VITE_API_URL || ''}${teacher.photo}`}
                                 alt={`${teacher.first_name} ${teacher.last_name}`}
-                                className="w-12 h-12 rounded-full object-cover border-2 border-gray-200 bg-gray-100"
-                                style={{objectPosition: 'center'}}
-                                onError={(e) => {
-                                  e.currentTarget.style.display = 'none';
-                                  e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                                }}
+                                className="w-9 h-9 rounded-full object-cover"
+                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
                               />
-                            ) : null}
-                            <div className={`w-12 h-12 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 flex items-center justify-center ${teacher.photo ? 'hidden' : ''}`}>
-                              <span className="text-sm font-bold text-white">
+                            ) : (
+                              <span className="text-xs font-medium text-gray-600">
                                 {getInitials(teacher.first_name, teacher.last_name)}
                               </span>
-                            </div>
+                            )}
                           </div>
-                          <div className="ml-4">
-                            <div className={`text-sm font-bold ${themeClasses.textPrimary}`}>
-                              {teacher.first_name} {teacher.last_name}
-                            </div>
-                            <div className={`text-sm ${themeClasses.textTertiary}`}>
-                              {teacher.phone_number || 'No phone'}
-                            </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">{teacher.first_name} {teacher.last_name}</p>
+                            <p className="text-xs text-gray-500">{teacher.staff_type === 'teaching' ? 'Teaching Staff' : 'Non-Teaching'}</p>
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className={`text-sm ${themeClasses.textPrimary}`}>{teacher.phone_number || 'No phone'}</div>
-                        <div className={`text-sm ${themeClasses.textTertiary}`}>{teacher.address || 'No address'}</div>
+                      <td className="px-6 py-4">
+                        <p className="text-sm text-gray-900">{teacher.phone_number || 'No phone'}</p>
+                        <p className="text-xs text-gray-500">{teacher.email || 'No email'}</p>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className={`text-sm font-medium ${themeClasses.iconPrimary}`}>
-                          {teacher.staff_type === 'teaching' ? 'Teaching' : 'Non-Teaching'}
-                        </div>
-                        {teacher.level && (
-                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${getLevelColor(teacher.level)}`}>
-                            {getLevelIcon(teacher.level)}
-                            {teacher.level.charAt(0)?.toUpperCase() + teacher.level.slice(1) || teacher.level}
-                          </span>
-                        )}
+                      <td className="px-6 py-4">
+                        <span className="text-sm text-gray-900">{getLevelLabel(teacher.level)}</span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className={`text-sm ${themeClasses.textPrimary}`}>{teacher.qualification || 'No qualification'}</div>
-                        <div className={`text-sm ${themeClasses.textTertiary}`}>{teacher.specialization || 'No specialization'}</div>
+                      <td className="px-6 py-4">
+                        <span className="text-sm text-gray-900">{teacher.qualification || 'Not specified'}</span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                          teacher.is_active 
-                            ? themeClasses.statusActive
-                            : themeClasses.statusInactive
-                        }`}>
-                          {teacher.is_active ? 'ACTIVE' : 'INACTIVE'}
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${teacher.is_active
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : 'bg-gray-100 text-gray-600'
+                          }`}>
+                          {teacher.is_active ? 'Active' : 'Inactive'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex space-x-2">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-1">
                           <button
                             onClick={() => handleViewProfile(teacher)}
-                            className={`${themeClasses.iconPrimary} hover:text-blue-700 p-1 rounded-full hover:bg-blue-50 transition-colors duration-200`}
-                            title="View Profile"
+                            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                            title="View"
                           >
-                            <Eye size={16} />
+                            <Eye className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => handleEdit(teacher)}
-                            className={`${themeClasses.iconSuccess} hover:text-green-700 p-1 rounded-full hover:bg-green-50 transition-colors duration-200`}
-                            title="Edit Teacher"
+                            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                            title="Edit"
                           >
-                            <Edit3 size={16} />
+                            <Edit3 className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => handleDelete(teacher)}
-                            className={`${themeClasses.iconDanger} hover:text-red-700 p-1 rounded-full hover:bg-red-50 transition-colors duration-200`}
-                            title="Delete Teacher"
+                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Delete"
                           >
-                            <Trash2 size={16} />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </td>
@@ -763,300 +448,296 @@ const TeacherList = () => {
               </table>
             </div>
           </div>
-        )}
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {filteredTeachers.map((teacher) => (
+              <div
+                key={teacher.id}
+                className="bg-white rounded-xl border border-gray-200 p-5 hover:border-gray-300 hover:shadow-sm transition-all"
+              >
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden">
+                      {teacher.photo ? (
+                        <img
+                          src={teacher.photo.startsWith('http') ? teacher.photo : `${import.meta.env.VITE_API_URL || ''}${teacher.photo}`}
+                          alt={`${teacher.first_name} ${teacher.last_name}`}
+                          className="w-10 h-10 rounded-full object-cover"
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        />
+                      ) : (
+                        <span className="text-sm font-medium text-gray-600">
+                          {getInitials(teacher.first_name, teacher.last_name)}
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-900">{teacher.first_name} {teacher.last_name}</h3>
+                      <p className="text-xs text-gray-500">{teacher.staff_type === 'teaching' ? 'Teaching Staff' : 'Non-Teaching'}</p>
+                    </div>
+                  </div>
+                  <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${teacher.is_active
+                      ? 'bg-emerald-50 text-emerald-700'
+                      : 'bg-gray-100 text-gray-600'
+                    }`}>
+                    {teacher.is_active ? 'Active' : 'Inactive'}
+                  </span>
+                </div>
 
-        {filteredTeachers.length === 0 && (
-          <div className="text-center py-12">
-            <Users size={48} className={`mx-auto ${themeClasses.textMuted} mb-4`} />
-            <p className={`${themeClasses.textSecondary} text-lg`}>No teachers found matching your criteria.</p>
-            <p className={`${themeClasses.textTertiary} text-sm mt-2`}>Try adjusting your search terms or filters.</p>
+                <div className="space-y-2.5 mb-4">
+                  <div className="flex items-center gap-2 text-sm">
+                    <BookOpen className="w-4 h-4 text-gray-400" />
+                    <span className="text-gray-600">{getLevelLabel(teacher.level)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <Phone className="w-4 h-4 text-gray-400" />
+                    <span className="text-gray-600">{teacher.phone_number || 'No phone'}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <Award className="w-4 h-4 text-gray-400" />
+                    <span className="text-gray-600">{teacher.qualification || 'Not specified'}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <Calendar className="w-4 h-4 text-gray-400" />
+                    <span className="text-gray-600">Hired: {new Date(teacher.hire_date).toLocaleDateString()}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-4 border-t border-gray-100">
+                  <button
+                    onClick={() => handleViewProfile(teacher)}
+                    className="flex-1 h-9 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  >
+                    View
+                  </button>
+                  <button
+                    onClick={() => handleEdit(teacher)}
+                    className="flex-1 h-9 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => handleDelete(teacher)}
+                    className="h-9 w-9 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
 
-      {/* Delete Confirmation Modal */}
+      {/* Empty State */}
+      {filteredTeachers.length === 0 && !loading && (
+        <div className="text-center py-16">
+          <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Users className="w-6 h-6 text-gray-400" />
+          </div>
+          <h3 className="text-sm font-medium text-gray-900 mb-1">No teachers found</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            {searchTerm || activeFiltersCount > 0
+              ? 'Try adjusting your search or filters.'
+              : 'Get started by adding a new teacher.'}
+          </p>
+          <button
+            onClick={() => navigate('/admin/teachers/add')}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Add Teacher
+          </button>
+        </div>
+      )}
+
+      {/* Delete Modal */}
       {showDeleteModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className={`${themeClasses.bgModal} rounded-xl p-6 max-w-md w-full transition-all duration-300`}>
-            <div className="text-center">
-              <div className={`mx-auto flex items-center justify-center h-12 w-12 rounded-full ${isDark ? 'bg-red-900' : 'bg-red-100'} mb-4`}>
-                <AlertCircle className={`h-6 w-6 ${isDark ? 'text-red-300' : 'text-red-600'}`} />
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-red-50 rounded-full flex items-center justify-center flex-shrink-0">
+                <Trash2 className="w-5 h-5 text-red-600" />
               </div>
-              <h3 className={`text-lg font-bold ${themeClasses.textPrimary} mb-2`}>Delete Teacher</h3>
-              <p className={`${themeClasses.textSecondary} mb-6`}>
-                Are you sure you want to delete{' '}
-                <span className="font-semibold">
-                  {teacherToDelete?.first_name} {teacherToDelete?.last_name}
-                </span>
-                ? This action cannot be undone.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowDeleteModal(false)}
-                  className={`flex-1 px-4 py-2 border rounded-lg font-medium transition-colors duration-200 ${themeClasses.btnSecondary}`}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={confirmDelete}
-                  className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors duration-200 ${themeClasses.btnDanger}`}
-                >
-                  Delete
-                </button>
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">Delete Teacher</h3>
+                <p className="text-sm text-gray-500">This action cannot be undone.</p>
               </div>
+            </div>
+
+            <p className="text-sm text-gray-600 mb-6">
+              Are you sure you want to delete <span className="font-medium">{teacherToDelete?.first_name} {teacherToDelete?.last_name}</span>?
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowDeleteModal(false); setTeacherToDelete(null); }}
+                disabled={deleting}
+                className="flex-1 h-10 px-4 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={deleting}
+                className="flex-1 h-10 px-4 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+              >
+                {deleting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete'
+                )}
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Teacher Profile Modal */}
+      {/* Profile Modal */}
       {showProfile && selectedTeacher && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className={`${themeClasses.bgModal} rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto transition-all duration-300`}>
-            <div className="flex justify-between items-center mb-6">
-              <h2 className={`text-2xl font-bold ${themeClasses.textPrimary}`}>Teacher Profile</h2>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-xl">
+            <div className="flex items-center justify-between p-6 border-b border-gray-100">
+              <h2 className="text-lg font-semibold text-gray-900">Teacher Profile</h2>
               <button
                 onClick={() => setShowProfile(false)}
-                className={`p-2 ${themeClasses.hoverCard} rounded-full transition-colors duration-200`}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               >
-                <X size={24} className={themeClasses.textSecondary} />
+                <X className="w-5 h-5 text-gray-500" />
               </button>
             </div>
 
-            <div className="flex flex-col md:flex-row gap-6">
-              <div className="text-center md:text-left">
-                <div className="mx-auto md:mx-0 mb-4 relative">
+            <div className="p-6">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden">
                   {selectedTeacher.photo ? (
                     <img
-                      src={selectedTeacher.photo.startsWith('http') ? selectedTeacher.photo : `${import.meta.env.VITE_API_URL || 'http://localhost:8000/api'}${selectedTeacher.photo}`}
+                      src={selectedTeacher.photo.startsWith('http') ? selectedTeacher.photo : `${import.meta.env.VITE_API_URL || ''}${selectedTeacher.photo}`}
                       alt={`${selectedTeacher.first_name} ${selectedTeacher.last_name}`}
-                      className="w-32 h-32 rounded-full object-cover border-4 border-gray-200 bg-gray-100"
-                      style={{objectPosition: 'center'}}
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                        e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                      }}
+                      className="w-16 h-16 rounded-full object-cover"
                     />
-                  ) : null}
-                  <div className={`w-32 h-32 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 flex items-center justify-center ${selectedTeacher.photo ? 'hidden' : ''}`}>
-                    <span className="text-3xl font-bold text-white">
+                  ) : (
+                    <span className="text-xl font-semibold text-gray-600">
                       {getInitials(selectedTeacher.first_name, selectedTeacher.last_name)}
                     </span>
-                  </div>
-                </div>
-                <div className="flex flex-col gap-2">
-                  {selectedTeacher.level && (
-                    <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-sm font-semibold ${getLevelColor(selectedTeacher.level)}`}>
-                      {getLevelIcon(selectedTeacher.level)}
-                      {selectedTeacher.level.charAt(0)?.toUpperCase() + selectedTeacher.level.slice(1) || selectedTeacher.level}
-                    </span>
                   )}
-                  <span className={`inline-block px-3 py-1 rounded-full text-sm font-semibold ${
-                    selectedTeacher.is_active 
-                      ? themeClasses.statusActive
-                      : themeClasses.statusInactive
-                  }`}>
-                    {selectedTeacher.is_active ? 'ACTIVE' : 'INACTIVE'}
-                  </span>
+                </div>
+                <div>
+                  <h3 className="text-xl font-semibold text-gray-900">
+                    {selectedTeacher.first_name} {selectedTeacher.last_name}
+                  </h3>
+                  <p className="text-sm text-gray-500">{selectedTeacher.staff_type === 'teaching' ? 'Teaching Staff' : 'Non-Teaching Staff'}</p>
+                  <div className="flex gap-2 mt-2">
+                    {selectedTeacher.level && (
+                      <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-blue-50 text-blue-700">
+                        {getLevelLabel(selectedTeacher.level)}
+                      </span>
+                    )}
+                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${selectedTeacher.is_active
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : 'bg-gray-100 text-gray-600'
+                      }`}>
+                      {selectedTeacher.is_active ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex-1">
-                <h3 className={`text-2xl font-bold ${themeClasses.textPrimary} mb-2`}>
-                  {selectedTeacher.first_name} {selectedTeacher.last_name}
-                </h3>
-                <p className={`${themeClasses.iconPrimary} font-semibold text-lg mb-4`}>
-                  {selectedTeacher.staff_type === 'teaching' ? 'Teaching Staff' : 'Non-Teaching Staff'}
-                </p>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className={`block text-sm font-medium ${themeClasses.textSecondary} mb-1`}>Name</label>
-                    <p className={themeClasses.textPrimary}>{selectedTeacher.user?.first_name || selectedTeacher.first_name} {selectedTeacher.user?.last_name || selectedTeacher.last_name}</p>
-                  </div>
-                  <div>
-                    <label className={`block text-sm font-medium ${themeClasses.textSecondary} mb-1`}>Email</label>
-                    <p className={themeClasses.textPrimary}>{selectedTeacher.user?.email || selectedTeacher.email}</p>
-                  </div>
-                  <div>
-                    <label className={`block text-sm font-medium ${themeClasses.textSecondary} mb-1`}>Phone</label>
-                    <p className={themeClasses.textPrimary}>{selectedTeacher.phone_number || 'No phone'}</p>
-                  </div>
-                  <div>
-                    <label className={`block text-sm font-medium ${themeClasses.textSecondary} mb-1`}>Address</label>
-                    <p className={themeClasses.textPrimary}>{selectedTeacher.address || 'No address'}</p>
-                  </div>
-                  <div>
-                    <label className={`block text-sm font-medium ${themeClasses.textSecondary} mb-1`}>Qualification</label>
-                    <p className={themeClasses.textPrimary}>{selectedTeacher.qualification || 'No qualification'}</p>
-                  </div>
-                  <div>
-                    <label className={`block text-sm font-medium ${themeClasses.textSecondary} mb-1`}>Specialization</label>
-                    <p className={themeClasses.textPrimary}>{selectedTeacher.specialization || 'No specialization'}</p>
-                  </div>
-                  <div>
-                    <label className={`block text-sm font-medium ${themeClasses.textSecondary} mb-1`}>Hire Date</label>
-                    <p className={themeClasses.textPrimary}>{new Date(selectedTeacher.hire_date).toLocaleDateString()}</p>
-                  </div>
-                  {selectedTeacher.assigned_subjects && Array.isArray(selectedTeacher.assigned_subjects) && selectedTeacher.assigned_subjects.length > 0 && (
-                    <div className="md:col-span-2">
-                      <label className={`block text-sm font-medium ${themeClasses.textSecondary} mb-1`}>Assigned Subjects</label>
-                      <p className={themeClasses.textPrimary}>
-                        {selectedTeacher.assigned_subjects.map(s => s.name).join(', ')}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Classroom Assignments */}
-                  {selectedTeacher.classroom_assignments && Array.isArray(selectedTeacher.classroom_assignments) && selectedTeacher.classroom_assignments.length > 0 && (
-                    <div className="md:col-span-2">
-                      <label className={`block text-sm font-medium ${themeClasses.textSecondary} mb-2`}>Classroom Assignments</label>
-                      <div className="space-y-3">
-                        {selectedTeacher.classroom_assignments.map((assignment, idx) => (
-                          <div key={idx} className={`p-3 rounded-lg border ${assignment.is_primary_teacher ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`}>
-                            <div className="flex items-start justify-between mb-2">
-                              <div className="flex items-center space-x-2">
-                                <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                  assignment.education_level === 'SENIOR_SECONDARY' ? 'bg-purple-100 text-purple-800' :
-                                  assignment.education_level === 'JUNIOR_SECONDARY' ? 'bg-blue-100 text-blue-800' :
-                                  assignment.education_level === 'PRIMARY' ? 'bg-green-100 text-green-800' :
-                                  'bg-pink-100 text-pink-800'
-                                }`}>
-                                  {assignment.grade_level_name} {assignment.section_name}
-                                </span>
-                                {assignment.is_primary_teacher && (
-                                  <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full font-medium">
-                                    Primary Teacher
-                                  </span>
-                                )}
-                              </div>
-                              <span className="text-xs text-gray-500">
-                                {assignment.education_level.replace('_', ' ')}
-                              </span>
-                            </div>
-                            
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-                              <div>
-                                <span className="font-medium text-gray-700">Classroom:</span>
-                                <span className="ml-1 text-gray-600">{assignment.classroom_name}</span>
-                              </div>
-                              <div>
-                                <span className="font-medium text-gray-700">Subject:</span>
-                                <span className="ml-1 text-gray-600">{assignment.subject_name} ({assignment.subject_code})</span>
-                              </div>
-                              <div>
-                                <span className="font-medium text-gray-700">Academic Year:</span>
-                                <span className="ml-1 text-gray-600">{assignment.academic_session} - {assignment.term}</span>
-                              </div>
-                              <div>
-                                <span className="font-medium text-gray-700">Students:</span>
-                                <span className="ml-1 text-gray-600">{assignment.student_count}/{assignment.max_capacity}</span>
-                              </div>
-                              {assignment.room_number && (
-                                <div>
-                                  <span className="font-medium text-gray-700">Room:</span>
-                                  <span className="ml-1 text-gray-600">{assignment.room_number}</span>
-                                </div>
-                              )}
-                              <div>
-                                <span className="font-medium text-gray-700">Assigned:</span>
-                                <span className="ml-1 text-gray-600">{new Date(assignment.assigned_date).toLocaleDateString()}</span>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Legacy Teacher Assignments (if no classroom assignments) */}
-                                    {(!selectedTeacher.classroom_assignments || !Array.isArray(selectedTeacher.classroom_assignments) || selectedTeacher.classroom_assignments.length === 0) &&
-                  selectedTeacher.teacher_assignments && Array.isArray(selectedTeacher.teacher_assignments) && selectedTeacher.teacher_assignments.length > 0 && (
-                    <div className="md:col-span-2">
-                      <label className={`block text-sm font-medium ${themeClasses.textSecondary} mb-2`}>Subject Assignments</label>
-                      <div className="space-y-2">
-                        {selectedTeacher.teacher_assignments.map((assignment, idx) => (
-                          <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                            <div className="flex items-center space-x-2">
-                              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                assignment.education_level === 'SENIOR_SECONDARY' ? 'bg-purple-100 text-purple-800' :
-                                assignment.education_level === 'JUNIOR_SECONDARY' ? 'bg-blue-100 text-blue-800' :
-                                assignment.education_level === 'PRIMARY' ? 'bg-green-100 text-green-800' :
-                                'bg-pink-100 text-pink-800'
-                              }`}>
-                                {assignment.grade_level_name} {assignment.section_name}
-                              </span>
-                              <span className="text-sm font-medium">{assignment.subject_name}</span>
-                            </div>
-                            <span className="text-xs text-gray-500">
-                              {assignment.education_level.replace('_', ' ')}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* No Assignments Message */}
-                  {(!selectedTeacher.classroom_assignments || !Array.isArray(selectedTeacher.classroom_assignments) || selectedTeacher.classroom_assignments.length === 0) &&
-                   (!selectedTeacher.teacher_assignments || !Array.isArray(selectedTeacher.teacher_assignments) || selectedTeacher.teacher_assignments.length === 0) && (
-                    <div className="md:col-span-2">
-                      <label className={`block text-sm font-medium ${themeClasses.textSecondary} mb-2`}>Class Assignments</label>
-                      <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                        <div className="flex items-center justify-center text-gray-500">
-                          <School size={20} className="mr-2" />
-                          <span className="text-sm">No class assignments found for this teacher</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Email</label>
+                  <p className="text-sm text-gray-900">{selectedTeacher.email || 'Not provided'}</p>
                 </div>
-
-                <div className="mt-6 flex gap-3">
-                  <button
-                    onClick={() => {
-                      handleEdit(selectedTeacher);
-                      setShowProfile(false);
-                    }}
-                    className={`flex-1 px-4 py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors duration-200 ${themeClasses.btnPrimary}`}
-                  >
-                    <Edit3 size={16} />
-                    Edit Profile
-                  </button>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Phone</label>
+                  <p className="text-sm text-gray-900">{selectedTeacher.phone_number || 'Not provided'}</p>
                 </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Qualification</label>
+                  <p className="text-sm text-gray-900">{selectedTeacher.qualification || 'Not provided'}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Specialization</label>
+                  <p className="text-sm text-gray-900">{selectedTeacher.specialization || 'Not provided'}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Hire Date</label>
+                  <p className="text-sm text-gray-900">{new Date(selectedTeacher.hire_date).toLocaleDateString()}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Address</label>
+                  <p className="text-sm text-gray-900">{selectedTeacher.address || 'Not provided'}</p>
+                </div>
+              </div>
+
+              {selectedTeacher.assigned_subjects && selectedTeacher.assigned_subjects.length > 0 && (
+                <div className="mt-6">
+                  <label className="block text-xs font-medium text-gray-500 mb-2">Assigned Subjects</label>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedTeacher.assigned_subjects.map((subject: any, idx: number) => (
+                      <span key={idx} className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700">
+                        {subject.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-6 pt-6 border-t border-gray-100">
+                <button
+                  onClick={() => {
+                    handleEdit(selectedTeacher);
+                    setShowProfile(false);
+                  }}
+                  className="w-full h-10 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors"
+                >
+                  Edit Profile
+                </button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Edit Teacher Modal */}
+      {/* Edit Modal */}
       {showEditModal && teacherToEdit && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className={`${themeClasses.bgModal} rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto transition-all duration-300`}>
-            <div className="flex justify-between items-center mb-6">
-              <h2 className={`text-2xl font-bold ${themeClasses.textPrimary}`}>Edit Teacher</h2>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-xl">
+            <div className="flex items-center justify-between p-6 border-b border-gray-100">
+              <h2 className="text-lg font-semibold text-gray-900">Edit Teacher</h2>
               <button
                 onClick={() => {
                   setShowEditModal(false);
                   setTeacherToEdit(null);
                 }}
-                className={`p-2 ${themeClasses.hoverCard} rounded-full transition-colors duration-200`}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               >
-                <X size={24} className={themeClasses.textSecondary} />
+                <X className="w-5 h-5 text-gray-500" />
               </button>
             </div>
 
-            <EditTeacherForm 
-              teacher={teacherToEdit}
-              onSave={handleUpdateTeacher}
-              onCancel={() => {
-                setShowEditModal(false);
-                setTeacherToEdit(null);
-              }}
-              themeClasses={themeClasses}
-              isDark={isDark}
-            />
+            <div className="p-6">
+              <EditTeacherForm
+                teacher={teacherToEdit}
+                onSave={handleUpdateTeacher}
+                onCancel={() => {
+                  setShowEditModal(false);
+                  setTeacherToEdit(null);
+                }}
+                themeClasses={{
+                  textPrimary: 'text-gray-900',
+                  textSecondary: 'text-gray-600',
+                  inputBg: 'bg-gray-50 border-gray-200',
+                  inputFocus: 'focus:ring-gray-900 focus:border-transparent',
+                  btnPrimary: 'bg-gray-900 hover:bg-gray-800 text-white',
+                  btnSecondary: 'bg-gray-100 hover:bg-gray-200 text-gray-700',
+                }}
+                isDark={false}
+              />
+            </div>
           </div>
         </div>
       )}
@@ -1064,6 +745,4 @@ const TeacherList = () => {
   );
 };
 
-
-
-export default TeacherList; 
+export default TeacherList;

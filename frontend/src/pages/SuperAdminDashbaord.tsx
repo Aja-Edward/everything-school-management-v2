@@ -50,9 +50,9 @@ const SuperAdminDashboard = () => {
 
         // Fetch statistics in parallel for better performance
         const [usersData, teachersData, studentsData] = await Promise.allSettled([
-          fetch(`${API_BASE_URL}/api/users/users/`, { headers }).then(r => r.ok ? r.json() : null),
-          fetch(`${API_BASE_URL}/api/teachers/teachers/`, { headers }).then(r => r.ok ? r.json() : null),
-          fetch(`${API_BASE_URL}/api/students/students/`, { headers }).then(r => r.ok ? r.json() : null),
+          fetch(`${API_BASE_URL}/users/users/`, { headers }).then(r => r.ok ? r.json() : null),
+          fetch(`${API_BASE_URL}/teachers/teachers/`, { headers }).then(r => r.ok ? r.json() : null),
+          fetch(`${API_BASE_URL}/students/students/`, { headers }).then(r => r.ok ? r.json() : null),
         ]);
 
         // Process results

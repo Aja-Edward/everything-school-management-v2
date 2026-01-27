@@ -359,7 +359,7 @@ class TeacherService {
     status?: string;
     request_type?: string;
   }): Promise<AssignmentRequest[]> {
-    const response = await api.get('/api/teachers/assignment-requests/', { params });
+    const response = await api.get('/api/teachers/assignment-requests/', params);
     return response;
   }
 
@@ -399,7 +399,7 @@ class TeacherService {
     term?: string;
     day_of_week?: string;
   }): Promise<TeacherSchedule[]> {
-    const response = await api.get('/api/teachers/teacher-schedules/', { params });
+    const response = await api.get('/api/teachers/teacher-schedules/', params);
     return response;
   }
 
@@ -488,7 +488,7 @@ class TeacherService {
     if (teacherId) params.teacher = teacherId;
     if (classroomId) params.classroom = classroomId;
     
-    const response = await api.get('/api/classrooms/teacher-assignments/', { params });
+    const response = await api.get('/api/classrooms/teacher-assignments/', params);
     return response;
   }
 
@@ -498,7 +498,7 @@ class TeacherService {
     if (teacherId) params.teacher_id = teacherId;
     if (subjectId) params.subject_id = subjectId;
     
-    const response = await api.get('/api/classrooms/classrooms/available-for-assignment/', { params });
+    const response = await api.get('/api/classrooms/classrooms/available-for-assignment/', params);
     return response;
   }
 

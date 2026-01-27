@@ -489,15 +489,17 @@ export class AuthService {
     }
   }
 
-  // Regular Login
+  // Regular Login - uses cookie-based authentication
   async login(credentials: LoginCredentials): Promise<ApiResponse> {
     try {
-       console.log('Sending login request with:', credentials);
-      const response = await fetch(`${this.baseUrl}/auth/token/`, {
+      console.log('Sending login request with:', credentials.username);
+      const response = await fetch(`${this.baseUrl}/auth/login/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-CSRFToken': this.getCSRFToken(),
         },
+        credentials: 'include', // Include cookies in request
         body: JSON.stringify({
           username: credentials.username,
           password: credentials.password,
@@ -515,6 +517,7 @@ export class AuthService {
         };
       }
 
+      // Tokens are set in httpOnly cookies by the backend
       this.handleAuthSuccess(data);
 
       return {
@@ -523,8 +526,8 @@ export class AuthService {
         data: data,
       };
     } catch (error) {
-      console.error('Login failed:', error)
-    
+      console.error('Login failed:', error);
+
       return {
         success: false,
         message: 'Network error. Please check your connection and try again.',
@@ -574,18 +577,13 @@ export class AuthService {
   }
 
   // Authentication success handler
+  // Note: With httpOnly cookies, tokens are set by the backend via cookies
+  // We only store user data in localStorage (non-sensitive)
   private handleAuthSuccess(data: any): void {
-    const token = data.access || data.access_token || data.token || data.key;
-    
-    if (token) {
-      this.storeToken(token);
-      console.log('Token stored successfully');
-    } else {
-      console.warn('No token found in response:', data);
-    }
-    
-    // For JWT, we might need to decode the token to get user info
-    // or make a separate call to get user data
+    // Tokens are now in httpOnly cookies - we don't store them in localStorage
+    console.log('Authentication successful - tokens stored in httpOnly cookies');
+
+    // Store user data in localStorage for quick access (non-sensitive)
     const userData = data.user || data.data?.user;
     if (userData) {
       try {
@@ -598,9 +596,10 @@ export class AuthService {
 
   // Authentication error handler
   private handleAuthError(): void {
-    this.removeToken();
-    
+    // With httpOnly cookies, we only clear localStorage user data
+    // The cookies will be cleared by the backend on logout
     try {
+      localStorage.removeItem('userData');
       localStorage.removeItem('user_data');
     } catch (e) {
       console.warn('Failed to remove user data:', e);
@@ -642,39 +641,35 @@ export class AuthService {
   }
 
   // Check if user is authenticated
+  // Note: This checks localStorage userData, but actual auth is in cookies
+  // For proper auth check, use api.checkAuthStatus()
   isAuthenticated(): boolean {
-    return !!this.getStoredToken();
+    const userData = localStorage.getItem('userData');
+    return !!userData;
   }
 
-  // Logout
+  // Logout - backend clears httpOnly cookies
   async logout(): Promise<ApiResponse> {
     try {
-      const token = this.getStoredToken();
-      
-      if (token) {
-        await fetch(`${this.baseUrl}/auth/logout/`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-        });
-      }
+      await fetch(`${this.baseUrl}/auth/logout/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': this.getCSRFToken(),
+        },
+        credentials: 'include', // Include cookies so backend can clear them
+      });
 
-      this.removeToken();
-      
-      try {
-        localStorage.removeItem('user_data');
-      } catch (error) {
-        console.warn('Failed to remove user data:', error);
-      }
+      // Clear local user data (cookies are cleared by backend)
+      this.handleAuthError();
 
       return {
         success: true,
         message: 'Logged out successfully',
       };
     } catch (error) {
-      this.removeToken();
+      // Still clear local data even if server request fails
+      this.handleAuthError();
       return {
         success: true,
         message: 'Logged out successfully',
@@ -682,32 +677,22 @@ export class AuthService {
     }
   }
 
-  // Get current user data
+  // Get current user data - uses cookie-based authentication
   async getCurrentUser(): Promise<ApiResponse> {
     try {
-      const token = this.getStoredToken();
-      
-      if (!token) {
-        return {
-          success: false,
-          message: 'No authentication token found',
-          errors: { auth: 'Not authenticated' },
-        };
-      }
-
-      const response = await fetch(`${this.baseUrl}/auth/me/`, {
+      const response = await fetch(`${this.baseUrl}/auth/status/`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
+        credentials: 'include', // Include cookies for authentication
       });
 
       const data = await response.json();
 
       if (!response.ok) {
         if (response.status === 401) {
-          this.removeToken();
+          this.handleAuthError();
         }
         return {
           success: false,
@@ -719,7 +704,7 @@ export class AuthService {
       return {
         success: true,
         message: 'User data retrieved successfully',
-        data: data.data,
+        data: data.user,
       };
     } catch (error) {
       return {
@@ -1015,37 +1000,25 @@ export class AuthService {
     }
   }
 
-  // Refresh token
+  // Refresh token - uses httpOnly cookies
   async refreshToken(): Promise<ApiResponse> {
     try {
-      const token = this.getStoredToken();
-      
-      if (!token) {
-        return {
-          success: false,
-          message: 'No authentication token found',
-          errors: { auth: 'Not authenticated' },
-        };
-      }
-
-      const response = await fetch(`${this.baseUrl}/auth/refresh-token/`, {
+      const response = await fetch(`${this.baseUrl}/auth/refresh/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          'X-CSRFToken': this.getCSRFToken(),
         },
+        credentials: 'include', // Include cookies for refresh token
       });
 
       const data = await response.json();
 
-      if (response.ok && data.data?.token) {
-        this.storeToken(data.data.token);
-      }
-
+      // New tokens are set in httpOnly cookies by the backend
       return {
         success: response.ok,
         message: data.message || (response.ok ? 'Token refreshed successfully' : 'Failed to refresh token'),
-        data: data.data,
+        data: data,
         errors: data.errors || {},
       };
     } catch (error) {

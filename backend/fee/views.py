@@ -13,6 +13,8 @@ from django.core.exceptions import ValidationError
 import csv
 import io
 from datetime import datetime
+from tenants.mixins import TenantFilterMixin
+from utils.pagination import LargeResultsPagination, StandardResultsPagination
 
 
 from .models import (
@@ -55,12 +57,16 @@ from .services.services import PaymentService, FeeService, ReportService
 from students.models import Student
 
 
-class FeeStructureViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing fee structures"""
+class FeeStructureViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin ensures tenant isolation.
+    ViewSet for managing fee structures
+    """
 
     queryset = FeeStructure.objects.all().order_by("name")
     serializer_class = FeeStructureSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrReadOnly]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate fee structures
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = [
         "education_level",
@@ -86,12 +92,22 @@ class FeeStructureViewSet(viewsets.ModelViewSet):
         if student_class:
             queryset = queryset.filter(student_class=student_class)
 
+        # PERFORMANCE: Add pagination to handle large datasets
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        # Fallback if pagination is disabled
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
 
-class StudentFeeViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing student fees"""
+class StudentFeeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin ensures tenant isolation.
+    ViewSet for managing student fees
+    """
 
     queryset = (
         StudentFee.objects.select_related(
@@ -101,6 +117,7 @@ class StudentFeeViewSet(viewsets.ModelViewSet):
         .order_by("-created_at")
     )
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate large fee datasets
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = StudentFeeFilter
     search_fields = [
@@ -118,6 +135,7 @@ class StudentFeeViewSet(viewsets.ModelViewSet):
         return StudentFeeSerializer
 
     def get_queryset(self):
+        # CRITICAL: Call super() to get tenant-filtered queryset first
         queryset = super().get_queryset()
 
         # If user is a student, only show their own fees
@@ -141,6 +159,14 @@ class StudentFeeViewSet(viewsets.ModelViewSet):
         queryset = self.get_queryset().filter(
             due_date__lt=timezone.now().date(), status__in=["PENDING", "PARTIAL"]
         )
+
+        # PERFORMANCE: Add pagination to handle large datasets
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        # Fallback if pagination is disabled
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
@@ -218,8 +244,11 @@ class StudentFeeViewSet(viewsets.ModelViewSet):
         return Response(serializer.errors, status=400)
 
 
-class PaymentViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing payments with multi-gateway support"""
+class PaymentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin ensures tenant isolation.
+    ViewSet for managing payments with multi-gateway support
+    """
 
     queryset = (
         Payment.objects.select_related(
@@ -230,6 +259,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
     )
     serializer_class = PaymentSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate large payment datasets
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = PaymentFilter
     search_fields = [
@@ -243,6 +273,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
     ordering = ["-created_at"]
 
     def get_queryset(self):
+        # CRITICAL: Call super() to get tenant-filtered queryset first
         queryset = super().get_queryset()
 
         # If user is a student, only show their own payments
@@ -319,6 +350,13 @@ class PaymentViewSet(viewsets.ModelViewSet):
         if status_filter:
             queryset = queryset.filter(gateway_status=status_filter)
 
+        # PERFORMANCE: Add pagination to handle large datasets
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        # Fallback if pagination is disabled
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
@@ -337,12 +375,16 @@ class PaymentViewSet(viewsets.ModelViewSet):
             return Response({"error": str(e)}, status=400)
 
 
-class PaymentGatewayConfigViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing payment gateway configurations"""
+class PaymentGatewayConfigViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin ensures tenant isolation.
+    ViewSet for managing payment gateway configurations
+    """
 
     queryset = PaymentGatewayConfig.objects.all().order_by("gateway")
     serializer_class = PaymentGatewayConfigSerializer
     permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate gateway configs
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["gateway", "is_active", "is_test_mode"]
     search_fields = ["gateway"]
@@ -375,12 +417,16 @@ class PaymentGatewayConfigViewSet(viewsets.ModelViewSet):
             return Response({"error": str(e)}, status=400)
 
 
-class PaymentAttemptViewSet(viewsets.ReadOnlyModelViewSet):
-    """ViewSet for viewing payment attempts"""
+class PaymentAttemptViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin ensures tenant isolation.
+    ViewSet for viewing payment attempts
+    """
 
     queryset = PaymentAttempt.objects.all().order_by("-created_at")
     serializer_class = PaymentAttemptSerializer
     permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
+    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate payment attempts
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["gateway", "status", "student_fee"]
     search_fields = ["attempt_reference", "error_message"]
@@ -397,12 +443,16 @@ class PaymentAttemptViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({"error": str(e)}, status=400)
 
 
-class PaymentWebhookViewSet(viewsets.ReadOnlyModelViewSet):
-    """ViewSet for managing payment webhooks"""
+class PaymentWebhookViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin ensures tenant isolation.
+    ViewSet for managing payment webhooks
+    """
 
     queryset = PaymentWebhook.objects.all().order_by("-created_at")
     serializer_class = PaymentWebhookSerializer
     permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate webhooks
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["gateway", "event_type", "processed"]
     search_fields = ["event_type", "event_id"]
@@ -424,12 +474,23 @@ class PaymentWebhookViewSet(viewsets.ReadOnlyModelViewSet):
     def unprocessed(self, request):
         """Get unprocessed webhooks"""
         queryset = self.get_queryset().filter(processed=False)
+
+        # PERFORMANCE: Add pagination to handle large datasets
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        # Fallback if pagination is disabled
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
 
-class PaymentPlanViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing payment plans"""
+class PaymentPlanViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin ensures tenant isolation.
+    ViewSet for managing payment plans
+    """
 
     queryset = (
         PaymentPlan.objects.select_related("student_fee__student")
@@ -438,6 +499,7 @@ class PaymentPlanViewSet(viewsets.ModelViewSet):
     )
     serializer_class = PaymentPlanSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate payment plans
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["is_active", "is_completed", "student_fee"]
     search_fields = [
@@ -449,6 +511,7 @@ class PaymentPlanViewSet(viewsets.ModelViewSet):
     ordering = ["-created_at"]
 
     def get_queryset(self):
+        # CRITICAL: Call super() to get tenant-filtered queryset first
         queryset = super().get_queryset()
 
         # If user is a student, only show their own payment plans
@@ -493,12 +556,16 @@ class PaymentPlanViewSet(viewsets.ModelViewSet):
             return Response({"error": str(e)}, status=400)
 
 
-class FeeDiscountViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing fee discounts"""
+class FeeDiscountViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin ensures tenant isolation.
+    ViewSet for managing fee discounts
+    """
 
     queryset = FeeDiscount.objects.all().order_by("name")
     serializer_class = FeeDiscountSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrReadOnly]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate discounts
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["discount_type", "is_active"]
     search_fields = ["name", "description"]
@@ -509,12 +576,23 @@ class FeeDiscountViewSet(viewsets.ModelViewSet):
     def active(self, request):
         """Get active discounts"""
         queryset = self.get_queryset().filter(is_active=True)
+
+        # PERFORMANCE: Add pagination for consistency
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        # Fallback if pagination is disabled
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
 
-class StudentDiscountViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing student discounts"""
+class StudentDiscountViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin ensures tenant isolation.
+    ViewSet for managing student discounts
+    """
 
     queryset = (
         StudentDiscount.objects.select_related("student", "discount", "applied_by")
@@ -523,6 +601,7 @@ class StudentDiscountViewSet(viewsets.ModelViewSet):
     )
     serializer_class = StudentDiscountSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrReadOnly]
+    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate student discounts
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["student", "discount", "is_active"]
     search_fields = [
@@ -548,8 +627,11 @@ class StudentDiscountViewSet(viewsets.ModelViewSet):
         return Response({"message": "Discount deactivated successfully"})
 
 
-class PaymentReminderViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing payment reminders"""
+class PaymentReminderViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin ensures tenant isolation.
+    ViewSet for managing payment reminders
+    """
 
     queryset = (
         PaymentReminder.objects.select_related(
@@ -560,6 +642,7 @@ class PaymentReminderViewSet(viewsets.ModelViewSet):
     )
     serializer_class = PaymentReminderSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrReadOnly]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate reminders
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["sent", "reminder_type"]
     search_fields = [

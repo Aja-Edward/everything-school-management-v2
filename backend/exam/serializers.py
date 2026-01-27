@@ -2,7 +2,17 @@ from rest_framework import serializers
 from django.utils import timezone
 from django.core.exceptions import ValidationError as DjangoValidationError
 
-from .models import Exam, ExamSchedule, ExamRegistration, ExamStatistics
+from .models import (
+    Exam,
+    ExamSchedule,
+    ExamRegistration,
+    ExamStatistics,
+    QuestionBank,
+    ExamTemplate,
+    ExamReview,
+    ExamReviewer,
+    ExamReviewComment,
+)
 from result.models import StudentResult
 from classroom.models import GradeLevel, Section, Stream
 from subject.models import Subject
@@ -676,3 +686,423 @@ class BulkExamUpdateSerializer(serializers.Serializer):
                 f"Exam IDs not found: {list(missing_ids)}"
             )
         return value
+
+
+# ============================================
+# EXAM-003: NEW EXAM FEATURES SERIALIZERS
+# ============================================
+
+
+# Question Bank Serializers
+class QuestionBankListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for question bank lists"""
+
+    created_by_name = serializers.CharField(source="created_by.full_name", read_only=True)
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+    grade_level_name = serializers.CharField(source="grade_level.name", read_only=True)
+    question_type_display = serializers.CharField(source="get_question_type_display", read_only=True)
+    difficulty_display = serializers.CharField(source="get_difficulty_display", read_only=True)
+
+    # Preview of question (first 100 chars)
+    question_preview = serializers.SerializerMethodField()
+
+    class Meta:
+        model = QuestionBank
+        fields = [
+            "id",
+            "question_type",
+            "question_type_display",
+            "question_preview",
+            "subject_name",
+            "grade_level_name",
+            "topic",
+            "subtopic",
+            "difficulty",
+            "difficulty_display",
+            "marks",
+            "tags",
+            "is_shared",
+            "usage_count",
+            "last_used",
+            "created_by_name",
+            "created_at",
+        ]
+
+    def get_question_preview(self, obj):
+        """Return first 100 characters of question, stripping HTML"""
+        import re
+        # Strip HTML tags
+        clean_text = re.sub(r'<[^>]+>', '', obj.question)
+        return clean_text[:100] + "..." if len(clean_text) > 100 else clean_text
+
+
+class QuestionBankDetailSerializer(serializers.ModelSerializer):
+    """Detailed serializer for single question view"""
+
+    subject = SubjectSerializer(read_only=True)
+    grade_level = GradeLevelSerializer(read_only=True)
+    created_by = TeacherSerializer(read_only=True)
+    question_type_display = serializers.CharField(source="get_question_type_display", read_only=True)
+    difficulty_display = serializers.CharField(source="get_difficulty_display", read_only=True)
+
+    class Meta:
+        model = QuestionBank
+        fields = [
+            "id",
+            "created_by",
+            "question_type",
+            "question_type_display",
+            "question",
+            "options",
+            "correct_answer",
+            "answer_guideline",
+            "expected_points",
+            "marks",
+            "subject",
+            "topic",
+            "subtopic",
+            "difficulty",
+            "difficulty_display",
+            "grade_level",
+            "tags",
+            "is_shared",
+            "usage_count",
+            "last_used",
+            "images",
+            "table_data",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class QuestionBankCreateUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for creating and updating questions in bank"""
+
+    subject = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all())
+    grade_level = serializers.PrimaryKeyRelatedField(queryset=GradeLevel.objects.all())
+
+    class Meta:
+        model = QuestionBank
+        fields = [
+            "question_type",
+            "question",
+            "options",
+            "correct_answer",
+            "answer_guideline",
+            "expected_points",
+            "marks",
+            "subject",
+            "topic",
+            "subtopic",
+            "difficulty",
+            "grade_level",
+            "tags",
+            "is_shared",
+            "images",
+            "table_data",
+        ]
+
+    def validate(self, data):
+        """Validate question data based on type"""
+        errors = {}
+        question_type = data.get("question_type")
+
+        # Validate objective questions have options and correct answer
+        if question_type == "objective":
+            if not data.get("options"):
+                errors["options"] = "Objective questions must have options."
+            if not data.get("correct_answer"):
+                errors["correct_answer"] = "Objective questions must have a correct answer."
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        return data
+
+
+# Exam Template Serializers
+class ExamTemplateListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for template lists"""
+
+    created_by_name = serializers.CharField(source="created_by.full_name", read_only=True)
+    grade_level_name = serializers.CharField(source="grade_level.name", read_only=True)
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+    section_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ExamTemplate
+        fields = [
+            "id",
+            "name",
+            "description",
+            "grade_level_name",
+            "subject_name",
+            "total_marks",
+            "duration_minutes",
+            "section_count",
+            "is_shared",
+            "usage_count",
+            "created_by_name",
+            "created_at",
+        ]
+
+    def get_section_count(self, obj):
+        """Get number of sections in template"""
+        if obj.structure and isinstance(obj.structure, dict):
+            sections = obj.structure.get("sections", [])
+            return len(sections)
+        return 0
+
+
+class ExamTemplateDetailSerializer(serializers.ModelSerializer):
+    """Detailed serializer for single template view"""
+
+    created_by = TeacherSerializer(read_only=True)
+    grade_level = GradeLevelSerializer(read_only=True)
+    subject = SubjectSerializer(read_only=True)
+
+    class Meta:
+        model = ExamTemplate
+        fields = [
+            "id",
+            "created_by",
+            "name",
+            "description",
+            "grade_level",
+            "subject",
+            "structure",
+            "total_marks",
+            "duration_minutes",
+            "default_instructions",
+            "is_shared",
+            "usage_count",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class ExamTemplateCreateUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for creating and updating templates"""
+
+    grade_level = serializers.PrimaryKeyRelatedField(queryset=GradeLevel.objects.all())
+    subject = serializers.PrimaryKeyRelatedField(
+        queryset=Subject.objects.all(), required=False, allow_null=True
+    )
+
+    class Meta:
+        model = ExamTemplate
+        fields = [
+            "name",
+            "description",
+            "grade_level",
+            "subject",
+            "structure",
+            "total_marks",
+            "duration_minutes",
+            "default_instructions",
+            "is_shared",
+        ]
+
+    def validate_structure(self, value):
+        """Validate template structure"""
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Structure must be a dictionary.")
+
+        if "sections" not in value:
+            raise serializers.ValidationError("Structure must contain 'sections' key.")
+
+        sections = value.get("sections", [])
+        if not isinstance(sections, list):
+            raise serializers.ValidationError("Sections must be a list.")
+
+        # Validate each section has required fields
+        for idx, section in enumerate(sections):
+            if not isinstance(section, dict):
+                raise serializers.ValidationError(f"Section {idx} must be a dictionary.")
+
+            required_fields = ["type", "name", "questionCount", "marksPerQuestion"]
+            for field in required_fields:
+                if field not in section:
+                    raise serializers.ValidationError(
+                        f"Section {idx} missing required field: {field}"
+                    )
+
+        return value
+
+
+# Exam Review Serializers
+class ExamReviewerSerializer(serializers.ModelSerializer):
+    """Serializer for exam reviewers"""
+
+    reviewer = TeacherSerializer(read_only=True)
+    reviewer_id = serializers.PrimaryKeyRelatedField(
+        queryset=Teacher.objects.all(), source="reviewer", write_only=True
+    )
+    decision_display = serializers.CharField(source="get_decision_display", read_only=True)
+
+    class Meta:
+        model = ExamReviewer
+        fields = [
+            "id",
+            "reviewer",
+            "reviewer_id",
+            "assigned_at",
+            "reviewed_at",
+            "decision",
+            "decision_display",
+        ]
+
+
+class ExamReviewCommentSerializer(serializers.ModelSerializer):
+    """Serializer for review comments"""
+
+    author = TeacherSerializer(read_only=True)
+    resolved_by_user = TeacherSerializer(source="resolved_by", read_only=True)
+
+    class Meta:
+        model = ExamReviewComment
+        fields = [
+            "id",
+            "author",
+            "comment",
+            "question_index",
+            "section",
+            "is_resolved",
+            "resolved_at",
+            "resolved_by_user",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["author", "created_at", "updated_at"]
+
+
+class ExamReviewCommentCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating review comments"""
+
+    class Meta:
+        model = ExamReviewComment
+        fields = [
+            "comment",
+            "question_index",
+            "section",
+        ]
+
+
+class ExamReviewListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for review lists"""
+
+    exam_title = serializers.CharField(source="exam.title", read_only=True)
+    submitted_by_name = serializers.CharField(source="submitted_by.full_name", read_only=True)
+    approved_by_name = serializers.CharField(source="approved_by.full_name", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    reviewer_count = serializers.SerializerMethodField()
+    comment_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ExamReview
+        fields = [
+            "id",
+            "exam",
+            "exam_title",
+            "status",
+            "status_display",
+            "submitted_by_name",
+            "submitted_at",
+            "approved_by_name",
+            "approved_at",
+            "reviewer_count",
+            "comment_count",
+            "created_at",
+        ]
+
+    def get_reviewer_count(self, obj):
+        """Get number of assigned reviewers"""
+        return obj.reviewers.count()
+
+    def get_comment_count(self, obj):
+        """Get number of comments"""
+        return obj.comments.count()
+
+
+class ExamReviewDetailSerializer(serializers.ModelSerializer):
+    """Detailed serializer for single review view"""
+
+    exam = ExamDetailSerializer(read_only=True)
+    submitted_by = TeacherSerializer(read_only=True)
+    approved_by = TeacherSerializer(read_only=True)
+    reviewers = ExamReviewerSerializer(many=True, read_only=True)
+    comments = ExamReviewCommentSerializer(many=True, read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+
+    class Meta:
+        model = ExamReview
+        fields = [
+            "id",
+            "exam",
+            "status",
+            "status_display",
+            "submitted_by",
+            "submitted_at",
+            "submission_note",
+            "approved_by",
+            "approved_at",
+            "rejection_reason",
+            "reviewers",
+            "comments",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class ExamReviewSubmitSerializer(serializers.Serializer):
+    """Serializer for submitting exam for review"""
+
+    reviewer_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        min_length=1,
+        help_text="List of teacher IDs to assign as reviewers",
+    )
+    submission_note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Note to reviewers",
+    )
+
+    def validate_reviewer_ids(self, value):
+        """Validate that all reviewer IDs exist"""
+        existing_ids = set(
+            Teacher.objects.filter(id__in=value).values_list("id", flat=True)
+        )
+        missing_ids = set(value) - existing_ids
+        if missing_ids:
+            raise serializers.ValidationError(
+                f"Teacher IDs not found: {list(missing_ids)}"
+            )
+        return value
+
+
+class ExamReviewDecisionSerializer(serializers.Serializer):
+    """Serializer for review decision (approve/reject/request changes)"""
+
+    decision = serializers.ChoiceField(
+        choices=["approve", "request_changes", "reject"],
+        help_text="Review decision",
+    )
+    notes = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Notes for the decision",
+    )
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Reason for rejection (required if rejecting)",
+    )
+
+    def validate(self, data):
+        """Validate decision data"""
+        if data.get("decision") == "reject" and not data.get("reason"):
+            raise serializers.ValidationError(
+                {"reason": "Reason is required when rejecting an exam."}
+            )
+        return data

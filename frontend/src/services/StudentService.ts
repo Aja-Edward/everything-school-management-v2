@@ -1,363 +1,592 @@
+/**
+ * Student Service
+ *
+ * Manages student operations including:
+ * - Student CRUD operations
+ * - Student schedules (daily, weekly, current period)
+ * - Student dashboard and profile
+ * - Result token management
+ * - Attendance and academic data
+ */
+
 import api from './api';
 
-export interface Parent {
-  id: number;
-  full_name: string;
-  email: string;
-  phone?: string;
-  relationship: string;
-  is_primary_contact: boolean;
-}
-
-export interface EmergencyContact {
-  type: string;
-  number: string;
-  is_primary: boolean;
-}
+// ============================================================================
+// TYPE DEFINITIONS
+// ============================================================================
 
 export interface Student {
   id: number;
+  user: number;
+  user_details?: {
+    id: number;
+    username: string;
+    email: string;
+    first_name: string;
+    last_name: string;
+    full_name: string;
+    is_active: boolean;
+    date_joined: string;
+  };
   full_name: string;
-  short_name?: string;
-  age: number;
-  gender: string;
+  registration_number: string;
+  date_of_birth?: string;
+  gender: 'M' | 'F' | 'O';
+  gender_display?: string;
+  education_level: 'NURSERY' | 'PRIMARY' | 'JUNIOR_SECONDARY' | 'SENIOR_SECONDARY';
+  education_level_display?: string;
+  student_class: string;
+  student_class_display?: string;
+  classroom?: string;
+  admission_date?: string;
+  parent_contact?: string;
+  emergency_contact?: string;
+  address?: string;
+  medical_conditions?: string;
+  special_requirements?: string;
+  is_active: boolean;
+  profile_picture_url?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateStudentData {
+  first_name: string;
+  last_name: string;
+  middle_name?: string;
+  email: string;
+  date_of_birth?: string;
+  gender: 'M' | 'F' | 'O';
+  education_level: 'NURSERY' | 'PRIMARY' | 'JUNIOR_SECONDARY' | 'SENIOR_SECONDARY';
+  student_class: string;
+  classroom?: string;
+  admission_date?: string;
+  parent_contact?: string;
+  parent_email?: string;
+  emergency_contact?: string;
+  address?: string;
+  medical_conditions?: string;
+  special_requirements?: string;
+}
+
+export interface UpdateStudentData extends Partial<CreateStudentData> {}
+
+export interface StudentListItem {
+  id: number;
+  full_name: string;
+  registration_number: string;
   education_level: string;
   education_level_display: string;
   student_class: string;
   student_class_display: string;
-  parent_contact: string | null;
-  emergency_contact?: string | null;
-  emergency_contacts?: EmergencyContact[];
-  medical_conditions?: string | null;
-  special_requirements?: string | null;
-  parents?: Parent[];
-  parent_count?: number;
-  admission_date: string;
-  date_of_birth?: string;
+  classroom?: string;
   is_active: boolean;
-  is_nursery_student?: boolean;
-  is_primary_student?: boolean;
-  is_secondary_student?: boolean;
-  profile_picture: string | null;
-  classroom?: string | null;
-  email?: string;
-  username?: string;
-  section_id?: number | null;
-  stream?: number | null;
-  stream_name?: string | null;
-  stream_type?: string | null;
-  // Additional fields that exist in the Student model
-  blood_group?: string | null;
-  place_of_birth?: string | null;
-  address?: string | null;
-  phone_number?: string | null;
-  payment_method?: string | null;
 }
 
-export interface Subject {
-  id: number;
-  name: string;
-  code: string;
-  color?: string;
-  description?: string;
+export interface StudentFilters {
+  user?: number;
+  education_level?: string;
+  student_class?: string;
+  gender?: string;
+  is_active?: boolean;
+  search?: string;
+  ordering?: string;
+  page?: number;
+  page_size?: number;
 }
 
-export interface Teacher {
-  id: number;
-  full_name: string;
-  email?: string;
-  phone?: string;
-}
+// ============================================================================
+// SCHEDULE TYPES
+// ============================================================================
 
-export interface Classroom {
+export interface ScheduleEntry {
   id: number;
-  name: string;
-  building?: string;
-  floor?: string;
-  capacity?: number;
-}
-
-// New interfaces for schedule data
-export interface ScheduleItem {
-  id: number;
-  subject: Subject;
-  teacher: Teacher;
-  classroom: Classroom;
+  subject_name: string;
+  teacher_name: string;
+  classroom_name: string;
+  day_of_week: string;
   start_time: string;
   end_time: string;
-  day_of_week: string;
-  period: number;
-  is_break?: boolean;
-  duration_minutes?: number;
-  notes?: string;
-  is_current?: boolean;
-  is_next?: boolean;
-  
-  // Legacy support for existing frontend code
-  subject_name?: string;
-  teacher_name?: string;
-  classroom_name?: string;
-  subject_code?: string;
+  period_number?: number;
+  is_active: boolean;
 }
 
-export interface DaySchedule {
-  day: string;
-  day_display: string;
-  date: string;
-  periods: ScheduleItem[];
-  total_periods?: number;
-  break_periods?: number;
+export interface ScheduleByDay {
+  monday: ScheduleEntry[];
+  tuesday: ScheduleEntry[];
+  wednesday: ScheduleEntry[];
+  thursday: ScheduleEntry[];
+  friday: ScheduleEntry[];
+  saturday: ScheduleEntry[];
+  sunday: ScheduleEntry[];
 }
 
 export interface StudentSchedule {
-  student: {
+  student_info: {
     id: number;
-    full_name: string;
-    student_class: string;
-    section?: string;
+    name: string;
+    class: string;
+    classroom?: string;
+    education_level?: string;
   };
-  schedule: ScheduleItem[];
-  schedule_by_day: {
-    [key: string]: DaySchedule;
-  };
-  metadata: {
-    total_periods: number;
-    unique_subjects: number;
-    unique_teachers: number;
-    current_period?: ScheduleItem | null;
-    next_period?: ScheduleItem | null;
-    today_schedule?: DaySchedule;
-  };
-  week_start?: string;
-  week_end?: string;
-  academic_year?: string;
-  term?: string;
-}
-
-export interface WeeklySchedule {
-  student: {
-    id: number;
-    full_name: string;
-    student_class: string;
-  };
-  week_start: string;
-  week_end: string;
-  schedule_by_day: {
-    [key: string]: DaySchedule;
-  };
-  summary: {
+  schedule: ScheduleEntry[];
+  schedule_by_day: ScheduleByDay;
+  total_periods: number;
+  statistics?: {
     total_periods: number;
     subjects_count: number;
     teachers_count: number;
-    weekly_hours: number;
   };
 }
 
-export interface ScheduleFilters {
-  // Date range filters
-  date?: string;
-  week_start?: string;
-  week_end?: string;
-  // Subject/Teacher filters (canonical)
-  subject?: string;
-  teacher?: string;
-  include_breaks?: boolean;
-  // Legacy/UI-friendly aliases (optional)
-  show_breaks?: boolean;
-  subject_filter?: string;
-  teacher_filter?: string;
-}
-
-export interface CreateStudentData {
-  full_name: string;
-  age: number;
-  gender: string;
+export interface WeeklySchedule {
+  student_id: number;
+  student_name: string;
+  classroom_name?: string;
   education_level: string;
-  student_class: string;
-  email?: string;
-  parent_contact?: string;
+  academic_year: string;
+  term: string;
+  monday: ScheduleEntry[];
+  tuesday: ScheduleEntry[];
+  wednesday: ScheduleEntry[];
+  thursday: ScheduleEntry[];
+  friday: ScheduleEntry[];
+  saturday: ScheduleEntry[];
+  sunday: ScheduleEntry[];
+  total_periods_per_week: number;
+  total_subjects: number;
+  total_teachers: number;
+  average_daily_periods: number;
 }
-export interface UpdateStudentData {
-  full_name?: string;
-  age?: number;
-  gender?: string;
-  education_level?: string;
+
+export interface DailySchedule {
+  student_id: number;
+  student_name: string;
+  classroom_name?: string;
+  date: string;
+  day_of_week: string;
+  periods: ScheduleEntry[];
+  total_periods: number;
+  current_period?: ScheduleEntry;
+  next_period?: ScheduleEntry;
+}
+
+export interface CurrentPeriod {
+  student_name: string;
+  current_time: string;
+  current_day: string;
+  current_period?: {
+    subject: string;
+    teacher: string;
+    start_time: string;
+    end_time: string;
+    classroom: string;
+    is_current: boolean;
+  };
+  next_period?: {
+    subject: string;
+    teacher: string;
+    start_time: string;
+    end_time: string;
+    classroom: string;
+    is_next: boolean;
+  };
+  message: string;
+}
+
+// ============================================================================
+// DASHBOARD & PROFILE TYPES
+// ============================================================================
+
+export interface StudentDashboard {
+  student_info: {
+    name: string;
+    class: string;
+    education_level: string;
+    registration_number: string;
+    admission_date?: string;
+  };
+  statistics: {
+    performance: {
+      average_score: number;
+      label: string;
+    };
+    attendance: {
+      rate: number;
+      present: number;
+      total: number;
+      label: string;
+    };
+    subjects: {
+      count: number;
+      label: string;
+    };
+    schedule: {
+      classes_today: number;
+      label: string;
+    };
+  };
+  recent_activities: Array<{
+    type: 'result' | 'attendance';
+    title: string;
+    description: string;
+    date: string;
+    time_ago: string;
+  }>;
+  announcements: Array<{
+    id: number;
+    title: string;
+    content: string;
+    type: string;
+    is_pinned: boolean;
+    created_at: string;
+    time_ago: string;
+  }>;
+  upcoming_events: Array<{
+    id: number;
+    title: string;
+    subtitle?: string;
+    description?: string;
+    type: string;
+    start_date?: string;
+    end_date?: string;
+    days_until?: number;
+  }>;
+  academic_calendar: Array<{
+    id: number;
+    title: string;
+    description?: string;
+    type: string;
+    start_date: string;
+    end_date?: string;
+    location?: string;
+    days_until: number;
+  }>;
+  quick_stats: {
+    total_results: number;
+    this_term_results: number;
+    attendance_this_month: number;
+  };
+}
+
+export interface StudentProfile extends Student {
+  user_info: {
+    username: string;
+    email: string;
+    first_name: string;
+    last_name: string;
+    is_active: boolean;
+    date_joined: string;
+  };
+  academic_info: {
+    class: string;
+    education_level: string;
+    admission_date?: string;
+    registration_number: string;
+    classroom?: string;
+  };
+  contact_info: {
+    parent_contact?: string;
+    emergency_contact?: string;
+  };
+  medical_info: {
+    medical_conditions?: string;
+    special_requirements?: string;
+  };
+}
+
+// ============================================================================
+// RESULT TOKEN TYPES
+// ============================================================================
+
+export interface ResultToken {
+  id: number;
+  student: number;
+  student_name?: string;
   student_class?: string;
-  email?: string;
-  parent_contact?: string;
-  is_active?: boolean;
-  stream?: number | null;
-  // Fields that exist in the Student model
-  profile_picture?: string;
-  date_of_birth?: string;
-  registration_number?: string;
-  medical_conditions?: string;
-  special_requirements?: string;
-  classroom?: string;
-  blood_group?: string;
-  place_of_birth?: string;
-  address?: string;
-  phone_number?: string;
-  payment_method?: string;
+  username?: string;
+  token: string;
+  school_term: number;
+  school_term_name?: string;
+  expires_at: string;
+  is_used: boolean;
+  used_at?: string;
+  is_valid?: boolean;
+  status?: 'Active' | 'Expired' | 'Used';
+  created_at: string;
 }
 
-
-export interface StudentActivationResponse {
-  status: string;
-  student: any;
+export interface GenerateTokensResponse {
+  success: boolean;
+  message: string;
+  school_term: string;
+  academic_session: string;
+  tokens_created: number;
+  tokens_updated: number;
+  total_students: number;
+  expires_at: string;
+  days_until_expiry: number;
+  expiry_date: string;
+  errors?: Array<{
+    student_id: number;
+    username: string;
+    error: string;
+  }>;
+  error_count?: number;
 }
 
-export class StudentService {
-  // Get all students with pagination and search
-  async getStudents(params?: {
-    page?: number;
-    page_size?: number;
-    search?: string;
-  }): Promise<{ results: Student[]; count: number }> {
+export interface TokensListResponse {
+  tokens: ResultToken[];
+  total: number;
+  statistics: {
+    total: number;
+    active: number;
+    expired: number;
+    used: number;
+  };
+  school_term: string;
+  academic_session: string;
+}
+
+export interface TokenVerificationResponse {
+  is_valid: boolean;
+  message: string;
+  school_term?: string;
+  expires_at?: string;
+  student_id?: number;
+  student_name?: string;
+  education_level?: string;
+  current_class?: string;
+  error?: string;
+}
+
+// ============================================================================
+// STUDENT SERVICE
+// ============================================================================
+
+class StudentService {
+  // ============================================================================
+  // BASIC CRUD OPERATIONS
+  // ============================================================================
+
+  /**
+   * Get all students (filtered by params)
+   */
+  async getStudents(params?: StudentFilters): Promise<Student[]> {
     try {
       const response = await api.get('/api/students/students/', params);
-      return response;
+      return response.results || response;
     } catch (error) {
-      console.log('Error fetching students:', error);
+      console.error('Error fetching students:', error);
       throw error;
     }
   }
 
-  // Get a single student by ID
+  /**
+   * Get a single student by ID
+   */
   async getStudent(id: number): Promise<Student> {
     try {
-      const endpoint = `/api/students/students/${id}/`;
-      console.log('DEBUG: StudentService.getStudent calling', endpoint);
-      const response = await api.get(endpoint);
-      console.log('DEBUG: StudentService.getStudent response', response);
-      
-      if (!response) {
-        throw new Error('No response received from server');
-      }
-      
+      const response = await api.get(`/api/students/students/${id}/`);
       return response;
-    } catch (error: any) {
-      console.error('❌ Error in StudentService.getStudent:', error);
+    } catch (error) {
+      console.error(`Error fetching student ${id}:`, error);
       throw error;
     }
   }
 
-  // Create a new student
-  async createStudent(data: CreateStudentData): Promise<Student> {
+  /**
+   * Create a new student
+   */
+  async createStudent(data: CreateStudentData): Promise<{
+    student: Student;
+    student_username?: string;
+    student_password?: string;
+    parent_password?: string;
+  }> {
     try {
       const response = await api.post('/api/students/students/', data);
       return response;
     } catch (error) {
-      console.log('Error creating student:', error);
+      console.error('Error creating student:', error);
       throw error;
     }
   }
 
-  // Update a student
+  /**
+   * Update a student
+   */
   async updateStudent(id: number, data: UpdateStudentData): Promise<Student> {
     try {
       const response = await api.patch(`/api/students/students/${id}/`, data);
       return response;
     } catch (error) {
-      console.log('Error updating student:', error);
+      console.error(`Error updating student ${id}:`, error);
       throw error;
     }
   }
 
-  // Delete a student
-  async deleteStudent(id: number): Promise<{ message: string; status: string }> {
+  /**
+   * Delete a student
+   */
+  async deleteStudent(id: number): Promise<void> {
     try {
-      const response = await api.delete(`/api/students/students/${id}/`);
-      return response;
+      await api.delete(`/api/students/students/${id}/`);
     } catch (error) {
-      console.log('Error deleting student:', error);
+      console.error(`Error deleting student ${id}:`, error);
       throw error;
     }
   }
 
-  // Toggle student activation status
-  static async toggleStudentStatus(studentId: number): Promise<StudentActivationResponse> {
+  // ============================================================================
+  // SCHEDULE OPERATIONS
+  // ============================================================================
+
+  /**
+   * Get current user's schedule
+   */
+  async getMySchedule(): Promise<StudentSchedule> {
     try {
-      console.log(`🔄 Toggling student status: ${studentId}`);
-      
-      const response = await api.post(`/api/students/students/${studentId}/toggle_status/`, {});
-      console.log('goodStudent status toggle response:', response);
-      
+      const response = await api.get('/api/students/students/my-schedule/');
       return response;
     } catch (error) {
-      console.error('❌ Error toggling student status:', error);
+      console.error('Error fetching my schedule:', error);
       throw error;
     }
   }
 
-  // Activate a student
-  static async activateStudent(studentId: number): Promise<StudentActivationResponse> {
+  /**
+   * Get current user's weekly schedule
+   */
+  async getMyWeeklySchedule(): Promise<WeeklySchedule> {
     try {
-      console.log(`🔄 Activating student: ${studentId}`);
-      
-      const response = await api.post(`/api/students/students/${studentId}/activate/`, {});
-      console.log('goodStudent activation response:', response);
-      
+      const response = await api.get('/api/students/students/my-weekly-schedule/');
       return response;
     } catch (error) {
-      console.error('❌ Error activating student:', error);
+      console.error('Error fetching my weekly schedule:', error);
       throw error;
     }
   }
 
-  // Deactivate a student
-  static async deactivateStudent(studentId: number): Promise<StudentActivationResponse> {
+  /**
+   * Get current user's current period
+   */
+  async getMyCurrentPeriod(): Promise<CurrentPeriod> {
     try {
-      console.log(`🔄 Deactivating student: ${studentId}`);
-      
-      const response = await api.post(`/api/students/students/${studentId}/deactivate/`, {});
-      console.log('goodStudent deactivation response:', response);
-      
+      const response = await api.get('/api/students/students/my-current-period/');
       return response;
     } catch (error) {
-      console.error('❌ Error deactivating student:', error);
+      console.error('Error fetching my current period:', error);
       throw error;
     }
   }
 
- // Search students
-  async searchStudents(query: string): Promise<Student[]> {
+  /**
+   * Get schedule for a specific student (or current student if no ID provided)
+   */
+  async getStudentSchedule(studentId?: number, filters?: any): Promise<StudentSchedule> {
     try {
-      console.log('🔍 Searching students with query:', query);
-      const response = await api.get('/api/students/students/', { 
-        search: query,
-        _t: Date.now() // Cache buster
-      });
-      console.log('🔍 Search response:', response);
-      return Array.isArray(response) ? response : response.results || [];
-    } catch (error) {
-      console.log('Error searching students:', error);
-      return [];
-    }
-  }
-
-  // Get student statistics
-  async getStudentStatistics(): Promise<any> {
-    try {
-      const response = await api.get('/api/students/students/statistics/');
+      // If no studentId provided, use the current student's schedule
+      if (!studentId) {
+        return this.getMySchedule();
+      }
+      const response = await api.get(`/api/students/students/${studentId}/schedule/`);
       return response;
     } catch (error) {
-      console.log('Error fetching student statistics:', error);
-      return {};
+      console.error(`Error fetching schedule for student ${studentId}:`, error);
+      throw error;
     }
   }
 
-  async getDashboardData(): Promise<any> {
+  /**
+   * Get weekly schedule for a specific student
+   */
+  async getStudentWeeklySchedule(studentId: number): Promise<WeeklySchedule> {
+    try {
+      const response = await api.get(`/api/students/students/${studentId}/weekly_schedule/`);
+      return response;
+    } catch (error) {
+      console.error(`Error fetching weekly schedule for student ${studentId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get daily schedule for a specific student
+   */
+  async getStudentDailySchedule(studentId: number, date?: string): Promise<DailySchedule> {
+    try {
+      const params = date ? { date } : undefined;
+      const response = await api.get(`/api/students/students/${studentId}/daily_schedule/`, params);
+      return response;
+    } catch (error) {
+      console.error(`Error fetching daily schedule for student ${studentId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get student schedule view (legacy endpoint)
+   */
+  async getStudentScheduleView(): Promise<StudentSchedule> {
+    try {
+      const response = await api.get('/api/students/student-schedule/');
+      return response;
+    } catch (error) {
+      console.error('Error fetching student schedule view:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Alias for getMyWeeklySchedule (for compatibility)
+   */
+  async getWeeklySchedule(): Promise<WeeklySchedule> {
+    return this.getMyWeeklySchedule();
+  }
+
+  /**
+   * Alias for getMySchedule (for compatibility)
+   */
+  async getSchedule(): Promise<StudentSchedule> {
+    return this.getMySchedule();
+  }
+
+  /**
+   * Get current period for logged-in student
+   */
+  async getCurrentPeriod(): Promise<CurrentPeriod> {
+    return this.getMyCurrentPeriod();
+  }
+
+  // ============================================================================
+  // DASHBOARD & PROFILE OPERATIONS
+  // ============================================================================
+
+  /**
+   * Get comprehensive dashboard data for logged-in student
+   */
+  async getDashboard(): Promise<StudentDashboard> {
     try {
       const response = await api.get('/api/students/students/dashboard/');
       return response;
     } catch (error) {
-      console.error('Error fetching student dashboard data:', error);
+      console.error('Error fetching student dashboard:', error);
       throw error;
     }
   }
 
-  async getProfile(): Promise<Student> {
+  /**
+   * Alias for getDashboard (for compatibility)
+   */
+  async getDashboardData(): Promise<StudentDashboard> {
+    return this.getDashboard();
+  }
+
+  /**
+   * Get detailed profile information for logged-in student
+   */
+  async getProfile(): Promise<StudentProfile> {
     try {
       const response = await api.get('/api/students/students/profile/');
       return response;
@@ -366,259 +595,178 @@ export class StudentService {
       throw error;
     }
   }
-  
-  // Get comprehensive student schedule with metadata
-  async getStudentSchedule(studentId?: number, filters?: ScheduleFilters): Promise<StudentSchedule> {
+
+  // ============================================================================
+  // RESULT TOKEN OPERATIONS
+  // ============================================================================
+
+  /**
+   * Generate result tokens for all active students (Admin only)
+   */
+  async generateResultTokens(schoolTermId: number, daysUntilExpiry?: number): Promise<GenerateTokensResponse> {
     try {
-      // If no studentId is provided and user is not a student, skip the call
-      // This prevents unauthorized calls to student-specific endpoints
-      const userData = localStorage.getItem('userData');
-      if (userData && !studentId) {
-        const user = JSON.parse(userData);
-        if (user.role !== 'STUDENT') {
-          console.log('🚫 Skipping student-specific API call for non-student user without studentId:', user.role);
-          return {
-            schedule: [],
-            metadata: {
-              total_periods: 0,
-              total_subjects: 0,
-              week_days: [],
-              time_slots: []
-            }
-          };
-        }
-      }
-      
-      const endpoint = studentId 
-        ? `/api/students/students/${studentId}/schedule/`
-        : '/api/students/students/my-schedule/';
-      
-      console.log('🔄 Fetching student schedule from:', endpoint);
-      
-      const response = await api.get(endpoint, filters);
-      console.log('goodStudent schedule response:', response);
-      
-      if (!response) {
-        throw new Error('No schedule data received from server');
-      }
-
-      // Transform response to ensure backward compatibility
-      const transformedResponse = this.transformScheduleResponse(response);
-      
-      return transformedResponse;
-    } catch (error) {
-      console.error('❌ Error fetching student schedule:', error);
-      throw this.handleScheduleError(error);
-    }
-  }
-
-  // Get weekly schedule with enhanced structure
-  async getWeeklySchedule(studentId?: number, weekStart?: string): Promise<WeeklySchedule> {
-    try {
-      // If no studentId is provided and user is not a student, skip the call
-      // This prevents unauthorized calls to student-specific endpoints
-      const userData = localStorage.getItem('userData');
-      if (userData && !studentId) {
-        const user = JSON.parse(userData);
-        if (user.role !== 'STUDENT') {
-          console.log('🚫 Skipping student-specific API call for non-student user without studentId:', user.role);
-          return {
-            week_start: weekStart || new Date().toISOString(),
-            week_end: new Date().toISOString(),
-            schedule: []
-          };
-        }
-      }
-      
-      const endpoint = studentId 
-        ? `/api/students/students/${studentId}/weekly_schedule/`
-        : '/api/students/students/my-weekly-schedule/';
-      
-      const params = weekStart ? { week_start: weekStart } : undefined;
-      
-      console.log('🔄 Fetching weekly schedule from:', endpoint, params);
-      
-      const response = await api.get(endpoint, params);
-      console.log('goodWeekly schedule response:', response);
-      
-      return response;
-    } catch (error) {
-      console.error('❌ Error fetching weekly schedule:', error);
-      throw this.handleScheduleError(error);
-    }
-  }
-
-  // Get today's schedule with current/next period information
-  async getTodaySchedule(studentId?: number): Promise<DaySchedule & { current_period?: ScheduleItem; next_period?: ScheduleItem }> {
-    try {
-      // If no studentId is provided and user is not a student, skip the call
-      // This prevents unauthorized calls to student-specific endpoints
-      const userData = localStorage.getItem('userData');
-      if (userData && !studentId) {
-        const user = JSON.parse(userData);
-        if (user.role !== 'STUDENT') {
-          console.log('🚫 Skipping student-specific API call for non-student user without studentId:', user.role);
-          return {
-            date: new Date().toISOString(),
-            schedule: [],
-            current_period: null,
-            next_period: null
-          };
-        }
-      }
-      
-      const endpoint = studentId 
-        ? `/api/students/students/${studentId}/today_schedule/`
-        : '/api/students/students/my-today-schedule/';
-      
-      console.log('🔄 Fetching today\'s schedule from:', endpoint);
-      
-      const response = await api.get(endpoint);
-      console.log('goodToday\'s schedule response:', response);
-      
-      return response;
-    } catch (error) {
-      console.error('❌ Error fetching today\'s schedule:', error);
-      throw this.handleScheduleError(error);
-    }
-  }
-
-  // Get current and next period information
-  async getCurrentPeriod(studentId?: number): Promise<{ current?: ScheduleItem; next?: ScheduleItem }> {
-    try {
-      // If no studentId is provided and user is not a student, skip the call
-      // This prevents unauthorized calls to student-specific endpoints
-      const userData = localStorage.getItem('userData');
-      if (userData && !studentId) {
-        const user = JSON.parse(userData);
-        if (user.role !== 'STUDENT') {
-          console.log('🚫 Skipping student-specific API call for non-student user without studentId:', user.role);
-          return { current: null, next: null };
-        }
-      }
-      
-      const endpoint = studentId 
-        ? `/api/students/students/${studentId}/current_period/`
-        : '/api/students/students/my-current-period/';
-      
-      console.log('🔄 Fetching current period from:', endpoint);
-      
-      const response = await api.get(endpoint);
-      console.log('goodCurrent period response:', response);
-      
-      return response;
-    } catch (error) {
-      console.error('❌ Error fetching current period:', error);
-      throw this.handleScheduleError(error);
-    }
-  }
-
-   // UTILITY METHODS
-
-  // Transform schedule response for backward compatibility
-  private transformScheduleResponse(response: any): StudentSchedule {
-    const transformItem = (item: ScheduleItem) => ({
-      ...item,
-      subject_name: (item as any).subject?.name || (item as any).subject_name,
-      teacher_name: (item as any).teacher?.full_name || (item as any).teacher_name,
-      classroom_name: (item as any).classroom?.name || (item as any).classroom_name,
-      subject_code: (item as any).subject?.code || (item as any).subject_code,
-    });
-
-    // Add legacy fields to schedule items for backward compatibility
-    if (Array.isArray(response?.schedule)) {
-      response.schedule = response.schedule.map(transformItem);
-    }
-
-    // Transform schedule_by_day items and normalize shape to { periods: [...] }
-    if (response && response.schedule_by_day && typeof response.schedule_by_day === 'object') {
-      Object.keys(response.schedule_by_day).forEach(day => {
-        const val = response.schedule_by_day[day];
-        const periodsArray = Array.isArray(val)
-          ? val
-          : (Array.isArray(val?.periods) ? val.periods : []);
-        const mapped = periodsArray.map(transformItem);
-        response.schedule_by_day[day] = {
-          ...(val && !Array.isArray(val) && typeof val === 'object' ? val : {}),
-          periods: mapped,
-        };
+      const response = await api.post('/api/students/generate-result-tokens/', {
+        school_term_id: schoolTermId,
+        days_until_expiry: daysUntilExpiry,
       });
+      return response;
+    } catch (error) {
+      console.error('Error generating result tokens:', error);
+      throw error;
     }
-
-    return response;
   }
 
-  // Enhanced error handling for schedule-related requests
-  private handleScheduleError(error: any): Error {
-    if (error.response?.status === 404) {
-      return new Error('Schedule not found. The student may not have a schedule assigned.');
-    } else if (error.response?.status === 403) {
-      return new Error('Access denied. You do not have permission to view this schedule.');
-    } else if (error.response?.status === 400) {
-      return new Error(error.response?.data?.detail || 'Invalid schedule request.');
-    } else if (error.response?.status >= 500) {
-      return new Error('Server error. Please try again later.');
-    }
-    
-    return error instanceof Error ? error : new Error('Failed to load schedule');
-  }
-
-  // Format time for display
-  static formatTime(timeString: string): string {
+  /**
+   * Get result token for current student
+   */
+  async getMyResultToken(): Promise<{
+    has_token: boolean;
+    token_data?: ResultToken;
+    error?: string;
+    current_term?: string;
+    message?: string;
+  }> {
     try {
-      const date = new Date(`2024-01-01T${timeString}`);
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    } catch {
-      return timeString;
+      const response = await api.get('/api/students/get-student-result-token/');
+      return response;
+    } catch (error) {
+      console.error('Error fetching my result token:', error);
+      throw error;
     }
   }
 
-  // Format duration
-  static formatDuration(minutes: number): string {
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    
-    if (hours === 0) {
-      return `${mins} min`;
-    } else if (mins === 0) {
-      return `${hours} hr`;
-    } else {
-      return `${hours}h ${mins}m`;
+  /**
+   * Verify result token
+   */
+  async verifyResultToken(token: string): Promise<TokenVerificationResponse> {
+    try {
+      const response = await api.post('/api/students/verify-result-token/', {
+        token,
+      });
+      return response;
+    } catch (error) {
+      console.error('Error verifying result token:', error);
+      throw error;
     }
   }
 
-  // Get day name from date
-  static getDayName(date: string | Date): string {
-    const d = typeof date === 'string' ? new Date(date) : date;
-    return d.toLocaleDateString('en-US', { weekday: 'long' });
+  /**
+   * Get all result tokens for a school term (Admin only)
+   */
+  async getAllResultTokens(schoolTermId: number): Promise<TokensListResponse> {
+    try {
+      const response = await api.get('/api/students/get-all-result-tokens/', {
+        params: { school_term_id: schoolTermId },
+      });
+      return response;
+    } catch (error) {
+      console.error('Error fetching all result tokens:', error);
+      throw error;
+    }
   }
 
-  // Check if a period is currently active
-  static isPeriodActive(item: ScheduleItem): boolean {
-    const now = new Date();
-    const today = now.toLocaleDateString('en-CA'); // YYYY-MM-DD format
-    
-    // This is a simplified check - you might need to adjust based on your date handling
-    const startTime = new Date(`${today}T${item.start_time}`);
-    const endTime = new Date(`${today}T${item.end_time}`);
-    
-    return now >= startTime && now <= endTime;
+  /**
+   * Delete expired tokens (Admin only)
+   */
+  async deleteExpiredTokens(): Promise<{
+    success: boolean;
+    message: string;
+    deleted_count: number;
+    breakdown: Array<{ school_term__name: string; count: number }>;
+  }> {
+    try {
+      const response = await api.delete('/api/students/delete-expired-tokens/');
+      return response;
+    } catch (error) {
+      console.error('Error deleting expired tokens:', error);
+      throw error;
+    }
   }
 
-  // Get student profile picture URL with fallback
-  static getProfilePictureUrl(student: any): string | null {
-    if (student.profile_picture) {
-      return student.profile_picture;
+  /**
+   * Delete all tokens for a specific term (Admin only)
+   */
+  async deleteAllTokensForTerm(schoolTermId: number): Promise<{
+    success: boolean;
+    message: string;
+    deleted_count: number;
+    school_term: string;
+  }> {
+    try {
+      const response = await api.delete('/api/students/delete-all-tokens-for-term/', {
+        data: { school_term_id: schoolTermId },
+      });
+      return response;
+    } catch (error) {
+      console.error('Error deleting tokens for term:', error);
+      throw error;
     }
-    
-    if (student.user?.profile_picture) {
-      return student.user.profile_picture;
+  }
+
+  // ============================================================================
+  // HELPER METHODS
+  // ============================================================================
+
+  /**
+   * Check if student has valid result token
+   */
+  async hasValidResultToken(): Promise<boolean> {
+    try {
+      const response = await this.getMyResultToken();
+      return response.has_token;
+    } catch (error) {
+      return false;
     }
-    
-    return '/images/default-avatar.png';
+  }
+
+  /**
+   * Get student by user ID
+   */
+  async getStudentByUserId(userId: number): Promise<Student> {
+    try {
+      const response = await this.getStudents({ user: userId });
+      if (Array.isArray(response) && response.length > 0) {
+        return response[0];
+      }
+      throw new Error('Student not found');
+    } catch (error) {
+      console.error(`Error fetching student for user ${userId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get students by education level
+   */
+  async getStudentsByEducationLevel(educationLevel: string): Promise<Student[]> {
+    return this.getStudents({ education_level: educationLevel });
+  }
+
+  /**
+   * Get students by class
+   */
+  async getStudentsByClass(studentClass: string): Promise<Student[]> {
+    return this.getStudents({ student_class: studentClass });
+  }
+
+  /**
+   * Get active students only
+   */
+  async getActiveStudents(): Promise<Student[]> {
+    return this.getStudents({ is_active: true });
+  }
+
+  /**
+   * Search students
+   */
+  async searchStudents(query: string): Promise<Student[]> {
+    return this.getStudents({ search: query });
   }
 }
-  // Get student schedule by date range - OPTIONAL ADDITIONAL METHOD
-  
 
-export default new StudentService();
+// Export the class for those who need it
+export { StudentService };
+
+// Export the singleton instance
+export const studentService = new StudentService();
+export default studentService;

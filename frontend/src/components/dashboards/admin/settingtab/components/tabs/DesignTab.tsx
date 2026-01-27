@@ -115,7 +115,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL
 
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/api/school-settings/`, {
+      const response = await fetch(`${API_BASE_URL}/school-settings/`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

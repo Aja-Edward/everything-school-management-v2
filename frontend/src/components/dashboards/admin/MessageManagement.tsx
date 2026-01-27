@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom';
 import {
   MessageSquare,
   Send,
@@ -72,26 +73,32 @@ const MessageManagement: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      
+
       if (activeTab === 'inbox' || activeTab === 'sent' || activeTab === 'drafts') {
         const messagesData = await MessageService.getMessages({ type: activeTab });
-        setMessages(messagesData);
+        // Ensure messages is always an array, even if API returns undefined/null
+        setMessages(Array.isArray(messagesData) ? messagesData : []);
       } else if (activeTab === 'templates') {
         const templatesData = await MessageService.getTemplates();
-        setTemplates(templatesData);
+        // Ensure templates is always an array
+        setTemplates(Array.isArray(templatesData) ? templatesData : []);
       }
-      
+
       // Load users and stats
       const [usersData, statsData] = await Promise.all([
         MessageService.getUsers(),
         MessageService.getMessageStats()
       ]);
-      setUsers(usersData);
-      setStats(statsData);
-      
+      setUsers(Array.isArray(usersData) ? usersData : []);
+      setStats(statsData || null);
+
     } catch (error) {
       console.error('Error loading data:', error);
       toast.error('Failed to load data');
+      // Reset to empty arrays on error to prevent undefined errors
+      setMessages([]);
+      setTemplates([]);
+      setUsers([]);
     } finally {
       setLoading(false);
     }
@@ -162,19 +169,21 @@ const MessageManagement: React.FC = () => {
     }
   };
 
-  // Filter messages
-  const filteredMessages = messages.filter(message => {
-    return message.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
-           message.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
-           message.sender_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-           message.recipient_name.toLowerCase().includes(searchTerm.toLowerCase());
+  // Filter messages - ensure messages is always an array before filtering
+  const filteredMessages = (messages || []).filter(message => {
+    if (!message) return false;
+    const searchLower = searchTerm.toLowerCase();
+    return (message.subject?.toLowerCase().includes(searchLower) ||
+           message.content?.toLowerCase().includes(searchLower) ||
+           message.sender_name?.toLowerCase().includes(searchLower) ||
+           message.recipient_name?.toLowerCase().includes(searchLower));
   });
 
   const tabs = [
     { id: 'inbox', label: 'Inbox', icon: Inbox, count: stats?.unread_inbox || 0 },
     { id: 'sent', label: 'Sent', icon: Send, count: stats?.total_sent || 0 },
     { id: 'drafts', label: 'Drafts', icon: FileText, count: stats?.total_drafts || 0 },
-    { id: 'templates', label: 'Templates', icon: Settings, count: templates.length },
+    { id: 'templates', label: 'Templates', icon: Settings, count: templates?.length || 0 },
     { id: 'bulk', label: 'Bulk Messages', icon: Users, count: 0 },
   ];
 
@@ -432,7 +441,7 @@ const MessageManagement: React.FC = () => {
       </div>
 
       {/* Compose Modal */}
-      {showComposeModal && (
+      {showComposeModal && ReactDOM.createPortal(
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
@@ -444,7 +453,7 @@ const MessageManagement: React.FC = () => {
                 <X size={20} />
               </button>
             </div>
-            
+
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -463,7 +472,7 @@ const MessageManagement: React.FC = () => {
                   ))}
                 </select>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Subject
@@ -476,7 +485,7 @@ const MessageManagement: React.FC = () => {
                   placeholder="Enter subject..."
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Message Type
@@ -491,7 +500,7 @@ const MessageManagement: React.FC = () => {
                   <option value="sms">SMS</option>
                 </select>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Priority
@@ -507,7 +516,7 @@ const MessageManagement: React.FC = () => {
                   <option value="urgent">Urgent</option>
                 </select>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Content
@@ -521,7 +530,7 @@ const MessageManagement: React.FC = () => {
                 />
               </div>
             </div>
-            
+
             <div className="flex items-center justify-end space-x-3 mt-6">
               <button
                 onClick={() => setShowComposeModal(false)}
@@ -539,11 +548,12 @@ const MessageManagement: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Template Modal */}
-      {showTemplateModal && (
+      {showTemplateModal && ReactDOM.createPortal(
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
@@ -555,7 +565,7 @@ const MessageManagement: React.FC = () => {
                 <X size={20} />
               </button>
             </div>
-            
+
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -569,7 +579,7 @@ const MessageManagement: React.FC = () => {
                   placeholder="Enter template name..."
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Subject
@@ -582,7 +592,7 @@ const MessageManagement: React.FC = () => {
                   placeholder="Enter subject..."
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Message Type
@@ -597,7 +607,7 @@ const MessageManagement: React.FC = () => {
                   <option value="sms">SMS</option>
                 </select>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Content
@@ -611,7 +621,7 @@ const MessageManagement: React.FC = () => {
                 />
               </div>
             </div>
-            
+
             <div className="flex items-center justify-end space-x-3 mt-6">
               <button
                 onClick={() => setShowTemplateModal(false)}
@@ -629,11 +639,12 @@ const MessageManagement: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* View Message Modal */}
-      {showViewModal && selectedMessage && (
+      {showViewModal && selectedMessage && ReactDOM.createPortal(
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
@@ -645,7 +656,7 @@ const MessageManagement: React.FC = () => {
                 <X size={20} />
               </button>
             </div>
-            
+
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -663,14 +674,14 @@ const MessageManagement: React.FC = () => {
                   <p className="text-xs text-gray-500 dark:text-gray-400">{selectedMessage.recipient_email}</p>
                 </div>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Subject
                 </label>
                 <p className="text-sm text-gray-900 dark:text-white">{selectedMessage.subject}</p>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Content
@@ -679,7 +690,7 @@ const MessageManagement: React.FC = () => {
                   <p className="text-sm text-gray-900 dark:text-white whitespace-pre-wrap">{selectedMessage.content}</p>
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -706,7 +717,7 @@ const MessageManagement: React.FC = () => {
                   </span>
                 </div>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Sent
@@ -714,7 +725,7 @@ const MessageManagement: React.FC = () => {
                 <p className="text-sm text-gray-900 dark:text-white">{MessageService.formatDate(selectedMessage.created_at)}</p>
               </div>
             </div>
-            
+
             <div className="flex items-center justify-end space-x-3 mt-6">
               <button
                 onClick={() => setShowViewModal(false)}
@@ -724,7 +735,8 @@ const MessageManagement: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

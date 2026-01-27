@@ -53,7 +53,7 @@ const EnhancedClassroom = () => {
   const [formData, setFormData] = useState<CreateClassroomData>({
     name: '',
     section: 0,
-    academic_year: 0,
+    academic_session: 0,
     term: 0,
     class_teacher: undefined,
     room_number: '',
@@ -120,43 +120,59 @@ const EnhancedClassroom = () => {
   // Load dropdown data separately
   const loadDropdownData = async () => {
     try {
-      // Load academic years first to get available years
+      console.log('🔄 Loading dropdown data...');
+
+      // Load academic years
       const academicYearsData = await classroomService.getAcademicYears().catch(() => ({ results: [] }));
-      const safeAcademicYears = Array.isArray(academicYearsData.results) ? academicYearsData.results : 
+      const safeAcademicYears = Array.isArray(academicYearsData.results) ? academicYearsData.results :
                               Array.isArray(academicYearsData) ? academicYearsData : [];
-      
+
       // Load teachers
       const teachersData = await classroomService.getAllTeachers().catch(() => ({ results: [] }));
-      const safeTeachers = Array.isArray(teachersData.results) ? teachersData.results : 
+      const safeTeachers = Array.isArray(teachersData.results) ? teachersData.results :
                          Array.isArray(teachersData) ? teachersData : [];
 
-      // For sections and terms, you might need to modify your service to have endpoints that return all
-      // Or load them based on the first available academic year
-      let safeSections = [];
-      let safeTerms = [];
-
-      if (safeAcademicYears.length > 0) {
-        // Try to load terms for the first academic year
-        const termsData = await classroomService.getTerms(safeAcademicYears[0].id).catch(() => ({ results: [] }));
-        safeTerms = Array.isArray(termsData.results) ? termsData.results : 
-                   Array.isArray(termsData) ? termsData : [];
+      // ✅ FIX: Load ALL terms (not just for one academic year)
+      console.log('📚 Loading all terms...');
+      const termsData = await classroomService.getTerms().catch((error) => {
+        console.error('❌ Error loading terms:', error);
+        return { results: [] };
+      });
+      console.log('📚 Raw terms data:', termsData);
+      const safeTerms = Array.isArray(termsData.results) ? termsData.results :
+                       Array.isArray(termsData) ? termsData : [];
+      console.log('✅ Terms loaded:', safeTerms.length);
+      if (safeTerms.length > 0) {
+        console.log('📚 Sample term:', safeTerms[0]);
       }
 
-      // For sections, you might need a different approach depending on your API structure
-      // This is a placeholder - adjust based on your actual API
+      // ✅ FIX: Load ALL sections from ALL grade levels
+      console.log('🏫 Loading all sections...');
+      let safeSections = [];
       try {
-        // Try to get grade levels first, then sections
+        // Get all grade levels
         const gradeLevelsData = await classroomService.getGradeLevels().catch(() => ({ results: [] }));
-        const gradeLevel = Array.isArray(gradeLevelsData.results) ? gradeLevelsData.results[0] : 
-                          Array.isArray(gradeLevelsData) ? gradeLevelsData[0] : null;
-        
-        if (gradeLevel) {
-          const sectionsData = await classroomService.getSections(gradeLevel.id).catch(() => ({ results: [] }));
-          safeSections = Array.isArray(sectionsData.results) ? sectionsData.results : 
-                        Array.isArray(sectionsData) ? sectionsData : [];
-        }
+        const gradeLevels = Array.isArray(gradeLevelsData.results) ? gradeLevelsData.results :
+                           Array.isArray(gradeLevelsData) ? gradeLevelsData : [];
+        console.log('📊 Grade levels found:', gradeLevels.length);
+
+        // Load sections for EACH grade level and combine them
+        const sectionPromises = gradeLevels.map((gradeLevel: any) =>
+          classroomService.getSections(gradeLevel.id)
+            .then((sectionsData: any) => {
+              const sections = Array.isArray(sectionsData.results) ? sectionsData.results :
+                             Array.isArray(sectionsData) ? sectionsData : [];
+              console.log(`  ✓ Grade ${gradeLevel.name}: ${sections.length} sections`);
+              return sections;
+            })
+            .catch(() => [])
+        );
+
+        const allSectionsArrays = await Promise.all(sectionPromises);
+        safeSections = allSectionsArrays.flat(); // Flatten all sections into one array
+        console.log('✅ Total sections loaded:', safeSections.length);
       } catch (sectionError) {
-        console.warn('Could not load sections:', sectionError);
+        console.error('❌ Error loading sections:', sectionError);
       }
 
       setDropdownData({
@@ -173,7 +189,7 @@ const EnhancedClassroom = () => {
         teachersCount: safeTeachers.length
       });
     } catch (error: any) {
-      console.error('Error loading dropdown data:', error);
+      console.error('❌ Error loading dropdown data:', error);
     }
   };
 
@@ -248,7 +264,7 @@ const EnhancedClassroom = () => {
     setFormData({
       name: '',
       section: 0,
-      academic_year: 0,
+      academic_session: 0,
       term: 0,
       class_teacher: undefined,
       room_number: '',
@@ -262,7 +278,7 @@ const EnhancedClassroom = () => {
 
     if (!formData.name.trim()) newErrors.name = 'Classroom name is required';
     if (!formData.section) newErrors.section = 'Section is required';
-    if (!formData.academic_year) newErrors.academic_year = 'Academic year is required';
+    if (!formData.academic_session) newErrors.academic_session = 'Academic session is required';
     if (!formData.term) newErrors.term = 'Term is required';
     if (!formData.max_capacity || formData.max_capacity <= 0) newErrors.max_capacity = 'Valid capacity is required';
 
@@ -363,7 +379,7 @@ const EnhancedClassroom = () => {
     setFormData({
       name: classroom.name,
       section: classroom.section,
-      academic_year: classroom.academic_year,
+      academic_session: classroom.academic_session,
       term: classroom.term,
       class_teacher: classroom.class_teacher || undefined,
       room_number: classroom.room_number || '',
@@ -389,27 +405,21 @@ const EnhancedClassroom = () => {
   }
 
   return (
-    <div className={`min-h-screen ${isDarkMode ? 'bg-slate-900 text-slate-100' : 'bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100'} p-6`}>
+    <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div>
-              <h1 className={`text-4xl font-bold ${isDarkMode ? 'text-slate-100' : 'text-gray-900'} mb-2`}>
-                Classroom Management
-              </h1>
-              <p className={isDarkMode ? 'text-slate-400' : 'text-gray-600'}>
-                Manage classrooms across all educational levels
-              </p>
-            </div>
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-6 py-3 rounded-xl font-semibold flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
-            >
-              <Plus size={20} />
-              Add Classroom
-            </button>
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-xl font-semibold text-gray-900">Classroom Management</h1>
+            <p className="text-sm text-gray-500 mt-0.5">Manage classrooms across all educational levels</p>
           </div>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+          >
+            <Plus size={16} />
+            Add Classroom
+          </button>
         </div>
 
         {/* Stats Cards */}
@@ -561,7 +571,7 @@ const EnhancedClassroom = () => {
                     </div>
                     <div className="flex items-center text-gray-600 dark:text-slate-400">
                       <Calendar size={16} className="mr-2" />
-                      <span className="text-sm truncate">{classroom.academic_year_name} - {classroom.term_name}</span>
+                      <span className="text-sm truncate">{classroom.academic_session_name} - {classroom.term_name}</span>
                     </div>
                     <div className="flex items-center text-gray-600 dark:text-slate-400">
                       <BookOpen size={16} className="mr-2" />
@@ -775,26 +785,26 @@ const EnhancedClassroom = () => {
                   {errors.section && <p className="text-red-500 text-sm mt-1">{errors.section}</p>}
                 </div>
 
-                {/* Academic Year */}
+                {/* Academic Session */}
                 <div>
                   <label className={`block text-sm font-medium ${isDarkMode ? 'text-slate-300' : 'text-gray-700'} mb-2`}>
-                    Academic Year *
+                    Academic Session *
                   </label>
                   <select
-                    value={formData.academic_year}
-                    onChange={(e) => setFormData({...formData, academic_year: Number(e.target.value)})}
+                    value={formData.academic_session}
+                    onChange={(e) => setFormData({...formData, academic_session: Number(e.target.value)})}
                     className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none ${
-                      errors.academic_year ? 'border-red-500' : isDarkMode ? 'border-slate-600 bg-slate-700 text-slate-100' : 'border-gray-200'
+                      errors.academic_session ? 'border-red-500' : isDarkMode ? 'border-slate-600 bg-slate-700 text-slate-100' : 'border-gray-200'
                     }`}
                   >
-                    <option value={0}>Select Academic Year</option>
+                    <option value={0}>Select Academic Session</option>
                     {Array.isArray(dropdownData.academicYears) && dropdownData.academicYears.map((year: any) => (
                       <option key={year.id} value={year.id}>
                         {year.name}
                       </option>
                     ))}
                   </select>
-                  {errors.academic_year && <p className="text-red-500 text-sm mt-1">{errors.academic_year}</p>}
+                  {errors.academic_session && <p className="text-red-500 text-sm mt-1">{errors.academic_session}</p>}
                 </div>
 
                 {/* Term */}
@@ -883,19 +893,15 @@ const EnhancedClassroom = () => {
                     setShowEditModal(false);
                     resetForm();
                   }}
-                  className={`px-6 py-3 rounded-xl font-semibold ${
-                    isDarkMode 
-                      ? 'text-slate-300 border border-slate-600 hover:border-slate-500' 
-                      : 'text-gray-700 border border-gray-300 hover:border-gray-400'
-                  } transition-colors duration-200`}
+                  className="px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={showAddModal ? handleAddClassroom : handleEditClassroom}
-                  className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-6 py-3 rounded-xl font-semibold flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
+                  className="flex items-center gap-2 px-4 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
                 >
-                  {showAddModal ? <Plus size={20} /> : <Save size={20} />}
+                  {showAddModal ? <Plus size={16} /> : <Save size={16} />}
                   {showAddModal ? 'Add Classroom' : 'Save Changes'}
                 </button>
               </div>
@@ -974,8 +980,8 @@ const EnhancedClassroom = () => {
                   <p className={`text-lg font-semibold ${isDarkMode ? 'text-slate-100' : 'text-gray-900'}`}>{selectedClassroom.grade_level_name}</p>
                 </div>
                 <div>
-                  <p className={`text-sm ${isDarkMode ? 'text-slate-400' : 'text-gray-600'}`}>Academic Year:</p>
-                  <p className={`text-lg font-semibold ${isDarkMode ? 'text-slate-100' : 'text-gray-900'}`}>{selectedClassroom.academic_year_name}</p>
+                  <p className={`text-sm ${isDarkMode ? 'text-slate-400' : 'text-gray-600'}`}>Academic Session:</p>
+                  <p className={`text-lg font-semibold ${isDarkMode ? 'text-slate-100' : 'text-gray-900'}`}>{selectedClassroom.academic_session_name}</p>
                 </div>
                 <div>
                   <p className={`text-sm ${isDarkMode ? 'text-slate-400' : 'text-gray-600'}`}>Term:</p>

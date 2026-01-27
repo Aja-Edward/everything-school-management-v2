@@ -2,8 +2,10 @@ from django.db import models
 from django.conf import settings
 from django.utils import timezone
 
+from tenants.models import TenantMixin
 
-class Event(models.Model):
+
+class Event(TenantMixin, models.Model):
     DISPLAY_TYPE_CHOICES = [
         ('banner', 'Banner'),
         ('carousel', 'Carousel'),
@@ -104,7 +106,7 @@ class Event(models.Model):
         self.save()
 
 
-class EventImage(models.Model):
+class EventImage(TenantMixin, models.Model):
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='images')
     image = models.ImageField(upload_to='event_images/')
     title = models.CharField(max_length=200, blank=True)

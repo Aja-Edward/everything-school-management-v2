@@ -11,14 +11,30 @@ export default defineConfig({
     },
   },
   server: {
+    host: '0.0.0.0',
+    port: 5173,
     proxy: {
       '/api': {
-        target: process.env.VITE_API_URL || 'http://localhost:8000',
+        // Use backend service name in Docker, localhost outside Docker
+        target: process.env.VITE_BACKEND_URL || 'http://localhost:8084',
         changeOrigin: true,
         secure: false,
+        cookieDomainRewrite: '',
+        configure: (proxy, options) => {
+          proxy.on('proxyReq', (proxyReq, req, res) => {
+            // Forward cookies from browser
+            if (req.headers.cookie) {
+              proxyReq.setHeader('Cookie', req.headers.cookie);
+            }
+            // Forward authorization header if present
+            if (req.headers.authorization) {
+              proxyReq.setHeader('Authorization', req.headers.authorization);
+            }
+          });
+        },
       },
       '/media': {
-        target: process.env.VITE_API_URL || 'http://localhost:8000',
+        target: process.env.VITE_BACKEND_URL || 'http://localhost:8084',
         changeOrigin: true,
         secure: false,
       },

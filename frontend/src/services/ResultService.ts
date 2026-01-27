@@ -254,10 +254,10 @@ class ResultService {
       grade: result.grade,
       grade_point: result.grade_point,
       is_passed: result.is_passed,
-      
-      // Position
-      position: result.subject_position ?? result.position,
-      
+
+      // Position - use subject_position as primary source (consistent with other education levels)
+      position: result.subject_position ?? null,
+
       // Exam score
       exam_score: result.mark_obtained,
       
@@ -1463,7 +1463,7 @@ private transformSeniorSessionResults(results: SeniorSecondarySessionResultData[
         return [];
       }
 
-      const response = await api.get(endpoint, { params });
+      const response = await api.get(endpoint, params);
       return Array.isArray(response) ? response : (response?.results || []);
     } catch (error) {
       console.error(`Error fetching ${educationLevel} term results:`, error);
@@ -1486,7 +1486,7 @@ private transformSeniorSessionResults(results: SeniorSecondarySessionResultData[
 
   async getExamSessions(params?: FilterParams): Promise<ExamSessionInfo[]> {
     try {
-      const response = await api.get(`${this.baseURL}/exam-sessions/`, { params });
+      const response = await api.get(`${this.baseURL}/exam-sessions/`, params);
       console.log("📦 Exam sessions raw response:", response);
       
       let sessions: ExamSessionInfo[] = [];
@@ -1502,11 +1502,11 @@ private transformSeniorSessionResults(results: SeniorSecondarySessionResultData[
       }
       
       console.log("✅ Processed sessions:", sessions.length, "items");
-      
+
       if (sessions.length === 0) {
-        throw new Error('No exam sessions available. Please contact your administrator.');
+        console.warn('⚠️ No exam sessions found. Admin needs to create exam sessions.');
       }
-      
+
       return sessions;
       
     } catch (error: any) {
@@ -1536,7 +1536,7 @@ private transformSeniorSessionResults(results: SeniorSecondarySessionResultData[
       throw new Error(`Unsupported education level: ${educationLevel}`);
     }
     
-    return api.get(endpoint, { params });
+    return api.get(endpoint, params);
   }
 
   async findResultIdByComposite(params: {
@@ -1593,7 +1593,7 @@ private transformSeniorSessionResults(results: SeniorSecondarySessionResultData[
     exam_session?: string;
     student_class?: string;
   }) {
-    return api.get(`${this.baseURL}/senior-secondary/results/grade_distribution/`, { params });
+    return api.get(`${this.baseURL}/senior-secondary/results/grade_distribution/`, params);
   }
 
   async generateTranscript(studentId: string, options?: TranscriptOptions) {
@@ -1627,15 +1627,15 @@ private transformSeniorSessionResults(results: SeniorSecondarySessionResultData[
   }
 
   async getResultSheets(params?: FilterParams) {
-    return api.get(`${this.baseURL}/result-sheets/`, { params });
+    return api.get(`${this.baseURL}/result-sheets/`, params);
   }
 
   async getAssessmentScores(params?: FilterParams) {
-    return api.get(`${this.baseURL}/assessment-scores/`, { params });
+    return api.get(`${this.baseURL}/assessment-scores/`, params);
   }
 
   async getResultComments(params?: FilterParams) {
-    return api.get(`${this.baseURL}/result-comments/`, { params });
+    return api.get(`${this.baseURL}/result-comments/`, params);
   }
 
   // ===== DEBUG METHODS =====
@@ -1680,6 +1680,244 @@ private transformSeniorSessionResults(results: SeniorSecondarySessionResultData[
     }
     
     console.log('=== END TEST ===');
+  }
+
+  // ============================================================================
+  // MISSING INTEGRATIONS: BULK OPERATIONS, ANALYTICS, IMPORT/EXPORT
+  // ============================================================================
+
+  /**
+   * Bulk publish multiple results at once
+   */
+  async bulkPublishResults(data: {
+    result_ids: string[];
+    education_level: string;
+  }): Promise<{ message: string; updated_count: number; errors?: any[] }> {
+    try {
+      const response = await api.post(`${this.baseURL}/bulk-operations/bulk_publish_results/`, data);
+      return response;
+    } catch (error) {
+      console.error('Error bulk publishing results:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Bulk update status for multiple results
+   */
+  async bulkStatusUpdate(data: {
+    result_ids: string[];
+    status: ResultStatus;
+    education_level: string;
+  }): Promise<{ message: string; updated_count: number; errors?: any[] }> {
+    try {
+      const response = await api.post(`${this.baseURL}/bulk-operations/bulk_status_update/`, data);
+      return response;
+    } catch (error) {
+      console.error('Error bulk updating status:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Bulk update multiple results with different data
+   */
+  async bulkUpdate(data: {
+    updates: Array<{
+      result_id: string;
+      data: any;
+    }>;
+    education_level: string;
+  }): Promise<{ message: string; updated_count: number; errors?: any[] }> {
+    try {
+      const response = await api.post(`${this.baseURL}/bulk-operations/bulk_update/`, data);
+      return response;
+    } catch (error) {
+      console.error('Error bulk updating results:', error);
+      throw error;
+    }
+  }
+
+  // ============================================================================
+  // ANALYTICS
+  // ============================================================================
+
+  /**
+   * Get class performance analytics
+   */
+  async getClassPerformance(params?: {
+    education_level?: string;
+    student_class?: string;
+    exam_session?: string;
+    subject?: string;
+  }): Promise<{
+    class_average: number;
+    highest_score: number;
+    lowest_score: number;
+    pass_rate: number;
+    total_students: number;
+    grade_distribution: Record<string, number>;
+    subject_averages: any[];
+  }> {
+    try {
+      const response = await api.get(`${this.baseURL}/analytics/class_performance/`, params);
+      return response;
+    } catch (error) {
+      console.error('Error fetching class performance:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get subject performance analytics
+   */
+  async getSubjectPerformance(params?: {
+    subject?: string;
+    education_level?: string;
+    exam_session?: string;
+  }): Promise<{
+    subject: any;
+    average_score: number;
+    highest_score: number;
+    lowest_score: number;
+    pass_rate: number;
+    total_students: number;
+    grade_distribution: Record<string, number>;
+  }> {
+    try {
+      const response = await api.get(`${this.baseURL}/analytics/subject_performance/`, params);
+      return response;
+    } catch (error) {
+      console.error('Error fetching subject performance:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get student performance trend over time
+   */
+  async getStudentPerformanceTrend(params: {
+    student: string;
+    education_level: string;
+    subject?: string;
+  }): Promise<{
+    student: any;
+    trends: Array<{
+      exam_session: any;
+      average_score: number;
+      total_subjects: number;
+      subjects_passed: number;
+      gpa: number;
+      class_position: number;
+    }>;
+  }> {
+    try {
+      const response = await api.get(`${this.baseURL}/analytics/student_performance_trend/`, params);
+      return response;
+    } catch (error) {
+      console.error('Error fetching student performance trend:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get overall result summary/statistics
+   */
+  async getResultSummary(params?: {
+    education_level?: string;
+    exam_session?: string;
+    student_class?: string;
+  }): Promise<{
+    total_results: number;
+    total_students: number;
+    average_score: number;
+    pass_rate: number;
+    status_breakdown: Record<string, number>;
+    grade_distribution: Record<string, number>;
+    by_education_level: any[];
+  }> {
+    try {
+      const response = await api.get(`${this.baseURL}/analytics/result_summary/`, params);
+      return response;
+    } catch (error) {
+      console.error('Error fetching result summary:', error);
+      throw error;
+    }
+  }
+
+  // ============================================================================
+  // IMPORT/EXPORT
+  // ============================================================================
+
+  /**
+   * Import results from CSV file
+   */
+  async importResults(file: File, educationLevel: string): Promise<{
+    message: string;
+    imported_count: number;
+    errors?: any[];
+  }> {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('education_level', educationLevel);
+
+      const response = await fetch(`${this.baseURL}/import-export/import_results/`, {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Import failed' }));
+        throw new Error(error.detail || `HTTP error! status: ${response.status}`);
+      }
+
+      return response.json();
+    } catch (error) {
+      console.error('Error importing results:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Export results to CSV/Excel
+   */
+  async exportResults(params?: {
+    education_level?: string;
+    exam_session?: string;
+    student_class?: string;
+    subject?: string;
+    status?: string;
+    format?: 'csv' | 'xlsx';
+  }): Promise<Blob> {
+    try {
+      const queryParams = new URLSearchParams();
+      if (params) {
+        Object.entries(params).forEach(([key, value]) => {
+          if (value !== undefined && value !== null) {
+            queryParams.append(key, value.toString());
+          }
+        });
+      }
+
+      const queryString = queryParams.toString();
+      const url = `${this.baseURL}/import-export/export_results/${queryString ? `?${queryString}` : ''}`;
+
+      const response = await fetch(url, {
+        method: 'GET',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return response.blob();
+    } catch (error) {
+      console.error('Error exporting results:', error);
+      throw error;
+    }
   }
 }
 

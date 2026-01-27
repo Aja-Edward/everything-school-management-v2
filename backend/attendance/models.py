@@ -1,12 +1,12 @@
 from django.db import models
 
-
+from tenants.models import TenantMixin
 from students.models import Student
 from teacher.models import Teacher
 from classroom.models import Section
 
 
-class Attendance(models.Model):
+class Attendance(TenantMixin, models.Model):
     STATUS_CHOICES = [
         ("P", "Present"),
         ("A", "Absent"),
@@ -28,7 +28,7 @@ class Attendance(models.Model):
     time_out = models.TimeField(null=True, blank=True, help_text="Time when student/teacher left")
 
     class Meta:
-        unique_together = ("date", "student", "section")
+        unique_together = [("tenant", "date", "student", "section")]
         indexes = [
             models.Index(fields=["date"]),  # For date-based queries
             models.Index(fields=["teacher", "date"]),  # For teacher dashboard

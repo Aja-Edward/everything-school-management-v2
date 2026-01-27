@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import StudentLoginForm from '@/components/login/StudentLoginForm';
+import UnifiedLoginForm from '@/components/login/UnifiedLoginForm';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from './../hooks/useAuth';
+import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'react-toastify';
 import { useTranslation } from 'react-i18next';
-import { useDocumentTitle } from './../hooks/useDocumentTitle';
-import Navbar from './../components/home/Nav';
-import { AuthService } from '../services/AuthService';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
+import { AuthService } from '@/services/AuthService';
 import type { LoginCredentials } from '@/types/types';
 
 const authService = new AuthService();
@@ -18,15 +17,14 @@ const StudentLoginPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  useDocumentTitle(t('login.title', 'Student Login - AL-QOLAMULMUWAFFAQ'));
+  useDocumentTitle(t('login.title', 'Student Login'));
 
   const handleLogin = async (credentials: LoginCredentials) => {
     try {
       setIsLoading(true);
       setErrors({});
-      const loggedInUser = await login(credentials);
+      await login(credentials);
       toast.success(t('login.success', 'Login successful!'));
-      // Always navigate to student dashboard for this page
       navigate('/student/dashboard');
     } catch (error: any) {
       console.error('Login error:', error);
@@ -58,47 +56,39 @@ const StudentLoginPage: React.FC = () => {
 
   const handleSocialLogin = async (provider: 'google' | 'facebook') => {
     if (provider === 'google') {
-      await handleGoogleLogin();
+      setIsLoading(true);
+      setErrors({});
+      try {
+        const result = await authService.googleSignIn();
+        if (result.success) {
+          toast.success(t('login.success', 'Google login successful!'));
+          navigate('/student/dashboard');
+        } else {
+          setErrors(result.errors || { google: result.message });
+          toast.error(result.message || 'Google login failed. Please try again.');
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Google login failed';
+        setErrors({ google: errorMessage });
+        toast.error('Google login failed. Please try again.');
+      } finally {
+        setIsLoading(false);
+      }
     } else if (provider === 'facebook') {
       toast.info('Facebook login not implemented yet.');
     }
   };
 
-  const handleGoogleLogin = async () => {
-    setIsLoading(true);
-    setErrors({});
-    try {
-      const result = await authService.googleSignIn();
-      if (result.success) {
-        toast.success(t('login.success', 'Google login successful!'));
-        navigate('/student/dashboard');
-      } else {
-        setErrors(result.errors || { google: result.message });
-        toast.error(result.message || 'Google login failed. Please try again.');
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Google login failed';
-      setErrors({ google: errorMessage });
-      toast.error('Google login failed. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return (
-    <>
-      <Navbar />
-      <StudentLoginForm
-        onLogin={handleLogin}
-        onBackToHome={handleBackToHome}
-        onSocialLogin={handleSocialLogin}
-        isLoading={isLoading}
-        onCreateAccount={() => navigate('/signup')}
-        errors={errors}
-        initialRole="student"
-        hideRoleSelect={true}
-      />
-    </>
+    <UnifiedLoginForm
+      userType="student"
+      onLogin={handleLogin}
+      onBackToHome={handleBackToHome}
+      onSocialLogin={handleSocialLogin}
+      isLoading={isLoading}
+      onCreateAccount={() => navigate('/signup')}
+      errors={errors}
+    />
   );
 };
 

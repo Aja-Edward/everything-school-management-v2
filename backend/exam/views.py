@@ -2321,10 +2321,22 @@ from io import TextIOWrapper
 import csv
 from datetime import datetime, timedelta
 from utils.section_filtering import SectionFilterMixin, AutoSectionFilterMixin
+from tenants.mixins import TenantFilterMixin
+from utils.pagination import LargeResultsPagination, StandardResultsPagination
 import logging
 
 # Import models
-from .models import Exam, ExamSchedule, ExamRegistration, ExamStatistics
+from .models import (
+    Exam,
+    ExamSchedule,
+    ExamRegistration,
+    ExamStatistics,
+    QuestionBank,
+    ExamTemplate,
+    ExamReview,
+    ExamReviewer,
+    ExamReviewComment,
+)
 from result.models import StudentResult
 from classroom.models import GradeLevel, Section
 from subject.models import Subject
@@ -2345,6 +2357,20 @@ from .serializers import (
     ResultSerializer,
     ResultCreateUpdateSerializer,
     ExamStatisticsSerializer,
+    # EXAM-003 serializers
+    QuestionBankListSerializer,
+    QuestionBankDetailSerializer,
+    QuestionBankCreateUpdateSerializer,
+    ExamTemplateListSerializer,
+    ExamTemplateDetailSerializer,
+    ExamTemplateCreateUpdateSerializer,
+    ExamReviewListSerializer,
+    ExamReviewDetailSerializer,
+    ExamReviewSubmitSerializer,
+    ExamReviewDecisionSerializer,
+    ExamReviewerSerializer,
+    ExamReviewCommentSerializer,
+    ExamReviewCommentCreateSerializer,
 )
 
 # Import filters
@@ -2381,8 +2407,9 @@ def create_exam_schedule(request):
     return render(request, "exams/exam_schedule_form.html", {"form": form})
 
 
-class ExamViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
+class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """
+    CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
     Streamlined ViewSet for managing exams with section-based filtering
     """
 
@@ -2400,6 +2427,7 @@ class ExamViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
     ordering_fields = ["exam_date", "start_time", "title", "created_at"]
     ordering = ["-exam_date", "start_time"]
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate exams
 
     def get_serializer_class(self):
         """Return appropriate serializer based on action"""
@@ -3414,13 +3442,17 @@ class ExamViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         )
 
 
-class ExamScheduleViewSet(viewsets.ModelViewSet):
-    """ViewSet for exam schedules"""
+class ExamScheduleViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin ensures tenant isolation.
+    ViewSet for exam schedules
+    """
 
     queryset = ExamSchedule.objects.all()
     serializer_class = ExamScheduleSerializer
     ordering = ["-created_at"]
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate schedules
 
     def get_queryset(self):
         """Apply section filtering"""
@@ -3558,13 +3590,17 @@ class ExamScheduleViewSet(viewsets.ModelViewSet):
         )
 
 
-class ExamRegistrationViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
-    """ViewSet for exam registrations with section filtering"""
+class ExamRegistrationViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
+    ViewSet for exam registrations with section filtering
+    """
 
     queryset = ExamRegistration.objects.select_related("exam", "student")
     serializer_class = ExamRegistrationSerializer
     ordering = ["-registration_date"]
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate large registrations
 
     def _get_section_education_levels(self, user_or_section):
         """
@@ -3840,13 +3876,17 @@ class ExamRegistrationViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         )
 
 
-class ResultViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
-    """ViewSet for exam results with section filtering"""
+class ResultViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
+    ViewSet for exam results with section filtering
+    """
 
     queryset = StudentResult.objects.select_related("exam", "student", "subject")
     serializer_class = ResultSerializer
     ordering = ["-created_at"]
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate large result datasets
 
     def _get_section_education_levels(self, user_or_section):
         """
@@ -4017,13 +4057,17 @@ class ResultViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
         serializer.save(recorded_by=self.request.user)
 
 
-class ExamStatisticsViewSet(SectionFilterMixin, viewsets.ReadOnlyModelViewSet):
-    """ViewSet for exam statistics (read-only) with section filtering"""
+class ExamStatisticsViewSet(TenantFilterMixin, SectionFilterMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
+    ViewSet for exam statistics (read-only) with section filtering
+    """
 
     queryset = ExamStatistics.objects.select_related("exam")
     serializer_class = ExamStatisticsSerializer
     ordering = ["-calculated_at"]
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate statistics
 
     def _get_section_education_levels(self, user_or_section):
         """
@@ -4223,4 +4267,734 @@ class ExamStatisticsViewSet(SectionFilterMixin, viewsets.ReadOnlyModelViewSet):
                 "message": "Statistics recalculated successfully",
                 "statistics": serializer.data,
             }
+        )
+
+
+# ============================================
+# EXAM-003: NEW EXAM FEATURES VIEWSETS
+# ============================================
+
+
+class QuestionBankViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
+    ViewSet for managing Question Bank
+
+    Features:
+    - List questions with filtering (subject, difficulty, type, shared status)
+    - Create new questions
+    - Update existing questions
+    - Delete questions
+    - Import questions to exam
+    - Search by question text, topic, tags
+    """
+
+    queryset = QuestionBank.objects.select_related(
+        "created_by", "subject", "grade_level"
+    ).all()
+
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter,
+    ]
+    search_fields = ["question", "topic", "subtopic", "tags"]
+    ordering_fields = ["created_at", "usage_count", "last_used", "difficulty"]
+    ordering = ["-created_at"]
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate question bank
+
+    def get_serializer_class(self):
+        """Return appropriate serializer based on action"""
+        if self.action == "list":
+            return QuestionBankListSerializer
+        elif self.action in ["create", "update", "partial_update"]:
+            return QuestionBankCreateUpdateSerializer
+        return QuestionBankDetailSerializer
+
+    def get_queryset(self):
+        """
+        Filter questions based on user permissions
+        Teachers see own questions + shared questions
+        Admins see all questions
+        """
+        queryset = super().get_queryset()
+        user = self.request.user
+
+        # Apply filtering
+        params = self.request.query_params
+
+        # Filter by question type
+        question_type = params.get("question_type")
+        if question_type:
+            queryset = queryset.filter(question_type=question_type)
+
+        # Filter by subject
+        subject_id = params.get("subject")
+        if subject_id:
+            queryset = queryset.filter(subject_id=subject_id)
+
+        # Filter by grade level
+        grade_level_id = params.get("grade_level")
+        if grade_level_id:
+            queryset = queryset.filter(grade_level_id=grade_level_id)
+
+        # Filter by difficulty
+        difficulty = params.get("difficulty")
+        if difficulty:
+            queryset = queryset.filter(difficulty=difficulty)
+
+        # Filter by topic
+        topic = params.get("topic")
+        if topic:
+            queryset = queryset.filter(topic__icontains=topic)
+
+        # Filter by tags
+        tags = params.get("tags")
+        if tags:
+            tag_list = tags.split(",")
+            for tag in tag_list:
+                queryset = queryset.filter(tags__contains=[tag.strip()])
+
+        # Filter by ownership (my questions vs shared)
+        show_only_mine = params.get("only_mine") == "true"
+        show_shared = params.get("show_shared") == "true"
+
+        if hasattr(user, "teacher"):
+            teacher = user.teacher
+            if show_only_mine:
+                # Only my questions
+                queryset = queryset.filter(created_by=teacher)
+            elif show_shared:
+                # Only shared questions from others
+                queryset = queryset.filter(is_shared=True).exclude(created_by=teacher)
+            else:
+                # My questions + shared questions
+                queryset = queryset.filter(
+                    Q(created_by=teacher) | Q(is_shared=True)
+                )
+        elif not user.is_staff:
+            # Non-teachers only see shared questions
+            queryset = queryset.filter(is_shared=True)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        """Set created_by to current user's teacher"""
+        user = self.request.user
+        if hasattr(user, "teacher"):
+            serializer.save(created_by=user.teacher)
+        else:
+            raise ValidationError("Only teachers can create questions in the bank.")
+
+    @action(detail=False, methods=["post"])
+    def import_to_exam(self, request):
+        """
+        Import selected questions into an exam
+
+        POST data:
+        {
+            "exam_id": 123,
+            "question_ids": [1, 2, 3],
+            "section_type": "objective"  # objective, theory, or practical
+        }
+        """
+        exam_id = request.data.get("exam_id")
+        question_ids = request.data.get("question_ids", [])
+        section_type = request.data.get("section_type")
+
+        if not exam_id or not question_ids or not section_type:
+            return Response(
+                {"error": "exam_id, question_ids, and section_type are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            exam = Exam.objects.get(id=exam_id)
+        except Exam.DoesNotExist:
+            return Response(
+                {"error": "Exam not found"}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Get questions
+        questions = QuestionBank.objects.filter(id__in=question_ids)
+        if questions.count() != len(question_ids):
+            return Response(
+                {"error": "Some questions not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Convert questions to exam format and append to exam
+        imported_count = 0
+        with transaction.atomic():
+            for question in questions:
+                question_data = {
+                    "question": question.question,
+                    "marks": question.marks,
+                    "images": question.images,
+                    "table": question.table_data,
+                }
+
+                if question.question_type == "objective":
+                    question_data["options"] = question.options
+                    question_data["correctAnswer"] = question.correct_answer
+                    if section_type == "objective":
+                        if not exam.objective_questions:
+                            exam.objective_questions = []
+                        exam.objective_questions.append(question_data)
+                        imported_count += 1
+
+                elif question.question_type == "theory":
+                    question_data["expectedPoints"] = question.expected_points
+                    if section_type == "theory":
+                        if not exam.theory_questions:
+                            exam.theory_questions = []
+                        exam.theory_questions.append(question_data)
+                        imported_count += 1
+
+                elif question.question_type == "practical":
+                    question_data["task"] = question.question
+                    question_data["expectedOutcome"] = question.expected_points
+                    if section_type == "practical":
+                        if not exam.practical_questions:
+                            exam.practical_questions = []
+                        exam.practical_questions.append(question_data)
+                        imported_count += 1
+
+                # Increment usage count
+                question.increment_usage()
+
+            exam.save()
+
+        return Response(
+            {
+                "message": f"Successfully imported {imported_count} questions to exam",
+                "imported_count": imported_count,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["post"])
+    def duplicate(self, request, pk=None):
+        """Duplicate a question"""
+        question = self.get_object()
+        user = request.user
+
+        if not hasattr(user, "teacher"):
+            return Response(
+                {"error": "Only teachers can duplicate questions"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Create duplicate
+        question.pk = None
+        question.created_by = user.teacher
+        question.usage_count = 0
+        question.last_used = None
+        question.save()
+
+        serializer = QuestionBankDetailSerializer(question)
+        return Response(
+            {
+                "message": "Question duplicated successfully",
+                "question": serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=False, methods=["get"])
+    def statistics(self, request):
+        """Get question bank statistics"""
+        queryset = self.get_queryset()
+
+        stats = {
+            "total_questions": queryset.count(),
+            "by_type": {
+                "objective": queryset.filter(question_type="objective").count(),
+                "theory": queryset.filter(question_type="theory").count(),
+                "practical": queryset.filter(question_type="practical").count(),
+            },
+            "by_difficulty": {
+                "easy": queryset.filter(difficulty="easy").count(),
+                "medium": queryset.filter(difficulty="medium").count(),
+                "hard": queryset.filter(difficulty="hard").count(),
+            },
+            "shared_questions": queryset.filter(is_shared=True).count(),
+            "most_used": queryset.order_by("-usage_count")[:5].values(
+                "id", "question", "usage_count"
+            ),
+        }
+
+        return Response(stats)
+
+
+class ExamTemplateViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
+    ViewSet for managing Exam Templates
+
+    Features:
+    - List templates with filtering
+    - Create new templates
+    - Update existing templates
+    - Delete templates
+    - Apply template to create new exam
+    - Duplicate template
+    """
+
+    queryset = ExamTemplate.objects.select_related(
+        "created_by", "grade_level", "subject"
+    ).all()
+
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter,
+    ]
+    search_fields = ["name", "description"]
+    ordering_fields = ["created_at", "usage_count", "name"]
+    ordering = ["-created_at"]
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate templates
+
+    def get_serializer_class(self):
+        """Return appropriate serializer based on action"""
+        if self.action == "list":
+            return ExamTemplateListSerializer
+        elif self.action in ["create", "update", "partial_update"]:
+            return ExamTemplateCreateUpdateSerializer
+        return ExamTemplateDetailSerializer
+
+    def get_queryset(self):
+        """
+        Filter templates based on user permissions
+        Teachers see own templates + shared templates
+        Admins see all templates
+        """
+        queryset = super().get_queryset()
+        user = self.request.user
+        params = self.request.query_params
+
+        # Filter by grade level
+        grade_level_id = params.get("grade_level")
+        if grade_level_id:
+            queryset = queryset.filter(grade_level_id=grade_level_id)
+
+        # Filter by subject
+        subject_id = params.get("subject")
+        if subject_id:
+            queryset = queryset.filter(subject_id=subject_id)
+
+        # Filter by ownership
+        show_only_mine = params.get("only_mine") == "true"
+        show_shared = params.get("show_shared") == "true"
+
+        if hasattr(user, "teacher"):
+            teacher = user.teacher
+            if show_only_mine:
+                queryset = queryset.filter(created_by=teacher)
+            elif show_shared:
+                queryset = queryset.filter(is_shared=True).exclude(created_by=teacher)
+            else:
+                # My templates + shared templates
+                queryset = queryset.filter(
+                    Q(created_by=teacher) | Q(is_shared=True)
+                )
+        elif not user.is_staff:
+            # Non-teachers only see shared templates
+            queryset = queryset.filter(is_shared=True)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        """Set created_by to current user's teacher"""
+        user = self.request.user
+        if hasattr(user, "teacher"):
+            serializer.save(created_by=user.teacher)
+        else:
+            raise ValidationError("Only teachers can create templates.")
+
+    @action(detail=True, methods=["post"])
+    def apply(self, request, pk=None):
+        """
+        Apply template to create a new exam
+
+        POST data:
+        {
+            "title": "Mathematics Mid-Term Exam",
+            "exam_date": "2024-03-15",
+            "start_time": "09:00",
+            "end_time": "11:00",
+            "subject": 1,
+            "exam_schedule": 1,
+            ... other exam fields
+        }
+        """
+        template = self.get_object()
+
+        # Create new exam with template structure
+        exam_data = request.data.copy()
+
+        # Set structure from template
+        if "total_marks" not in exam_data:
+            exam_data["total_marks"] = template.total_marks
+        if "duration_minutes" not in exam_data:
+            exam_data["duration_minutes"] = template.duration_minutes
+        if "grade_level" not in exam_data:
+            exam_data["grade_level"] = template.grade_level.id
+
+        # Set default instructions from template
+        if template.default_instructions:
+            if "objective_instructions" not in exam_data:
+                exam_data["objective_instructions"] = template.default_instructions.get("objective", "")
+            if "theory_instructions" not in exam_data:
+                exam_data["theory_instructions"] = template.default_instructions.get("theory", "")
+            if "practical_instructions" not in exam_data:
+                exam_data["practical_instructions"] = template.default_instructions.get("practical", "")
+            if "instructions" not in exam_data:
+                exam_data["instructions"] = template.default_instructions.get("general", "")
+
+        # Create exam
+        exam_serializer = ExamCreateUpdateSerializer(data=exam_data, context={"request": request})
+        if exam_serializer.is_valid():
+            exam = exam_serializer.save()
+
+            # Increment template usage
+            template.increment_usage()
+
+            # Return created exam
+            detail_serializer = ExamDetailSerializer(exam)
+            return Response(
+                {
+                    "message": "Exam created successfully from template",
+                    "exam": detail_serializer.data,
+                    "template": ExamTemplateDetailSerializer(template).data,
+                },
+                status=status.HTTP_201_CREATED,
+            )
+        else:
+            return Response(
+                exam_serializer.errors, status=status.HTTP_400_BAD_REQUEST
+            )
+
+    @action(detail=True, methods=["post"])
+    def duplicate(self, request, pk=None):
+        """Duplicate a template"""
+        template = self.get_object()
+        user = request.user
+
+        if not hasattr(user, "teacher"):
+            return Response(
+                {"error": "Only teachers can duplicate templates"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Create duplicate
+        template.pk = None
+        template.created_by = user.teacher
+        template.name = f"{template.name} (Copy)"
+        template.usage_count = 0
+        template.save()
+
+        serializer = ExamTemplateDetailSerializer(template)
+        return Response(
+            {
+                "message": "Template duplicated successfully",
+                "template": serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ExamReviewViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+    """
+    CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
+    ViewSet for managing Exam Reviews
+
+    Features:
+    - List reviews with filtering
+    - Get review details
+    - Submit exam for review
+    - Approve/reject/request changes
+    - Add comments
+    - Resolve comments
+    """
+
+    queryset = ExamReview.objects.select_related(
+        "exam", "submitted_by", "approved_by"
+    ).prefetch_related("reviewers", "comments").all()
+
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter,
+    ]
+    search_fields = ["exam__title", "exam__code", "submission_note"]
+    ordering_fields = ["created_at", "submitted_at", "status"]
+    ordering = ["-created_at"]
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate reviews
+
+    def get_serializer_class(self):
+        """Return appropriate serializer based on action"""
+        if self.action == "list":
+            return ExamReviewListSerializer
+        elif self.action == "submit_for_review":
+            return ExamReviewSubmitSerializer
+        elif self.action == "make_decision":
+            return ExamReviewDecisionSerializer
+        return ExamReviewDetailSerializer
+
+    def get_queryset(self):
+        """
+        Filter reviews based on user permissions
+        Teachers see reviews they submitted or are assigned to
+        Admins see all reviews
+        """
+        queryset = super().get_queryset()
+        user = self.request.user
+        params = self.request.query_params
+
+        # Filter by status
+        review_status = params.get("status")
+        if review_status:
+            queryset = queryset.filter(status=review_status)
+
+        # Filter by permissions
+        if hasattr(user, "teacher") and not user.is_staff:
+            teacher = user.teacher
+            # Show reviews submitted by teacher or where teacher is a reviewer
+            queryset = queryset.filter(
+                Q(submitted_by=teacher) | Q(reviewers__reviewer=teacher)
+            ).distinct()
+
+        return queryset
+
+    @action(detail=False, methods=["post"])
+    def submit_for_review(self, request):
+        """
+        Submit an exam for review
+
+        POST data:
+        {
+            "exam_id": 123,
+            "reviewer_ids": [1, 2],
+            "submission_note": "Please review before Friday"
+        }
+        """
+        serializer = ExamReviewSubmitSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        exam_id = request.data.get("exam_id")
+        reviewer_ids = serializer.validated_data["reviewer_ids"]
+        submission_note = serializer.validated_data.get("submission_note", "")
+
+        try:
+            exam = Exam.objects.get(id=exam_id)
+        except Exam.DoesNotExist:
+            return Response(
+                {"error": "Exam not found"}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        user = request.user
+        if not hasattr(user, "teacher"):
+            return Response(
+                {"error": "Only teachers can submit exams for review"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Check if review already exists
+        if hasattr(exam, "review"):
+            return Response(
+                {"error": "This exam already has a review"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Create review
+        with transaction.atomic():
+            review = ExamReview.objects.create(
+                exam=exam,
+                submitted_by=user.teacher,
+                submission_note=submission_note,
+            )
+
+            # Add reviewers
+            for reviewer_id in reviewer_ids:
+                try:
+                    reviewer = Teacher.objects.get(id=reviewer_id)
+                    ExamReviewer.objects.create(review=review, reviewer=reviewer)
+                except Teacher.DoesNotExist:
+                    pass
+
+            # Submit the review
+            review.submit()
+
+        serializer = ExamReviewDetailSerializer(review)
+        return Response(
+            {
+                "message": "Exam submitted for review successfully",
+                "review": serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=["post"])
+    def make_decision(self, request, pk=None):
+        """
+        Make a decision on the review (approve/reject/request changes)
+
+        POST data:
+        {
+            "decision": "approve",  # or "reject" or "request_changes"
+            "notes": "Looks good",
+            "reason": "Missing answer key"  # required for reject
+        }
+        """
+        review = self.get_object()
+        serializer = ExamReviewDecisionSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        user = request.user
+        if not hasattr(user, "teacher"):
+            return Response(
+                {"error": "Only teachers can make review decisions"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        decision = serializer.validated_data["decision"]
+        notes = serializer.validated_data.get("notes", "")
+        reason = serializer.validated_data.get("reason", "")
+
+        # Check if user is a reviewer
+        is_reviewer = review.reviewers.filter(reviewer=user.teacher).exists()
+        if not is_reviewer and not user.is_staff:
+            return Response(
+                {"error": "You are not assigned as a reviewer for this exam"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Process decision
+        with transaction.atomic():
+            if decision == "approve":
+                review.approve(user.teacher, notes)
+                message = "Exam approved successfully"
+            elif decision == "reject":
+                review.reject(user.teacher, reason)
+                message = "Exam rejected"
+            elif decision == "request_changes":
+                review.request_changes()
+                message = "Changes requested"
+
+            # Update reviewer status
+            reviewer_obj = review.reviewers.filter(reviewer=user.teacher).first()
+            if reviewer_obj:
+                reviewer_obj.submit_review(decision)
+
+        detail_serializer = ExamReviewDetailSerializer(review)
+        return Response(
+            {
+                "message": message,
+                "review": detail_serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["post"])
+    def add_comment(self, request, pk=None):
+        """
+        Add a comment to the review
+
+        POST data:
+        {
+            "comment": "Please clarify question 5",
+            "question_index": 4,
+            "section": "objective"
+        }
+        """
+        review = self.get_object()
+        serializer = ExamReviewCommentCreateSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        user = request.user
+        if not hasattr(user, "teacher"):
+            return Response(
+                {"error": "Only teachers can add comments"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Create comment
+        comment = ExamReviewComment.objects.create(
+            review=review,
+            author=user.teacher,
+            **serializer.validated_data
+        )
+
+        comment_serializer = ExamReviewCommentSerializer(comment)
+        return Response(
+            {
+                "message": "Comment added successfully",
+                "comment": comment_serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=["post"], url_path="comments/(?P<comment_id>[^/.]+)/resolve")
+    def resolve_comment(self, request, pk=None, comment_id=None):
+        """Resolve a comment"""
+        review = self.get_object()
+
+        try:
+            comment = review.comments.get(id=comment_id)
+        except ExamReviewComment.DoesNotExist:
+            return Response(
+                {"error": "Comment not found"}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        user = request.user
+        if not hasattr(user, "teacher"):
+            return Response(
+                {"error": "Only teachers can resolve comments"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        comment.resolve(user.teacher)
+
+        serializer = ExamReviewCommentSerializer(comment)
+        return Response(
+            {
+                "message": "Comment resolved successfully",
+                "comment": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["get"])
+    def queue(self, request):
+        """Get review queue (pending reviews for current user)"""
+        user = request.user
+
+        if not hasattr(user, "teacher"):
+            return Response(
+                {"error": "Only teachers have review queues"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Get reviews where user is a reviewer and status is submitted or in_review
+        reviews = ExamReview.objects.filter(
+            reviewers__reviewer=user.teacher,
+            status__in=["submitted", "in_review"]
+        ).select_related("exam", "submitted_by").distinct()
+
+        serializer = ExamReviewListSerializer(reviews, many=True)
+        return Response(
+            {
+                "queue": serializer.data,
+                "count": reviews.count(),
+            },
+            status=status.HTTP_200_OK,
         )
