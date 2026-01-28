@@ -385,7 +385,7 @@ class TenantService {
     };
   }> {
     try {
-      const response = await api.post('/api/tenants/setup-token-exchange/', { token });
+      const response = await api.post('/api/tenants/setup/exchange/', { token });
       return response;
     } catch (error) {
       console.error('Error exchanging setup token:', error);
