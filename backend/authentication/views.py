@@ -87,14 +87,17 @@ class RegisterView(generics.CreateAPIView):
 
 @method_decorator(csrf_exempt, name="dispatch")
 class VerifyAccountView(APIView):
-    """Verify user account with verification code and auto-login"""
+    """Verify user account with verification code and auto-login
+
+    **FIXED**: Now stores tenant in session for TenantMiddleware
+    """
 
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
         serializer = VerifyAccountSerializer(data=request.data)
         if serializer.is_valid():
-            user = serializer.validated_data["user"]  # type: ignore
+            user = serializer.validated_data["user"]
             user_username = serializer.validated_data.get("user_username")
             user_password = serializer.validated_data.get("user_password")
             parent_username = serializer.validated_data.get("parent_username")
@@ -109,6 +112,15 @@ class VerifyAccountView(APIView):
             access_token["email"] = user.email
             access_token["role"] = user.role
             access_token["is_staff"] = user.is_staff
+
+            # **CRITICAL FIX: Store tenant in session**
+            if hasattr(user, "tenant") and user.tenant:
+                request.session["tenant_id"] = str(user.tenant.id)
+                logger.info(
+                    f"✅ Stored tenant {user.tenant.id} in session during account verification for user {user.email}"
+                )
+            else:
+                logger.warning(f"⚠️ User {user.email} has no tenant during verification")
 
             return Response(
                 {
@@ -159,7 +171,10 @@ class ResendVerificationView(APIView):
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
-    """Custom JWT token view for verified users"""
+    """Custom JWT token view for verified users
+
+    **FIXED**: Now stores tenant in session for TenantMiddleware
+    """
 
     serializer_class = CustomTokenObtainPairSerializer
     permission_classes = [permissions.AllowAny]
@@ -168,6 +183,17 @@ class CustomTokenObtainPairView(TokenObtainPairView):
         serializer = self.get_serializer(data=request.data)
         try:
             serializer.is_valid(raise_exception=True)
+
+            # **CRITICAL FIX: Store tenant in session**
+            # Get the user from the serializer's validated data
+            if "user" in serializer.validated_data:
+                user = serializer.validated_data["user"]
+                if hasattr(user, "tenant") and user.tenant:
+                    request.session["tenant_id"] = str(user.tenant.id)
+                    logger.info(
+                        f"✅ Stored tenant {user.tenant.id} in session for user {user.email}"
+                    )
+
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -178,8 +204,7 @@ class SimpleLoginView(APIView):
     """
     Login view that sets JWT tokens in httpOnly cookies.
 
-    In production (HTTPS): Cookies work cross-origin with SameSite=None; Secure=True
-    In development (HTTP): Tokens also returned in body for Authorization header fallback
+    **FIXED**: Now stores tenant in session for TenantMiddleware
     """
 
     permission_classes = [permissions.AllowAny]
@@ -189,7 +214,7 @@ class SimpleLoginView(APIView):
             data=request.data, context={"request": request}
         )
         if serializer.is_valid():
-            user = serializer.validated_data["user"]  # type: ignore
+            user = serializer.validated_data["user"]
 
             # Generate JWT tokens
             refresh = RefreshToken.for_user(user)
@@ -200,6 +225,17 @@ class SimpleLoginView(APIView):
             access_token["email"] = user.email
             access_token["role"] = user.role
             access_token["is_staff"] = user.is_staff
+
+            # **CRITICAL FIX: Store tenant in session for middleware**
+            if hasattr(user, "tenant") and user.tenant:
+                request.session["tenant_id"] = str(user.tenant.id)
+                logger.info(
+                    f"✅ Stored tenant {user.tenant.id} ({user.tenant.name}) in session for user {user.email}"
+                )
+            else:
+                logger.warning(
+                    f"⚠️ User {user.email} has no tenant attribute or tenant is None"
+                )
 
             # Build response data
             response_data = {
@@ -307,10 +343,13 @@ def jwt_login_view(request):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def simple_login_view(request):
-    """Simple login view (function-based) with httpOnly cookie authentication"""
+    """Simple login view (function-based) with httpOnly cookie authentication
+
+    **FIXED**: Now stores tenant in session for TenantMiddleware
+    """
     serializer = SimpleLoginSerializer(data=request.data, context={"request": request})
     if serializer.is_valid():
-        user = serializer.validated_data["user"]  # type: ignore
+        user = serializer.validated_data["user"]
 
         # Generate JWT tokens
         refresh = RefreshToken.for_user(user)
@@ -321,6 +360,17 @@ def simple_login_view(request):
         access["email"] = user.email
         access["role"] = user.role
         access["is_staff"] = user.is_staff
+
+        # **CRITICAL FIX: Store tenant in session for middleware**
+        if hasattr(user, "tenant") and user.tenant:
+            request.session["tenant_id"] = str(user.tenant.id)
+            logger.info(
+                f"✅ Stored tenant {user.tenant.id} ({user.tenant.name}) in session for user {user.email}"
+            )
+        else:
+            logger.warning(
+                f"⚠️ User {user.email} has no tenant attribute or tenant is None"
+            )
 
         # Build response data
         response_data = {
@@ -581,13 +631,13 @@ def list_admins(request):
         )
 
 
-@api_view(["POST"])
+api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def logout_view(request):
     """
     Logout user by blacklisting refresh token and clearing cookies.
 
-    Supports both cookie-based and body-based refresh token submission.
+    **FIXED**: Now also clears tenant from session
     """
     # Try to get refresh token from cookie first, then from request body
     refresh_token = request.COOKIES.get(settings.AUTH_COOKIE_REFRESH) or request.data.get("refresh")
@@ -598,6 +648,11 @@ def logout_view(request):
 
     # Clear auth cookies regardless of token blacklisting result
     clear_auth_cookies(response)
+
+    # **CRITICAL FIX: Clear tenant from session**
+    if "tenant_id" in request.session:
+        del request.session["tenant_id"]
+        logger.info("🗑️ Cleared tenant from session on logout")
 
     if refresh_token:
         try:

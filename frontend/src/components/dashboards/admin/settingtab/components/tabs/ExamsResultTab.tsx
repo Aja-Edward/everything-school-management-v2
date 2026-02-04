@@ -109,7 +109,7 @@ const ExamsResultTab: React.FC<ExamsResultTabProps> = () => {
     name: '',
     exam_type: '',
     term: '',
-    academic_session_id: 0,
+    academic_session: '',
     start_date: '',
     end_date: '',
     result_release_date: '',
@@ -639,27 +639,13 @@ const handleDeleteGrade = async (id: string) => {
   };
 
   const validateTotalScore = () => {
-  // Calculate CA total based on education level
-  const caTotal = scoringConfigForm.education_level === 'SENIOR_SECONDARY' 
-    ? calculateTotalCA() 
-    : calculateTotalCAPrimaryJunior();
-  
-  const examScore = Number(scoringConfigForm.exam_max_score) || 0;
-  const expectedTotal = caTotal + examScore;
-  const actualTotal = Number(scoringConfigForm.total_max_score) || 0;
-  const isValid = expectedTotal === actualTotal;
-  
-  console.log('validateTotalScore:', {
-    education_level: scoringConfigForm.education_level,
-    caTotal,
-    examScore,
-    expectedTotal,
-    actualTotal,
-    isValid
-  });
-  
-  return isValid;
-};
+    const caTotal = calculateTotalCA();
+    const examScore = Number(scoringConfigForm.exam_max_score) || 0;
+    const expectedTotal = caTotal + examScore;
+    const actualTotal = Number(scoringConfigForm.total_max_score) || 0;
+    const isValid = expectedTotal === actualTotal;
+    return isValid;
+  };
 
   // Grading System handlers
   const handleDeleteGradingSystem = async (id: string) => {
@@ -841,14 +827,13 @@ const handleDeleteGrade = async (id: string) => {
     });
   };
 
-// ✅ Exam Session Create/Update handlers
-// ✅ Exam Session Create/Update handlers
+// goodExam Session Create/Update handlers
 const handleCreateExamSession = async () => {
   try {
     setSaving(true);
 
     // Validate selections
-    if (!examSessionForm.academic_session_id) {
+    if (!examSessionForm.academic_session) {
       toast.error("Please select an academic session");
       setSaving(false);
       return;
@@ -864,15 +849,14 @@ const handleCreateExamSession = async () => {
       return;
     }
 
-    // // ✅ Convert academic_session to academic_session_id and ensure it's an integer
-    // const { academic_session, ...rest } = examSessionForm;
-    // const payload: any = {
-    //   ...rest,
-    //   academic_session_id: Number(academic_session),
-    // };
+    // goodConvert academic_session to integer before sending
+    const payload = {
+      ...examSessionForm,
+      academic_session: Number(examSessionForm.academic_session),
+    };
 
-    console.log("Creating exam session with payload:", examSessionForm);
-    await resultSettingsService.createExamSession(examSessionForm);
+    console.log("Creating exam session with payload:", payload);
+    await resultSettingsService.createExamSession(payload);
 
     toast.success("Exam session created successfully");
     setShowExamSessionForm(false);
@@ -902,21 +886,20 @@ const handleUpdateExamSession = async (id: string) => {
   try {
     setSaving(true);
 
-    if (!examSessionForm.academic_session_id) {
+    if (!examSessionForm.academic_session) {
       toast.error("Please select an academic session");
       setSaving(false);
       return;
     }
 
-    // // ✅ Convert academic_session to academic_session_id and ensure it's an integer
-    // const { academic_session, ...rest } = examSessionForm;
-    // const payload: any = {
-    //   ...rest,
-    //   academic_session_id: Number(academic_session),
-    // };
+    // goodConvert academic_session to integer before sending
+    const payload = {
+      ...examSessionForm,
+      academic_session: Number(examSessionForm.academic_session),
+    };
 
-    console.log("Updating exam session with payload:", examSessionForm);
-    await resultSettingsService.updateExamSession(id, examSessionForm);
+    console.log("Updating exam session with payload:", payload);
+    await resultSettingsService.updateExamSession(id, payload);
 
     toast.success("Exam session updated successfully");
     setShowExamSessionForm(false);
@@ -941,12 +924,13 @@ const handleUpdateExamSession = async (id: string) => {
     setSaving(false);
   }
 };
+
   const resetExamSessionForm = () => {
     setExamSessionForm({
       name: '',
       exam_type: '',
       term: '',
-      academic_session_id: 0,
+      academic_session: '',
       start_date: '',
       end_date: '',
       result_release_date: '',
@@ -1698,9 +1682,9 @@ const handleUpdateExamSession = async (id: string) => {
                                 name: session.name,
                                 exam_type: session.exam_type,
                                 term: session.term,
-                                academic_session_id: Number(typeof session.academic_session === 'object'
+                                academic_session: typeof  session.academic_session === 'object'
                                 ? session.academic_session.id
-                                : session.academic_session) || 0,
+                                : session.academic_session || '',
                                 start_date: session.start_date,
                                 end_date: session.end_date,
                                 result_release_date: session.result_release_date,
@@ -2675,8 +2659,8 @@ const handleUpdateExamSession = async (id: string) => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">Academic Session</label>
                         <select
                             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                            value={examSessionForm.academic_session_id || ""}
-                            onChange={e => setExamSessionForm({ ...examSessionForm, academic_session_id: Number(e.target.value)})}
+                            value={examSessionForm.academic_session || ""}
+                            onChange={e => setExamSessionForm({ ...examSessionForm, academic_session: (e.target.value) })}
                 >
                                 <option value="">Select Academic Session</option>
                                 {academicSessions?.map(session => (

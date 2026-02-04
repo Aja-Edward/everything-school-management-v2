@@ -81,7 +81,7 @@ interface AdminRemarksManagerProps {
   onClose?: () => void;
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://school-project-with-edward.onrender.com/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
 const AdminRemarksManager: React.FC<AdminRemarksManagerProps> = () => {
   // State Management

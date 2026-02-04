@@ -5,7 +5,7 @@ import { tenantService, SchoolRegistrationData } from '@/services/TenantService'
 import { ArrowLeft, ArrowRight, Eye, EyeOff, Check } from 'lucide-react';
 
 interface FormData {
-  school_name: string;
+  tenant_name: string;
   admin_email: string;
   admin_first_name: string;
   admin_last_name: string;
@@ -29,7 +29,7 @@ const SchoolRegistrationPage: React.FC = () => {
   const [checkingSlug, setCheckingSlug] = useState(false);
 
   const [formData, setFormData] = useState<FormData>({
-    school_name: '',
+    tenant_name: '',
     admin_email: '',
     admin_first_name: '',
     admin_last_name: '',
@@ -43,8 +43,8 @@ const SchoolRegistrationPage: React.FC = () => {
 
   // Generate slug from school name
   useEffect(() => {
-    if (formData.school_name) {
-      const slug = formData.school_name
+    if (formData.tenant_name) {
+      const slug = formData.tenant_name
         .toLowerCase()
         .replace(/[^a-z0-9\s-]/g, '')
         .replace(/\s+/g, '-')
@@ -55,7 +55,7 @@ const SchoolRegistrationPage: React.FC = () => {
       setSuggestedSlug('');
       setSlugAvailable(null);
     }
-  }, [formData.school_name]);
+  }, [formData.tenant_name]);
 
   // Check slug availability with debounce
   useEffect(() => {
@@ -87,8 +87,8 @@ const SchoolRegistrationPage: React.FC = () => {
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
 
-    if (!formData.school_name.trim()) {
-      newErrors.school_name = 'School name is required';
+    if (!formData.tenant_name.trim()) {
+      newErrors.tenant_name = 'School name is required';
     }
 
     if (!formData.admin_email.trim()) {
@@ -118,7 +118,7 @@ const SchoolRegistrationPage: React.FC = () => {
     }
 
     if (slugAvailable === false) {
-      newErrors.school_name = 'This school name generates an unavailable subdomain';
+      newErrors.tenant_name = 'This school name generates an unavailable subdomain';
     }
 
     setErrors(newErrors);
@@ -137,7 +137,7 @@ const SchoolRegistrationPage: React.FC = () => {
 
     try {
       const registrationData: SchoolRegistrationData = {
-        school_name: formData.school_name,
+        tenant_name: formData.tenant_name,
         admin_email: formData.admin_email,
         admin_first_name: formData.admin_first_name,
         admin_last_name: formData.admin_last_name,
@@ -310,15 +310,15 @@ const SchoolRegistrationPage: React.FC = () => {
                 </label>
                 <input
                   type="text"
-                  name="school_name"
-                  value={formData.school_name}
+                  name="tenant_name"
+                  value={formData.tenant_name}
                   onChange={handleInputChange}
                   placeholder="e.g., Bay Area Academy"
-                  className={inputClasses(!!errors.school_name)}
+                  className={inputClasses(!!errors.tenant_name)}
                   disabled={isLoading}
                 />
-                {errors.school_name && (
-                  <p className="mt-1.5 text-xs text-red-600 dark:text-red-400">{errors.school_name}</p>
+                {errors.tenant_name && (
+                  <p className="mt-1.5 text-xs text-red-600 dark:text-red-400">{errors.tenant_name}</p>
                 )}
                 {suggestedSlug && (
                   <div className="mt-2 flex items-center gap-2 text-xs">

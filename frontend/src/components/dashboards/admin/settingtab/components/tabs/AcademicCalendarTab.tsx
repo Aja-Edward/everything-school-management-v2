@@ -95,6 +95,50 @@ const AcademicCalendarTab: React.FC = () => {
     is_current: false
   });
 
+  const getTenantId = (): string | null => {
+    try {
+      const userStr = localStorage.getItem('user');
+      if (!userStr) {
+        console.warn('No user data found in localStorage');
+        return null;
+      }
+      
+      const user = JSON.parse(userStr);
+      const tenantId = user?.tenant?.id;
+      
+      if (!tenantId) {
+        console.warn('No tenant ID found in user data:', user);
+      }
+      
+      return tenantId || null;
+    } catch (error) {
+      console.error('Error getting tenant ID:', error);
+      return null;
+    }
+  };
+
+  const getHeaders = (includeContentType = false): HeadersInit => {
+    const token = localStorage.getItem('authToken');
+    const tenantId = getTenantId();
+    
+    const headers: HeadersInit = {
+      'Authorization': `Bearer ${token}`,
+    };
+
+    // Add tenant header if available
+    if (tenantId) {
+      headers['X-Tenant-ID'] = tenantId;
+      console.log('✅ Adding tenant header:', tenantId);
+    } else {
+      console.warn('⚠️ No tenant ID available - request may fail');
+    }
+
+    if (includeContentType) {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    return headers;
+  };
   // Load data
   useEffect(() => {
     loadData();
@@ -123,7 +167,33 @@ console.log('Loading academic calendar data...');
     } catch (error) {
       console.error('Error loading academic calendar data:', error);
       toast.error('Failed to load academic calendar data');
+    } finally {const loadData = async () => {
+    try {
+      setLoading(true);
+      
+      // Load sessions and terms in parallel
+      const [sessionsData, termsData] = await Promise.all([
+        fetchSessions(),
+        fetchTerms()
+      ]);
+
+      setSessions(sessionsData);
+      setTerms(termsData);
+
+      // Set current session and term
+      const currentSessionData = sessionsData.find(s => s.is_current);
+      const currentTermData = termsData.find(t => t.is_current);
+      
+      setCurrentSession(currentSessionData || null);
+      setCurrentTerm(currentTermData || null);
+
+    } catch (error) {
+      console.error('Error loading academic calendar data:', error);
+      toast.error('Failed to load academic calendar data');
     } finally {
+      setLoading(false);
+    }
+  };
       setLoading(false);
     }
   };
@@ -132,16 +202,15 @@ const API_BASE_URL = import.meta.env.VITE_API_URL
 
   const fetchSessions = async (): Promise<AcademicSession[]> => {
     try {
-      const token = localStorage.getItem('authToken');
       const response = await fetch(`${API_BASE_URL}/academics/sessions/`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: getHeaders() // **FIX: Using new helper with tenant header**
       });
 
       if (response.ok) {
         return await response.json();
       } else {
+        const errorText = await response.text();
+        console.error('Failed to fetch sessions:', response.status, errorText);
         throw new Error('Failed to fetch sessions');
       }
     } catch (error) {
@@ -152,16 +221,15 @@ const API_BASE_URL = import.meta.env.VITE_API_URL
 
   const fetchTerms = async (): Promise<Term[]> => {
     try {
-      const token = localStorage.getItem('authToken');
       const response = await fetch(`${API_BASE_URL}/academics/terms/`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: getHeaders() // **FIX: Using new helper with tenant header**
       });
 
       if (response.ok) {
         return await response.json();
       } else {
+        const errorText = await response.text();
+        console.error('Failed to fetch terms:', response.status, errorText);
         throw new Error('Failed to fetch terms');
       }
     } catch (error) {
@@ -169,6 +237,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL
       return [];
     }
   };
+
 console.log('Fetching academic sessions and terms from API...');
   // Session management
   const handleCreateSession = async () => {
@@ -190,14 +259,9 @@ console.log('Fetching academic sessions and terms from API...');
         return;
       }
 
-      const token = localStorage.getItem('authToken');
-      
       const response = await fetch(`${API_BASE_URL}/academics/sessions/`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(true), // **FIX: Using new helper with tenant header**
         body: JSON.stringify(sessionForm)
       });
 
@@ -208,6 +272,7 @@ console.log('Fetching academic sessions and terms from API...');
         await loadData();
       } else {
         const errorData = await response.json();
+        console.error('Session creation error:', errorData);
         if (errorData.non_field_errors) {
           toast.error(errorData.non_field_errors[0]);
         } else if (errorData.message) {
@@ -243,14 +308,9 @@ console.log('Fetching academic sessions and terms from API...');
         return;
       }
 
-      const token = localStorage.getItem('authToken');
-      
       const response = await fetch(`${API_BASE_URL}/academics/sessions/${sessionId}/`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(true), // **FIX: Using new helper with tenant header**
         body: JSON.stringify(sessionForm)
       });
 
@@ -285,13 +345,10 @@ console.log('Fetching academic sessions and terms from API...');
 
     try {
       setSaving(true);
-      const token = localStorage.getItem('authToken');
       
       const response = await fetch(`${API_BASE_URL}/academics/sessions/${sessionId}/`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: getHeaders() // **FIX: Using new helper with tenant header**
       });
 
       if (response.ok) {
@@ -311,13 +368,10 @@ console.log('Fetching academic sessions and terms from API...');
   const handleSetCurrentSession = async (sessionId: string) => {
     try {
       setSaving(true);
-      const token = localStorage.getItem('authToken');
       
       const response = await fetch(`${API_BASE_URL}/academics/sessions/${sessionId}/set_active/`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: getHeaders() // **FIX: Using new helper with tenant header**
       });
 
       if (response.ok) {
@@ -354,42 +408,37 @@ console.log('Fetching academic sessions and terms from API...');
         return;
       }
 
-             // Get the selected academic session to validate dates
-       const selectedSession = sessions.find(s => s.id === termForm.academic_session);
-       if (selectedSession) {
-         const sessionStart = new Date(selectedSession.start_date);
-         const sessionEnd = new Date(selectedSession.end_date);
-         
-         console.log('Term dates:', { startDate: termForm.start_date, endDate: termForm.end_date });
-         console.log('Session dates:', { sessionStart: selectedSession.start_date, sessionEnd: selectedSession.end_date });
-         
-         if (startDate < sessionStart) {
-           toast.error(`Term start date (${termForm.start_date}) cannot be before the session start date (${selectedSession.start_date})`);
-           return;
-         }
-         
-         if (endDate > sessionEnd) {
-           toast.error(`Term end date (${termForm.end_date}) cannot be after the session end date (${selectedSession.end_date})`);
-           return;
-         }
-       }
+      // Get the selected academic session to validate dates
+      const selectedSession = sessions.find(s => s.id === termForm.academic_session);
+      if (selectedSession) {
+        const sessionStart = new Date(selectedSession.start_date);
+        const sessionEnd = new Date(selectedSession.end_date);
+        
+        console.log('Term dates:', { startDate: termForm.start_date, endDate: termForm.end_date });
+        console.log('Session dates:', { sessionStart: selectedSession.start_date, sessionEnd: selectedSession.end_date });
+        
+        if (startDate < sessionStart) {
+          toast.error(`Term start date (${termForm.start_date}) cannot be before the session start date (${selectedSession.start_date})`);
+          return;
+        }
+        
+        if (endDate > sessionEnd) {
+          toast.error(`Term end date (${termForm.end_date}) cannot be after the session end date (${selectedSession.end_date})`);
+          return;
+        }
+      }
 
-      const token = localStorage.getItem('authToken');
-
-      // ✅ Ensure academic_session is sent as a number
-    const payload = {
-      ...termForm,
-      academic_session: Number(termForm.academic_session),
-    };
+      // Ensure academic_session is sent as a number
+      const payload = {
+        ...termForm,
+        academic_session: Number(termForm.academic_session),
+      };
       
-      console.log('Sending term data:', termForm);
+      console.log('Sending term data:', payload);
       
       const response = await fetch(`${API_BASE_URL}/academics/terms/`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(true), // **FIX: Using new helper with tenant header**
         body: JSON.stringify(payload)
       });
 
@@ -448,14 +497,9 @@ console.log('Fetching academic sessions and terms from API...');
         }
       }
 
-      const token = localStorage.getItem('authToken');
-      
       const response = await fetch(`${API_BASE_URL}/academics/terms/${termId}/`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(true), // **FIX: Using new helper with tenant header**
         body: JSON.stringify(termForm)
       });
 
@@ -490,13 +534,10 @@ console.log('Fetching academic sessions and terms from API...');
 
     try {
       setSaving(true);
-      const token = localStorage.getItem('authToken');
       
       const response = await fetch(`${API_BASE_URL}/academics/terms/${termId}/`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: getHeaders() // **FIX: Using new helper with tenant header**
       });
 
       if (response.ok) {
@@ -513,16 +554,13 @@ console.log('Fetching academic sessions and terms from API...');
     }
   };
 
-  const handleSetCurrentTerm = async (termId: string) => {
+ const handleSetCurrentTerm = async (termId: string) => {
     try {
       setSaving(true);
-      const token = localStorage.getItem('authToken');
       
       const response = await fetch(`${API_BASE_URL}/academics/terms/${termId}/set_current/`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: getHeaders() // **FIX: Using new helper with tenant header**
       });
 
       if (response.ok) {
@@ -555,6 +593,7 @@ console.log('Fetching academic sessions and terms from API...');
     };
     return termMap[termName] || termName;
   };
+
 
   const getSuggestedTermDates = (sessionId: string, termName: string) => {
     const session = sessions.find(s => s.id === sessionId);

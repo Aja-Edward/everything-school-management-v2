@@ -65,7 +65,7 @@ class GradeLevelViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
     queryset = GradeLevel.objects.all()
     serializer_class = GradeLevelSerializer
     permission_classes = []  # public access
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate grade levels
+    pagination_class = None  # PERFORMANCE: Paginate grade levels
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -127,7 +127,7 @@ class SectionViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
     queryset = Section.objects.all()
     serializer_class = SectionSerializer
     permission_classes = [IsAuthenticated]
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate sections
+    pagination_class = None  # PERFORMANCE: Paginate sections
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,

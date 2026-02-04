@@ -7,8 +7,8 @@ export async function initI18n() {
 
   try {
     const school = await SettingsService.getSettings();
-    if (school?.school_name) {
-      schoolName = school.school_name; // ✅ FIXED
+    if (school?.tenant_name) {
+      schoolName = school.tenant_name; // ✅ FIXED
     }
   } catch (error) {
     console.warn("Failed to load school name, using default");

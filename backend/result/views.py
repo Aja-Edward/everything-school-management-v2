@@ -62,6 +62,7 @@ from .serializers import (
     GradingSystemCreateUpdateSerializer,
     StudentTermResultSerializer,
     ExamSessionSerializer,
+    ExamSessionCreateUpdateSerializer,
     ResultSheetSerializer,
     AssessmentScoreSerializer,
     ResultCommentSerializer,
@@ -300,20 +301,25 @@ class AssessmentTypeViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.
     search_fields = ["name", "code"]
 
 
-class ExamSessionViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
-    """CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation."""
+class ExamSessionViewSet(
+    TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet
+):
     queryset = ExamSession.objects.all()
-    serializer_class = ExamSessionSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = [
         "exam_type",
-        "term",  # ✅ Already here
-        "academic_session",  # ✅ Already here
+        "term",
+        "academic_session",
         "is_published",
         "is_active",
     ]
     search_fields = ["name"]
+
+    def get_serializer_class(self):
+        if self.action in ["create", "update", "partial_update"]:
+            return ExamSessionCreateUpdateSerializer
+        return ExamSessionSerializer
 
     def get_queryset(self):
         queryset = super().get_queryset().select_related("academic_session")

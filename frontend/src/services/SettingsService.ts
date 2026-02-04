@@ -2,7 +2,8 @@ import api, { API_BASE_URL } from './api';
 
 export interface SchoolSettings {
   site_name: string;
-  school_name: string;
+  tenant_name: string;
+  
   school_code: string;
   address: string;
   phone: string;
@@ -17,11 +18,12 @@ export interface SchoolSettings {
   language: string;
   theme: string;
   primaryColor: string;
+  secondaryColor: string;
   fontFamily: string;
   fontSize: string;
   student_portal_enabled: boolean;
-  teacher_portal_enabled: boolean;  // 🔥 ADD THIS
-  parent_portal_enabled: boolean;   // 🔥 ADD THIS
+  teacher_portal_enabled: boolean;
+  parent_portal_enabled: boolean;
   notifications: any;
   paymentGateways: any;
   userRolePaymentAccess: any;
@@ -63,14 +65,12 @@ export interface SchoolSettings {
   messageTemplates: any;
   chatSystem: any;
 }
-
 class SettingsService {
   
   async getSettings(): Promise<SchoolSettings> {
     try {
       const cacheBuster = `${Date.now()}_${Math.random()}`;
-      // Note: Cache-Control headers are handled automatically by api.ts
-      const response = await api.get(`school-settings/school-settings/?_=${cacheBuster}`);
+      const response = await api.get(`tenants/settings/?_=${cacheBuster}`);
 
       if (typeof response === 'string' && response.includes('<!DOCTYPE html>')) {
         console.error('Received HTML instead of JSON - likely a 404 or auth error');
@@ -88,69 +88,56 @@ class SettingsService {
 
   async updateSettings(settings: Partial<SchoolSettings>): Promise<SchoolSettings> {
     try {
-      console.log('📤 Sending settings update:', settings);
+      console.log('📤 Frontend settings to update:', settings);
       
       const backendSettings: any = {};
       
-      // General settings
-      if (settings.school_name !== undefined) backendSettings.school_name = settings.school_name;
-      if (settings.site_name !== undefined) backendSettings.site_name = settings.site_name;
-      if (settings.school_code !== undefined) backendSettings.school_code = settings.school_code;
-      if (settings.address !== undefined) backendSettings.school_address = settings.address;
-      if (settings.phone !== undefined) backendSettings.school_phone = settings.phone;
-      if (settings.email !== undefined) backendSettings.school_email = settings.email;
+      // School Information - map to correct backend fields
       if (settings.motto !== undefined) backendSettings.school_motto = settings.motto;
+      if (settings.school_code !== undefined) backendSettings.school_code = settings.school_code;
+      if (settings.address !== undefined) backendSettings.address = settings.address;
+      if (settings.phone !== undefined) backendSettings.phone = settings.phone;
+      if (settings.email !== undefined) backendSettings.email = settings.email;
+      
+      // Branding
+      if (settings.logo !== undefined) backendSettings.logo = settings.logo;
+      if (settings.favicon !== undefined) backendSettings.favicon = settings.favicon;
+      if (settings.primaryColor !== undefined) backendSettings.primary_color = settings.primaryColor;
+      if (settings.secondaryColor !== undefined) backendSettings.secondary_color = settings.secondaryColor;
+      if (settings.theme !== undefined) backendSettings.theme = settings.theme;
+      if (settings.fontFamily !== undefined) backendSettings.typography = settings.fontFamily;
+      
+      // Localization
       if (settings.timezone !== undefined) backendSettings.timezone = settings.timezone;
       if (settings.dateFormat !== undefined) backendSettings.date_format = settings.dateFormat;
       if (settings.language !== undefined) backendSettings.language = settings.language;
+      
+      // Portal Access
       if (settings.student_portal_enabled !== undefined) backendSettings.student_portal_enabled = settings.student_portal_enabled;
-      if (settings.teacher_portal_enabled !== undefined) backendSettings.teacher_portal_enabled = settings.teacher_portal_enabled;  // 🔥 ADD THIS
-      if (settings.parent_portal_enabled !== undefined) backendSettings.parent_portal_enabled = settings.parent_portal_enabled;    // 🔥 ADD THIS
-      // Design settings
-      if (settings.theme !== undefined) backendSettings.theme = settings.theme;
-      if (settings.primaryColor !== undefined) backendSettings.primary_color = settings.primaryColor;
-      if (settings.fontFamily !== undefined) backendSettings.typography = settings.fontFamily;
+      if (settings.teacher_portal_enabled !== undefined) backendSettings.teacher_portal_enabled = settings.teacher_portal_enabled;
+      if (settings.parent_portal_enabled !== undefined) backendSettings.parent_portal_enabled = settings.parent_portal_enabled;
       
-      // Academic year
-      if (settings.academicYear !== undefined) backendSettings.academic_year = settings.academicYear;
-      if (settings.currentTerm !== undefined) backendSettings.current_term = settings.currentTerm;
-      
-      // Files
-      if (settings.logo !== undefined) backendSettings.logo = settings.logo;
-      if (settings.favicon !== undefined) backendSettings.favicon = settings.favicon;
-      
-      // Basic security
-      if (settings.allowSelfRegistration !== undefined) backendSettings.allow_self_registration = settings.allowSelfRegistration;
-      if (settings.emailVerificationRequired !== undefined) backendSettings.email_verification_required = settings.emailVerificationRequired;
+      // Registration Settings
+      if (settings.allowSelfRegistration !== undefined) backendSettings.allow_student_registration = settings.allowSelfRegistration;
+      if (settings.emailVerificationRequired !== undefined) backendSettings.require_email_verification = settings.emailVerificationRequired;
       if (settings.registrationApprovalRequired !== undefined) backendSettings.registration_approval_required = settings.registrationApprovalRequired;
       if (settings.defaultUserRole !== undefined) backendSettings.default_user_role = settings.defaultUserRole;
+      
+      // Password Policy
       if (settings.passwordMinLength !== undefined) backendSettings.password_min_length = settings.passwordMinLength;
-      if (settings.passwordResetInterval !== undefined) backendSettings.password_reset_interval = settings.passwordResetInterval;
+      if (settings.passwordResetInterval !== undefined) backendSettings.password_reset_interval_days = settings.passwordResetInterval;
       if (settings.passwordRequireNumbers !== undefined) backendSettings.password_require_numbers = settings.passwordRequireNumbers;
       if (settings.passwordRequireSymbols !== undefined) backendSettings.password_require_symbols = settings.passwordRequireSymbols;
       if (settings.passwordRequireUppercase !== undefined) backendSettings.password_require_uppercase = settings.passwordRequireUppercase;
+      
+      // Profile Settings
       if (settings.allowProfileImageUpload !== undefined) backendSettings.allow_profile_image_upload = settings.allowProfileImageUpload;
-      if (settings.profileImageMaxSize !== undefined) backendSettings.profile_image_max_size = settings.profileImageMaxSize;
+      if (settings.profileImageMaxSize !== undefined) backendSettings.profile_image_max_size_mb = settings.profileImageMaxSize;
       
-      // Complex objects
-      if (settings.notifications !== undefined) backendSettings.notifications = settings.notifications;
-      if (settings.paymentGateways !== undefined) backendSettings.payment_gateways = settings.paymentGateways;
-      if (settings.classLevels !== undefined) backendSettings.class_levels = settings.classLevels;
-      if (settings.subjects !== undefined) backendSettings.subjects = settings.subjects;
-      if (settings.sessions !== undefined) backendSettings.sessions = settings.sessions;
-      if (settings.grading !== undefined) backendSettings.grading = settings.grading;
-      if (settings.markingScheme !== undefined) backendSettings.marking_scheme = settings.markingScheme;
-      if (settings.messageTemplates !== undefined) backendSettings.message_templates = settings.messageTemplates;
-      if (settings.chatSystem !== undefined) backendSettings.chat_system = settings.chatSystem;
-      if (settings.userRolePaymentAccess !== undefined) backendSettings.user_role_payment_access = settings.userRolePaymentAccess;
-      if (settings.feeStructure !== undefined) backendSettings.fee_structure = settings.feeStructure;
-      if (settings.discountRules !== undefined) backendSettings.discount_rules = settings.discountRules;
-      
-      // 🔥 FIXED: Map security settings to flat backend fields
-      if ((settings as any).security !== undefined) {
-        const security = (settings as any).security;
+      // Security Settings - map from nested to flat
+      if (settings.security !== undefined) {
+        const security = settings.security;
         
-        // Map to flat fields that match your backend
         if (security.passwordPolicy !== undefined) {
           if (security.passwordPolicy.minLength !== undefined) {
             backendSettings.password_min_length = security.passwordPolicy.minLength;
@@ -165,24 +152,38 @@ class SettingsService {
             backendSettings.password_require_symbols = security.passwordPolicy.requireSpecialChars;
           }
           if (security.passwordPolicy.passwordExpiry !== undefined) {
-            backendSettings.password_expiration = security.passwordPolicy.passwordExpiry;
+            backendSettings.password_expiration_days = security.passwordPolicy.passwordExpiry;
           }
         }
         
         if (security.sessionTimeout !== undefined) {
-          backendSettings.session_timeout = security.sessionTimeout;
+          backendSettings.session_timeout_minutes = security.sessionTimeout;
         }
         if (security.maxLoginAttempts !== undefined) {
           backendSettings.max_login_attempts = security.maxLoginAttempts;
         }
         if (security.lockoutDuration !== undefined) {
-          backendSettings.account_lock_duration = security.lockoutDuration;
+          backendSettings.account_lock_duration_minutes = security.lockoutDuration;
         }
       }
       
+      // JSON Fields - these go directly
+      if (settings.notifications !== undefined) backendSettings.notifications = settings.notifications;
+      if (settings.paymentGateways !== undefined) backendSettings.payment_gateways = settings.paymentGateways;
+      if (settings.userRolePaymentAccess !== undefined) backendSettings.user_role_payment_access = settings.userRolePaymentAccess;
+      if (settings.feeStructure !== undefined) backendSettings.fee_structure = settings.feeStructure;
+      if (settings.discountRules !== undefined) backendSettings.discount_rules = settings.discountRules;
+      if (settings.classLevels !== undefined) backendSettings.class_levels = settings.classLevels;
+      if (settings.subjects !== undefined) backendSettings.subjects = settings.subjects;
+      if (settings.sessions !== undefined) backendSettings.sessions = settings.sessions;
+      if (settings.grading !== undefined) backendSettings.grading = settings.grading;
+      if (settings.markingScheme !== undefined) backendSettings.marking_scheme = settings.markingScheme;
+      if (settings.messageTemplates !== undefined) backendSettings.message_templates = settings.messageTemplates;
+      if (settings.chatSystem !== undefined) backendSettings.chat_system = settings.chatSystem;
+      
       console.log('📤 Transformed for backend:', backendSettings);
       
-      const response = await api.put('school-settings/school-settings/', backendSettings);
+      const response = await api.patch('tenants/settings/', backendSettings);
       console.log('✅ Backend response:', response);
       
       const transformedResponse = this.transformBackendToFrontend(response);
@@ -195,6 +196,7 @@ class SettingsService {
       return transformedResponse;
     } catch (error: any) {
       console.error('Error updating settings:', error);
+      console.error('Error response:', error.response?.data);
       
       const errorData = error.response?.data;
       let errorMessage = 'Failed to update school settings';
@@ -224,46 +226,67 @@ class SettingsService {
   }
 
   private transformBackendToFrontend(response: any): SchoolSettings {
-    console.log('🔄 Transforming backend response');
+    console.log('🔄 Transforming backend response to frontend');
     
     const defaultSettings = this.getDefaultSettings();
     
     return {
-      site_name: response.site_name ?? response.school_name ?? 'School Site',
-      school_name: response.school_name ?? 'School Name',
+      // These come from tenant relationship - read-only from frontend perspective
+      site_name: response.tenant_name ?? response.tenant_name ?? 'School Site',
+      tenant_name: response.tenant_name ?? 'School Name',
+      // Actual editable fields
       school_code: response.school_code ?? '',
-      address: response.school_address ?? '',
-      phone: response.school_phone ?? '',
-      email: response.school_email ?? '',
+      motto: response.school_motto ?? 'Knowledge at its springs',
+      address: response.address ?? '',
+      phone: response.phone ?? '',
+      email: response.email ?? '',
+      
+      // Branding
       logo: response.logo_url ?? response.logo ?? '',
       favicon: response.favicon_url ?? response.favicon ?? '',
+      primaryColor: response.primary_color ?? '#4F46E5',
+      secondaryColor: response.secondary_color ?? '#10B981',
+      theme: response.theme ?? 'default',
+      fontFamily: response.typography ?? 'Inter',
+      fontSize: 'medium',
+      
+      // Academic
       academicYear: response.academic_year ?? '',
       currentTerm: response.current_term ?? '',
-      motto: response.school_motto ?? 'Knowledge at its spring',
+      
+      // Localization
       timezone: response.timezone ?? 'UTC+1',
       dateFormat: response.date_format ?? 'DD/MM/YYYY',
       language: response.language ?? 'en',
       
-      theme: response.theme ?? 'default',
-      primaryColor: response.primary_color ?? '#3B82F6',
-      fontFamily: response.typography ?? 'Inter',
-      fontSize: 'medium',
+      // Portal Access
       student_portal_enabled: response.student_portal_enabled ?? true,
       teacher_portal_enabled: response.teacher_portal_enabled ?? true, 
-      parent_portal_enabled: response.parent_portal_enabled ?? true,  
-      notifications: response.notifications ?? defaultSettings.notifications,
-      paymentGateways: response.payment_gateways ?? defaultSettings.paymentGateways,
-      allowSelfRegistration: response.allow_self_registration ?? true,
-      emailVerificationRequired: response.email_verification_required ?? true,
+      parent_portal_enabled: response.parent_portal_enabled ?? true,
+      
+      // Registration
+      allowSelfRegistration: response.allow_student_registration ?? true,
+      emailVerificationRequired: response.require_email_verification ?? true,
       registrationApprovalRequired: response.registration_approval_required ?? false,
       defaultUserRole: response.default_user_role ?? 'student',
+      
+      // Password Policy
       passwordMinLength: response.password_min_length ?? 8,
-      passwordResetInterval: response.password_reset_interval ?? 90,
+      passwordResetInterval: response.password_reset_interval_days ?? 90,
       passwordRequireNumbers: response.password_require_numbers ?? true,
       passwordRequireSymbols: response.password_require_symbols ?? false,
       passwordRequireUppercase: response.password_require_uppercase ?? false,
+      
+      // Profile
       allowProfileImageUpload: response.allow_profile_image_upload ?? true,
-      profileImageMaxSize: response.profile_image_max_size ?? 2,
+      profileImageMaxSize: response.profile_image_max_size_mb ?? 2,
+      
+      // JSON Fields
+      notifications: response.notifications ?? defaultSettings.notifications,
+      paymentGateways: response.payment_gateways ?? defaultSettings.paymentGateways,
+      userRolePaymentAccess: response.user_role_payment_access ?? defaultSettings.userRolePaymentAccess,
+      feeStructure: response.fee_structure ?? defaultSettings.feeStructure,
+      discountRules: response.discount_rules ?? defaultSettings.discountRules,
       classLevels: response.class_levels ?? [],
       subjects: response.subjects ?? [],
       sessions: response.sessions ?? [],
@@ -275,33 +298,28 @@ class SettingsService {
       },
       messageTemplates: response.message_templates ?? defaultSettings.messageTemplates,
       chatSystem: response.chat_system ?? defaultSettings.chatSystem,
-      userRolePaymentAccess: response.user_role_payment_access ?? defaultSettings.userRolePaymentAccess,
-      feeStructure: response.fee_structure ?? defaultSettings.feeStructure,
-      discountRules: response.discount_rules ?? defaultSettings.discountRules,
       
-      // 🔥 FIXED: Map from flat backend fields to nested frontend structure
+      // Security - map from flat backend fields to nested frontend structure
       security: {
-        twoFactorAuth: true, // Backend doesn't have this field yet
+        twoFactorAuth: true, // Not in backend yet
         passwordPolicy: {
           minLength: response.password_min_length ?? 8,
           requireUppercase: response.password_require_uppercase ?? false,
-          requireLowercase: true, // Backend doesn't have this field
+          requireLowercase: true, // Not in backend
           requireNumbers: response.password_require_numbers ?? false,
           requireSpecialChars: response.password_require_symbols ?? false,
-          passwordExpiry: response.password_expiration ?? 90
+          passwordExpiry: response.password_expiration_days ?? 90
         },
-        sessionTimeout: response.session_timeout ?? 30,
+        sessionTimeout: response.session_timeout_minutes ?? 30,
         maxLoginAttempts: response.max_login_attempts ?? 5,
-        lockoutDuration: response.account_lock_duration ?? 15,
-        ipWhitelist: [], // Backend doesn't have this field yet
-        auditLogging: true, // Backend doesn't have this field yet
-        dataEncryption: true // Backend doesn't have this field yet
+        lockoutDuration: response.account_lock_duration_minutes ?? 15,
+        ipWhitelist: [],
+        auditLogging: true,
+        dataEncryption: true
       },
     };
   }
 
-  // ... rest of your methods (uploadLogo, uploadFavicon, etc.) stay the same
-  
   async uploadLogo(file: File): Promise<{ logoUrl: string }> {
     const formData = new FormData();
     formData.append('logo', file);
@@ -322,8 +340,9 @@ class SettingsService {
     if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
     if (csrfToken) headers['X-CSRFToken'] = csrfToken;
     
+    // Use tenant settings upload endpoint
     const response = await fetch(
-      `${API_BASE_URL}/school-settings/school-settings/upload-logo/`,
+      `${API_BASE_URL}/tenants/settings/upload-logo/`,
       {
         method: 'POST',
         headers,
@@ -363,8 +382,9 @@ class SettingsService {
     if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
     if (csrfToken) headers['X-CSRFToken'] = csrfToken;
     
+    // Use tenant settings upload endpoint
     const response = await fetch(
-      `${API_BASE_URL}/school-settings/school-settings/upload-favicon/`,
+      `${API_BASE_URL}/tenants/settings/upload-favicon/`,
       {
         method: 'POST',
         headers,
@@ -387,7 +407,7 @@ class SettingsService {
   private getDefaultSettings(): SchoolSettings {
     return {
       site_name: 'School Site',
-      school_name: 'School Name',
+      tenant_name: 'School Name',
       school_code: '',
       address: '',
       phone: '',
@@ -395,12 +415,13 @@ class SettingsService {
       logo: '',
       favicon: '',
       academicYear: '',
-      motto: 'Knowledge at its spring',
-      timezone: 'UTC-5',
+      motto: 'Knowledge at its springss',
+      timezone: 'UTC+1',
       dateFormat: 'dd/mm/yyyy',
       language: 'English',
       theme: 'light',
       primaryColor: '#3B82F6',
+      secondaryColor: '#10B981',
       fontFamily: 'Inter',
       fontSize: 'medium',
       student_portal_enabled: true,
@@ -517,6 +538,23 @@ class SettingsService {
           businessHoursOnly: false,
           businessHours: { start: '08:00', end: '16:00' }
         }
+      },
+      security: {
+        twoFactorAuth: false,
+        passwordPolicy: {
+          minLength: 8,
+          requireUppercase: false,
+          requireLowercase: true,
+          requireNumbers: false,
+          requireSpecialChars: false,
+          passwordExpiry: 90
+        },
+        sessionTimeout: 30,
+        maxLoginAttempts: 5,
+        lockoutDuration: 15,
+        ipWhitelist: [],
+        auditLogging: true,
+        dataEncryption: true
       }
     };
   }
@@ -552,6 +590,8 @@ export interface CommunicationTestResult {
 class CommunicationSettingsService {
   async getSettings(): Promise<CommunicationSettings> {
     try {
+      // Note: This might need to be updated based on your TenantSettings model
+      // If communication settings are part of TenantSettings, you may need to adjust
       const response = await api.get('school-settings/communication-settings/');
       return response;
     } catch (error) {
@@ -599,7 +639,7 @@ class CommunicationSettingsService {
 
   async sendTestEmail(): Promise<CommunicationTestResult> {
     try {
-      const response = await api.post('school-settings/send-test-email/');
+      const response = await api.post('school-settings/send-test-email/', {});
       return response;
     } catch (error) {
       console.error('Error sending test email:', error);
@@ -835,7 +875,7 @@ class RoleService {
 
   async duplicateRole(id: number): Promise<{ message: string; role: Role }> {
     try {
-      const response = await api.post(`school-settings/roles/${id}/duplicate/`);
+      const response = await api.post(`school-settings/roles/${id}/duplicate/`, {});
       return response;
     } catch (error) {
       console.error(`Error duplicating role ${id}:`, error);
@@ -1130,7 +1170,7 @@ class SchoolAnnouncementService {
 
   async toggleActive(id: number): Promise<SchoolAnnouncement> {
     try {
-      const response = await api.post(`school-settings/announcements/${id}/toggle_active/`);
+      const response = await api.post(`school-settings/announcements/${id}/toggle_active/`, {});
       return response;
     } catch (error) {
       console.error(`Error toggling active status for announcement ${id}:`, error);
@@ -1140,7 +1180,7 @@ class SchoolAnnouncementService {
 
   async togglePinned(id: number): Promise<SchoolAnnouncement> {
     try {
-      const response = await api.post(`school-settings/announcements/${id}/toggle_pinned/`);
+      const response = await api.post(`school-settings/announcements/${id}/toggle_pinned/`, {});
       return response;
     } catch (error) {
       console.error(`Error toggling pinned status for announcement ${id}:`, error);

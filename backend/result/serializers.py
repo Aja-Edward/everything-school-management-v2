@@ -396,6 +396,7 @@ class ExamSessionSerializer(serializers.ModelSerializer):
 
 
 class ExamSessionCreateUpdateSerializer(serializers.ModelSerializer):
+
     class Meta:
         model = ExamSession
         fields = [

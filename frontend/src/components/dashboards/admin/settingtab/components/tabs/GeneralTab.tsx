@@ -9,7 +9,7 @@ interface GeneralTabProps {
 
 const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSettingsUpdate }) => {
   const [formData, setFormData] = useState({
-    school_name: '',
+    tenant_name: '',
     site_name: '',
     school_code: '',
     address: '',
@@ -64,7 +64,7 @@ const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSe
       console.log('GeneralTab: Constructed favicon URL:', faviconUrl);
       
       setFormData({
-        school_name: initialSettings.school_name || '',
+        tenant_name: initialSettings.tenant_name || '',
         site_name: initialSettings.site_name || '',
         school_code: initialSettings.school_code || '',
         address: initialSettings.address || '',
@@ -198,7 +198,7 @@ const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSe
     setUploadError(null);
 
     // Validate required fields
-    if (!formData.school_name?.trim()) {
+    if (!formData.tenant_name?.trim()) {
       setError('School name is required');
       setIsLoading(false);
       return;
@@ -314,8 +314,8 @@ const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSe
             </label>
             <input
               type="text"
-              value={formData.school_name}
-              onChange={(e) => handleInputChange('school_name', e.target.value)}
+              value={formData.tenant_name}
+              onChange={(e) => handleInputChange('s_name', e.target.value)}
               className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
               placeholder="Enter school name"
               required

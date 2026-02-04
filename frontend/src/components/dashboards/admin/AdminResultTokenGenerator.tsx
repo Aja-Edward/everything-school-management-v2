@@ -44,7 +44,7 @@ const AdminResultTokenGenerator = () => {
   const [deleting, setDeleting] = useState(false);
   const [tokenStats, setTokenStats] = useState<any>(null);
 
-  const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://school-project-with-edward.onrender.com/api';
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
   const getAuthToken = () => {
     const tokenKeys = ['authToken', 'token', 'access_token', 'accessToken', 'jwt'];

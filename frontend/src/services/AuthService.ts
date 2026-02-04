@@ -580,31 +580,39 @@ export class AuthService {
   // Note: With httpOnly cookies, tokens are set by the backend via cookies
   // We only store user data in localStorage (non-sensitive)
   private handleAuthSuccess(data: any): void {
-    // Tokens are now in httpOnly cookies - we don't store them in localStorage
-    console.log('Authentication successful - tokens stored in httpOnly cookies');
-
-    // Store user data in localStorage for quick access (non-sensitive)
-    const userData = data.user || data.data?.user;
-    if (userData) {
-      try {
-        localStorage.setItem('userData', JSON.stringify(userData));
-      } catch (error) {
-        console.warn('Failed to store user data:', error);
+  console.log('Authentication successful - tokens stored in httpOnly cookies');
+  const userData = data.user || data.data?.user;
+  if (userData) {
+    try {
+      localStorage.setItem('userData', JSON.stringify(userData));
+      
+      // ⭐ CRITICAL FIX: Store tenant slug for API requests
+      if (userData.tenant?.slug) {
+        localStorage.setItem('tenantSlug', userData.tenant.slug);
+        console.log('✅ Tenant slug stored from auth:', userData.tenant.slug);
+      } else if (userData.tenant_slug) {
+        localStorage.setItem('tenantSlug', userData.tenant_slug);
+        console.log('✅ Tenant slug stored from auth:', userData.tenant_slug);
+      } else {
+        console.warn('⚠️ No tenant slug found in user data:', userData);
       }
+    } catch (error) {
+      console.warn('Failed to store user data:', error);
     }
   }
+}
 
   // Authentication error handler
   private handleAuthError(): void {
-    // With httpOnly cookies, we only clear localStorage user data
-    // The cookies will be cleared by the backend on logout
-    try {
-      localStorage.removeItem('userData');
-      localStorage.removeItem('user_data');
-    } catch (e) {
-      console.warn('Failed to remove user data:', e);
-    }
+  try {
+    localStorage.removeItem('userData');
+    localStorage.removeItem('user_data');
+    localStorage.removeItem('tenantSlug'); // ⭐ ALSO CLEAR TENANT SLUG
+    console.log('🧹 Cleared user data and tenant slug');
+  } catch (e) {
+    console.warn('Failed to remove user data:', e);
   }
+}
 
   // Utility to get CSRF token from cookies
   private getCSRFToken(): string {

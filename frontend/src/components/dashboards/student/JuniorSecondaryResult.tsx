@@ -122,11 +122,11 @@ const WatermarkLogo = ({ schoolInfo }: { schoolInfo: SchoolSettings }) => (
             />
           ) : (
             <div className="text-4xl font-bold mb-2">
-              {schoolInfo?.school_name?.split(' ').map((word: string) => word[0]).join('') || 'GTS'}
+              {schoolInfo?.tenant_name?.split(' ').map((word: string) => word[0]).join('') || 'GTS'}
             </div>
           )}
           <div className="text-sm font-semibold">
-            {schoolInfo?.school_name?.toUpperCase() || "SCHOOL NAME HERE"}
+            {schoolInfo?.tenant_name?.toUpperCase() || "SCHOOL NAME HERE"}
           </div>
         </div>
       </div>
@@ -134,7 +134,7 @@ const WatermarkLogo = ({ schoolInfo }: { schoolInfo: SchoolSettings }) => (
         className="text-5xl font-bold tracking-wider"
         style={{ color: 'rgba(30, 64, 175, 0.15)' }}
       >
-        {schoolInfo?.school_name?.toUpperCase() || "School Name"}
+        {schoolInfo?.tenant_name?.toUpperCase() || "School Name"}
       </div>
     </div>
   </div>
@@ -591,7 +591,17 @@ export default function JuniorSecondaryResult({
     );
   }
 
-  const schoolInfo = schoolSettings;
+  // Ensure schoolInfo always has school_name for WatermarkLogo
+  const schoolInfo = useMemo(() => {
+    if (!schoolSettings) return undefined;
+    // If schoolSettings already has school_name, return as is
+    if ('tenant_name' in schoolSettings && schoolSettings.tenant_name) return schoolSettings;
+    // Otherwise, fallback to tenant_name or a default string
+    return {
+      ...schoolSettings,
+      tenant_name: (schoolSettings as any).tenant_name || "SCHOOL NAME HERE"
+    };
+  }, [schoolSettings]);
 
   return (
     <div className="p-3 bg-gray-100 min-h-screen">
@@ -644,7 +654,7 @@ export default function JuniorSecondaryResult({
                 />
               ) : (
                 <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-xs font-bold">
-                  {schoolSettings?.school_name?.split(' ').map((word: string) => word[0]).join('') || 'LOGO'}
+                  {schoolSettings?.tenant_name?.split(' ').map((word: string) => word[0]).join('') || 'LOGO'}
                 </div>
               )}
             </div>
@@ -652,7 +662,7 @@ export default function JuniorSecondaryResult({
             {/* School name block - 70% width, centered */}
             <div className="text-center relative z-10">
               <h1 className="text-3xl font-bold text-blue-900 mb-2">
-                {schoolInfo?.school_name?.toUpperCase() || "SCHOOL NAME HERE"}
+                {schoolInfo?.tenant_name?.toUpperCase() || "SCHOOL NAME HERE"}
               </h1>
               <p className="text-xs text-gray-600">
                 {schoolSettings?.address || "School Address, City, State"}

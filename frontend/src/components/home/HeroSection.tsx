@@ -118,7 +118,7 @@ const HeroSection: React.FC = () => {
                 />
               )}
               <span className="text-xs font-medium text-white/80 tracking-widest uppercase">
-                {settings?.school_name || 'Welcome'}
+                {settings?.tenant_name || 'Welcome'}
               </span>
             </div>
 

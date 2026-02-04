@@ -11,14 +11,15 @@ from datetime import timedelta
 import dj_database_url
 import cloudinary
 
-
+ENV = os.getenv("ENV", "dev")
 # Build paths
 BASE_DIR = Path(__file__).resolve().parent.parent
-env_file = BASE_DIR / ".env"
+
+env_file = BASE_DIR / f".env.{ENV}"
 if env_file.exists():
     load_dotenv(dotenv_path=env_file)
-
-ENV = os.getenv("ENV", "dev")
+else:
+    raise RuntimeError(f"Missing environment file: .env.{ENV}")
 
 if ENV == "prod":
     # Production: Use PROD_DATABASE_URL for Neon
@@ -109,46 +110,6 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
-
-
-# ============================================
-# DATABASE CONFIGURATION (Local + Production)
-# ============================================
-
-# ============================================
-# DATABASE CONFIGURATION
-# ============================================
-
-# Get environment - default to 'dev' if not set
-ENV = os.getenv("ENV", "dev")
-
-if ENV == "prod":
-    # Production: Use PROD_DATABASE_URL for Neon
-    DATABASE_URL = os.getenv("PROD_DATABASE_URL")
-    if not DATABASE_URL:
-        raise ValueError("⚠️ Missing PROD_DATABASE_URL for production environment")
-
-    DATABASES = {
-        "default": dj_database_url.parse(
-            DATABASE_URL, conn_max_age=600, conn_health_checks=True, ssl_require=True
-        )
-    }
-    # Ensure SSL is required for production
-    DATABASES["default"]["OPTIONS"] = {"sslmode": "require"}
-    print(f"✅ Using PRODUCTION database: {DATABASE_URL[:30]}...")
-
-else:
-    # Local Development: Use LOCAL_DATABASE_URL
-    LOCAL_DATABASE_URL = os.getenv("LOCAL_DATABASE_URL")
-    if not LOCAL_DATABASE_URL:
-        raise ValueError("⚠️ Missing LOCAL_DATABASE_URL for local development")
-
-    DATABASES = {
-        "default": dj_database_url.parse(
-            LOCAL_DATABASE_URL, conn_max_age=60, ssl_require=False
-        )
-    }
-    print(f"✅ Using LOCAL database: {LOCAL_DATABASE_URL[:30]}...")
 
 
 # ============================================

@@ -4,6 +4,9 @@ Mixins for enforcing tenant isolation in views and querysets.
 CRITICAL: All ViewSets dealing with tenant-specific data must use TenantFilterMixin
 """
 
+from django.forms import ValidationError
+from rest_framework.exceptions import ValidationError
+from academics.models import AcademicSession
 from rest_framework.exceptions import PermissionDenied
 from django.db.models import QuerySet
 import logging
@@ -62,16 +65,37 @@ class TenantFilterMixin:
         return queryset
 
     def perform_create(self, serializer):
-        """Auto-populate tenant when creating objects"""
-        tenant = getattr(self.request, 'tenant', None)
+        """Auto-populate tenant-scoped fields when creating objects"""
+        tenant = getattr(self.request, "tenant", None)
+        model = serializer.Meta.model
 
-        if tenant and hasattr(serializer.Meta.model, 'tenant'):
-            # Save with tenant
-            serializer.save(tenant=tenant)
-            logger.info(f"Created {serializer.Meta.model.__name__} for tenant: {tenant.slug}")
-        else:
-            # If no tenant or model doesn't have tenant field, save normally
-            super().perform_create(serializer)
+        save_kwargs = {}
+
+        # Tenant-scoped models
+        if hasattr(model, "tenant"):
+            if not tenant:
+                raise ValidationError("Tenant context is required for this operation.")
+            save_kwargs["tenant"] = tenant
+
+        # Academic-session–scoped models
+        if hasattr(model, "academic_session"):
+            academic_session = AcademicSession.objects.filter(
+                tenant=tenant, is_active=True
+            ).first()
+
+            if not academic_session:
+                raise ValidationError("No active academic session found.")
+
+            save_kwargs["academic_session"] = academic_session
+
+        # Save ONCE
+        serializer.save(**save_kwargs)
+
+        logger.info(
+            f"Created {model.__name__} "
+            f"with tenant={save_kwargs.get('tenant')} "
+            f"academic_session={save_kwargs.get('academic_session')}"
+        )
 
 
 class TenantRequiredMixin:

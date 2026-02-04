@@ -288,7 +288,7 @@ export interface SoftDeletableEntity extends BaseEntity {
 export interface SchoolSettings {
   // General settings
   site_name: string;
-  school_name: string;
+  tenant_name: string;
   school_code: string;
   address: string;
   phone: string;
@@ -760,6 +760,7 @@ export interface Classroom extends BaseEntity {
 
 export interface Student extends BaseEntity {
   user: CustomUser;
+  username: string;
   student_id: string;
   gender?: Gender;
   date_of_birth?: ISODateString;
@@ -2673,6 +2674,7 @@ export interface StudentTermResult {
   subjects_failed: number;
   total_score: number;
   average_score: number;
+  remarks?: string;
   gpa: number;
   
   // Position and class info

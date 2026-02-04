@@ -40,10 +40,10 @@ class TenantMiddleware:
 
         try:
             # 1. Check for localhost subdomain in development (e.g., bay-school.localhost)
-            if host.endswith('.localhost') or host.endswith('localhost'):
+            if host.endswith(".localhost"):
                 parts = host.replace('.localhost', '').split('.')
                 logger.debug(f"TenantMiddleware: localhost host detected, parts={parts}")
-                if parts and parts[0] not in self.EXCLUDED_SUBDOMAINS and parts[0] != 'localhost':
+                if parts and parts[0] not in self.EXCLUDED_SUBDOMAINS:
                     subdomain = parts[0]
                     tenant = Tenant.objects.filter(
                         slug=subdomain,
@@ -52,13 +52,21 @@ class TenantMiddleware:
                     logger.debug(f"TenantMiddleware: localhost subdomain lookup for '{subdomain}': tenant={tenant}")
 
             # 2. Check for custom domain
-            if not tenant and not host.endswith(self.PLATFORM_DOMAIN) and not host.endswith('localhost'):
+            if (
+                not tenant
+                and not host.endswith(self.PLATFORM_DOMAIN)
+                and not host.endswith("localhost")
+                and "." in host
+            ):
                 tenant = Tenant.objects.filter(
                     custom_domain=host,
                     custom_domain_verified=True,
                     is_active=True,
                     status='active'
                 ).first()
+                logger.debug(
+                    f"TenantMiddleware: Custom domain lookup for '{host}': tenant={tenant}"
+                )
 
             # 3. Check for subdomain on platform domain
             if not tenant and host.endswith(self.PLATFORM_DOMAIN):
@@ -69,6 +77,9 @@ class TenantMiddleware:
                         slug=subdomain,
                         is_active=True
                     ).first()
+                    logger.debug(
+                        f"TenantMiddleware: Platform subdomain lookup for '{subdomain}': tenant={tenant}"
+                    )
 
             # 4. Check for tenant in request header (for API calls)
             if not tenant:
@@ -79,17 +90,37 @@ class TenantMiddleware:
                     try:
                         import uuid
                         uuid.UUID(tenant_header)
-                        tenant = Tenant.objects.filter(id=tenant_header).first()
+                        tenant = Tenant.objects.filter(
+                            id=tenant_header, is_active=True
+                        ).first()
                     except ValueError:
-                        tenant = Tenant.objects.filter(slug=tenant_header).first()
+                        tenant = Tenant.objects.filter(
+                            slug=tenant_header, is_active=True
+                        ).first()
                     logger.debug(f"TenantMiddleware: Header lookup for '{tenant_header}': tenant={tenant}")
 
-            # 5. Fall back to authenticated user's tenant
+            # 5. Fall back to authenticated user's tenant (especially for localhost)
             if not tenant and hasattr(request, 'user') and request.user.is_authenticated:
+                logger.debug(
+                    f"TenantMiddleware: Attempting user tenant fallback for user={request.user}"
+                )
                 user_tenant = getattr(request.user, 'tenant', None)
-                if user_tenant:
+                if user_tenant and isinstance(user_tenant, Tenant):
                     tenant = user_tenant
-                    logger.debug(f"TenantMiddleware: User tenant fallback: tenant={tenant}")
+                    logger.info(f"TenantMiddleware: Using user's tenant: {tenant}")
+                else:
+                    logger.warning(
+                        f"TenantMiddleware: User {request.user} has no valid tenant attribute"
+                    )
+
+            # 6. Check session for tenant (backup method)
+            if not tenant and hasattr(request, "session"):
+                tenant_id = request.session.get("tenant_id")
+                if tenant_id:
+                    tenant = Tenant.objects.filter(id=tenant_id, is_active=True).first()
+                    logger.debug(
+                        f"TenantMiddleware: Session tenant lookup for '{tenant_id}': tenant={tenant}"
+                    )
 
         except (OperationalError, ProgrammingError) as e:
             # Table doesn't exist yet (during migrations) - continue without tenant

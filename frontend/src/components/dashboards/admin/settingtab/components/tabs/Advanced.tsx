@@ -1507,7 +1507,7 @@ interface CreateAnnouncementData {
 }
 
 // ==================== API SERVICE ====================
-const API_BASE_URL = 'https://school-project-with-edward.onrender.com';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const getAuthToken = () => {
   // Check multiple possible token locations
@@ -2079,7 +2079,7 @@ const Advanced: React.FC = () => {
       setError(null);
       setSuccess(false);
       
-      await api.put('school-settings/school-settings/', currentPortalSettings);
+      await api.put('api/school-settings/school-settings/', currentPortalSettings);
       
       setOriginalPortalSettings(currentPortalSettings);
       setSuccess(true);

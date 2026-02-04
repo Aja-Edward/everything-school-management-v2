@@ -94,7 +94,7 @@ const ParentLayout: React.FC<ParentLayoutProps> = ({ children }) => {
                 </div>
                 <div>
                   <h1 className="text-lg font-bold text-slate-900 dark:text-white">
-                    {settings?.school_name || 'School'}
+                    {settings?.tenant_name || 'School'}
                   </h1>
                   <p className="text-xs text-slate-500 dark:text-slate-400">Parent Portal</p>
                 </div>

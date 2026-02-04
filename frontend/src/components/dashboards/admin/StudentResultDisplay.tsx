@@ -27,12 +27,22 @@ import SeniorSecondaryTermlyResult from '../student/SeniorSecondaryTermlyResult'
 
 interface StudentData {
   id: string;
+  age?: number;
+  gender?: string;
   full_name: string;
+  date_of_birth?: string;
+  stream?: string;
+  classroom?: string;
+  parent_contact?: string;
+  emergency_contact?: string;
+  admission_date?: string;
+  house?: string;
   username: string;
   student_class: string;
   education_level: string;
   profile_picture?: string;
 }
+
 
 interface StudentResultDisplayProps {
   student: StudentData;
@@ -67,7 +77,17 @@ const StudentResultDisplay: React.FC<StudentResultDisplayProps> = ({ student, se
       const studentInfo = await StudentService.getStudent(parseInt(student.id));
       console.log('✅ [StudentResultDisplay] Complete student info fetched:', studentInfo);
       
-      setCompleteStudent(studentInfo);
+      // Map the student info to StudentData interface
+      const mappedStudentData: StudentData = {
+        id: studentInfo.id?.toString() || student.id,
+        full_name: studentInfo.full_name || student.full_name,
+        username: studentInfo.user_details?.username || studentInfo.registration_number || student.username,
+        student_class: studentInfo.student_class || student.student_class,
+        education_level: studentInfo.education_level || student.education_level,
+        profile_picture: studentInfo.profile_picture_url,
+      };
+      
+      setCompleteStudent(mappedStudentData);
     } catch (error) {
       console.error('❌ [StudentResultDisplay] Error fetching complete student info:', error);
       // Fallback to the original student prop
@@ -226,7 +246,7 @@ const StudentResultDisplay: React.FC<StudentResultDisplayProps> = ({ student, se
           // Use the correct service method to get term reports with next_term_begins
           ResultCheckerService.getTermReports(educationLevel, {
             student_id: student.id,
-            education_level: educationLevel,
+            education_level: educationLevel as "NURSERY" | "PRIMARY" | "JUNIOR_SECONDARY" | "SENIOR_SECONDARY",
             result_type: selections.resultType === 'annually' ? 'session' : 'termly'
           })
         ]);
@@ -349,11 +369,11 @@ const StudentResultDisplay: React.FC<StudentResultDisplayProps> = ({ student, se
 
   // Get school name for display
   const getSchoolName = () => {
-    if (schoolSettings?.school_name) {
-      return schoolSettings.school_name;
+    if (schoolSettings?.tenant_name) {
+      return schoolSettings.tenant_name;
     }
-    if (enhancedResult?.school_info?.school_name) {
-      return enhancedResult.school_info.school_name;
+    if (enhancedResult?.school_info?.tenant_name) {
+      return enhancedResult.school_info.tenant_name;
     }
     return "School Name";
   };
@@ -368,7 +388,7 @@ const StudentResultDisplay: React.FC<StudentResultDisplayProps> = ({ student, se
         admission_number: student.username,
         username: student.username,
         class: student.student_class,
-        education_level: educationLevel,
+        education_level: educationLevel as "NURSERY" | "PRIMARY" | "JUNIOR_SECONDARY" | "SENIOR_SECONDARY" | undefined,
         gender: undefined,
         age: undefined,
         house: undefined
@@ -432,7 +452,7 @@ const StudentResultDisplay: React.FC<StudentResultDisplayProps> = ({ student, se
         admission_number: studentData.username,
         username: studentData.username,
         class: studentData.student_class,
-        education_level: educationLevel,
+        education_level: educationLevel as "NURSERY" | "PRIMARY" | "JUNIOR_SECONDARY" | "SENIOR_SECONDARY" | undefined,
         gender: studentData.gender,
         age: studentData.age,
         date_of_birth: studentData.date_of_birth,
@@ -522,9 +542,7 @@ const StudentResultDisplay: React.FC<StudentResultDisplayProps> = ({ student, se
         times_present: termResults[0]?.times_present || 0
       },
       next_term_begins: (() => {
-        console.log('🔍 [StudentResultDisplay] Primary termResults[0]:', termResults[0]);
-        console.log('🔍 [StudentResultDisplay] Primary termResults[0]?.next_term_begins:', termResults[0]?.next_term_begins);
-        console.log('🔍 [StudentResultDisplay] Primary termResults[0]?.next_term_begins type:', typeof termResults[0]?.next_term_begins);
+        
         return termResults[0]?.next_term_begins || 'TBA';
       })(),
       class_teacher_remark: termResults[0]?.remarks,
@@ -548,7 +566,7 @@ const StudentResultDisplay: React.FC<StudentResultDisplayProps> = ({ student, se
           username: (completeStudent || student).username,
           class: (completeStudent || student).student_class,
           student_class: (completeStudent || student).student_class,
-          education_level: educationLevel,
+          education_level: educationLevel as "NURSERY" | "PRIMARY" | "JUNIOR_SECONDARY" | "SENIOR_SECONDARY" | undefined,
           gender: (completeStudent || student).gender,
           age: (completeStudent || student).age || 0,
           date_of_birth: (completeStudent || student).date_of_birth,
@@ -610,7 +628,7 @@ const StudentResultDisplay: React.FC<StudentResultDisplayProps> = ({ student, se
           admission_number: (completeStudent || student).username,
           class: (completeStudent || student).student_class,
           student_class: (completeStudent || student).student_class,
-          education_level: educationLevel,
+          education_level: educationLevel as "NURSERY" | "PRIMARY" | "JUNIOR_SECONDARY" | "SENIOR_SECONDARY" | undefined,
           age: (completeStudent || student).age || 0,
           gender: (completeStudent || student).gender,
           date_of_birth: (completeStudent || student).date_of_birth,
@@ -959,7 +977,7 @@ const StudentResultDisplay: React.FC<StudentResultDisplayProps> = ({ student, se
           </div>
           {schoolSettings && (
             <div className={`text-xs ${themeClasses.textTertiary} mt-2`}>
-              School: {schoolSettings.school_name || schoolSettings.school_name || 'Unknown'}
+              School: {schoolSettings.tenant_name || schoolSettings.tenant_name || 'Unknown'}
             </div>
           )}
         </div>

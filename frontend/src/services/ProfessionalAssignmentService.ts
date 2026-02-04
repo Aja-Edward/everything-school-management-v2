@@ -16,7 +16,7 @@ import type {
 
 export const API_BASE_URL =
   import.meta.env.VITE_API_URL ||
-  'https://school-project-with-edward.onrender.com/api';
+  'http://localhost:8000/api';
 
 class ProfessionalAssignmentService {
   private baseUrl = '/api/results/professional-assignment';

@@ -263,7 +263,7 @@ export interface GradeCreateUpdate {
 // }
 
 export interface ExamSessionCreateUpdate {
-  academic_session: string | number;
+  academic_session: number | string;
   name: string;
   exam_type: string;
   term: string;

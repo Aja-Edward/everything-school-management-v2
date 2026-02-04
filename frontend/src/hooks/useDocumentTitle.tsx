@@ -23,8 +23,8 @@ export const useDocumentTitle = (
     }
 
     // Set the new title with optional school name
-    const fullTitle = includeSchoolName && settings?.school_name 
-      ? `${title} - ${settings.school_name}`
+    const fullTitle = includeSchoolName && settings?.tenant_name 
+      ? `${title} - ${settings.tenant_name}`
       : title;
     
     document.title = fullTitle;
@@ -35,7 +35,7 @@ export const useDocumentTitle = (
         document.title = prevTitleRef.current;
       }
     };
-  }, [title, restoreOnUnmount, includeSchoolName, settings?.school_name]);
+  }, [title, restoreOnUnmount, includeSchoolName, settings?.tenant_name]);
 
   // Update the stored previous title when title changes
   useEffect(() => {

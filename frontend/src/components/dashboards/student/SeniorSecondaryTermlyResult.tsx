@@ -721,7 +721,7 @@ export default function SeniorSecondaryTermlyResult({
         />
       ) : (
         <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-xs font-bold">
-          {schoolSettings?.school_name?.split(' ').map((word: string) => word[0]).join('') || 'LOGO'}
+          {schoolSettings?.tenant_name?.split(' ').map((word: string) => word[0]).join('') || 'LOGO'}
         </div>
       )}
     </div>
@@ -729,7 +729,7 @@ export default function SeniorSecondaryTermlyResult({
     {/* School name block - 70% width, centered */}
     <div className="text-center">
       <h1 className="text-2xl font-bold text-blue-900">
-        {schoolSettings?.school_name?.toUpperCase() || "SCHOOL NAME"}
+        {schoolSettings?.tenant_name?.toUpperCase() || "SCHOOL NAME"}
       </h1>
       <p className="text-xs text-gray-600">
         {schoolSettings?.address || "School Address, City, State"}

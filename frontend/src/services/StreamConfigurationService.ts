@@ -20,7 +20,7 @@ export interface StreamConfiguration {
   is_compulsory: boolean;
   subjects: Subject[];
   school_id: number;
-  school_name: string;
+  tenant_name: string;
   stream: number;
   created_at: string;
   updated_at: string;

@@ -257,7 +257,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {!isSidebarCollapsed && (
                 <div className="overflow-hidden">
                   <h1 className="text-sm font-semibold text-gray-900 truncate">
-                    {settings?.school_name || 'School Portal'}
+                    {settings?.tenant_name || 'School Portal'}
                   </h1>
                   <p className="text-xs text-gray-500 truncate">{getAdminRoleDisplay()}</p>
                 </div>
@@ -344,7 +344,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <Menu className="w-5 h-5 text-gray-600" />
             </button>
             <h1 className="text-sm font-semibold text-gray-900">
-              {settings?.school_name || 'Admin Portal'}
+              {settings?.tenant_name || 'Admin Portal'}
             </h1>
             <div className="w-9" />
           </header>

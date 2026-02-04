@@ -128,7 +128,7 @@ export function generateExamHtml(
   }
 
   // Use dynamic school information from settings
-  const schoolName = safeString(settings?.school_name || 'School Name');
+  const schoolName = safeString(settings?.tenant_name || 'School Name');
   const schoolAddress = safeString(settings?.address || 'School Address');
   const academicSession = safeString(settings?.academicYear || 'Academic Year');
   const currentTerm = safeString(settings?.currentTerm || 'Current Term');

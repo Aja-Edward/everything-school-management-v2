@@ -86,14 +86,22 @@ export interface TenantSettings {
 }
 
 export interface SchoolRegistrationData {
-  school_name: string;
+  tenant_name: string;
   slug: string;
-  owner_email: string;
+  // admin_email?: string;
+  // owner_email: string;
+  // admin_first_name?: string;
+  // admin_last_name?: string;
+  // password?: string;
+  // confirm_password?: string;
+  // billing_period?: string;
+  admin_phone?: string;
   owner_first_name: string;
   owner_last_name: string;
   owner_phone?: string;
   owner_password: string;
 }
+
 
 export interface SchoolRegistrationResponse {
   message: string;
@@ -118,7 +126,7 @@ export interface SchoolRegistrationResponse {
 // TYPE DEFINITIONS - SERVICES
 // ============================================================================
 
-export interface TenantService {
+export interface TenantServiceType {
   service: string;
   name: string;
   description?: string;
@@ -452,7 +460,7 @@ class TenantService {
     tenant: Tenant;
   }> {
     try {
-      const response = await api.post(`/api/tenants/tenants/${id}/activate/`);
+      const response = await api.post(`/api/tenants/tenants/${id}/activate/`, {});
       return response;
     } catch (error) {
       console.error(`Error activating tenant ${id}:`, error);
@@ -534,7 +542,7 @@ class TenantService {
   /**
    * Get available services and their status for current tenant
    */
-  async getServices(): Promise<TenantService[]> {
+  async getServices(): Promise<TenantServiceType[]> {
     try {
       const response = await api.get('/api/tenants/services/');
       return response;
@@ -581,7 +589,7 @@ class TenantService {
   /**
    * Get available services (alias for getServices() - for backward compatibility)
    */
-  async getAvailableServices(): Promise<TenantService[]> {
+  async getAvailableServices(): Promise<TenantServiceType[]> {
     return this.getServices();
   }
 
@@ -627,7 +635,7 @@ class TenantService {
     error?: string;
   }> {
     try {
-      const response = await api.post('/api/tenants/domain/verify/');
+      const response = await api.post('/api/tenants/domain/verify/', {});
       return response;
     } catch (error) {
       console.error('Error verifying domain:', error);
@@ -643,7 +651,7 @@ class TenantService {
     subdomain_url: string;
   }> {
     try {
-      const response = await api.post('/api/tenants/domain/remove/');
+      const response = await api.post('/api/tenants/domain/remove/', {});
       return response;
     } catch (error) {
       console.error('Error removing custom domain:', error);
@@ -706,7 +714,7 @@ class TenantService {
     invoice: TenantInvoice;
   }> {
     try {
-      const response = await api.post(`/api/tenants/invoices/${id}/recalculate/`);
+      const response = await api.post(`/api/tenants/invoices/${id}/recalculate/`, {});
       return response;
     } catch (error) {
       console.error(`Error recalculating invoice ${id}:`, error);
@@ -908,7 +916,7 @@ class TenantService {
     email_status?: string;
   }> {
     try {
-      const response = await api.post(`/api/tenants/invitations/${id}/resend/`);
+      const response = await api.post(`/api/tenants/invitations/${id}/resend/`, {});
       return response;
     } catch (error) {
       console.error(`Error resending invitation ${id}:`, error);
@@ -924,7 +932,7 @@ class TenantService {
     invitation: TenantInvitation;
   }> {
     try {
-      const response = await api.post(`/api/tenants/invitations/${id}/revoke/`);
+      const response = await api.post(`/api/tenants/invitations/${id}/revoke/`, {});
       return response;
     } catch (error) {
       console.error(`Error revoking invitation ${id}:`, error);
@@ -963,7 +971,7 @@ class TenantService {
   /**
    * Get enabled services for current tenant
    */
-  async getEnabledServices(): Promise<TenantService[]> {
+  async getEnabledServices(): Promise<TenantServiceType[]> {
     try {
       const services = await this.getServices();
       return services.filter((s) => s.is_enabled);
