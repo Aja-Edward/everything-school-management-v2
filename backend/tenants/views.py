@@ -11,9 +11,12 @@ from django.db import transaction
 from django.db.models import Sum, Q
 from django.utils import timezone
 from django.conf import settings
+from django.conf import settings as django_settings
 from django.shortcuts import get_object_or_404
 import dns.resolver
 import logging
+
+import cloudinary.uploader
 
 from .models import (
     Tenant, TenantService, ServicePricing, TenantSettings,
@@ -61,6 +64,27 @@ class IsPlatformAdmin(permissions.BasePermission):
 
     def has_permission(self, request, view):
         return request.user.is_authenticated and request.user.is_superuser
+
+
+class PlatformInfoView(APIView):
+    """Platform landing page information (NO authentication required)"""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        return Response(
+            {
+                "platform_name": getattr(
+                    settings, "PLATFORM_NAME", "School Management Platform"
+                ),
+                "site_name": getattr(settings, "SITE_NAME", "School Platform"),
+                "school_name": "School Management Platform",  # For your HeroSection
+                "logo": None,  # Platform logo if you have one
+                "allow_registration": True,
+                "platform_mode": True,
+            }
+        )
 
 
 # ============ School Registration ============
@@ -649,6 +673,211 @@ class TenantSettingsViewSet(viewsets.ModelViewSet):
         if not tenant:
             return Response({'error': 'No tenant context'}, status=400)
         return get_object_or_404(TenantSettings, tenant=tenant)
+
+    @action(detail=False, methods=["post"], url_path="upload-logo")
+    def upload_logo(self, request):
+        """POST /api/tenants/settings/upload-logo/ - Upload school logo"""
+        if "logo" not in request.FILES:
+            return Response(
+                {"error": "No logo file provided"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        logo_file = request.FILES["logo"]
+
+        # Validate file size (2MB max)
+        if logo_file.size > 2 * 1024 * 1024:
+            return Response(
+                {"error": "Logo file size must be less than 2MB"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate file type
+        allowed_types = ["image/jpeg", "image/png", "image/svg+xml", "image/webp"]
+        if logo_file.content_type not in allowed_types:
+            return Response(
+                {"error": "Invalid file type. Allowed: JPG, PNG, SVG, WEBP"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            # Try to get tenant from request (middleware)
+            tenant = getattr(request, "tenant", None)
+
+            # Fallback: Get tenant from user's association
+            if not tenant and request.user.is_authenticated:
+                tenant = getattr(request.user, "tenant", None)
+
+                if not tenant:
+                    from tenants.models import TenantUser
+
+                    tenant_user = TenantUser.objects.filter(user=request.user).first()
+                    if tenant_user:
+                        tenant = tenant_user.tenant
+
+            if not tenant:
+                return Response(
+                    {
+                        "error": "No tenant context found. Please ensure you are logged in to a school."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Use tenant_settings instead of settings to avoid naming conflict
+            tenant_settings, created = TenantSettings.objects.get_or_create(
+                tenant=tenant
+            )
+
+            # Check if Cloudinary is configured (using django_settings)
+            if not all(
+                [
+                    django_settings.CLOUDINARY_CLOUD_NAME,
+                    django_settings.CLOUDINARY_API_KEY,
+                    django_settings.CLOUDINARY_API_SECRET,
+                ]
+            ):
+                return Response(
+                    {"error": "Cloudinary is not configured"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            # Upload to Cloudinary
+            upload_result = cloudinary.uploader.upload(
+                logo_file,
+                folder=f"school_logos/{tenant.slug}",
+                public_id=f"logo_{tenant.slug}",
+                overwrite=True,
+                resource_type="image",
+                transformation=[
+                    {"width": 500, "height": 500, "crop": "limit"},
+                    {"quality": "auto"},
+                    {"fetch_format": "auto"},
+                ],
+            )
+
+            # Save Cloudinary URL to tenant_settings
+            logo_url = upload_result["secure_url"]
+            tenant_settings.logo = logo_url
+            tenant_settings.save()
+
+            return Response(
+                {"logoUrl": logo_url, "message": "Logo uploaded successfully"},
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+            import traceback
+
+            traceback.print_exc()
+            return Response(
+                {"error": f"Upload failed: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(detail=False, methods=["post"], url_path="upload-favicon")
+    def upload_favicon(self, request):
+        """POST /api/tenants/settings/upload-favicon/ - Upload school favicon"""
+        if "favicon" not in request.FILES:
+            return Response(
+                {"error": "No favicon file provided"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        favicon_file = request.FILES["favicon"]
+
+        # Validate file size (1MB max)
+        if favicon_file.size > 1 * 1024 * 1024:
+            return Response(
+                {"error": "Favicon file size must be less than 1MB"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate file type
+        allowed_types = [
+            "image/x-icon",
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/vnd.microsoft.icon",
+        ]
+        if favicon_file.content_type not in allowed_types:
+            return Response(
+                {"error": "Invalid file type. Allowed: ICO, PNG, JPG, WEBP"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            # Try to get tenant from request (middleware)
+            tenant = getattr(request, "tenant", None)
+
+            # Fallback: Get tenant from user's association
+            if not tenant and request.user.is_authenticated:
+                tenant = getattr(request.user, "tenant", None)
+
+                if not tenant:
+                    from tenants.models import TenantUser
+
+                    tenant_user = TenantUser.objects.filter(user=request.user).first()
+                    if tenant_user:
+                        tenant = tenant_user.tenant
+
+            if not tenant:
+                return Response(
+                    {
+                        "error": "No tenant context found. Please ensure you are logged in to a school."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Use tenant_settings instead of settings to avoid naming conflict
+            tenant_settings, created = TenantSettings.objects.get_or_create(
+                tenant=tenant
+            )
+
+            # Check if Cloudinary is configured (using django_settings)
+            if not all(
+                [
+                    django_settings.CLOUDINARY_CLOUD_NAME,
+                    django_settings.CLOUDINARY_API_KEY,
+                    django_settings.CLOUDINARY_API_SECRET,
+                ]
+            ):
+                return Response(
+                    {"error": "Cloudinary is not configured"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            # Upload to Cloudinary
+            upload_result = cloudinary.uploader.upload(
+                favicon_file,
+                folder=f"school_favicons/{tenant.slug}",
+                public_id=f"favicon_{tenant.slug}",
+                overwrite=True,
+                resource_type="image",
+                transformation=[
+                    {"width": 64, "height": 64, "crop": "limit"},
+                    {"quality": "auto"},
+                    {"fetch_format": "auto"},
+                ],
+            )
+
+            # Save Cloudinary URL to tenant_settings
+            favicon_url = upload_result["secure_url"]
+            tenant_settings.favicon = favicon_url
+            tenant_settings.save()
+
+            return Response(
+                {"faviconUrl": favicon_url, "message": "Favicon uploaded successfully"},
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+            import traceback
+
+            traceback.print_exc()
+            return Response(
+                {"error": f"Upload failed: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     @action(detail=False, methods=['get', 'patch'])
     def current(self, request):

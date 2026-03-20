@@ -7,36 +7,6 @@ import 'react-toastify/dist/ReactToastify.css';
 import { useNavigate } from 'react-router-dom';
 import { triggerDashboardRefresh } from '@/hooks/useDashboardRefresh';
 
-
-const GRADE_LEVEL_TO_ENUM: Record<string, string> = {
-  'Pre-nursery': 'PRE_NURSERY',
-  'Nursery 1': 'NURSERY_1',
-  'Nursery 2': 'NURSERY_2',
-  'Primary 1': 'PRIMARY_1',
-  'Primary 2': 'PRIMARY_2',
-  'Primary 3': 'PRIMARY_3',
-  'Primary 4': 'PRIMARY_4',
-  'Primary 5': 'PRIMARY_5',
-  'Primary 6': 'PRIMARY_6',
-  'Junior Secondary 1': 'JSS_1',
-  'JSS1': 'JSS_1',
-  'JSS 1': 'JSS_1',
-  'Junior Secondary 2': 'JSS_2',
-  'JSS2': 'JSS_2',
-  'JSS 2': 'JSS_2',
-  'Junior Secondary 3': 'JSS_3',
-  'JSS3': 'JSS_3',
-  'JSS 3': 'JSS_3',
-  'Senior Secondary 1': 'SS_1',
-  'SS1': 'SS_1',
-  'SS 1': 'SS_1',
-  'Senior Secondary 2': 'SS_2',
-  'SS2': 'SS_2',
-  'SS 2': 'SS_2',
-  'Senior Secondary 3': 'SS_3',
-  'SS3': 'SS_3',
-  'SS 3': 'SS_3',
-};
 // --- Student Form Types ---
 type StudentFormData = {
   photo: string | null;
@@ -50,8 +20,9 @@ type StudentFormData = {
   placeOfBirth: string;
   academicYear: string;
   education_level: string;
-  student_class: string;
-  stream: string;
+  student_class: string;  // This will now hold the Class/GradeLevel ID
+  section: string;         // This will hold the Section ID
+  stream: string;          // This will hold the Stream ID
   registration_number: string;
   existing_parent_id: string;
   parentFirstName: string;
@@ -66,7 +37,7 @@ type StudentFormData = {
   specialRequirements: string;
   relationship: string;
   isPrimaryContact: boolean;
-  classroom: string;
+  classroom: string;  // Optional - can be removed if backend doesn't need it
 };
 
 const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
@@ -79,7 +50,7 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
   const [formData, setFormData] = useState<StudentFormData>({
     photo: null, firstName: '', middleName: '', lastName: '', email: '',
     gender: '', bloodGroup: '', dateOfBirth: '', placeOfBirth: '',
-    academicYear: '', education_level: '', student_class: '', stream: '',
+    academicYear: '', education_level: '', student_class: '', section: '', stream: '',
     registration_number: '', existing_parent_id: '', parentFirstName: '',
     parentLastName: '', parentEmail: '', parentPhoneNumber: '', parentAddress: '',
     address: '', phoneNumber: '', paymentMethod: '', medicalConditions: '',
@@ -106,143 +77,140 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [streams, setStreams] = useState<any[]>([]);
   
-  // New state for dynamic education levels, classes and classrooms
-  const [educationLevels, setEducationLevels] = useState<any[]>([]);
-  const [studentClasses, setStudentClasses] = useState<any[]>([]);
-  const [classrooms, setClassrooms] = useState<any[]>([]);
-  const [loadingLevels, setLoadingLevels] = useState(false);
-  const [loadingClasses, setLoadingClasses] = useState(false);
+  // State for cascading dropdowns
+  const [gradeLevels, setGradeLevels] = useState<any[]>([]);  // Classes/Grade Levels
+  const [sections, setSections] = useState<any[]>([]);        // Sections for selected grade
+  const [classrooms, setClassrooms] = useState<any[]>([]);    // Classrooms for selected section
+  
+  const [loadingGrades, setLoadingGrades] = useState(false);
+  const [loadingSections, setLoadingSections] = useState(false);
   const [loadingClassrooms, setLoadingClassrooms] = useState(false);
-  const [selectedSectionId, setSelectedSectionId] = useState<string>('');
-  // Store the selected grade level ID for fetching sections
-  const [selectedGradeLevelId, setSelectedGradeLevelId] = useState<string>('');
   
   // Date picker states
   const [dobDay, setDobDay] = useState('');
   const [dobMonth, setDobMonth] = useState('');
   const [dobYear, setDobYear] = useState('');
 
-  // Fetch education levels/grade levels on component mount
+  // Fetch grade levels (Classes) on component mount
   useEffect(() => {
-    const fetchEducationLevels = async () => {
-      setLoadingLevels(true);
+    const fetchGradeLevels = async () => {
+      setLoadingGrades(true);
       try {
-        // Grades endpoint is under /api/classrooms/
         const response = await api.get('/api/classrooms/grades/');
-        console.log('Education Levels Response:', response); // Debug log
+        console.log('Grade Levels Response:', response);
 
-        // Ensure we always set an array - handle paginated and direct array responses
-        let levelsArray: any[] = [];
+        let gradesArray: any[] = [];
         if (Array.isArray(response)) {
-          levelsArray = response;
+          gradesArray = response;
         } else if (response && Array.isArray(response.results)) {
-          levelsArray = response.results;
+          gradesArray = response.results;
         } else if (response && Array.isArray(response.data)) {
-          levelsArray = response.data;
+          gradesArray = response.data;
         }
 
-        setEducationLevels(levelsArray);
-        console.log('Education Levels set to:', levelsArray.length, 'items');
+        setGradeLevels(gradesArray);
+        console.log('Grade levels loaded:', gradesArray.length, 'items');
       } catch (error) {
-        console.error('Error fetching education levels:', error);
-        toast.error('Failed to load education levels');
-        setEducationLevels([]);
+        console.error('Error fetching grade levels:', error);
+        toast.error('Failed to load grade levels');
+        setGradeLevels([]);
       } finally {
-        setLoadingLevels(false);
+        setLoadingGrades(false);
       }
     };
 
-    fetchEducationLevels();
+    fetchGradeLevels();
   }, []);
 
-  // Fetch student classes based on education level
+  // Fetch sections when grade level (student_class) is selected
   useEffect(() => {
-    const fetchStudentClasses = async () => {
-      if (!selectedGradeLevelId) {
-        setStudentClasses([]);
+    const fetchSections = async () => {
+      if (!formData.student_class) {
+        setSections([]);
+        setFormData(prev => ({ ...prev, section: '', classroom: '' }));
         return;
       }
 
-      setLoadingClasses(true);
+      setLoadingSections(true);
       try {
-        // Sections endpoint: /api/classrooms/grades/{grade_id}/sections/
-        const response = await api.get(`/api/classrooms/grades/${selectedGradeLevelId}/sections/`);
-        console.log('Student Classes Response:', response);
+        // Fetch sections for the selected grade level
+        const response = await api.get(`/api/classrooms/grades/${formData.student_class}/sections/`);
+        console.log('Sections Response:', response);
 
-        // Ensure we always set an array
-        let classesArray: any[] = [];
+        let sectionsArray: any[] = [];
         if (Array.isArray(response)) {
-          classesArray = response;
+          sectionsArray = response;
         } else if (response && Array.isArray(response.results)) {
-          classesArray = response.results;
+          sectionsArray = response.results;
         } else if (response && Array.isArray(response.data)) {
-          classesArray = response.data;
+          sectionsArray = response.data;
         }
 
-        setStudentClasses(classesArray);
+        setSections(sectionsArray);
+        console.log('Sections loaded:', sectionsArray.length, 'items');
       } catch (error) {
-        console.error('Error fetching student classes:', error);
-        toast.error('Failed to load classes');
-        setStudentClasses([]);
+        console.error('Error fetching sections:', error);
+        toast.error('Failed to load sections');
+        setSections([]);
       } finally {
-        setLoadingClasses(false);
+        setLoadingSections(false);
       }
     };
 
-    fetchStudentClasses();
-  }, [selectedGradeLevelId]);
+    fetchSections();
+  }, [formData.student_class]);
 
-  // Fetch classrooms based on student class (section)
+  // Fetch classrooms when section is selected
   useEffect(() => {
-  const fetchClassrooms = async () => {
-    if (!selectedSectionId) {
-      setClassrooms([]);
-      return;
-    }
-
-    setLoadingClassrooms(true);
-    try {
-      console.log('Fetching classrooms for section ID:', selectedSectionId);
-
-      const response = await api.get(`/api/classrooms/classrooms/?section=${selectedSectionId}`);
-
-      console.log('Classrooms API response:', response);
-
-      // Handle paginated response from backend
-      let classroomList: any[] = [];
-      if (Array.isArray(response)) {
-        classroomList = response;
-      } else if (response && Array.isArray(response.results)) {
-        classroomList = response.results;
-      } else if (response && Array.isArray(response.data)) {
-        classroomList = response.data;
+    const fetchClassrooms = async () => {
+      if (!formData.section) {
+        setClassrooms([]);
+        setFormData(prev => ({ ...prev, classroom: '' }));
+        return;
       }
 
-      console.log('Processed classroom list:', classroomList);
-      setClassrooms(classroomList);
-      
-      if (classroomList.length === 0) {
-        const section = studentClasses.find(cls => cls.id === parseInt(selectedSectionId));
-        toast.info(
-          `No classrooms found for ${section?.name || 'this section'}. Please create classrooms in the admin panel.`,
-          {
-            position: "top-right",
-            autoClose: 5000
-          }
-        );
+      setLoadingClassrooms(true);
+      try {
+        console.log('Fetching classrooms for section ID:', formData.section);
+
+        const response = await api.get(`/api/classrooms/classrooms/?section=${formData.section}`);
+        console.log('Classrooms API response:', response);
+
+        let classroomList: any[] = [];
+        if (Array.isArray(response)) {
+          classroomList = response;
+        } else if (response && Array.isArray(response.results)) {
+          classroomList = response.results;
+        } else if (response && Array.isArray(response.data)) {
+          classroomList = response.data;
+        }
+
+        console.log('Processed classroom list:', classroomList);
+        setClassrooms(classroomList);
+        
+        if (classroomList.length === 0) {
+          const section = sections.find(s => s.id === parseInt(formData.section));
+          toast.info(
+            `No classrooms found for ${section?.name || 'this section'}. You can proceed without selecting a classroom.`,
+            {
+              position: "top-right",
+              autoClose: 5000
+            }
+          );
+        }
+        
+      } catch (error: any) {
+        console.error('Error fetching classrooms:', error);
+        toast.error('Failed to load classrooms');
+        setClassrooms([]);
+      } finally {
+        setLoadingClassrooms(false);
       }
-      
-    } catch (error: any) {
-      console.error('Error fetching classrooms:', error);
-      toast.error('Failed to load classrooms');
-      setClassrooms([]);
-    } finally {
-      setLoadingClassrooms(false);
-    }
-  };
+    };
+    
+    fetchClassrooms();
+  }, [formData.section, sections]);
   
-  fetchClassrooms();
-}, [selectedSectionId, studentClasses]);  
   const handleParentUsernameSearch = async () => {
     if (!parentUsernameSearch) return;
     try {
@@ -292,7 +260,6 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
         const response = await api.get('/api/classrooms/streams/');
         console.log('Streams response:', response);
 
-        // Ensure we always set an array
         let streamsArray: any[] = [];
         if (Array.isArray(response)) {
           streamsArray = response;
@@ -366,7 +333,9 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
     setStudentPassword(null);
     setParentPassword(null);
     setShowPasswordModal(false);
+    
     try {
+      // ✅ FIXED: Build payload with proper FK IDs
       const payload: any = {
         user_email: formData.email,
         user_first_name: formData.firstName,
@@ -377,11 +346,15 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
         date_of_birth: formData.dateOfBirth,
         place_of_birth: formData.placeOfBirth,
         academic_year: formData.academicYear,
-        education_level: formData.education_level,
-        student_class: formData.student_class,
-        stream: formData.stream ?? null,
+        
+        // ✅ Send FK IDs, not enum strings
+        student_class: formData.student_class ? parseInt(formData.student_class) : null,  // Class/GradeLevel ID
+        section: formData.section ? parseInt(formData.section) : null,                    // Section ID
+        stream: formData.stream ? parseInt(formData.stream) : null,                       // Stream ID
+        
         registration_number: formData.registration_number,
-        classroom: formData.classroom,
+        // classroom field can be removed if backend computes it automatically
+        // or keep it optional if backend still accepts it
         address: formData.address,
         phone_number: formData.phoneNumber,
         payment_method: formData.paymentMethod,
@@ -392,7 +365,11 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
         is_primary_contact: formData.isPrimaryContact,
       };
       
-      if (formData.education_level === 'SENIOR_SECONDARY' && !formData.stream) {
+      // Validate Senior Secondary stream requirement
+      const selectedGrade = gradeLevels.find(g => g.id === parseInt(formData.student_class));
+      const isSeniorSecondary = selectedGrade?.education_level === 'SENIOR_SECONDARY';
+      
+      if (isSeniorSecondary && !formData.stream) {
         setError('Stream selection is required for Senior Secondary students');
         setLoading(false);
         return;
@@ -407,6 +384,8 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
         payload.parent_contact = formData.parentPhoneNumber;
         payload.parent_address = formData.parentAddress;
       }
+      
+      console.log('Submitting payload:', payload);
       
       const response = await api.post('/api/students/students/', payload);
       setSuccess('Student and Parent created successfully!');
@@ -431,7 +410,7 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
         setFormData({
           photo: null, firstName: '', middleName: '', lastName: '', email: '',
           gender: '', bloodGroup: '', dateOfBirth: '', placeOfBirth: '',
-          academicYear: '', education_level: '', student_class: '', stream: '',
+          academicYear: '', education_level: '', student_class: '', section: '', stream: '',
           registration_number: '', existing_parent_id: '', parentFirstName: '',
           parentLastName: '', parentEmail: '', parentPhoneNumber: '', parentAddress: '',
           address: '', phoneNumber: '', paymentMethod: '', medicalConditions: '',
@@ -442,7 +421,8 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
         setDobYear('');
       }, 1200);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to create student');
+      console.error('Error creating student:', err);
+      setError(err.response?.data?.detail || err.response?.data?.error || 'Failed to create student');
       toast.error('Cannot add student');
       setLoading(false);
     }
@@ -640,7 +620,7 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
           </div>
         </div>
 
-        {/* Academic Information */}
+        {/* Academic Information - FIXED SECTION */}
         <div className="space-y-6">
           <h3 className="text-lg font-semibold text-slate-900 border-b border-slate-200 pb-2">Academic Information</h3>
           
@@ -669,149 +649,95 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
             </div>
           </div>
 
+          {/* ✅ FIXED: Cascading dropdowns for Class → Section → Classroom */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Education Level*</label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Class/Grade Level* 
+                <span className="text-xs text-slate-500 ml-2">(Step 1)</span>
+              </label>
               <select
-                name="education_level"
-                value={selectedGradeLevelId}
+                name="student_class"
+                value={formData.student_class}
                 onChange={(e) => {
                   const gradeId = e.target.value;
-                  const selectedOption = (educationLevels || []).find(level =>
-                    String(level.id) === String(gradeId)
-                  );
-
-                  console.log('Selected grade ID:', gradeId);
-                  console.log('Selected option:', selectedOption);
-
-                  // Store the ID for fetching sections
-                  setSelectedGradeLevelId(gradeId);
-
-                  // Store the enum value in formData
-                  const enumValue = selectedOption?.education_level || selectedOption?.name || selectedOption?.value || '';
+                  const selectedGrade = gradeLevels.find(g => g.id === parseInt(gradeId));
+                  
+                  console.log('Selected grade:', selectedGrade);
+                  
                   setFormData(prev => ({
                     ...prev,
-                    education_level: enumValue,
-                    student_class: '',
-                    classroom: '',
-                    stream: ''
+                    student_class: gradeId,           // Store the Class ID
+                    education_level: selectedGrade?.education_level || '',  // Store enum for validation
+                    section: '',                       // Reset section
+                    stream: '',                        // Reset stream
+                    classroom: ''                      // Reset classroom
                   }));
-
-                  // Reset section selection
-                  setSelectedSectionId('');
                 }}
                 className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-slate-900"
-                disabled={loadingLevels}
+                disabled={loadingGrades}
               >
                 <option value="" className="text-slate-900">
-                  {loadingLevels ? 'Loading levels...' : 'Select Level'}
+                  {loadingGrades ? 'Loading grades...' : 'Select Grade Level'}
                 </option>
-                {(educationLevels || []).map(level => (
+                {gradeLevels.map(grade => (
                   <option
-                    key={level.id}
-                    value={level.id}
+                    key={grade.id}
+                    value={grade.id}
                     className="text-slate-900"
                   >
-                    {level.name || level.label || level.display_name || level.level_name || level.education_level}
+                    {grade.name || grade.display_name}
                   </option>
                 ))}
               </select>
-              {(educationLevels || []).length > 0 && (
+              {gradeLevels.length > 0 && (
                 <div className="mt-1 text-xs text-emerald-600">
-                  {educationLevels.length} level(s) loaded
+                  {gradeLevels.length} grade(s) loaded
                 </div>
               )}
             </div>
+
             <div>
-  <label className="block text-sm font-medium text-slate-700 mb-2">Student Class*</label>
-  <select
-  name="student_class"
-  value={selectedSectionId}
-  onChange={(e) => {
-    const sectionId = e.target.value;
-    setSelectedSectionId(sectionId);
-
-    // Find the selected section
-    const section = (studentClasses || []).find(cls => cls.id === parseInt(sectionId));
-
-    if (section) {
-      // Get the section name (e.g., "SS 1", "Primary 2", "JSS 3")
-      const sectionName = section.name;
-
-      console.log('Selected section:', section);
-      console.log('Section name:', sectionName);
-
-      // Try direct mapping first
-      let enumValue = GRADE_LEVEL_TO_ENUM[sectionName];
-
-      // If not found, try to normalize the string (remove extra spaces, standardize format)
-      if (!enumValue) {
-        const normalized = sectionName.trim().replace(/\s+/g, ' ');
-        enumValue = GRADE_LEVEL_TO_ENUM[normalized];
-      }
-
-      // If still not found, try to extract and reconstruct from the section name
-      if (!enumValue) {
-        // Try to match patterns like "Pre-nursery", "Nursery 1", "Primary 2", "JSS 1", "SS 2"
-        const match = sectionName.match(/(Pre-nursery|Nursery|Primary|Junior Secondary|JSS|Senior Secondary|SS)\s*(\d+)?/i);
-        if (match) {
-          const level = match[1].toLowerCase();
-          const num = match[2];
-
-          if (level.includes('pre') && level.includes('nur')) {
-            enumValue = 'PRE_NURSERY';
-          } else if (level.includes('nur') && num) {
-            enumValue = `NURSERY_${num}`;
-          } else if (level.includes('primary') && num) {
-            enumValue = `PRIMARY_${num}`;
-          } else if ((level.includes('junior') || level === 'jss') && num) {
-            enumValue = `JSS_${num}`;
-          } else if ((level.includes('senior') || level === 'ss') && num) {
-            enumValue = `SS_${num}`;
-          }
-        }
-      }
-
-      console.log('Mapped enum value:', enumValue);
-
-      if (!enumValue) {
-        console.error('Could not map section to enum:', sectionName);
-        toast.error(`Could not map class: "${sectionName}". Please contact support.`);
-        return;
-      }
-      
-      setFormData(prev => ({ 
-        ...prev, 
-        student_class: enumValue,
-        classroom: '', 
-        stream: '' 
-      }));
-    }
-  }}
-  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-slate-900"
-  disabled={!formData.education_level || loadingClasses}
->
-  <option value="" className="text-slate-900">
-    {loadingClasses ? 'Loading classes...' : 'Select Class'}
-  </option>
-  {(studentClasses || []).map(cls => (
-    <option
-      key={cls.id}
-      value={cls.id}
-      className="text-slate-900"
-    >
-      {cls.name || cls.display_name} ({cls.grade_level_name})
-    </option>
-  ))}
-</select>
-  {(studentClasses || []).length > 0 && (
-    <div className="mt-1 text-xs text-emerald-600">
-      {studentClasses.length} class(es) available
-    </div>
-  )}
-</div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Section* 
+                <span className="text-xs text-slate-500 ml-2">(Step 2)</span>
+              </label>
+              <select
+                name="section"
+                value={formData.section}
+                onChange={(e) => {
+                  const sectionId = e.target.value;
+                  setFormData(prev => ({
+                    ...prev,
+                    section: sectionId,      // Store Section ID
+                    classroom: ''            // Reset classroom
+                  }));
+                }}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-slate-900"
+                disabled={!formData.student_class || loadingSections}
+              >
+                <option value="" className="text-slate-900">
+                  {loadingSections ? 'Loading sections...' : !formData.student_class ? 'Select grade first' : 'Select Section'}
+                </option>
+                {sections.map(section => (
+                  <option
+                    key={section.id}
+                    value={section.id}
+                    className="text-slate-900"
+                  >
+                    {section.name}
+                  </option>
+                ))}
+              </select>
+              {sections.length > 0 && (
+                <div className="mt-1 text-xs text-emerald-600">
+                  {sections.length} section(s) available
+                </div>
+              )}
+            </div>
           </div>
 
+          {/* Stream field - only for Senior Secondary */}
           {formData.education_level === 'SENIOR_SECONDARY' && (
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
@@ -824,7 +750,7 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
                 className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
               >
                 <option value="">Select Stream</option>
-                {Array.isArray(streams) && streams.map((stream) => (
+                {streams.map((stream) => (
                   <option key={stream.id} value={stream.id}>
                     {stream.name} ({stream.stream_type})
                   </option>
@@ -833,41 +759,51 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
             </div>
           )}
 
+          {/* Classroom field - optional */}
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">Classroom</label>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Classroom (Optional) 
+              <span className="text-xs text-slate-500 ml-2">(Step 3)</span>
+            </label>
             <select
               name="classroom"
               value={formData.classroom}
               onChange={handleInputChange}
               className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-slate-900"
-              disabled={!formData.student_class || loadingClassrooms}
+              disabled={!formData.section || loadingClassrooms}
             >
               <option value="" className="text-slate-900">
-                {loadingClassrooms ? 'Loading classrooms...' : !formData.student_class ? 'Select a class first' : classrooms.length === 0 ? 'No classrooms available - Please create classrooms in admin' : 'Select Classroom'}
+                {loadingClassrooms 
+                  ? 'Loading classrooms...' 
+                  : !formData.section 
+                    ? 'Select a section first' 
+                    : classrooms.length === 0 
+                      ? 'No classrooms available (can proceed without)' 
+                      : 'Select Classroom (Optional)'}
               </option>
               {classrooms.map(room => (
                 <option 
-                  key={room.id || room.name} 
-                  value={room.name || room.classroom_name || room.id}
+                  key={room.id} 
+                  value={room.name || room.id}
                   className="text-slate-900"
                 >
-                  {room.display_name || room.name || room.classroom_name || `Classroom ${room.id}`}
+                  {room.name || room.display_name || `Classroom ${room.id}`}
                 </option>
               ))}
             </select>
-            {formData.student_class && !loadingClassrooms && (
+            {formData.section && !loadingClassrooms && (
               <div className="mt-1 text-xs">
                 {classrooms.length > 0 ? (
                   <span className="text-emerald-600">{classrooms.length} classroom(s) available</span>
                 ) : (
-                  <span className="text-amber-600">⚠️ No classrooms found. Please create classrooms for this section in the admin dashboard.</span>
+                  <span className="text-slate-500">No classrooms configured - you can proceed without selecting one</span>
                 )}
               </div>
             )}
           </div>
         </div>
 
-        {/* Parent Information */}
+        {/* Parent Information - Keep existing code */}
         <div className="space-y-6">
           <h3 className="text-lg font-semibold text-slate-900 border-b border-slate-200 pb-2">Parent/Guardian Information</h3>
           
@@ -1079,7 +1015,7 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
           </div>
         </div>
 
-        {/* Student Contact & Additional Info */}
+        {/* Student Contact & Additional Info - Keep existing code */}
         <div className="space-y-6">
           <h3 className="text-lg font-semibold text-slate-900 border-b border-slate-200 pb-2">Contact & Additional Information</h3>
           
@@ -1214,7 +1150,7 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
         </div>
       </div>
 
-      {/* Password Modal */}
+      {/* Password Modal - Keep existing code */}
       {showPasswordModal && (studentUsername || studentPassword || parentUsername || parentPassword) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-lg w-full">

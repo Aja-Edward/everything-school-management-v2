@@ -415,13 +415,13 @@ export default function SeniorSecondarySessionResult({
               />
             ) : (
               <div className="text-center font-bold text-blue-600">
-                {schoolSettings?.tenant_name?.split(' ').map((word: string) => word[0]).join('').slice(0, 3) || 'LOGO'}
+                {schoolSettings?.school_name?.split(' ').map((word: string) => word[0]).join('').slice(0, 3) || 'LOGO'}
               </div>
             )}
           </div>
           <div className="text-center flex-1">
             <h1 className="text-4xl font-bold text-blue-900 mb-2">
-              {schoolSettings?.tenant_name?.toUpperCase() || "SCHOOL NAME"}
+              {schoolSettings?.school_name?.toUpperCase() || "SCHOOL NAME"}
             </h1>
             <p className="m-2">{schoolSettings?.motto || "Knowledge at its spring"}</p>
             <p className="text-sm text-blue-600 font-semibold mb-1">

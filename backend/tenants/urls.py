@@ -9,27 +9,22 @@ from .views import (
     CheckDomainView,
     PublicTenantView,
     SetupTokenExchangeView,
-
     # Tenant management
     TenantViewSet,
     CurrentTenantView,
-
     # Services
     ServiceManagementViewSet,
     ServicePricingViewSet,
-
     # Domain
     DomainManagementViewSet,
-
     # Settings
     TenantSettingsViewSet,
-
     # Invoices and Payments
     TenantInvoiceViewSet,
     TenantPaymentViewSet,
-
     # Invitations
     TenantInvitationViewSet,
+    PlatformInfoView,
 )
 
 router = DefaultRouter()
@@ -61,36 +56,48 @@ domain_remove = DomainManagementViewSet.as_view({
     'post': 'remove_custom_domain',
 })
 
-# Settings
+# Settings views
 settings_current = TenantSettingsViewSet.as_view({
     'get': 'current',
     'patch': 'current',
 })
 
+settings_upload_logo = TenantSettingsViewSet.as_view({"post": "upload_logo"})
+
+settings_upload_favicon = TenantSettingsViewSet.as_view({"post": "upload_favicon"})
+
 urlpatterns = [
     # Include router URLs
-    path('', include(router.urls)),
-
+    path("", include(router.urls)),
     # Public registration endpoints (no auth required)
-    path('register/', SchoolRegistrationView.as_view(), name='school-register'),
-    path('check-slug/', CheckSlugView.as_view(), name='check-slug'),
-    path('check-domain/', CheckDomainView.as_view(), name='check-domain'),
-    path('public/<slug:slug>/', PublicTenantView.as_view(), name='public-tenant'),
-    path('setup/exchange/', SetupTokenExchangeView.as_view(), name='setup-token-exchange'),
-
+    path("register/", SchoolRegistrationView.as_view(), name="school-register"),
+    path("check-slug/", CheckSlugView.as_view(), name="check-slug"),
+    path("check-domain/", CheckDomainView.as_view(), name="check-domain"),
+    path("public/<slug:slug>/", PublicTenantView.as_view(), name="public-tenant"),
+    path(
+        "setup/exchange/", SetupTokenExchangeView.as_view(), name="setup-token-exchange"
+    ),
+    path("api/platform/info/", PlatformInfoView.as_view(), name="platform-info"),
     # Current tenant context
-    path('current/', CurrentTenantView.as_view(), name='current-tenant'),
-
+    path("current/", CurrentTenantView.as_view(), name="current-tenant"),
     # Service management
-    path('services/', service_list, name='service-list'),
-    path('services/toggle/', service_toggle, name='service-toggle'),
-
+    path("services/", service_list, name="service-list"),
+    path("services/toggle/", service_toggle, name="service-toggle"),
     # Domain management
-    path('domain/', domain_current, name='domain-current'),
-    path('domain/set/', domain_set, name='domain-set'),
-    path('domain/verify/', domain_verify, name='domain-verify'),
-    path('domain/remove/', domain_remove, name='domain-remove'),
-
+    path("domain/", domain_current, name="domain-current"),
+    path("domain/set/", domain_set, name="domain-set"),
+    path("domain/verify/", domain_verify, name="domain-verify"),
+    path("domain/remove/", domain_remove, name="domain-remove"),
     # Settings
-    path('settings/', settings_current, name='tenant-settings'),
+    path("settings/", settings_current, name="tenant-settings"),
+    path(
+        "settings/upload-logo/",
+        settings_upload_logo,
+        name="tenant-settings-upload-logo",
+    ),
+    path(
+        "settings/upload-favicon/",
+        settings_upload_favicon,
+        name="tenant-settings-upload-favicon",
+    ),
 ]

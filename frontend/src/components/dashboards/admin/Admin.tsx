@@ -150,8 +150,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
 
     items.push(
-      { name: 'Subjects', icon: BookOpen, path: '/admin/subjects' },
-      { name: 'Classes', icon: School, path: '/admin/classes' },
+      { name: 'Subjects', icon: BookOpen, path: '/admin/classroom-management/subjects' },
+      { name: 'Classes', icon: School, path: '/admin/classroom-management/classes' },
       { name: 'Lessons', icon: Clock, path: '/admin/lessons' },
       { name: 'Exams', icon: FileText, path: '/admin/exams' },
       { name: 'Exam Schedules', icon: Calendar, path: '/admin/exam-schedules' },
@@ -164,7 +164,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     );
 
     if (canViewSettings()) {
-      items.push({ name: 'Settings', icon: Settings, path: '/admin/settings' });
+      items.push({ name: 'Settings', icon: Settings, path: '/admin/classroom-management/settings' });
     }
 
     return items;
@@ -257,7 +257,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {!isSidebarCollapsed && (
                 <div className="overflow-hidden">
                   <h1 className="text-sm font-semibold text-gray-900 truncate">
-                    {settings?.tenant_name || 'School Portal'}
+                    {settings?.school_name || 'School Portal'}
                   </h1>
                   <p className="text-xs text-gray-500 truncate">{getAdminRoleDisplay()}</p>
                 </div>
@@ -344,7 +344,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <Menu className="w-5 h-5 text-gray-600" />
             </button>
             <h1 className="text-sm font-semibold text-gray-900">
-              {settings?.tenant_name || 'Admin Portal'}
+              {settings?.school_name || 'Admin Portal'}
             </h1>
             <div className="w-9" />
           </header>

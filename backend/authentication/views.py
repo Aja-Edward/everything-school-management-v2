@@ -1,5 +1,3 @@
-# Add these imports at the top of your authentication/views.py file
-
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
@@ -122,28 +120,34 @@ class VerifyAccountView(APIView):
             else:
                 logger.warning(f"⚠️ User {user.email} has no tenant during verification")
 
-            return Response(
-                {
-                    "message": "Account verified successfully. You are now logged in.",
+            # AFTER
+            response_data = {
+                "message": "Account verified successfully. You are now logged in.",
+                "user": {
+                    "id": user.id,
+                    "email": user.email,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "role": user.role,
+                    "is_superuser": user.is_superuser,
+                    "is_staff": user.is_staff,
+                    "is_active": user.is_active,
+                    "username": user_username,
+                    "password": user_password,
+                    "parent_username": parent_username,
+                    "parent_password": parent_password,
+                },
+            }
+
+            if getattr(settings, "AUTH_RETURN_TOKENS_IN_BODY", False):
+                response_data["tokens"] = {
                     "access": str(access_token),
                     "refresh": str(refresh),
-                    "user": {
-                        "id": user.id,
-                        "email": user.email,
-                        "first_name": user.first_name,
-                        "last_name": user.last_name,
-                        "role": user.role,
-                        "is_superuser": user.is_superuser,
-                        "is_staff": user.is_staff,
-                        "is_active": user.is_active,
-                        "username": user_username,
-                        "password": user_password,
-                        "parent_username": parent_username,
-                        "parent_password": parent_password,
-                    },
-                },
-                status=status.HTTP_200_OK,
-            )
+                }
+
+            response = Response(response_data, status=status.HTTP_200_OK)
+            set_auth_cookies(response, str(access_token), str(refresh))
+            return response
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -171,11 +175,6 @@ class ResendVerificationView(APIView):
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
-    """Custom JWT token view for verified users
-
-    **FIXED**: Now stores tenant in session for TenantMiddleware
-    """
-
     serializer_class = CustomTokenObtainPairSerializer
     permission_classes = [permissions.AllowAny]
 
@@ -184,8 +183,6 @@ class CustomTokenObtainPairView(TokenObtainPairView):
         try:
             serializer.is_valid(raise_exception=True)
 
-            # **CRITICAL FIX: Store tenant in session**
-            # Get the user from the serializer's validated data
             if "user" in serializer.validated_data:
                 user = serializer.validated_data["user"]
                 if hasattr(user, "tenant") and user.tenant:
@@ -197,7 +194,16 @@ class CustomTokenObtainPairView(TokenObtainPairView):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(serializer.validated_data, status=status.HTTP_200_OK)
+        # Extract tokens from validated data to set as cookies
+        access = serializer.validated_data.get("access")
+        refresh = serializer.validated_data.get("refresh")
+
+        response = Response(serializer.validated_data, status=status.HTTP_200_OK)
+
+        if access and refresh:
+            set_auth_cookies(response, access, refresh)
+
+        return response
 
 
 class SimpleLoginView(APIView):
@@ -333,10 +339,14 @@ def create_first_superuser(request):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def jwt_login_view(request):
-    """JWT login view for authentication"""
     serializer = CustomTokenObtainPairSerializer(data=request.data)
     if serializer.is_valid():
-        return Response(serializer.validated_data, status=status.HTTP_200_OK)
+        access = serializer.validated_data.get("access")
+        refresh = serializer.validated_data.get("refresh")
+        response = Response(serializer.validated_data, status=status.HTTP_200_OK)
+        if access and refresh:
+            set_auth_cookies(response, access, refresh)
+        return response
     return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
 
 
@@ -631,7 +641,7 @@ def list_admins(request):
         )
 
 
-api_view(["POST"])
+@api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def logout_view(request):
     """
@@ -945,21 +955,25 @@ def verify_account(request):
         refresh = RefreshToken.for_user(user)
         access_token = refresh.access_token
 
-        return JsonResponse(
-            {
-                "message": "Account verified and logged in successfully.",
-                "access": str(access_token),
-                "refresh": str(refresh),
-                "user": {
-                    "id": user.id,
-                    "email": user.email,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "role": user.role,
-                },
+        # AFTER
+        response_data = {
+            "message": "Account verified and logged in successfully.",
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "role": user.role,
             },
-            status=200,
-        )
+        }
+
+        if getattr(settings, "AUTH_RETURN_TOKENS_IN_BODY", False):
+            response_data["access"] = str(access_token)
+            response_data["refresh"] = str(refresh)
+
+        response = Response(response_data, status=status.HTTP_200_OK)
+        set_auth_cookies(response, str(access_token), str(refresh))
+        return response
     return JsonResponse(serializer.errors, status=400)
 
 
@@ -1041,39 +1055,49 @@ def register_view(request):
 @api_view(["POST"])
 @permission_classes([permissions.AllowAny])
 def verify_account_view(request):
-    """Function-based verification view (alternative name for verify_account)"""
     serializer = VerifyAccountSerializer(data=request.data)
     if serializer.is_valid():
-        user = serializer.validated_data["user"]  # type: ignore
+        user = serializer.validated_data["user"]
+        # Unpack optional credential fields safely
+        user_username = serializer.validated_data.get("user_username")
+        user_password = serializer.validated_data.get("user_password")
+        parent_username = serializer.validated_data.get("parent_username")
+        parent_password = serializer.validated_data.get("parent_password")
 
-        # Generate JWT tokens for automatic login
         refresh = RefreshToken.for_user(user)
         access_token = refresh.access_token
-
-        # Add custom claims to the token
         access_token["id"] = user.id
         access_token["email"] = user.email
         access_token["role"] = user.role
         access_token["is_staff"] = user.is_staff
 
-        return Response(
-            {
-                "message": "Account verified successfully. You are now logged in.",
+        response_data = {
+            "message": "Account verified successfully. You are now logged in.",
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "role": user.role,
+                "is_superuser": user.is_superuser,
+                "is_staff": user.is_staff,
+                "is_active": user.is_active,
+                "username": user_username,
+                "password": user_password,
+                "parent_username": parent_username,
+                "parent_password": parent_password,
+            },
+        }
+
+        if getattr(settings, "AUTH_RETURN_TOKENS_IN_BODY", False):
+            response_data["tokens"] = {
                 "access": str(access_token),
                 "refresh": str(refresh),
-                "user": {
-                    "id": user.id,
-                    "email": user.email,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "role": user.role,
-                    "is_superuser": user.is_superuser,
-                    "is_staff": user.is_staff,
-                    "is_active": user.is_active,
-                },
-            },
-            status=status.HTTP_200_OK,
-        )
+            }
+
+        response = Response(response_data, status=status.HTTP_200_OK)
+        set_auth_cookies(response, str(access_token), str(refresh))
+        return response
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 

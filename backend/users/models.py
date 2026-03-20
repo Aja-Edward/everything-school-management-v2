@@ -140,8 +140,8 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         ]
 
     def __str__(self):
-        tenant_name = self.tenant.name if self.tenant else "No School"
-        return f"{self.email} ({tenant_name})"
+        school_name = self.tenant.name if self.tenant else "No School"
+        return f"{self.email} ({school_name})"
 
     @property
     def full_name(self):

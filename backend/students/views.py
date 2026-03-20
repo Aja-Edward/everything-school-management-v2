@@ -12,14 +12,14 @@ from utils.section_filtering import SectionFilterMixin, AutoSectionFilterMixin
 from tenants.mixins import TenantFilterMixin
 from utils.pagination import LargeResultsPagination
 from django.db.models import Avg, Count, Q
-from classroom.models import ClassSchedule, Classroom, Section, GradeLevel
+from classroom.models import ClassSchedule, Classroom, Section, GradeLevel, Stream
 from django.shortcuts import get_object_or_404
 from django.http import HttpResponse
 from django_filters.rest_framework import DjangoFilterBackend
 import csv
 from datetime import date, timedelta, datetime, time
 from django.utils import timezone
-from .models import Student, ResultCheckToken
+from .models import Student, ResultCheckToken, Class, EducationLevel
 from .serializers import (
     StudentScheduleSerializer,
     StudentWeeklyScheduleSerializer,
@@ -36,7 +36,6 @@ from events.models import Event
 from academics.models import AcademicCalendar, Term
 import string
 import random
-
 
 from .serializers import ResultTokenSerializer
 import logging
@@ -125,7 +124,7 @@ def generate_result_tokens(request):
                 student=student,
                 school_term=school_term,
                 defaults={
-                    "token": token_string,  # THIS WAS MISSING!
+                    "token": token_string,
                     "expires_at": expiration_datetime,
                     "is_used": False,
                     "used_at": None,
@@ -256,7 +255,9 @@ def verify_result_token(request):
 
     student = None
     try:
-        student = Student.objects.select_related("user").get(user=token_obj.student)
+        student = Student.objects.select_related(
+            "user", "student_class", "section", "stream"
+        ).get(user=token_obj.student)
     except Student.DoesNotExist:
         pass
 
@@ -273,10 +274,11 @@ def verify_result_token(request):
             " ".join(name_parts) if name_parts else token_obj.student.username
         )
 
+    # Use the @property which returns level_type string
     education_level = student.education_level if student else ""
-    current_class = None
-    if student and hasattr(student, "classroom"):
-        current_class = student.classroom
+
+    # Use the @property which computes classroom display string
+    current_class = student.classroom if student else None
 
     return Response(
         {
@@ -332,15 +334,16 @@ def get_all_result_tokens(request):
 
         student_name = " ".join(name_parts) if name_parts else token.student.username
 
+        # Try to get student_class via Student model
         student_class = ""
-        if hasattr(token.student, "student_profile") and token.student.student_profile:
-            student_class = getattr(
-                token.student.student_profile, "classroom", ""
-            ) or getattr(token.student.student_profile, "student_class", "")
-        elif hasattr(token.student, "classroom"):
-            student_class = token.student.classroom or ""
-        elif hasattr(token.student, "student_class"):
-            student_class = token.student.student_class or ""
+        try:
+            student_profile = Student.objects.select_related("student_class").get(
+                user=token.student
+            )
+            # Use the computed classroom property which returns display string
+            student_class = student_profile.classroom or ""
+        except Student.DoesNotExist:
+            pass
 
         # Check if valid
         is_valid = not token.is_used and token.expires_at > timezone.now()
@@ -457,190 +460,93 @@ def delete_all_tokens_for_term(request):
 
 
 def get_student_schedule_entries(student):
-    """Helper function to get schedule entries for a student"""
+    """
+    Helper function to get schedule entries for a student using FK relationships.
+    Now simplified to use direct FK lookups instead of string parsing.
+    """
+    logger.info(f"=== Getting schedule for student: {student.full_name} ===")
+    logger.info(f"Student class FK: {student.student_class}")
+    logger.info(f"Student section FK: {student.section}")
+    logger.info(f"Student stream FK: {student.stream}")
 
-    # Lightweight debug (keep concise to avoid noisy logs in production)
-    print("=== DEBUGGING STUDENT CLASSROOM ===")
-    print(f"Student: {student.full_name}")
-    print(f"Student classroom value: '{student.classroom}'")
+    # Start with empty queryset
+    schedule_qs = ClassSchedule.objects.none()
 
-    # Method 1: Direct classroom match
-    if hasattr(student, "classroom") and student.classroom:
+    # Method 1: Direct FK-based lookup
+    if student.student_class:
         try:
-            classroom = Classroom.objects.get(name__iexact=student.classroom.strip())
-            schedule_qs = ClassSchedule.objects.filter(
-                classroom=classroom, is_active=True
-            ).select_related(
-                "subject", "teacher__user", "classroom__section__grade_level"
-            )
-            if schedule_qs.exists():
-                return schedule_qs
-        except Classroom.DoesNotExist:
-            print(f"No classroom found with exact name: {student.classroom}")
+            # Build classroom filter based on available FK data
+            classroom_filters = Q()
 
-    # Method 2: Parse classroom like "Primary 1 A" → GradeLevel + Section
-    if hasattr(student, "classroom") and student.classroom:
-        try:
-            classroom_str = student.classroom.strip()
-            parts = classroom_str.split()
-            # Expect forms like: [Primary, 1, A] or [JSS, 1, A] or [SS, 2, B]
-            section_letter = None
-            grade_number = None
-            education_keyword = None
+            # Filter by grade level from student_class
+            classroom_filters &= Q(section__grade_level=student.student_class)
 
-            if len(parts) >= 2:
-                # If last token is a single alpha char, treat as section
-                if parts[-1].isalpha() and len(parts[-1]) == 1:
-                    section_letter = parts[-1]
-                    parts = parts[:-1]
+            # If section is specified, filter by it
+            if student.section:
+                classroom_filters &= Q(section=student.section)
 
-                # Find a numeric token for grade number
-                for token in parts[::-1]:
-                    if token.isdigit():
-                        grade_number = int(token)
-                        break
+            # For Senior Secondary, filter by stream if available
+            if student.stream:
+                classroom_filters &= Q(stream=student.stream)
 
-                # Education keyword from remaining tokens (keep words)
-                education_keyword = " ".join([p for p in parts if not p.isdigit()]).strip()
+            # Find matching classrooms
+            classrooms = Classroom.objects.filter(classroom_filters)
 
-                # Map keyword to education_level and build GradeLevel filter
-                gradelevel_q = GradeLevel.objects.all()
-                # Normalize keywords
-                if education_keyword.upper().startswith("PRIMARY"):
-                    gradelevel_q = gradelevel_q.filter(education_level="PRIMARY")
-                elif education_keyword.upper().startswith("JSS") or education_keyword.upper().startswith("JUNIOR"):
-                    gradelevel_q = gradelevel_q.filter(education_level="JUNIOR_SECONDARY")
-                elif education_keyword.upper().startswith("SS") or education_keyword.upper().startswith("SENIOR"):
-                    gradelevel_q = gradelevel_q.filter(education_level="SENIOR_SECONDARY")
-                elif education_keyword.upper().startswith("NURSERY"):
-                    gradelevel_q = gradelevel_q.filter(education_level="NURSERY")
-
-                # Build name candidates like "SS 1", "Senior Secondary 1" if we have number
-                name_candidates = []
-                ek_upper = education_keyword.upper()
-                if grade_number is not None:
-                    # Common abbreviations and full names
-                    if ek_upper.startswith("SS") or ek_upper.startswith("SENIOR"):
-                        name_candidates.extend([
-                            f"SS {grade_number}",
-                            f"Senior Secondary {grade_number}",
-                        ])
-                    elif ek_upper.startswith("JSS") or ek_upper.startswith("JUNIOR"):
-                        name_candidates.extend([
-                            f"JSS {grade_number}",
-                            f"Junior Secondary {grade_number}",
-                        ])
-                    elif ek_upper.startswith("PRIMARY"):
-                        name_candidates.append(f"Primary {grade_number}")
-                    elif ek_upper.startswith("NURSERY"):
-                        name_candidates.append(f"Nursery {grade_number}")
-
-                # Try matching by name candidates first, then by education/order, then fallback by icontains
-                grade_level = None
-                for cand in name_candidates:
-                    grade_level = GradeLevel.objects.filter(name__iexact=cand).first()
-                    if grade_level:
-                        break
-
-                if not grade_level:
-                    if grade_number is not None:
-                        gradelevel_q = gradelevel_q.filter(order=grade_number)
-                    grade_level = gradelevel_q.first()
-
-                if not grade_level and education_keyword:
-                    grade_level = GradeLevel.objects.filter(name__icontains=education_keyword).first()
-
-                if grade_level:
-                    section = None
-                    if section_letter:
-                        section = Section.objects.filter(
-                            name__iexact=section_letter, grade_level=grade_level
-                        ).first()
-
-                    # If specific section is identified, use it; otherwise include all sections for the grade level
-                    if section:
-                        classrooms_q = Classroom.objects.filter(section=section)
-                    else:
-                        classrooms_q = Classroom.objects.filter(
-                            section__grade_level=grade_level
-                        )
-
-                    schedule_qs = ClassSchedule.objects.filter(
-                        classroom__in=classrooms_q, is_active=True
-                    ).select_related(
-                        "subject",
-                        "teacher__user",
-                        "classroom__section__grade_level",
-                    )
-                    if schedule_qs.exists():
-                        return schedule_qs
-        except Exception as e:
-            print(f"Error in Method 2: {str(e)}")
-
-    # Method 3: Find by student class mapping
-    try:
-        class_to_grade_mapping = {
-            "NURSERY_1": "Nursery 1",
-            "NURSERY_2": "Nursery 2",
-            "PRE_K": "Pre-K",
-            "KINDERGARTEN": "Kindergarten",
-            "PRIMARY_1": "Primary 1",
-            "PRIMARY_2": "Primary 2",
-            "PRIMARY_3": "Primary 3",
-            "PRIMARY_4": "Primary 4",
-            "PRIMARY_5": "Primary 5",
-            "PRIMARY_6": "Primary 6",
-            "JSS_1": "JSS 1",
-            "JSS_2": "JSS 2",
-            "JSS_3": "JSS 3",
-            "SS_1": "SS 1",
-            "SS_2": "SS 2",
-            "SS_3": "SS 3",
-        }
-
-        grade_name = class_to_grade_mapping.get(student.student_class)
-        if grade_name:
-            # Derive education_level and grade order from grade_name
-            order = None
-            if any(ch.isdigit() for ch in grade_name):
-                try:
-                    order = int("".join([ch for ch in grade_name if ch.isdigit()]))
-                except ValueError:
-                    order = None
-
-            edu = None
-            if grade_name.upper().startswith("PRIMARY"):
-                edu = "PRIMARY"
-            elif grade_name.upper().startswith("JSS"):
-                edu = "JUNIOR_SECONDARY"
-            elif grade_name.upper().startswith("SS"):
-                edu = "SENIOR_SECONDARY"
-            elif grade_name.upper().startswith("NURSERY"):
-                edu = "NURSERY"
-
-            gradelevel_q = GradeLevel.objects.all()
-            if edu:
-                gradelevel_q = gradelevel_q.filter(education_level=edu)
-            if order is not None:
-                gradelevel_q = gradelevel_q.filter(order=order)
-
-            grade_level = (
-                GradeLevel.objects.filter(name__iexact=grade_name).first()
-                or gradelevel_q.first()
-            )
-
-            if grade_level:
-                classrooms = Classroom.objects.filter(section__grade_level=grade_level)
+            if classrooms.exists():
+                # Get schedules for these classrooms
                 schedule_qs = ClassSchedule.objects.filter(
                     classroom__in=classrooms, is_active=True
                 ).select_related(
-                    "subject", "teacher__user", "classroom__section__grade_level"
+                    "subject",
+                    "teacher__user",
+                    "classroom__section",
+                    "classroom__stream",
                 )
-                if schedule_qs.exists():
-                    return schedule_qs
-    except Exception as e:
-        print(f"Error in Method 3: {str(e)}")
 
+                if schedule_qs.exists():
+                    logger.info(
+                        f"✓ Found {schedule_qs.count()} schedule entries via FK relationships"
+                    )
+                    return schedule_qs
+                else:
+                    logger.info(f"✗ No active schedules found for matched classrooms")
+            else:
+                logger.info(f"✗ No classrooms found matching student's FK data")
+
+        except Exception as e:
+            logger.error(f"✗ Error in FK-based schedule lookup: {str(e)}")
+
+    # Method 2: Fallback using the computed classroom property
+    # This handles cases where classroom string exists but FKs aren't fully set
+    if hasattr(student, "classroom") and student.classroom:
+        try:
+            # Try exact match on classroom name
+            classroom = Classroom.objects.filter(
+                name__iexact=student.classroom.strip()
+            ).first()
+
+            if classroom:
+                schedule_qs = ClassSchedule.objects.filter(
+                    classroom=classroom, is_active=True
+                ).select_related(
+                    "subject",
+                    "teacher__user",
+                    "classroom__section",
+                    "classroom__stream",
+                )
+
+                if schedule_qs.exists():
+                    logger.info(
+                        f"✓ Found {schedule_qs.count()} schedules via classroom property fallback"
+                    )
+                    return schedule_qs
+            else:
+                logger.info(f"✗ No classroom found with name: {student.classroom}")
+
+        except Exception as e:
+            logger.error(f"✗ Error in classroom property fallback: {str(e)}")
+
+    logger.warning(f"✗ No schedules found for student {student.full_name}")
     return ClassSchedule.objects.none()
 
 
@@ -674,7 +580,9 @@ def get_student_from_user(user):
     if hasattr(user, "student_profile"):
         return user.student_profile
     else:
-        return Student.objects.get(user=user)
+        return Student.objects.select_related(
+            "user", "student_class", "section", "stream"
+        ).get(user=user)
 
 
 def get_user_display_name(user):
@@ -699,12 +607,12 @@ def get_user_display_name(user):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def student_schedule_view(request):
-    """Get schedule for current student - Improved version"""
-    print(f"Schedule view called by user: {request.user.username}")
+    """Get schedule for current student"""
+    logger.info(f"Schedule view called by user: {request.user.username}")
 
     try:
         student = get_student_from_user(request.user)
-        print(f"Found student: {student}")
+        logger.info(f"Found student: {student}")
 
         schedule_entries = get_student_schedule_entries(student)
 
@@ -714,7 +622,13 @@ def student_schedule_view(request):
                     "detail": "No schedule found for this student.",
                     "debug_info": {
                         "student_classroom": getattr(student, "classroom", None),
-                        "student_class": student.student_class,
+                        "student_class": (
+                            str(student.student_class)
+                            if student.student_class
+                            else None
+                        ),
+                        "section": str(student.section) if student.section else None,
+                        "stream": str(student.stream) if student.stream else None,
                         "education_level": student.education_level,
                     },
                 },
@@ -729,7 +643,7 @@ def student_schedule_view(request):
                 "student_info": {
                     "id": student.id,
                     "name": student.full_name,
-                    "class": student.get_student_class_display(),
+                    "class": student.student_class_display,
                     "classroom": getattr(student, "classroom", None),
                 },
                 "schedule": serializer.data,
@@ -741,7 +655,7 @@ def student_schedule_view(request):
     except Student.DoesNotExist:
         return Response({"error": "Student profile not found"}, status=404)
     except Exception as e:
-        print(f"Error in student_schedule_view: {str(e)}")
+        logger.error(f"Error in student_schedule_view: {str(e)}")
         return Response({"error": f"Failed to fetch schedule: {str(e)}"}, status=500)
 
 
@@ -750,9 +664,10 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
     CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
     ViewSet for managing students with proper tenant filtering and section access control.
     """
-    queryset = Student.objects.all()  # Base queryset - will be filtered by mixins and get_queryset()
+
+    queryset = Student.objects.all()
     permission_classes = [HasStudentsPermissionOrReadOnly]
-    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate large student datasets
+    pagination_class = LargeResultsPagination
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -760,8 +675,9 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
     ]
     filterset_fields = [
         "user",
-        "education_level",
-        "student_class",
+        "student_class",  # FK to Class
+        "section",  # FK to Section
+        "stream",  # FK to Stream
         "gender",
         "is_active",
     ]
@@ -774,17 +690,8 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         "user__username",
     ]
     ordering_fields = ["user__first_name", "admission_date", "date_of_birth"]
-    ordering = ["education_level", "student_class", "user__first_name"]
+    ordering = ["student_class__order", "user__first_name"]
 
-    # def get_queryset(self):
-    #     """Optimize queryset with select_related for better performance."""
-    #     queryset = Student.objects.select_related("user").prefetch_related("parents")
-
-    #     # Apply section-based filtering for authenticated users
-    #     if self.request.user.is_authenticated:
-    #         queryset = self.filter_students_by_section_access(queryset)
-
-    #     return queryset
     def get_queryset(self):
         """
         Optimize queryset with select_related for better performance.
@@ -798,24 +705,31 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             and str(self.request.user.id) == str(user_filter)
         )
 
-        logger.info(f"🔍 StudentViewSet.get_queryset: user_filter={user_filter}, user.id={self.request.user.id}, is_self_query={is_self_query}")
+        logger.info(
+            f"🔍 StudentViewSet.get_queryset: user_filter={user_filter}, user.id={self.request.user.id}, is_self_query={is_self_query}"
+        )
 
         # CRITICAL: If student is viewing their own record, skip AutoSectionFilterMixin
         if is_self_query:
-            logger.info(f"✅ Self-query detected for user {user_filter}, bypassing section filtering")
-            # Bypass mixins and get base queryset directly with only tenant filtering
+            logger.info(
+                f"✅ Self-query detected for user {user_filter}, bypassing section filtering"
+            )
             queryset = Student.objects.all()
 
-            # Apply tenant filtering manually (tenant is set by TenantMiddleware)
-            tenant = getattr(self.request, 'tenant', None)
+            # Apply tenant filtering manually
+            tenant = getattr(self.request, "tenant", None)
             logger.info(f"🏢 Tenant from request: {tenant}")
             if tenant:
-                # Use tenant ID for filtering to avoid object comparison issues
                 queryset = queryset.filter(tenant_id=tenant.id)
                 logger.info(f"📊 After tenant filter: {queryset.count()} students")
 
-            # Add performance optimizations
-            queryset = queryset.select_related("user").prefetch_related("parents")
+            # Add performance optimizations - FIXED: Use correct FK names
+            queryset = queryset.select_related(
+                "user",
+                "student_class",  # FK to Class (which is the grade level)
+                "section",
+                "stream",
+            ).prefetch_related("parents")
 
             # Filter by the specific user
             queryset = queryset.filter(user_id=user_filter)
@@ -827,8 +741,13 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         logger.info(f"⚙️ Not a self-query, using standard filtering")
         queryset = super().get_queryset()
 
-        # Add performance optimizations
-        queryset = queryset.select_related("user").prefetch_related("parents")
+        # Add performance optimizations - FIXED: Use correct FK names
+        queryset = queryset.select_related(
+            "user",
+            "student_class",  # FK to Class (which is the grade level)
+            "section",
+            "stream",
+        ).prefetch_related("parents")
 
         logger.info(f"📊 Final queryset count: {queryset.count()} students")
         return queryset
@@ -853,7 +772,6 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         from django.utils import timezone
 
         if isinstance(past_date, date) and not isinstance(past_date, datetime):
-            # Convert date to datetime for comparison
             past_datetime = datetime.combine(past_date, time.min)
             past_datetime = (
                 timezone.make_aware(past_datetime)
@@ -901,7 +819,6 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-    # SPECIAL ENDPOINTS - Using proper @action decorators
     @action(detail=False, methods=["get"], url_path="my-schedule")
     def my_schedule(self, request):
         """Get current user's schedule."""
@@ -915,7 +832,15 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                         "detail": "No schedule found for your profile.",
                         "debug_info": {
                             "classroom": getattr(student, "classroom", None),
-                            "student_class": student.student_class,
+                            "student_class": (
+                                str(student.student_class)
+                                if student.student_class
+                                else None
+                            ),
+                            "section": (
+                                str(student.section) if student.section else None
+                            ),
+                            "stream": str(student.stream) if student.stream else None,
                             "education_level": student.education_level,
                         },
                     },
@@ -930,7 +855,7 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                     "student_info": {
                         "id": student.id,
                         "name": student.full_name,
-                        "class": student.get_student_class_display(),
+                        "class": student.student_class_display,
                         "classroom": getattr(student, "classroom", None),
                     },
                     "schedule": serializer.data,
@@ -965,14 +890,18 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             unique_subjects = set(entry["subject_name"] for entry in serializer.data)
             unique_teachers = set(entry["teacher_name"] for entry in serializer.data)
 
-            days_with_classes = sum(1 for _, periods in schedule_by_day.items() if periods)
-            avg_daily_periods = total_periods / days_with_classes if days_with_classes > 0 else 0
+            days_with_classes = sum(
+                1 for _, periods in schedule_by_day.items() if periods
+            )
+            avg_daily_periods = (
+                total_periods / days_with_classes if days_with_classes > 0 else 0
+            )
 
             weekly_data = {
                 "student_id": student.id,
                 "student_name": student.full_name,
                 "classroom_name": getattr(student, "classroom", None),
-                "education_level": student.get_education_level_display(),
+                "education_level": student.education_level_display,
                 "academic_year": "2024-2025",
                 "term": "Current Term",
                 "monday": schedule_by_day.get("monday", []),
@@ -992,7 +921,8 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
 
         except Student.DoesNotExist:
             return Response(
-                {"error": "Student profile not found"}, status=status.HTTP_404_NOT_FOUND
+                {"error": "Student profile not found"},
+                status=status.HTTP_404_NOT_FOUND,
             )
         except Exception as e:
             return Response(
@@ -1010,7 +940,6 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             current_time = now.time()
             current_day = now.strftime("%A").upper()
 
-            # Get today's schedule
             schedule_entries = get_student_schedule_entries(student)
             today_schedule = schedule_entries.filter(day_of_week=current_day)
 
@@ -1021,11 +950,14 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                 start_time = entry.start_time
                 end_time = entry.end_time
 
-                # Check if current time is within this period
                 if start_time <= current_time <= end_time:
                     current_period = {
                         "subject": entry.subject.name if entry.subject else "Unknown",
-                        "teacher": get_user_display_name(entry.teacher.user) if entry.teacher and entry.teacher.user else "Unknown",
+                        "teacher": (
+                            get_user_display_name(entry.teacher.user)
+                            if entry.teacher and entry.teacher.user
+                            else "Unknown"
+                        ),
                         "start_time": start_time.strftime("%H:%M"),
                         "end_time": end_time.strftime("%H:%M"),
                         "classroom": (
@@ -1034,11 +966,14 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                         "is_current": True,
                     }
                     break
-                # Check for next period
                 elif start_time > current_time and not next_period:
                     next_period = {
                         "subject": entry.subject.name if entry.subject else "Unknown",
-                        "teacher": get_user_display_name(entry.teacher.user) if entry.teacher and entry.teacher.user else "Unknown",
+                        "teacher": (
+                            get_user_display_name(entry.teacher.user)
+                            if entry.teacher and entry.teacher.user
+                            else "Unknown"
+                        ),
                         "start_time": start_time.strftime("%H:%M"),
                         "end_time": end_time.strftime("%H:%M"),
                         "classroom": (
@@ -1064,7 +999,8 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
 
         except Student.DoesNotExist:
             return Response(
-                {"error": "Student profile not found"}, status=status.HTTP_404_NOT_FOUND
+                {"error": "Student profile not found"},
+                status=status.HTTP_404_NOT_FOUND,
             )
         except Exception as e:
             return Response(
@@ -1072,7 +1008,6 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-    # REGULAR STUDENT ACTIONS
     @action(detail=True, methods=["get"])
     def schedule(self, request, pk=None):
         """Get complete schedule for a specific student"""
@@ -1100,9 +1035,9 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                 "student_info": {
                     "id": student.id,
                     "name": student.full_name,
-                    "class": student.get_student_class_display(),
+                    "class": student.student_class_display,
                     "classroom": getattr(student, "classroom", None),
-                    "education_level": student.get_education_level_display(),
+                    "education_level": student.education_level_display,
                 },
                 "schedule": serializer.data,
                 "schedule_by_day": schedule_by_day,
@@ -1132,7 +1067,6 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         serializer = StudentScheduleSerializer(schedule_entries, many=True)
         schedule_by_day = group_schedule_by_day(serializer.data)
 
-        # Calculate statistics
         total_periods = len(serializer.data)
         unique_subjects = set(entry["subject_name"] for entry in serializer.data)
         unique_teachers = set(entry["teacher_name"] for entry in serializer.data)
@@ -1148,7 +1082,7 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             "student_id": student.id,
             "student_name": student.full_name,
             "classroom_name": getattr(student, "classroom", None),
-            "education_level": student.get_education_level_display(),
+            "education_level": student.education_level_display,
             "academic_year": "2024-2025",
             "term": "Current Term",
             "monday": schedule_by_day.get("monday", []),
@@ -1171,7 +1105,6 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         """Get daily schedule for a specific student"""
         student = self.get_object()
 
-        # Get date from query params, default to today
         date_str = request.query_params.get("date")
         if date_str:
             try:
@@ -1190,7 +1123,6 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
 
         serializer = StudentScheduleSerializer(daily_entries, many=True)
 
-        # Find current and next period
         current_time = datetime.now().time()
         current_period = None
         next_period = None
@@ -1225,7 +1157,7 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
     @action(detail=False, methods=["get"])
     def dashboard(self, request):
         """Get comprehensive dashboard data for the logged-in student."""
-        print(f"Dashboard request from user: {request.user.username}")
+        logger.info(f"Dashboard request from user: {request.user.username}")
 
         try:
             student = get_student_from_user(request.user)
@@ -1267,7 +1199,6 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         # Get recent activities
         recent_activities = []
 
-        # Add recent results
         recent_results = results.order_by("-created_at")[:5]
         for result in recent_results:
             recent_activities.append(
@@ -1280,7 +1211,6 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                 }
             )
 
-        # Add recent attendance
         for attendance in recent_attendance[:5]:
             recent_activities.append(
                 {
@@ -1292,13 +1222,14 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                 }
             )
 
-        # Sort activities by date
         recent_activities.sort(key=lambda x: x["date"], reverse=True)
         recent_activities = recent_activities[:5]
 
-        # Get announcements for students
+        # Get announcements
         all_announcements = SchoolAnnouncement.objects.filter(
-            is_active=True, start_date__lte=timezone.now(), end_date__gte=timezone.now()
+            is_active=True,
+            start_date__lte=timezone.now(),
+            end_date__gte=timezone.now(),
         ).order_by("-is_pinned", "-created_at")
 
         announcements = [
@@ -1351,7 +1282,7 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                 }
             )
 
-        # Get academic calendar events
+        # Get academic calendar
         academic_calendar = AcademicCalendar.objects.filter(
             is_active=True, start_date__gte=today
         ).order_by("start_date")[:10]
@@ -1376,8 +1307,8 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         dashboard_data = {
             "student_info": {
                 "name": student.full_name,
-                "class": student.get_student_class_display(),
-                "education_level": student.get_education_level_display(),
+                "class": student.student_class_display,
+                "education_level": student.education_level_display,
                 "registration_number": student.registration_number,
                 "admission_date": (
                     student.admission_date.strftime("%Y-%m-%d")
@@ -1419,7 +1350,7 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
     @action(detail=False, methods=["get"])
     def profile(self, request):
         """Get detailed profile information for the logged-in student."""
-        print(f"Profile action called by user: {request.user.username}")
+        logger.info(f"Profile action called by user: {request.user.username}")
 
         if not request.user.is_authenticated:
             return Response(
@@ -1432,7 +1363,6 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             serializer = StudentDetailSerializer(student, context={"request": request})
             profile_data = serializer.data
 
-            # Add additional profile-specific data
             profile_data.update(
                 {
                     "user_info": {
@@ -1444,8 +1374,8 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                         "date_joined": student.user.date_joined,
                     },
                     "academic_info": {
-                        "class": student.get_student_class_display(),
-                        "education_level": student.get_education_level_display(),
+                        "class": student.student_class_display,
+                        "education_level": student.education_level_display,
                         "admission_date": student.admission_date,
                         "registration_number": student.registration_number,
                         "classroom": student.classroom,
@@ -1465,7 +1395,8 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
 
         except Student.DoesNotExist:
             return Response(
-                {"error": "Student profile not found"}, status=status.HTTP_404_NOT_FOUND
+                {"error": "Student profile not found"},
+                status=status.HTTP_404_NOT_FOUND,
             )
         except Exception as e:
             return Response(
@@ -1473,7 +1404,6 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-    # CRUD OPERATIONS
     def create(self, request, *args, **kwargs):
         self.permission_classes = [AllowAny]
         serializer = self.get_serializer(data=request.data)
@@ -1499,8 +1429,8 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
 
     def update(self, request, *args, **kwargs):
         """Override update method to add debugging."""
-        print(f"Update request for student {kwargs.get('pk')}")
-        print(f"Request data: {request.data}")
+        logger.info(f"Update request for student {kwargs.get('pk')}")
+        logger.info(f"Request data: {request.data}")
 
         serializer = self.get_serializer(
             self.get_object(), data=request.data, partial=True
@@ -1512,5 +1442,5 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
 
     def destroy(self, request, *args, **kwargs):
         """Override destroy method to add debugging."""
-        print(f"Delete request for student {kwargs.get('pk')}")
+        logger.info(f"Delete request for student {kwargs.get('pk')}")
         return super().destroy(request, *args, **kwargs)

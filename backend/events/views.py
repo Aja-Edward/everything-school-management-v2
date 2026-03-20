@@ -1,4 +1,4 @@
-from rest_framework import viewsets, status, permissions
+from rest_framework import viewsets, status, permissions, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
@@ -203,14 +203,14 @@ class EventImageViewSet(viewsets.ModelViewSet):
     queryset = EventImage.objects.all()
     serializer_class = EventImageUpdateSerializer
     permission_classes = [permissions.IsAuthenticated]
-    
+
     def get_queryset(self):
         """Filter images by event and user permissions"""
         event_id = self.request.query_params.get('event_id')
         if event_id:
             return EventImage.objects.filter(event_id=event_id)
         return EventImage.objects.none()
-    
+
     def perform_create(self, serializer):
         """Set the event when creating an image"""
         event_id = self.request.data.get('event_id')

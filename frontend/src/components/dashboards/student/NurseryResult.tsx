@@ -78,13 +78,13 @@ type NurseryResultProps = {
   showOnlyPublished?: boolean;
 };
 
-const SchoolLogo = ({ logoUrl, tenant_name }: { logoUrl?: string; tenant_name?: string }) => {
+const SchoolLogo = ({ logoUrl, school_name }: { logoUrl?: string; school_name?: string }) => {
   if (logoUrl) {
     return (
       <div className="w-16 h-16 rounded-xl overflow-hidden shadow-lg border-2 border-indigo-600">
         <img 
           src={logoUrl} 
-          alt={`${tenant_name || 'School'} Logo`}
+          alt={`${school_name || 'School'} Logo`}
           className="w-full h-full object-cover"
           onError={(e) => {
             const target = e.target as HTMLImageElement;
@@ -99,7 +99,7 @@ const SchoolLogo = ({ logoUrl, tenant_name }: { logoUrl?: string; tenant_name?: 
              }}>
           <div className="text-center text-xs">
             <div className="font-bold text-base mb-1">
-              {tenant_name?.split(' ').map(word => word[0]).join('').slice(0, 3) || 'SCH'}
+              {school_name?.split(' ').map(word => word[0]).join('').slice(0, 3) || 'SCH'}
             </div>
           </div>
         </div>
@@ -115,14 +115,14 @@ const SchoolLogo = ({ logoUrl, tenant_name }: { logoUrl?: string; tenant_name?: 
          }}>
       <div className="text-center text-xs">
         <div className="font-bold text-base mb-1">
-          {tenant_name?.split(' ').map(word => word[0]).join('').slice(0, 3) || 'SCH'}
+          {school_name?.split(' ').map(word => word[0]).join('').slice(0, 3) || 'SCH'}
         </div>
       </div>
     </div>
   );
 };
 
-const WatermarkLogo = ({ logoUrl, tenant_name }: { logoUrl?: string; tenant_name?: string }) => {
+const WatermarkLogo = ({ logoUrl, school_name }: { logoUrl?: string; school_name?: string }) => {
   if (logoUrl) {
     return (
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.08] z-0">
@@ -142,11 +142,11 @@ const WatermarkLogo = ({ logoUrl, tenant_name }: { logoUrl?: string; tenant_name
       <div className="text-center">
         <div className="w-96 h-96 rounded-full flex items-center justify-center border-4 border-indigo-200 bg-gradient-to-br from-indigo-100 to-indigo-200 mb-4">
           <div className="text-8xl font-black text-indigo-600">
-            {tenant_name?.split(' ').map(word => word[0]).join('').slice(0, 3) || 'SCH'}
+            {school_name?.split(' ').map(word => word[0]).join('').slice(0, 3) || 'SCH'}
           </div>
         </div>
         <div className="text-4xl font-bold text-indigo-400 tracking-wider">
-          {tenant_name?.toUpperCase() || 'SCHOOL NAME'}
+          {school_name?.toUpperCase() || 'SCHOOL NAME'}
         </div>
       </div>
     </div>
@@ -419,7 +419,7 @@ export default function NurseryResult({ data, showOnlyPublished = false }: Nurse
         
         {schoolSettings && (
           <div className="text-sm text-gray-600">
-            <span className="font-medium">School:</span> {schoolSettings.tenant_name} 
+            <span className="font-medium">School:</span> {schoolSettings.school_name} 
             {gradingSystem && (
               <>
                 <span className="ml-4 font-medium">Grading:</span> {gradingSystem.name}
@@ -433,7 +433,7 @@ export default function NurseryResult({ data, showOnlyPublished = false }: Nurse
         
         <WatermarkLogo 
           logoUrl={schoolSettings?.logo} 
-          tenant_name={schoolSettings?.tenant_name} 
+          school_name={schoolSettings?.school_name} 
         />
         
         <div className="relative z-10 p-8">
@@ -442,12 +442,12 @@ export default function NurseryResult({ data, showOnlyPublished = false }: Nurse
           <div className="flex items-center justify-between mb-6 pb-4 border-b-2 border-indigo-100">
             <SchoolLogo 
               logoUrl={schoolSettings?.logo} 
-            tenant_name={schoolSettings?.tenant_name} 
+            school_name={schoolSettings?.school_name} 
             />
             
             <div className="flex-1 text-center mx-6">
               <h1 className="text-2xl font-black mb-1 text-indigo-900 tracking-tight">
-                {schoolSettings?.tenant_name?.toUpperCase() || 'SCHOOL NAME'}
+                {schoolSettings?.school_name?.toUpperCase() || 'SCHOOL NAME'}
               </h1>
               <p className="text-xs text-slate-600 font-medium mb-1">
                 {schoolSettings?.address || 'School Address Not Set'}

@@ -5,6 +5,8 @@ from rest_framework.urlpatterns import format_suffix_patterns
 
 from .views import (
     SubjectViewSet,
+    SubjectCategoryViewSet,  # NEW
+    SubjectTypeViewSet,  # NEW
     SubjectAnalyticsViewSet,
     SubjectManagementViewSet,
     SubjectByEducationLevelView,
@@ -20,6 +22,14 @@ from .views import (
 # Main router for core subject operations
 router = DefaultRouter()
 router.register(r"", SubjectViewSet, basename="subject")
+
+# NEW: Category router for subject categories
+category_router = DefaultRouter()
+category_router.register(r"", SubjectCategoryViewSet, basename="subject-category")
+
+# NEW: Type router for subject types
+type_router = DefaultRouter()
+type_router.register(r"", SubjectTypeViewSet, basename="subject-type")
 
 # Analytics router for read-only analytics endpoints
 analytics_router = DefaultRouter()
@@ -50,7 +60,15 @@ app_name = "subjects"
 urlpatterns = [
     # Health check endpoint
     path("health/", health_check, name="health-check"),
-    # Stream configuration endpoints - /api/v1/subjects/stream-configurations/ (MUST COME FIRST)
+    # NEW: Category endpoints - /api/subjects/categories/
+    path("categories/", include(category_router.urls)),
+    # NEW: Type endpoints - /api/subjects/types/
+    path("types/", include(type_router.urls)),
+    # Stream configuration endpoints - /api/subjects/stream-configurations/ (MUST COME BEFORE main router)
+    path(
+        "stream-configurations/setup_defaults/",
+        SchoolStreamConfigurationViewSet.as_view({"post": "setup_defaults"}),
+    ),
     path(
         "stream-configurations/",
         SchoolStreamConfigurationViewSet.as_view({"get": "list", "post": "create"}),
@@ -66,11 +84,7 @@ urlpatterns = [
             }
         ),
     ),
-    path(
-        "stream-configurations/setup_defaults/",
-        SchoolStreamConfigurationViewSet.as_view({"post": "setup_defaults"}),
-    ),
-    # Stream subject assignment endpoints - /api/v1/subjects/stream-subject-assignments/
+    # Stream subject assignment endpoints - /api/subjects/stream-subject-assignments/
     path(
         "stream-subject-assignments/",
         SchoolStreamSubjectAssignmentViewSet.as_view({"get": "list", "post": "create"}),
@@ -86,16 +100,13 @@ urlpatterns = [
             }
         ),
     ),
-    # Core subject operations - /api/v1/subjects/
-    path("", include(router.urls)),
-    # Analytics endpoints - /api/v1/analytics/subjects/
+    # Analytics endpoints - /api/subjects/analytics/ (MUST COME BEFORE main router)
     path("analytics/", include(analytics_router.urls)),
-    # Management endpoints - /api/v1/management/subjects/
+    # Management endpoints - /api/subjects/management/ (MUST COME BEFORE main router)
     path("management/", include(management_router.urls)),
+    # Core subject operations - /api/subjects/ (MUST BE LAST)
+    path("", include(router.urls)),
 ]
-
-# Apply format suffix patterns for content negotiation (.json, .xml, etc.)
-# urlpatterns = format_suffix_patterns(urlpatterns)
 
 # ==============================================================================
 # URL PATTERN DOCUMENTATION
@@ -103,53 +114,69 @@ urlpatterns = [
 """
 URL Structure Overview:
 
-1. CORE SUBJECT OPERATIONS (/api/v1/subjects/)
-   - GET    /api/v1/subjects/                    # List all subjects
-   - POST   /api/v1/subjects/                    # Create new subject
-   - GET    /api/v1/subjects/{id}/               # Retrieve specific subject
-   - PUT    /api/v1/subjects/{id}/               # Update specific subject
-   - PATCH  /api/v1/subjects/{id}/               # Partial update subject
-   - DELETE /api/v1/subjects/{id}/               # Delete specific subject
-   
-   Custom Actions (if implemented in SubjectViewSet):
-   - GET    /api/v1/subjects/by_grade/{grade_id}/           # Subjects by grade
-   - GET    /api/v1/subjects/available/                     # Available subjects
-   - GET    /api/v1/subjects/search/                        # Advanced search
-   - POST   /api/v1/subjects/{id}/check_prerequisites/      # Check prerequisites
-   - GET    /api/v1/subjects/categories/                    # Subject categories
+1. NEW FK ENDPOINTS
+   - GET    /api/subjects/categories/                         # List all categories
+   - POST   /api/subjects/categories/                         # Create category
+   - GET    /api/subjects/categories/{id}/                    # Get category
+   - PUT    /api/subjects/categories/{id}/                    # Update category
+   - PATCH  /api/subjects/categories/{id}/                    # Partial update
+   - DELETE /api/subjects/categories/{id}/                    # Delete category
+   - GET    /api/subjects/categories/{id}/subjects/           # Subjects in category
+   - GET    /api/subjects/categories/statistics/              # Category statistics
 
-2. ANALYTICS OPERATIONS (/api/v1/analytics/subjects/)
-   - GET    /api/v1/analytics/subjects/                     # Basic analytics list
-   - GET    /api/v1/analytics/subjects/statistics/          # Overall statistics
-   - GET    /api/v1/analytics/subjects/by_category/         # Category breakdown
-   - GET    /api/v1/analytics/subjects/performance/         # Performance metrics
-   - GET    /api/v1/analytics/subjects/trends/              # Usage trends
-   - GET    /api/v1/analytics/subjects/reports/             # Generated reports
+   - GET    /api/subjects/types/                              # List all types
+   - POST   /api/subjects/types/                              # Create type
+   - GET    /api/subjects/types/{id}/                         # Get type
+   - PUT    /api/subjects/types/{id}/                         # Update type
+   - PATCH  /api/subjects/types/{id}/                         # Partial update
+   - DELETE /api/subjects/types/{id}/                         # Delete type
+   - GET    /api/subjects/types/{id}/subjects/                # Subjects of type
+   - GET    /api/subjects/types/statistics/                   # Type statistics
 
-3. MANAGEMENT OPERATIONS (/api/v1/management/subjects/) - Admin Only
-   - POST   /api/v1/management/subjects/bulk_create/        # Bulk create subjects
-   - PATCH  /api/v1/management/subjects/bulk_update/        # Bulk update subjects
-   - DELETE /api/v1/management/subjects/bulk_delete/        # Bulk delete subjects
-   - POST   /api/v1/management/subjects/bulk_activate/      # Bulk activate/deactivate
-   - GET    /api/v1/management/subjects/export/             # Export subject data
-   - POST   /api/v1/management/subjects/import/             # Import subject data
-   - GET    /api/v1/management/subjects/audit_log/          # Audit log
-   - POST   /api/v1/management/subjects/validate/           # Validate subject data
+2. CORE SUBJECT OPERATIONS (/api/subjects/)
+   - GET    /api/subjects/                                    # List all subjects
+   - POST   /api/subjects/                                    # Create new subject
+   - GET    /api/subjects/{id}/                               # Retrieve specific subject
+   - PUT    /api/subjects/{id}/                               # Update specific subject
+   - PATCH  /api/subjects/{id}/                               # Partial update subject
+   - DELETE /api/subjects/{id}/                               # Delete specific subject
 
-4. UTILITY ENDPOINTS
-   - GET    /api/v1/subjects/health/                        # Health check
+3. ANALYTICS OPERATIONS (/api/subjects/analytics/)
+   - GET    /api/subjects/analytics/                          # Basic analytics list
+   - GET    /api/subjects/analytics/statistics/               # Overall statistics
+   - GET    /api/subjects/analytics/by_category/              # Category breakdown
+   - GET    /api/subjects/analytics/performance/              # Performance metrics
 
-Query Parameters (Available on most endpoints):
+4. MANAGEMENT OPERATIONS (/api/subjects/management/) - Admin Only
+   - POST   /api/subjects/management/bulk_create/             # Bulk create subjects
+   - PATCH  /api/subjects/management/bulk_update/             # Bulk update subjects
+   - DELETE /api/subjects/management/bulk_delete/             # Bulk delete subjects
+   - POST   /api/subjects/management/bulk_activate/           # Bulk activate/deactivate
+   - GET    /api/subjects/management/export/                  # Export subject data
+   - POST   /api/subjects/management/import/                  # Import subject data
+
+5. STREAM CONFIGURATION
+   - GET    /api/subjects/stream-configurations/              # List configurations
+   - POST   /api/subjects/stream-configurations/              # Create configuration
+   - GET    /api/subjects/stream-subject-assignments/         # List assignments
+
+6. UTILITY ENDPOINTS
+   - GET    /api/subjects/health/                             # Health check
+
+Query Parameters:
    - ?search=term                    # Text search
-   - ?category=category_name         # Filter by category
-   - ?education_level=level          # Filter by education level
-   - ?is_active=true/false          # Filter by active status
-   - ?grade_level=grade_id          # Filter by grade level
-   - ?ordering=field_name           # Sort results
-   - ?page=1&page_size=20           # Pagination
+   - ?category_new_id=1              # Filter by category (FK)
+   - ?subject_type_new_id=1          # Filter by type (FK)
+   - ?grade_level_id=1               # Filter by grade level (FK)
+   - ?education_level=PRIMARY        # Filter by education level
+   - ?is_active=true                 # Filter by active status
+   - ?ordering=name                  # Sort results
+   - ?page=1&page_size=20            # Pagination
 
 Examples:
-   GET /api/v1/subjects/?search=math&category=core&is_active=true
-   GET /api/v1/analytics/subjects/statistics/?education_level=secondary
-   POST /api/v1/management/subjects/bulk_update/
+   GET /api/subjects/categories/
+   GET /api/subjects/types/
+   GET /api/subjects/?category_new_id=1&is_active=true
+   GET /api/subjects/categories/1/subjects/
+   GET /api/subjects/types/statistics/
 """

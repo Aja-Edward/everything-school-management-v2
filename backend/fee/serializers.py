@@ -17,16 +17,61 @@ from .models import (
     PaymentReminder,
 )
 from academics.models import Term, AcademicSession
-from students.models import Student
+from students.models import Student, Class as StudentClass, EducationLevel
 
+
+# ---------------------------------------------------------------------------
+# Minimal nested serializers for FK display
+# ---------------------------------------------------------------------------
+
+
+class EducationLevelMinimalSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EducationLevel
+        fields = ["id", "name", "code", "level_type"]
+        read_only_fields = ["id"]
+
+
+class StudentClassMinimalSerializer(serializers.ModelSerializer):
+    education_level_name = serializers.CharField(
+        source="education_level.name", read_only=True, allow_null=True
+    )
+
+    class Meta:
+        model = StudentClass
+        fields = ["id", "name", "code", "education_level_name"]
+        read_only_fields = ["id"]
+
+
+# ---------------------------------------------------------------------------
+# FeeStructure serializer
+# education_level and student_class are FK fields on the model
+# ---------------------------------------------------------------------------
 
 class FeeStructureSerializer(serializers.ModelSerializer):
+    # FK nested detail (read)
+    education_level_detail = EducationLevelMinimalSerializer(
+        source="education_level", read_only=True
+    )
+    education_level_name = serializers.CharField(
+        source="education_level.name", read_only=True, allow_null=True
+    )
+    # level_type string for backward compat (replaces get_education_level_display)
     education_level_display = serializers.CharField(
-        source="get_education_level_display", read_only=True
+        source="education_level.name", read_only=True, allow_null=True
     )
+
+    student_class_detail = StudentClassMinimalSerializer(
+        source="student_class", read_only=True
+    )
+    student_class_name = serializers.CharField(
+        source="student_class.name", read_only=True, allow_null=True
+    )
+    # backward compat display (replaces get_student_class_display)
     student_class_display = serializers.CharField(
-        source="get_student_class_display", read_only=True
+        source="student_class.name", read_only=True, allow_null=True
     )
+
     fee_type_display = serializers.CharField(
         source="get_fee_type_display", read_only=True
     )
@@ -39,8 +84,51 @@ class FeeStructureSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class FeeStructureCreateUpdateSerializer(serializers.ModelSerializer):
+    """Writable serializer for creating/updating fee structures."""
+
+    education_level = serializers.PrimaryKeyRelatedField(
+        queryset=EducationLevel.objects.all(),
+        help_text="EducationLevel FK id",
+    )
+    student_class = serializers.PrimaryKeyRelatedField(
+        queryset=StudentClass.objects.all(),
+        help_text="StudentClass FK id",
+    )
+
+    class Meta:
+        model = FeeStructure
+        fields = [
+            "name",
+            "fee_type",
+            "education_level",
+            "student_class",
+            "amount",
+            "frequency",
+            "description",
+            "is_active",
+        ]
+
+    def validate(self, data):
+        # Ensure student_class belongs to the selected education_level
+        education_level = data.get("education_level")
+        student_class = data.get("student_class")
+        if education_level and student_class:
+            if student_class.education_level_id != education_level.id:
+                raise serializers.ValidationError(
+                    {
+                        "student_class": "This class does not belong to the selected education level."
+                    }
+                )
+        return data
+
+
+# ---------------------------------------------------------------------------
+# PaymentGatewayConfig
+# ---------------------------------------------------------------------------
+
 class PaymentGatewayConfigSerializer(serializers.ModelSerializer):
-    """Serializer for payment gateway configuration (public fields only)"""
+    """Public fields only"""
 
     gateway_display = serializers.CharField(
         source="get_gateway_display", read_only=True
@@ -73,6 +161,10 @@ class PaymentGatewayConfigAdminSerializer(PaymentGatewayConfigSerializer):
         fields = "__all__"
 
 
+# ---------------------------------------------------------------------------
+# PaymentAttempt
+# ---------------------------------------------------------------------------
+
 class PaymentAttemptSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(
         source="student_fee.student.full_name", read_only=True
@@ -103,6 +195,10 @@ class PaymentAttemptSerializer(serializers.ModelSerializer):
         ]
 
 
+# ---------------------------------------------------------------------------
+# PaymentInstallment / PaymentPlan
+# ---------------------------------------------------------------------------
+
 class PaymentInstallmentSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField()
     days_until_due = serializers.SerializerMethodField()
@@ -124,18 +220,17 @@ class PaymentInstallmentSerializer(serializers.ModelSerializer):
     def get_status(self, obj):
         if obj.is_paid:
             return "PAID"
-        elif obj.due_date < timezone.now().date():
+        today = timezone.now().date()
+        if obj.due_date < today:
             return "OVERDUE"
-        elif obj.due_date == timezone.now().date():
+        elif obj.due_date == today:
             return "DUE_TODAY"
-        else:
-            return "UPCOMING"
+        return "UPCOMING"
 
     def get_days_until_due(self, obj):
         if obj.is_paid:
             return None
-        today = timezone.now().date()
-        return (obj.due_date - today).days
+        return (obj.due_date - timezone.now().date()).days
 
 
 class PaymentPlanSerializer(serializers.ModelSerializer):
@@ -176,13 +271,13 @@ class PaymentPlanSerializer(serializers.ModelSerializer):
         )
 
     def get_next_due_installment(self, obj):
-        next_installment = (
-            obj.installments.filter(is_paid=False).order_by("due_date").first()
-        )
-        if next_installment:
-            return PaymentInstallmentSerializer(next_installment).data
-        return None
+        nxt = obj.installments.filter(is_paid=False).order_by("due_date").first()
+        return PaymentInstallmentSerializer(nxt).data if nxt else None
 
+
+# ---------------------------------------------------------------------------
+# Payment
+# ---------------------------------------------------------------------------
 
 class PaymentSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(
@@ -256,8 +351,6 @@ class PaymentSerializer(serializers.ModelSerializer):
 
 
 class PaymentCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating payments"""
-
     class Meta:
         model = Payment
         fields = [
@@ -280,15 +373,17 @@ class PaymentCreateSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         student_fee = attrs.get("student_fee")
         amount = attrs.get("amount")
-
         if student_fee and amount:
             if amount > student_fee.balance:
                 raise serializers.ValidationError(
                     {"amount": "Payment amount cannot exceed outstanding balance."}
                 )
-
         return attrs
 
+
+# ---------------------------------------------------------------------------
+# PaymentWebhook
+# ---------------------------------------------------------------------------
 
 class PaymentWebhookSerializer(serializers.ModelSerializer):
     gateway_display = serializers.CharField(
@@ -314,11 +409,22 @@ class PaymentWebhookSerializer(serializers.ModelSerializer):
         ]
 
 
+# ---------------------------------------------------------------------------
+# StudentFee serializers
+# student.student_class is now a FK — use .name for display
+# ---------------------------------------------------------------------------
+
 class StudentFeeListSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source="student.full_name", read_only=True)
+
+    # student_class is now FK on Student — expose name
     student_class = serializers.CharField(
-        source="student.get_student_class_display", read_only=True
+        source="student.student_class.name", read_only=True, allow_null=True
     )
+    student_class_id = serializers.IntegerField(
+        source="student.student_class.id", read_only=True, allow_null=True
+    )
+
     fee_type = serializers.CharField(
         source="fee_structure.get_fee_type_display", read_only=True
     )
@@ -339,6 +445,7 @@ class StudentFeeListSerializer(serializers.ModelSerializer):
             "id",
             "student_name",
             "student_class",
+            "student_class_id",
             "fee_type",
             "fee_name",
             "amount_due",
@@ -371,9 +478,15 @@ class StudentFeeListSerializer(serializers.ModelSerializer):
 
 class StudentFeeSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source="student.full_name", read_only=True)
+
+    # student_class is now FK
     student_class = serializers.CharField(
-        source="student.get_student_class_display", read_only=True
+        source="student.student_class.name", read_only=True, allow_null=True
     )
+    student_class_id = serializers.IntegerField(
+        source="student.student_class.id", read_only=True, allow_null=True
+    )
+
     fee_structure_details = FeeStructureSerializer(
         source="fee_structure", read_only=True
     )
@@ -397,22 +510,23 @@ class StudentFeeSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
     def get_available_gateways(self, obj):
-        """Get available payment gateways for this fee"""
         active_gateways = PaymentGatewayConfig.objects.filter(
-            is_active=True, min_amount__lte=obj.balance, max_amount__gte=obj.balance
+            is_active=True,
+            min_amount__lte=obj.balance,
+            max_amount__gte=obj.balance,
         )
         return PaymentGatewayConfigSerializer(active_gateways, many=True).data
 
 
+# ---------------------------------------------------------------------------
+# Payment initiation / verification
+# ---------------------------------------------------------------------------
+
 class PaymentInitiationSerializer(serializers.Serializer):
     student_fee_id = serializers.IntegerField()
     amount = serializers.DecimalField(max_digits=10, decimal_places=2)
-    payment_gateway = serializers.ChoiceField(
-        choices=[]
-    )  # Will be populated dynamically
-    payment_method = serializers.ChoiceField(
-        choices=[]
-    )  # Will be populated dynamically
+    payment_gateway = serializers.ChoiceField(choices=[])
+    payment_method = serializers.ChoiceField(choices=[])
     email = serializers.EmailField()
     phone = serializers.CharField(max_length=20, required=False)
     callback_url = serializers.URLField(required=False)
@@ -420,7 +534,6 @@ class PaymentInitiationSerializer(serializers.Serializer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Dynamically populate choices from constants
         from .constants import PAYMENT_GATEWAYS, PAYMENT_METHODS
 
         self.fields["payment_gateway"].choices = PAYMENT_GATEWAYS
@@ -428,8 +541,7 @@ class PaymentInitiationSerializer(serializers.Serializer):
 
     def validate_student_fee_id(self, value):
         try:
-            student_fee = StudentFee.objects.get(id=value)
-            self.student_fee = student_fee  # Store for later validation
+            self.student_fee = StudentFee.objects.get(id=value)
             return value
         except StudentFee.DoesNotExist:
             raise serializers.ValidationError("Student fee record not found.")
@@ -441,10 +553,9 @@ class PaymentInitiationSerializer(serializers.Serializer):
 
     def validate_payment_gateway(self, value):
         try:
-            gateway_config = PaymentGatewayConfig.objects.get(
+            self.gateway_config = PaymentGatewayConfig.objects.get(
                 gateway=value, is_active=True
             )
-            self.gateway_config = gateway_config  # Store for later use
             return value
         except PaymentGatewayConfig.DoesNotExist:
             raise serializers.ValidationError("Payment gateway not available.")
@@ -464,7 +575,10 @@ class PaymentInitiationSerializer(serializers.Serializer):
             if amount < gateway_config.min_amount or amount > gateway_config.max_amount:
                 raise serializers.ValidationError(
                     {
-                        "amount": f"Amount must be between {gateway_config.min_amount} and {gateway_config.max_amount} for this gateway."
+                        "amount": (
+                            f"Amount must be between {gateway_config.min_amount} "
+                            f"and {gateway_config.max_amount} for this gateway."
+                        )
                     }
                 )
 
@@ -481,6 +595,10 @@ class PaymentVerificationSerializer(serializers.Serializer):
 
         self.fields["gateway"].choices = PAYMENT_GATEWAYS
 
+
+# ---------------------------------------------------------------------------
+# PaymentPlan create
+# ---------------------------------------------------------------------------
 
 class PaymentPlanCreateSerializer(serializers.ModelSerializer):
     installments_data = serializers.ListField(
@@ -501,38 +619,46 @@ class PaymentPlanCreateSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         student_fee = attrs.get("student_fee")
         total_amount = attrs.get("total_amount")
-
         if student_fee and total_amount:
             if total_amount > student_fee.balance:
                 raise serializers.ValidationError(
                     {"total_amount": "Plan amount cannot exceed outstanding balance."}
                 )
-
         return attrs
 
     def create(self, validated_data):
         installments_data = validated_data.pop("installments_data", [])
         payment_plan = PaymentPlan.objects.create(**validated_data)
-
-        # Create installments if provided
         for installment_data in installments_data:
             PaymentInstallment.objects.create(
                 payment_plan=payment_plan, **installment_data
             )
-
         return payment_plan
 
 
-class StudentDashboardSerializer(serializers.ModelSerializer):
-    """Serializer for student fee dashboard"""
+# ---------------------------------------------------------------------------
+# StudentDashboardSerializer
+# education_level is now a @property; student_class is now a FK
+# ---------------------------------------------------------------------------
 
+
+class StudentDashboardSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source="user.full_name", read_only=True)
+
+    # student_class is now FK — expose name for display
     student_class_display = serializers.CharField(
-        source="get_student_class_display", read_only=True
+        source="student_class.name", read_only=True, allow_null=True
     )
+    student_class_id = serializers.IntegerField(
+        source="student_class.id", read_only=True, allow_null=True
+    )
+
+    # education_level is now a @property returning level_type string
+    education_level = serializers.CharField(read_only=True)
     education_level_display = serializers.CharField(
-        source="get_education_level_display", read_only=True
+        source="education_level_display", read_only=True
     )
+
     profile_picture = serializers.CharField(read_only=True)
     admission_date = serializers.DateField(read_only=True)
     total_fees = serializers.SerializerMethodField()
@@ -554,6 +680,8 @@ class StudentDashboardSerializer(serializers.ModelSerializer):
             "id",
             "student_name",
             "student_class_display",
+            "student_class_id",
+            "education_level",
             "education_level_display",
             "profile_picture",
             "admission_date",
@@ -571,14 +699,14 @@ class StudentDashboardSerializer(serializers.ModelSerializer):
             "attendance_summary",
         ]
 
-    def get_current_session(self):
+    def _get_current_session(self):
         return AcademicSession.objects.filter(is_active=True).first()
 
     def get_total_fees(self, obj):
-        current_session = self.get_current_session()
-        if current_session:
+        session = self._get_current_session()
+        if session:
             return (
-                obj.fees.filter(academic_session=current_session).aggregate(
+                obj.fees.filter(academic_session=session).aggregate(
                     total=Sum("amount_due")
                 )["total"]
                 or 0
@@ -586,10 +714,10 @@ class StudentDashboardSerializer(serializers.ModelSerializer):
         return 0
 
     def get_total_paid(self, obj):
-        current_session = self.get_current_session()
-        if current_session:
+        session = self._get_current_session()
+        if session:
             return (
-                obj.fees.filter(academic_session=current_session).aggregate(
+                obj.fees.filter(academic_session=session).aggregate(
                     total=Sum("amount_paid")
                 )["total"]
                 or 0
@@ -600,39 +728,36 @@ class StudentDashboardSerializer(serializers.ModelSerializer):
         return self.get_total_fees(obj) - self.get_total_paid(obj)
 
     def get_overdue_count(self, obj):
-        current_session = self.get_current_session()
-        if current_session:
-            return obj.fees.filter(
-                academic_session=current_session, status="OVERDUE"
-            ).count()
+        session = self._get_current_session()
+        if session:
+            return obj.fees.filter(academic_session=session, status="OVERDUE").count()
         return 0
 
     def get_pending_count(self, obj):
-        current_session = self.get_current_session()
-        if current_session:
+        session = self._get_current_session()
+        if session:
             return obj.fees.filter(
-                academic_session=current_session, status__in=["PENDING", "PARTIAL"]
+                academic_session=session, status__in=["PENDING", "PARTIAL"]
             ).count()
         return 0
 
     def get_recent_payments(self, obj):
-        recent_payments = Payment.objects.filter(
+        recent = Payment.objects.filter(
             student_fee__student=obj, verified=True
         ).order_by("-payment_date")[:5]
-        return PaymentSerializer(recent_payments, many=True).data
+        return PaymentSerializer(recent, many=True).data
 
     def get_active_payment_plans(self, obj):
-        active_plans = PaymentPlan.objects.filter(
+        plans = PaymentPlan.objects.filter(
             student_fee__student=obj, is_active=True, is_completed=False
         )
-        return PaymentPlanSerializer(active_plans, many=True).data
+        return PaymentPlanSerializer(plans, many=True).data
 
     def get_upcoming_assignments(self, obj):
         from lesson.models import LessonAssessment
         from datetime import datetime
 
         now = datetime.now()
-        # Get assignments for lessons in the student's classes, due in the future
         return [
             {
                 "id": a.id,
@@ -650,7 +775,6 @@ class StudentDashboardSerializer(serializers.ModelSerializer):
     def get_recent_grades(self, obj):
         from result.models import StudentResult
 
-        # Get the 5 most recent results for this student
         return [
             {
                 "id": r.id,
@@ -671,7 +795,6 @@ class StudentDashboardSerializer(serializers.ModelSerializer):
         from datetime import date
 
         today = date.today()
-        # Lessons for today in the student's classes
         return [
             {
                 "id": l.id,
@@ -688,10 +811,12 @@ class StudentDashboardSerializer(serializers.ModelSerializer):
 
     def get_notifications(self, obj):
         from schoolSettings.models import SchoolAnnouncement
-        from django.utils import timezone
+        from django.utils import timezone as tz
 
-        now = timezone.now()
-        # Announcements targeted to students, active, and current
+        now = tz.now()
+        announcements = SchoolAnnouncement.objects.filter(
+            is_active=True, start_date__lte=now
+        ).filter(Q(end_date__isnull=True) | Q(end_date__gte=now))
         return [
             {
                 "id": n.id,
@@ -701,32 +826,25 @@ class StudentDashboardSerializer(serializers.ModelSerializer):
                 "start_date": n.start_date,
                 "end_date": n.end_date,
             }
-            for n in SchoolAnnouncement.objects.filter(
-                is_active=True,
-                start_date__lte=now,
-            ).filter(end_date__isnull=True)
-            | SchoolAnnouncement.objects.filter(
-                is_active=True, start_date__lte=now, end_date__gte=now
-            )
+            for n in announcements
             if "student" in (n.target_audience or [])
         ][:5]
 
     def get_attendance_summary(self, obj):
         from attendance.models import Attendance
-
-        total = Attendance.objects.filter(student=obj).count()
-        present = Attendance.objects.filter(student=obj, status="P").count()
-        absent = Attendance.objects.filter(student=obj, status="A").count()
-        late = Attendance.objects.filter(student=obj, status="L").count()
-        excused = Attendance.objects.filter(student=obj, status="E").count()
+        qs = Attendance.objects.filter(student=obj)
         return {
-            "total": total,
-            "present": present,
-            "absent": absent,
-            "late": late,
-            "excused": excused,
+            "total": qs.count(),
+            "present": qs.filter(status="P").count(),
+            "absent": qs.filter(status="A").count(),
+            "late": qs.filter(status="L").count(),
+            "excused": qs.filter(status="E").count(),
         }
 
+
+# ---------------------------------------------------------------------------
+# FeeDiscount / StudentDiscount / PaymentReminder
+# ---------------------------------------------------------------------------
 
 class FeeDiscountSerializer(serializers.ModelSerializer):
     discount_type_display = serializers.CharField(
@@ -773,33 +891,47 @@ class PaymentReminderSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+# ---------------------------------------------------------------------------
+# BulkFeeGenerationSerializer
+# education_level and student_class replaced with FK id fields
+# ---------------------------------------------------------------------------
+
 class BulkFeeGenerationSerializer(serializers.Serializer):
     """Serializer for bulk fee generation"""
 
     academic_session_id = serializers.IntegerField()
-    education_level = serializers.ChoiceField(
-        choices=[], required=False  # Will be populated from constants
+
+    # education_level: FK id to EducationLevel (replaces old ChoiceField from constants)
+    education_level_id = serializers.PrimaryKeyRelatedField(
+        queryset=EducationLevel.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text="Filter by EducationLevel FK id",
     )
-    student_class = serializers.ChoiceField(
-        choices=[], required=False  # Will be populated from constants
+    # student_class: FK id to StudentClass (replaces old ChoiceField from constants)
+    student_class_id = serializers.PrimaryKeyRelatedField(
+        queryset=StudentClass.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text="Filter by StudentClass FK id",
     )
+
     term = serializers.ChoiceField(
-        choices=[], required=False
-    )  # Will be populated from constants
+        choices=[
+            ("FIRST", "First Term"),
+            ("SECOND", "Second Term"),
+            ("THIRD", "Third Term"),
+        ],
+        required=False,
+    )
     fee_structure_ids = serializers.ListField(
         child=serializers.IntegerField(),
         required=False,
-        help_text="List of fee structure IDs to generate. If empty, all applicable fees will be generated.",
+        help_text=(
+            "List of fee structure IDs to generate. "
+            "If empty, all applicable fees will be generated."
+        ),
     )
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Populate choices from constants
-        from .constants import EDUCATION_LEVELS, CLASSES, TERMS
-
-        self.fields["education_level"].choices = EDUCATION_LEVELS
-        self.fields["student_class"].choices = CLASSES
-        self.fields["term"].choices = TERMS
 
     def validate_academic_session_id(self, value):
         try:
@@ -808,13 +940,45 @@ class BulkFeeGenerationSerializer(serializers.Serializer):
         except AcademicSession.DoesNotExist:
             raise serializers.ValidationError("Academic session not found.")
 
+    def validate(self, data):
+        """If student_class provided, ensure it belongs to the given education_level."""
+        education_level = data.get("education_level_id")
+        student_class = data.get("student_class_id")
+        if education_level and student_class:
+            if student_class.education_level_id != education_level.id:
+                raise serializers.ValidationError(
+                    {
+                        "student_class_id": "This class does not belong to the selected education level."
+                    }
+                )
+        return data
+
+
+# ---------------------------------------------------------------------------
+# FeeReportSerializer
+# education_level and student_class replaced with FK id fields
+# ---------------------------------------------------------------------------
 
 class FeeReportSerializer(serializers.Serializer):
     """Serializer for fee reports"""
 
     academic_session_id = serializers.IntegerField(required=False)
-    education_level = serializers.ChoiceField(choices=[], required=False)
-    student_class = serializers.ChoiceField(choices=[], required=False)
+
+    # FK id fields (replace old ChoiceField using constants.EDUCATION_LEVELS / CLASSES)
+    education_level_id = serializers.PrimaryKeyRelatedField(
+        queryset=EducationLevel.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text="Filter by EducationLevel FK id",
+    )
+    student_class_id = serializers.PrimaryKeyRelatedField(
+        queryset=StudentClass.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text="Filter by StudentClass FK id",
+    )
+
+    # fee_type and status are still plain choice fields on the Payment / FeeStructure model
     fee_type = serializers.ChoiceField(choices=[], required=False)
     status = serializers.ChoiceField(choices=[], required=False)
     payment_gateway = serializers.ChoiceField(choices=[], required=False)
@@ -833,25 +997,19 @@ class FeeReportSerializer(serializers.Serializer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Populate choices from constants
-        from .constants import (
-            EDUCATION_LEVELS,
-            CLASSES,
-            FEE_TYPES,
-            PAYMENT_STATUS,
-            PAYMENT_GATEWAYS,
-        )
+        from .constants import FEE_TYPES, PAYMENT_STATUS, PAYMENT_GATEWAYS
 
-        self.fields["education_level"].choices = EDUCATION_LEVELS
-        self.fields["student_class"].choices = CLASSES
         self.fields["fee_type"].choices = FEE_TYPES
         self.fields["status"].choices = PAYMENT_STATUS
         self.fields["payment_gateway"].choices = PAYMENT_GATEWAYS
 
 
-class PaymentStatsSerializer(serializers.Serializer):
-    """Serializer for payment statistics"""
+# ---------------------------------------------------------------------------
+# Statistics / analytics (output-only, no FK changes needed)
+# ---------------------------------------------------------------------------
 
+
+class PaymentStatsSerializer(serializers.Serializer):
     total_payments = serializers.IntegerField()
     total_amount = serializers.DecimalField(max_digits=15, decimal_places=2)
     successful_payments = serializers.IntegerField()
@@ -866,8 +1024,6 @@ class PaymentStatsSerializer(serializers.Serializer):
 
 
 class GatewayAnalyticsSerializer(serializers.Serializer):
-    """Serializer for gateway analytics"""
-
     gateway = serializers.CharField()
     total_transactions = serializers.IntegerField()
     total_amount = serializers.DecimalField(max_digits=15, decimal_places=2)

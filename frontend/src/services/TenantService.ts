@@ -33,6 +33,11 @@ export interface Tenant {
   activated_at?: string;
 }
 
+export type PublicTenant = Pick<          // <-- was missing the `<`
+  Tenant,
+  'id' | 'name' | 'slug' | 'status' | 'is_active' | 'subdomain_url'
+>;
+
 export interface TenantSettings {
   id: number;
   tenant: string;
@@ -85,8 +90,19 @@ export interface TenantSettings {
   updated_at: string;
 }
 
+export interface PublicTenantSettings {
+  logo?: string;
+  favicon?: string;
+  primary_color?: string;
+  secondary_color?: string;
+  school_motto?: string;
+  student_portal_enabled: boolean;
+  teacher_portal_enabled: boolean;
+  parent_portal_enabled: boolean;
+}
+
 export interface SchoolRegistrationData {
-  tenant_name: string;
+  school_name: string;
   slug: string;
   // admin_email?: string;
   // owner_email: string;
@@ -316,24 +332,8 @@ class TenantService {
    * Get public tenant information by slug (no auth required)
    */
   async getPublicTenant(slug: string): Promise<{
-    tenant: {
-      id: string;
-      name: string;
-      slug: string;
-      status: string;
-      is_active: boolean;
-      subdomain_url: string;
-    };
-    settings?: {
-      logo?: string;
-      favicon?: string;
-      primary_color?: string;
-      secondary_color?: string;
-      school_motto?: string;
-      student_portal_enabled: boolean;
-      teacher_portal_enabled: boolean;
-      parent_portal_enabled: boolean;
-    };
+    tenant: PublicTenant
+    settings?: PublicTenantSettings;
   }> {
     try {
       const response = await api.get(`/api/tenants/public/${slug}/`);
@@ -349,19 +349,13 @@ class TenantService {
    * This method is used by TenantContext and doesn't require authentication
    */
   async getTenantBySlug(slug: string): Promise<{
-    tenant: {
-      id: string;
-      name: string;
-      slug: string;
-      status: string;
-      is_active: boolean;
-      subdomain_url: string;
-    };
-    settings?: {
-      logo?: string;
-      favicon?: string;
-      primary_color?: string;
-      secondary_color?: string;
+    tenant: PublicTenant;
+    settings?: PublicTenantSettings;
+  }> {
+    return this.getPublicTenant(slug);
+  }
+
+  /**
       school_motto?: string;
       student_portal_enabled: boolean;
       teacher_portal_enabled: boolean;

@@ -1,6 +1,9 @@
 # academics/serializers.py
 from rest_framework import serializers
 from .models import (
+    TermType,
+    CalendarEventType,
+    EducationLevel,
     AcademicSession,
     Term,
     SubjectAllocation,
@@ -8,12 +11,61 @@ from .models import (
     AcademicCalendar,
 )
 
-# goodImport Subject from subject app
 from subject.models import Subject
 
 
+# ==============================================================================
+# NEW FK MODEL SERIALIZERS
+# ==============================================================================
+
+
+class TermTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TermType
+        fields = [
+            "id",
+            "name",
+            "code",
+            "description",
+            "display_order",
+            "is_active",
+        ]
+
+
+class CalendarEventTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CalendarEventType
+        fields = [
+            "id",
+            "name",
+            "code",
+            "description",
+            "color_code",
+            "icon",
+            "display_order",
+            "is_active",
+        ]
+
+
+class EducationLevelSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EducationLevel
+        fields = [
+            "id",
+            "name",
+            "code",
+            "description",
+            "display_order",
+            "is_active",
+        ]
+
+
+# ==============================================================================
+# ACADEMIC SESSION
+# ==============================================================================
+
 class AcademicSessionSerializer(serializers.ModelSerializer):
-    """Serializer for Academic Session"""
+    """Serializer for Academic Session — no FK migration here"""
 
     is_ongoing = serializers.BooleanField(read_only=True)
 
@@ -33,33 +85,54 @@ class AcademicSessionSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at", "is_ongoing"]
 
     def validate(self, data):
-        """Validate session data"""
         start_date = data.get("start_date")
         end_date = data.get("end_date")
-
         if start_date and end_date and start_date >= end_date:
             raise serializers.ValidationError(
                 {"end_date": "End date must be after start date"}
             )
-
         return data
 
 
+# ==============================================================================
+# TERM
+# ==============================================================================
+
 class TermSerializer(serializers.ModelSerializer):
-    """Serializer for Term"""
+    """
+    Serializer for Term.
+    UPDATED: term_type is a nested FK object on read; accepts PK on write via
+    term_type_id.  The old 'name' and 'name_display' fields are kept as
+    read-only computed fields so existing API consumers need no changes.
+    """
 
     academic_session_name = serializers.CharField(
         source="academic_session.name", read_only=True
     )
-    name_display = serializers.CharField(source="get_name_display", read_only=True)
     is_ongoing = serializers.BooleanField(read_only=True)
+
+    # UPDATED: nested on read
+    term_type = TermTypeSerializer(read_only=True)
+
+    # UPDATED: PK on write
+    term_type_id = serializers.PrimaryKeyRelatedField(
+        queryset=TermType.objects.all(),
+        source="term_type",
+        write_only=True,
+    )
+
+    # Backward-compat read aliases
+    name = serializers.SerializerMethodField()
+    name_display = serializers.SerializerMethodField()
 
     class Meta:
         model = Term
         fields = [
             "id",
-            "name",
-            "name_display",
+            "term_type",  # nested object (read)
+            "term_type_id",  # PK (write)
+            "name",  # backward-compat → term_type.name
+            "name_display",  # backward-compat → term_type.name
             "academic_session",
             "academic_session_name",
             "start_date",
@@ -73,41 +146,64 @@ class TermSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "is_ongoing"]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+            "is_ongoing",
+            "name",
+            "name_display",
+        ]
+
+    def get_name(self, obj):
+        return obj.term_type.name if obj.term_type else ""
+
+    def get_name_display(self, obj):
+        return obj.term_type.name if obj.term_type else ""
 
     def validate(self, data):
-        """Validate term data"""
         start_date = data.get("start_date")
         end_date = data.get("end_date")
         academic_session = data.get("academic_session")
 
-        # Validate start and end dates
         if start_date and end_date and start_date >= end_date:
             raise serializers.ValidationError(
                 {"end_date": "End date must be after start date"}
             )
 
-        # Validate term dates are within academic session
         if academic_session and start_date and end_date:
             if start_date < academic_session.start_date:
                 raise serializers.ValidationError(
                     {
-                        "start_date": f"Term start date cannot be before session start date ({academic_session.start_date})"
+                        "start_date": (
+                            f"Term start date cannot be before session start date "
+                            f"({academic_session.start_date})"
+                        )
                     }
                 )
-
             if end_date > academic_session.end_date:
                 raise serializers.ValidationError(
                     {
-                        "end_date": f"Term end date cannot be after session end date ({academic_session.end_date})"
+                        "end_date": (
+                            f"Term end date cannot be after session end date "
+                            f"({academic_session.end_date})"
+                        )
                     }
                 )
 
         return data
 
 
+# ==============================================================================
+# SUBJECT
+# ==============================================================================
+
 class SubjectSerializer(serializers.ModelSerializer):
-    """Serializer for Subject"""
+    """
+    Subject serializer used within the academics app.
+    subject_type on Subject is still a CharField with choices so
+    get_subject_type_display() remains valid.
+    """
 
     subject_type_display = serializers.CharField(
         source="get_subject_type_display", read_only=True
@@ -135,8 +231,15 @@ class SubjectSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "code", "created_at", "updated_at"]
 
 
+# ==============================================================================
+# SUBJECT ALLOCATION
+# ==============================================================================
+
 class SubjectAllocationSerializer(serializers.ModelSerializer):
-    """Serializer for Subject Allocation"""
+    """
+    Serializer for Subject Allocation.
+    UPDATED: education_level is a nested FK object on read; PK on write.
+    """
 
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     teacher_name = serializers.CharField(
@@ -144,6 +247,16 @@ class SubjectAllocationSerializer(serializers.ModelSerializer):
     )
     academic_session_name = serializers.CharField(
         source="academic_session.name", read_only=True
+    )
+
+    # UPDATED: nested on read
+    education_level = EducationLevelSerializer(read_only=True)
+
+    # UPDATED: PK on write
+    education_level_id = serializers.PrimaryKeyRelatedField(
+        queryset=EducationLevel.objects.all(),
+        source="education_level",
+        write_only=True,
     )
 
     class Meta:
@@ -156,7 +269,8 @@ class SubjectAllocationSerializer(serializers.ModelSerializer):
             "teacher_name",
             "academic_session",
             "academic_session_name",
-            "education_level",
+            "education_level",  # nested object (read)
+            "education_level_id",  # PK (write)
             "student_class",
             "periods_per_week",
             "is_active",
@@ -165,20 +279,38 @@ class SubjectAllocationSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at"]
 
 
+# ==============================================================================
+# CURRICULUM
+# ==============================================================================
+
 class CurriculumSerializer(serializers.ModelSerializer):
-    """Serializer for Curriculum"""
+    """
+    Serializer for Curriculum.
+    UPDATED: education_level is a nested FK object on read; PK on write.
+    """
 
     academic_session_name = serializers.CharField(
         source="academic_session.name", read_only=True
     )
     subjects_count = serializers.SerializerMethodField()
 
+    # UPDATED: nested on read
+    education_level = EducationLevelSerializer(read_only=True)
+
+    # UPDATED: PK on write
+    education_level_id = serializers.PrimaryKeyRelatedField(
+        queryset=EducationLevel.objects.all(),
+        source="education_level",
+        write_only=True,
+    )
+
     class Meta:
         model = Curriculum
         fields = [
             "id",
             "name",
-            "education_level",
+            "education_level",  # nested object (read)
+            "education_level_id",  # PK (write)
             "academic_session",
             "academic_session_name",
             "description",
@@ -193,18 +325,37 @@ class CurriculumSerializer(serializers.ModelSerializer):
         return obj.subjects.count()
 
 
-class AcademicCalendarSerializer(serializers.ModelSerializer):
-    """Serializer for Academic Calendar Events"""
+# ==============================================================================
+# ACADEMIC CALENDAR
+# ==============================================================================
 
-    event_type_display = serializers.CharField(
-        source="get_event_type_display", read_only=True
-    )
+class AcademicCalendarSerializer(serializers.ModelSerializer):
+    """
+    Serializer for Academic Calendar Events.
+    UPDATED: event_type is a nested FK object on read; PK on write via
+    event_type_id.  event_type_display is kept as a backward-compat read field.
+    """
+
     academic_session_name = serializers.CharField(
         source="academic_session.name", read_only=True
     )
+    # term.name resolves through the backward-compat property on Term
     term_name = serializers.CharField(
-        source="term.get_name_display", read_only=True, allow_null=True
+        source="term.name", read_only=True, allow_null=True
     )
+
+    # UPDATED: nested on read
+    event_type = CalendarEventTypeSerializer(read_only=True)
+
+    # UPDATED: PK on write
+    event_type_id = serializers.PrimaryKeyRelatedField(
+        queryset=CalendarEventType.objects.all(),
+        source="event_type",
+        write_only=True,
+    )
+
+    # Backward-compat display field (replaces get_event_type_display())
+    event_type_display = serializers.SerializerMethodField()
 
     class Meta:
         model = AcademicCalendar
@@ -212,8 +363,9 @@ class AcademicCalendarSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "description",
-            "event_type",
-            "event_type_display",
+            "event_type",  # nested object (read)
+            "event_type_id",  # PK (write)
+            "event_type_display",  # backward-compat string (read)
             "academic_session",
             "academic_session_name",
             "term",
@@ -228,10 +380,13 @@ class AcademicCalendarSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at", "event_type_display"]
+
+    def get_event_type_display(self, obj):
+        """Mimics the old get_event_type_display() for API backward compat."""
+        return obj.event_type.name if obj.event_type else ""
 
     def validate(self, data):
-        """Validate calendar event data"""
         start_date = data.get("start_date")
         end_date = data.get("end_date")
         start_time = data.get("start_time")

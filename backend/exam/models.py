@@ -1,3 +1,4 @@
+# exams/models.py - UPDATED FOR FK-BASED MODELS
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
@@ -7,32 +8,10 @@ from datetime import datetime
 from tenants.models import TenantMixin
 from academics.models import AcademicSession, Term
 from subject.models import Subject
-from classroom.models import GradeLevel, Section
+from classroom.models import GradeLevel, Section, Stream
 from teacher.models import Teacher
 from students.models import Student
 
-
-# Simplified exam type choices (remove academic types)
-EXAM_TYPE_CHOICES = [
-    ("quiz", "Quiz"),
-    ("test", "Class Test"),
-    ("mid_term", "Mid-Term Examination"),
-    ("final_exam", "Final Examination"),
-    ("practical", "Practical Examination"),
-    ("oral_exam", "Oral Examination"),
-]
-
-EXAM_STATUS_CHOICES = [
-    ("draft", "Draft"),
-    ("pending_approval", "Pending Approval"),
-    ("approved", "Approved"),
-    ("scheduled", "Scheduled"),
-    ("in_progress", "In Progress"),
-    ("completed", "Completed"),
-    ("cancelled", "Cancelled"),
-    ("postponed", "Postponed"),
-    ("rejected", "Rejected"),
-]
 
 DIFFICULTY_CHOICES = [
     ("easy", "Easy"),
@@ -41,22 +20,176 @@ DIFFICULTY_CHOICES = [
     ("mixed", "Mixed"),
 ]
 
+# ==============================================================================
+# NEW FK MODELS - Replace CharField choices
+# ==============================================================================
+
+
+class ExamType(TenantMixin, models.Model):
+    """
+    Exam Type model - REPLACES EXAM_TYPE_CHOICES CharField
+    Examples: Quiz, Test, Mid-Term, Final Exam, Practical, Oral
+    """
+
+    name = models.CharField(
+        max_length=100,
+        help_text="Exam type name (e.g., 'Quiz', 'Mid-Term Examination')",
+    )
+
+    code = models.CharField(
+        max_length=50, help_text="Unique code (e.g., 'quiz', 'mid_term', 'final_exam')"
+    )
+
+    description = models.TextField(blank=True)
+
+    # Weighting
+    default_weight = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Default weight percentage in overall grade",
+    )
+
+    # Display order
+    display_order = models.PositiveIntegerField(
+        default=0, help_text="Order for displaying exam types"
+    )
+
+    # Settings
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "exam_type"
+        ordering = ["display_order", "name"]
+        unique_together = [("tenant", "code")]
+        indexes = [
+            models.Index(fields=["tenant", "code"]),
+            models.Index(fields=["tenant", "is_active"]),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class DifficultyLevel(TenantMixin, models.Model):
+    """
+    Difficulty Level model - REPLACES DIFFICULTY_CHOICES CharField
+    Examples: Easy, Medium, Hard, Mixed
+    """
+
+    name = models.CharField(
+        max_length=50,
+        help_text="Difficulty level name (e.g., 'Easy', 'Medium', 'Hard')",
+    )
+
+    code = models.CharField(
+        max_length=20, help_text="Unique code (e.g., 'easy', 'medium', 'hard')"
+    )
+
+    description = models.TextField(blank=True)
+
+    # Display
+    color_code = models.CharField(
+        max_length=7,
+        blank=True,
+        help_text="Hex color code for UI display (e.g., '#4CAF50' for easy)",
+    )
+
+    display_order = models.PositiveIntegerField(default=0)
+
+    # Settings
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "exam_difficulty_level"
+        ordering = ["display_order", "name"]
+        unique_together = [("tenant", "code")]
+        indexes = [
+            models.Index(fields=["tenant", "code"]),
+            models.Index(fields=["tenant", "is_active"]),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class ExamStatus(TenantMixin, models.Model):
+    """
+    Exam Status model - REPLACES EXAM_STATUS_CHOICES CharField
+    Examples: Draft, Pending Approval, Approved, Scheduled, In Progress, Completed
+    """
+
+    name = models.CharField(
+        max_length=100,
+        help_text="Status name (e.g., 'Draft', 'Pending Approval', 'Approved')",
+    )
+
+    code = models.CharField(
+        max_length=50,
+        help_text="Unique code (e.g., 'draft', 'pending_approval', 'approved')",
+    )
+
+    description = models.TextField(blank=True)
+
+    # Workflow
+    is_initial = models.BooleanField(
+        default=False, help_text="Is this the initial status for new exams?"
+    )
+
+    is_final = models.BooleanField(
+        default=False, help_text="Is this a final/terminal status?"
+    )
+
+    allows_editing = models.BooleanField(
+        default=True, help_text="Can exam be edited in this status?"
+    )
+
+    # Display
+    color_code = models.CharField(
+        max_length=7, blank=True, help_text="Hex color code for UI display"
+    )
+
+    display_order = models.PositiveIntegerField(default=0)
+
+    # Settings
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "exam_status"
+        ordering = ["display_order", "name"]
+        unique_together = [("tenant", "code")]
+        indexes = [
+            models.Index(fields=["tenant", "code"]),
+            models.Index(fields=["tenant", "is_active"]),
+            models.Index(fields=["tenant", "is_initial"]),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+# ==============================================================================
+# EXISTING MODELS - Keep as is
+# ==============================================================================
+
 
 def get_default_exam_schedule_id():
-    """
-    Get default exam schedule ID with proper fallback logic
-    """
-    # Try to get marked default
+    """Get default exam schedule ID with proper fallback logic"""
     default_schedule = ExamSchedule.objects.filter(is_default=True).first()
     if default_schedule:
         return default_schedule.id
 
-    # Try to get active schedule
     active_schedule = ExamSchedule.objects.filter(is_active=True).first()
     if active_schedule:
         return active_schedule.id
 
-    # Try to get current schedule based on dates
     current_date = timezone.now().date()
     current_schedule = ExamSchedule.objects.filter(
         start_date__lte=current_date, end_date__gte=current_date
@@ -64,12 +197,10 @@ def get_default_exam_schedule_id():
     if current_schedule:
         return current_schedule.id
 
-    # Fallback to any available schedule
     any_schedule = ExamSchedule.objects.first()
     if any_schedule:
         return any_schedule.id
 
-    # If no schedules exist, return None
     return None
 
 
@@ -79,7 +210,7 @@ class ExamSchedule(TenantMixin, models.Model):
     name = models.CharField(max_length=150)
     description = models.TextField(blank=True)
 
-    # Use academic app models
+    # Academic relationships
     academic_session = models.ForeignKey(AcademicSession, on_delete=models.CASCADE)
     term = models.ForeignKey(Term, on_delete=models.CASCADE)
 
@@ -95,13 +226,12 @@ class ExamSchedule(TenantMixin, models.Model):
     # Settings
     is_active = models.BooleanField(default=True)
     allow_late_registration = models.BooleanField(default=False)
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
     is_default = models.BooleanField(
         default=False, help_text="Mark this as the default exam schedule for new exams"
     )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "exams_schedule"
@@ -113,7 +243,6 @@ class ExamSchedule(TenantMixin, models.Model):
         return f"{self.name} - {self.term} ({self.academic_session}){default_text}"
 
     def save(self, *args, **kwargs):
-        # Ensure only one default schedule exists
         if self.is_default:
             ExamSchedule.objects.filter(is_default=True).exclude(pk=self.pk).update(
                 is_default=False
@@ -153,7 +282,6 @@ class ExamSchedule(TenantMixin, models.Model):
         return self.start_date <= current_date <= self.end_date
 
     def clean(self):
-        # Validate dates are within term dates
         if self.term:
             if (
                 self.start_date < self.term.start_date
@@ -161,11 +289,9 @@ class ExamSchedule(TenantMixin, models.Model):
             ):
                 raise ValidationError("Exam dates must be within term dates")
 
-        # Validate start_date is before end_date
         if self.start_date and self.end_date and self.start_date > self.end_date:
             raise ValidationError("Start date must be before end date")
 
-        # Validate registration dates
         if self.registration_start and self.registration_end:
             if self.registration_start > self.registration_end:
                 raise ValidationError(
@@ -173,31 +299,38 @@ class ExamSchedule(TenantMixin, models.Model):
                 )
 
 
-# 2. Update your Exam model with default
+# ==============================================================================
+# UPDATED: EXAM MODEL - FK-BASED
+# ==============================================================================
+
 class Exam(TenantMixin, models.Model):
-    """Streamlined exam model focused on logistics"""
+    """
+    Streamlined exam model focused on logistics
+    UPDATED: Uses FK for exam_type, difficulty_level, and status
+    """
 
     # Basic info
     title = models.CharField(max_length=200)
-    # code = models.CharField(max_length=20, blank=True)
     code = models.CharField(max_length=50, blank=True)
     description = models.TextField(blank=True)
 
-    # Academic relationships (use academic app)
+    # Academic relationships
     subject = models.ForeignKey(Subject, on_delete=models.CASCADE)
     grade_level = models.ForeignKey(GradeLevel, on_delete=models.CASCADE)
     section = models.ForeignKey(
         Section, on_delete=models.SET_NULL, null=True, blank=True
     )
+
     # Stream support for Senior Secondary
     stream = models.ForeignKey(
-        "classroom.Stream",
+        Stream,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="exams",
         help_text="Stream for Senior Secondary exams (Science, Arts, Commercial, Technical)",
     )
+
     exam_schedule = models.ForeignKey(
         ExamSchedule,
         on_delete=models.CASCADE,
@@ -215,13 +348,43 @@ class Exam(TenantMixin, models.Model):
         Teacher, blank=True, related_name="invigilated_exams"
     )
 
-    # Exam configuration
-    exam_type = models.CharField(
-        max_length=25, choices=EXAM_TYPE_CHOICES, default="final_exam"
+    # ==============================================================================
+    # UPDATED: FK-BASED FIELDS (replacing old CharFields)
+    # ==============================================================================
+
+    # exam_type: FK to ExamType (replaces old CharField)
+    exam_type = models.ForeignKey(
+        ExamType,
+        on_delete=models.PROTECT,
+        related_name="exams",
+        help_text="Type of exam (Quiz, Test, Mid-Term, Final, etc.)",
     )
+
     difficulty_level = models.CharField(
         max_length=10, choices=DIFFICULTY_CHOICES, default="medium"
     )
+
+    # difficulty_level: FK to DifficultyLevel (replaces old CharField)
+    difficulty_level = models.ForeignKey(
+        DifficultyLevel,
+        on_delete=models.PROTECT,
+        related_name="exams",
+        null=True,
+        blank=True,
+        help_text="Difficulty level of the exam",
+    )
+
+    # status: FK to ExamStatus (replaces old CharField)
+    status = models.ForeignKey(
+        ExamStatus,
+        on_delete=models.PROTECT,
+        related_name="exams",
+        help_text="Current status of the exam",
+    )
+
+    # ==============================================================================
+    # END UPDATED FIELDS
+    # ==============================================================================
 
     # Scheduling
     exam_date = models.DateField()
@@ -259,10 +422,7 @@ class Exam(TenantMixin, models.Model):
     )
     answer_key = models.FileField(upload_to="exam_answers/", blank=True, null=True)
 
-    # Status and flags
-    status = models.CharField(
-        max_length=20, choices=EXAM_STATUS_CHOICES, default="draft"
-    )
+    # Flags
     is_practical = models.BooleanField(default=False)
     requires_computer = models.BooleanField(default=False)
     is_online = models.BooleanField(default=False)
@@ -289,54 +449,77 @@ class Exam(TenantMixin, models.Model):
         db_table = "exams_exam"
         ordering = ["exam_date", "start_time"]
         unique_together = [("tenant", "code")]
-        # Note: unique_together for code ensures uniqueness per tenant
-        # This allows multiple exams for the same subject/grade_level/exam_type/schedule
-        # even if they have different sections or no section
+        indexes = [
+            models.Index(fields=["tenant", "exam_type"]),
+            models.Index(fields=["tenant", "status"]),
+            models.Index(fields=["tenant", "exam_date"]),
+            models.Index(fields=["tenant", "grade_level"]),
+        ]
 
     def __str__(self):
         return f"{self.title} - {self.subject.name} ({self.exam_schedule.name if self.exam_schedule else 'No Schedule'})"
 
     def approve(self, approver, notes=""):
         """Approve the exam"""
-        from django.utils import timezone
-
-        self.status = "approved"
-        self.approved_by = approver
-        self.approved_at = timezone.now()
-        self.approval_notes = notes
-        self.rejection_reason = ""  # Clear any previous rejection reason
-        self.save()
+        try:
+            approved_status = ExamStatus.objects.get(
+                code="approved", tenant=self.tenant
+            )
+            self.status = approved_status
+            self.approved_by = approver
+            self.approved_at = timezone.now()
+            self.approval_notes = notes
+            self.rejection_reason = ""
+            self.save()
+        except ExamStatus.DoesNotExist:
+            raise ValidationError(
+                "Approved status not found. Please create exam statuses first."
+            )
 
     def reject(self, approver, reason=""):
         """Reject the exam"""
-        from django.utils import timezone
-
-        self.status = "rejected"
-        self.approved_by = approver
-        self.approved_at = timezone.now()
-        self.rejection_reason = reason
-        self.approval_notes = ""  # Clear any previous approval notes
-        self.save()
+        try:
+            rejected_status = ExamStatus.objects.get(
+                code="rejected", tenant=self.tenant
+            )
+            self.status = rejected_status
+            self.approved_by = approver
+            self.approved_at = timezone.now()
+            self.rejection_reason = reason
+            self.approval_notes = ""
+            self.save()
+        except ExamStatus.DoesNotExist:
+            raise ValidationError(
+                "Rejected status not found. Please create exam statuses first."
+            )
 
     def submit_for_approval(self):
         """Submit exam for approval"""
-        self.status = "pending_approval"
-        self.save()
+        try:
+            pending_status = ExamStatus.objects.get(
+                code="pending_approval", tenant=self.tenant
+            )
+            self.status = pending_status
+            self.save()
+        except ExamStatus.DoesNotExist:
+            raise ValidationError(
+                "Pending approval status not found. Please create exam statuses first."
+            )
 
     @property
     def is_pending_approval(self):
         """Check if exam is pending approval"""
-        return self.status == "pending_approval"
+        return self.status.code == "pending_approval" if self.status else False
 
     @property
     def is_approved(self):
         """Check if exam is approved"""
-        return self.status == "approved"
+        return self.status.code == "approved" if self.status else False
 
     @property
     def is_rejected(self):
         """Check if exam is rejected"""
-        return self.status == "rejected"
+        return self.status.code == "rejected" if self.status else False
 
     @property
     def duration(self):
@@ -352,17 +535,17 @@ class Exam(TenantMixin, models.Model):
     @property
     def academic_session(self):
         """Get academic session from exam schedule"""
-        return self.exam_schedule.academic_session
+        return self.exam_schedule.academic_session if self.exam_schedule else None
 
     @property
     def term(self):
         """Get term from exam schedule"""
-        return self.exam_schedule.term
+        return self.exam_schedule.term if self.exam_schedule else None
 
     @property
     def session_year(self):
         """Get session year from exam schedule"""
-        return self.exam_schedule.session_year
+        return self.exam_schedule.session_year if self.exam_schedule else None
 
     def save(self, *args, **kwargs):
         # Auto-generate code
@@ -384,7 +567,7 @@ class Exam(TenantMixin, models.Model):
         counter = 1
         code = f"{base_code}-{counter:02d}"
 
-        while Exam.objects.filter(code=code).exists():
+        while Exam.objects.filter(code=code, tenant=self.tenant).exists():
             counter += 1
             code = f"{base_code}-{counter:02d}"
 
@@ -414,6 +597,10 @@ class Exam(TenantMixin, models.Model):
             raise ValidationError("Pass marks cannot be greater than total marks")
 
 
+# ==============================================================================
+# EXISTING MODELS - Keep as is
+# ==============================================================================
+
 class ExamRegistration(TenantMixin, models.Model):
     """Student exam registration with special needs"""
 
@@ -436,13 +623,10 @@ class ExamRegistration(TenantMixin, models.Model):
     class Meta:
         db_table = "exams_registration"
         unique_together = [("tenant", "exam", "student")]
-        # Fix: Remove the problematic ordering for now, or use correct field path
-        # ordering = ["exam__exam_date", "student__first_name"]  # This was causing the error
-        # ordering = ["exam__exam_date", "registration_date"]  # Use available fields
         ordering = ["id"]
 
     def __str__(self):
-        return f"{self.student.get_full_name()} - {self.exam.title}"
+        return f"{self.student.user.get_full_name()} - {self.exam.title}"
 
 
 class ExamStatistics(TenantMixin, models.Model):
@@ -488,7 +672,6 @@ class ExamStatistics(TenantMixin, models.Model):
         """Method to recalculate statistics"""
         from result.models import StudentResult
 
-        # Get all results for this exam
         results = StudentResult.objects.filter(exam=self.exam)
 
         if results.exists():
@@ -523,10 +706,9 @@ class ExamStatistics(TenantMixin, models.Model):
         self.save()
 
 
-# ===================================
-# EXAM-003: NEW EXAM FEATURES
-# ===================================
-
+# ==============================================================================
+# QUESTION BANK & TEMPLATES - Keep as is with updated FK
+# ==============================================================================
 
 QUESTION_TYPE_CHOICES = [
     ("objective", "Objective"),
@@ -538,7 +720,7 @@ QUESTION_TYPE_CHOICES = [
 class QuestionBank(TenantMixin, models.Model):
     """
     Question Bank for reusable questions across multiple exams
-    Implements EXAM-003 Feature 1: Question Bank
+    UPDATED: Uses difficulty_level FK
     """
 
     # Ownership
@@ -576,7 +758,15 @@ class QuestionBank(TenantMixin, models.Model):
     subject = models.ForeignKey(Subject, on_delete=models.CASCADE)
     topic = models.CharField(max_length=200, blank=True)
     subtopic = models.CharField(max_length=200, blank=True)
-    difficulty = models.CharField(max_length=10, choices=DIFFICULTY_CHOICES, default="medium")
+
+    # UPDATED: FK to DifficultyLevel (replaces old CharField)
+    difficulty = models.ForeignKey(
+        DifficultyLevel,
+        on_delete=models.PROTECT,
+        related_name="questions",
+        help_text="Difficulty level of this question",
+    )
+
     grade_level = models.ForeignKey(GradeLevel, on_delete=models.CASCADE)
 
     # Categorization
@@ -611,17 +801,13 @@ class QuestionBank(TenantMixin, models.Model):
 
     def increment_usage(self):
         """Increment usage counter and update last used time"""
-        from django.utils import timezone
         self.usage_count += 1
         self.last_used = timezone.now()
         self.save()
 
 
 class ExamTemplate(TenantMixin, models.Model):
-    """
-    Exam Templates for reusable exam structures
-    Implements EXAM-003 Feature 2: Exam Templates
-    """
+    """Exam Templates for reusable exam structures"""
 
     # Ownership
     created_by = models.ForeignKey(
@@ -686,26 +872,45 @@ class ExamTemplate(TenantMixin, models.Model):
         self.save()
 
 
-REVIEW_STATUS_CHOICES = [
-    ("draft", "Draft"),
-    ("submitted", "Submitted for Review"),
-    ("in_review", "In Review"),
-    ("changes_requested", "Changes Requested"),
-    ("approved", "Approved"),
-    ("rejected", "Rejected"),
-]
+# ==============================================================================
+# REVIEW WORKFLOW - Keep as is with updated FK
+# ==============================================================================
 
-REVIEW_DECISION_CHOICES = [
-    ("approve", "Approve"),
-    ("request_changes", "Request Changes"),
-    ("reject", "Reject"),
-]
+
+class ReviewStatus(TenantMixin, models.Model):
+    """
+    Review Status model - REPLACES REVIEW_STATUS_CHOICES CharField
+    """
+
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=50)
+    description = models.TextField(blank=True)
+
+    # Workflow
+    is_initial = models.BooleanField(default=False)
+    is_final = models.BooleanField(default=False)
+
+    # Display
+    color_code = models.CharField(max_length=7, blank=True)
+    display_order = models.PositiveIntegerField(default=0)
+
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "exam_review_status"
+        ordering = ["display_order", "name"]
+        unique_together = [("tenant", "code")]
+
+    def __str__(self):
+        return self.name
 
 
 class ExamReview(TenantMixin, models.Model):
     """
     Exam Review workflow for exam approval process
-    Implements EXAM-003 Feature 3: Collaboration/Review Workflow
+    UPDATED: Uses ReviewStatus FK
     """
 
     exam = models.OneToOneField(
@@ -714,11 +919,12 @@ class ExamReview(TenantMixin, models.Model):
         related_name="review"
     )
 
-    # Workflow State
-    status = models.CharField(
-        max_length=20,
-        choices=REVIEW_STATUS_CHOICES,
-        default="draft"
+    # UPDATED: FK to ReviewStatus (replaces old CharField)
+    status = models.ForeignKey(
+        ReviewStatus,
+        on_delete=models.PROTECT,
+        related_name="reviews",
+        help_text="Current review status",
     )
 
     # Submission
@@ -753,48 +959,68 @@ class ExamReview(TenantMixin, models.Model):
         ]
 
     def __str__(self):
-        return f"Review: {self.exam.title} ({self.get_status_display()})"
+        return f"Review: {self.exam.title} ({self.status.name})"
 
     def submit(self):
         """Submit exam for review"""
-        from django.utils import timezone
-        self.status = "submitted"
-        self.submitted_at = timezone.now()
-        self.save()
-        # Also update exam status
-        self.exam.submit_for_approval()
+        try:
+            submitted_status = ReviewStatus.objects.get(
+                code="submitted", tenant=self.tenant
+            )
+            self.status = submitted_status
+            self.submitted_at = timezone.now()
+            self.save()
+            self.exam.submit_for_approval()
+        except ReviewStatus.DoesNotExist:
+            raise ValidationError(
+                "Submitted status not found. Please create review statuses first."
+            )
 
     def approve(self, approver, notes=""):
         """Approve the exam"""
-        from django.utils import timezone
-        self.status = "approved"
-        self.approved_by = approver
-        self.approved_at = timezone.now()
-        self.save()
-        # Also update exam
-        self.exam.approve(approver, notes)
+        try:
+            approved_status = ReviewStatus.objects.get(
+                code="approved", tenant=self.tenant
+            )
+            self.status = approved_status
+            self.approved_by = approver
+            self.approved_at = timezone.now()
+            self.save()
+            self.exam.approve(approver, notes)
+        except ReviewStatus.DoesNotExist:
+            raise ValidationError(
+                "Approved status not found. Please create review statuses first."
+            )
 
     def request_changes(self):
         """Request changes to the exam"""
-        self.status = "changes_requested"
-        self.save()
+        try:
+            changes_status = ReviewStatus.objects.get(
+                code="changes_requested", tenant=self.tenant
+            )
+            self.status = changes_status
+            self.save()
+        except ReviewStatus.DoesNotExist:
+            raise ValidationError("Changes requested status not found.")
 
     def reject(self, approver, reason=""):
         """Reject the exam"""
-        from django.utils import timezone
-        self.status = "rejected"
-        self.approved_by = approver
-        self.approved_at = timezone.now()
-        self.rejection_reason = reason
-        self.save()
-        # Also update exam
-        self.exam.reject(approver, reason)
+        try:
+            rejected_status = ReviewStatus.objects.get(
+                code="rejected", tenant=self.tenant
+            )
+            self.status = rejected_status
+            self.approved_by = approver
+            self.approved_at = timezone.now()
+            self.rejection_reason = reason
+            self.save()
+            self.exam.reject(approver, reason)
+        except ReviewStatus.DoesNotExist:
+            raise ValidationError("Rejected status not found.")
 
 
 class ExamReviewer(TenantMixin, models.Model):
-    """
-    Reviewers assigned to an exam review
-    """
+    """Reviewers assigned to an exam review"""
 
     review = models.ForeignKey(
         ExamReview,
@@ -810,10 +1036,16 @@ class ExamReviewer(TenantMixin, models.Model):
     # Review status
     assigned_at = models.DateTimeField(auto_now_add=True)
     reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    # Keep as CharField for now (or create ReviewDecision model if needed)
     decision = models.CharField(
         max_length=20,
-        choices=REVIEW_DECISION_CHOICES,
-        blank=True
+        choices=[
+            ("approve", "Approve"),
+            ("request_changes", "Request Changes"),
+            ("reject", "Reject"),
+        ],
+        blank=True,
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -824,20 +1056,22 @@ class ExamReviewer(TenantMixin, models.Model):
         ordering = ["assigned_at"]
 
     def __str__(self):
-        return f"{self.reviewer.get_full_name()} - {self.review.exam.title}"
+        reviewer_name = (
+            self.reviewer.user.get_full_name()
+            if hasattr(self.reviewer, "user")
+            else str(self.reviewer)
+        )
+        return f"{reviewer_name} - {self.review.exam.title}"
 
     def submit_review(self, decision):
         """Submit review decision"""
-        from django.utils import timezone
         self.decision = decision
         self.reviewed_at = timezone.now()
         self.save()
 
 
 class ExamReviewComment(TenantMixin, models.Model):
-    """
-    Comments on exam reviews
-    """
+    """Comments on exam reviews"""
 
     review = models.ForeignKey(
         ExamReview,
@@ -885,12 +1119,15 @@ class ExamReviewComment(TenantMixin, models.Model):
         ]
 
     def __str__(self):
-        author_name = self.author.get_full_name() if hasattr(self.author, 'get_full_name') else str(self.author)
+        author_name = (
+            self.author.user.get_full_name()
+            if hasattr(self.author, "user")
+            else str(self.author)
+        )
         return f"Comment by {author_name} on {self.review.exam.title}"
 
     def resolve(self, resolver):
         """Mark comment as resolved"""
-        from django.utils import timezone
         self.is_resolved = True
         self.resolved_at = timezone.now()
         self.resolved_by = resolver

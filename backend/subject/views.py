@@ -14,23 +14,33 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 import logging
 
+from tenants.mixins import TenantFilterMixin
+from utils.section_filtering import AutoSectionFilterMixin
+from utils.pagination import StandardResultsPagination, LargeResultsPagination
+
 from .models import (
     Subject,
-    SUBJECT_CATEGORY_CHOICES,
-    EDUCATION_LEVELS,
+    SubjectCategory,
+    SubjectType,
     SchoolStreamConfiguration,
     SchoolStreamSubjectAssignment,
 )
 
 # from classroom.models import GradeLevel  # Commented out to avoid circular import
+from classroom.models import GradeLevel
+from students.models import EducationLevel
+
 from .serializers import (
     SubjectSerializer,
     SubjectListSerializer,
     SubjectCreateUpdateSerializer,
     SubjectEducationLevelSerializer,
+    SubjectCategorySerializer,
+    SubjectTypeSerializer,
     SchoolStreamConfigurationSerializer,
     SchoolStreamSubjectAssignmentSerializer,
 )
+
 
 # Import the separated viewsets
 from .subjectviewset import SubjectViewSet
@@ -43,21 +53,152 @@ logger = logging.getLogger(__name__)
 
 
 # ==============================================================================
-# HEALTH CHECK ENDPOINT
+# SubjectCategory ViewSet - NEW
 # ==============================================================================
-@api_view(["GET"])
-def health_check(request):
+class SubjectCategoryViewSet(
+    TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet
+):
     """
-    Simple health check endpoint for monitoring API status
+    ViewSet for managing subject categories
+    REPLACES: Old SUBJECT_CATEGORY_CHOICES CharField
     """
-    return Response(
-        {
-            "status": "healthy",
-            "timestamp": timezone.now().isoformat(),
-            "version": "v1.0",
-            "service": "subjects-api",
-        }
-    )
+
+    queryset = SubjectCategory.objects.all()
+    serializer_class = SubjectCategorySerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsPagination
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter,
+    ]
+    filterset_fields = ["is_active"]
+    search_fields = ["name", "code", "description"]
+    ordering_fields = ["name", "display_order", "created_at"]
+    ordering = ["display_order", "name"]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.prefetch_related(
+            Prefetch(
+                "subjects_new",
+                queryset=Subject.objects.filter(is_active=True).order_by(
+                    "subject_order"
+                ),
+            )
+        )
+
+    @action(detail=True, methods=["get"])
+    def subjects(self, request, pk=None):
+        """Get all subjects in this category"""
+        category = self.get_object()
+        subjects = category.subjects_new.filter(is_active=True).order_by(
+            "subject_order"
+        )
+        subjects = self.apply_section_filters(subjects)
+
+        serializer = SubjectListSerializer(subjects, many=True)
+        return Response(
+            {
+                "category": SubjectCategorySerializer(category).data,
+                "total_subjects": subjects.count(),
+                "subjects": serializer.data,
+            }
+        )
+
+    @action(detail=False, methods=["get"])
+    def statistics(self, request):
+        """Get category statistics"""
+        queryset = self.get_queryset()
+
+        stats = []
+        for category in queryset.filter(is_active=True):
+            subject_count = category.subjects_new.filter(is_active=True).count()
+            stats.append(
+                {
+                    "id": category.id,
+                    "name": category.name,
+                    "code": category.code,
+                    "subject_count": subject_count,
+                    "color_code": category.color_code,
+                }
+            )
+
+        return Response({"total_categories": len(stats), "categories": stats})
+
+
+# ==============================================================================
+# SubjectType ViewSet - NEW
+# ==============================================================================
+class SubjectTypeViewSet(
+    TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet
+):
+    """
+    ViewSet for managing subject types (Senior Secondary)
+    REPLACES: Old SS_SUBJECT_TYPES CharField
+    """
+
+    queryset = SubjectType.objects.all()
+    serializer_class = SubjectTypeSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsPagination
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter,
+    ]
+    filterset_fields = ["is_active"]
+    search_fields = ["name", "code", "description"]
+    ordering_fields = ["name", "created_at"]
+    ordering = ["name"]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.prefetch_related(
+            Prefetch(
+                "subjects_new",
+                queryset=Subject.objects.filter(is_active=True).order_by(
+                    "subject_order"
+                ),
+            )
+        )
+
+    @action(detail=True, methods=["get"])
+    def subjects(self, request, pk=None):
+        """Get all subjects of this type"""
+        subject_type = self.get_object()
+        subjects = subject_type.subjects_new.filter(is_active=True).order_by(
+            "subject_order"
+        )
+        subjects = self.apply_section_filters(subjects)
+
+        serializer = SubjectListSerializer(subjects, many=True)
+        return Response(
+            {
+                "subject_type": SubjectTypeSerializer(subject_type).data,
+                "total_subjects": subjects.count(),
+                "subjects": serializer.data,
+            }
+        )
+
+    @action(detail=False, methods=["get"])
+    def statistics(self, request):
+        """Get subject type statistics"""
+        queryset = self.get_queryset()
+
+        stats = []
+        for subject_type in queryset.filter(is_active=True):
+            subject_count = subject_type.subjects_new.filter(is_active=True).count()
+            stats.append(
+                {
+                    "id": subject_type.id,
+                    "name": subject_type.name,
+                    "code": subject_type.code,
+                    "subject_count": subject_count,
+                }
+            )
+
+        return Response({"total_types": len(stats), "subject_types": stats})
 
 
 from rest_framework.views import APIView
@@ -75,39 +216,31 @@ class SubjectByEducationLevelView(APIView):
 
 
 # ==============================================================================
-# UTILITY FUNCTIONS
-# ==============================================================================
-# def clear_subject_caches():
-#     """Helper function to clear all subject-related caches"""
-#     cache_keys = [
-#         "subjects_statistics",
-#         "subjects_statistics_v2",
-#         "subjects_by_category",
-#         "subjects_by_category_v2",
-#         "active_subjects_count",
-#     ]
-#     cache.delete_many(cache_keys)
-
-
-# ==============================================================================
 # STREAM CONFIGURATION VIEWSETS
 # ==============================================================================
-from tenants.mixins import TenantFilterMixin
 
 
 class SchoolStreamConfigurationViewSet(TenantFilterMixin, viewsets.ModelViewSet):
-    """ViewSet for managing school stream configurations"""
+    """
+    ViewSet for managing school stream configurations
+    UPDATED: Works with FK-based Stream model
+    """
 
     queryset = SchoolStreamConfiguration.objects.all()
     serializer_class = SchoolStreamConfigurationSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsPagination
 
     def get_queryset(self):
-        # TenantFilterMixin will automatically filter by tenant
         queryset = super().get_queryset()
 
         queryset = (
-            queryset.select_related("stream")
+            queryset.select_related(
+                "stream",
+                "stream__stream_type_new",  # FK to StreamType
+                "stream__grade_level",
+                "stream__academic_session",
+            )
             .filter(is_active=True)
             .prefetch_related("subject_assignments__subject")
         )
@@ -134,14 +267,7 @@ class SchoolStreamConfigurationViewSet(TenantFilterMixin, viewsets.ModelViewSet)
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Get all stream configurations for this tenant
-        configs = (
-            SchoolStreamConfiguration.objects.filter(
-                tenant=tenant, is_active=True
-            )
-            .select_related("stream")
-            .prefetch_related("subject_assignments__subject")
-        )
+        configs = self.get_queryset().filter(tenant=tenant)
 
         summary_data = []
 
@@ -149,7 +275,17 @@ class SchoolStreamConfigurationViewSet(TenantFilterMixin, viewsets.ModelViewSet)
             stream_data = {
                 "stream_id": config.stream.id,
                 "stream_name": config.stream.name,
-                "stream_type": config.stream.stream_type,
+                # stream_type via FK
+                "stream_type": (
+                    config.stream.stream_type_new.name
+                    if config.stream.stream_type_new
+                    else None
+                ),
+                "stream_type_code": (
+                    config.stream.stream_type_new.code
+                    if config.stream.stream_type_new
+                    else None
+                ),
                 "subject_role": config.subject_role,
                 "min_subjects_required": config.min_subjects_required,
                 "max_subjects_allowed": config.max_subjects_allowed,
@@ -173,41 +309,6 @@ class SchoolStreamConfigurationViewSet(TenantFilterMixin, viewsets.ModelViewSet)
 
         return Response(summary_data)
 
-    @action(detail=False, methods=["post"])
-    def setup_defaults(self, request):
-        """Setup default stream configurations for the current tenant"""
-        tenant = getattr(request, 'tenant', None)
-        if not tenant:
-            return Response(
-                {"error": "Tenant context required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        stream_type = request.data.get("stream_type")
-
-        try:
-            from django.core.management import call_command
-            from io import StringIO
-
-            # Capture command output
-            out = StringIO()
-
-            # Call the management command with tenant_id
-            call_command("setup_default_stream_config", tenant_id=tenant.id, stdout=out)
-
-            return Response(
-                {
-                    "message": "Default configurations set up successfully",
-                    "output": out.getvalue(),
-                }
-            )
-
-        except Exception as e:
-            return Response(
-                {"error": f"Failed to setup defaults: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
 
 class SchoolStreamSubjectAssignmentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     """ViewSet for managing stream subject assignments"""
@@ -215,13 +316,17 @@ class SchoolStreamSubjectAssignmentViewSet(TenantFilterMixin, viewsets.ModelView
     queryset = SchoolStreamSubjectAssignment.objects.all()
     serializer_class = SchoolStreamSubjectAssignmentSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsPagination
 
     def get_queryset(self):
-        # TenantFilterMixin will automatically filter by tenant
         queryset = super().get_queryset()
 
         queryset = queryset.select_related(
-            "stream_config__stream", "subject"
+            "stream_config__stream",
+            "stream_config__stream__stream_type_new",  # FK to StreamType
+            "subject",
+            "subject__category_new",  # FK to SubjectCategory
+            "subject__subject_type_new",  # FK to SubjectType
         ).filter(is_active=True)
 
         # Filter by stream config if provided
@@ -288,20 +393,38 @@ class SchoolStreamSubjectAssignmentViewSet(TenantFilterMixin, viewsets.ModelView
 
 
 # ==============================================================================
+# HEALTH CHECK ENDPOINT
+# ==============================================================================
+@api_view(["GET"])
+def health_check(request):
+    """Health check endpoint for monitoring API status"""
+    return Response(
+        {
+            "status": "healthy",
+            "timestamp": timezone.now().isoformat(),
+            "version": "v2.0-fk-subjects",
+            "service": "subjects-api",
+        }
+    )
+
+
+# ==============================================================================
 # EXPORTED VIEWSETS
 # ==============================================================================
 # Export the viewsets so they can be imported in urls.py
+
 __all__ = [
+    "SubjectCategoryViewSet",
+    "SubjectTypeViewSet",
     "SubjectViewSet",
+    "SchoolStreamConfigurationViewSet",
+    "SchoolStreamSubjectAssignmentViewSet",
     "SubjectAnalyticsViewSet",
     "SubjectManagementViewSet",
     "SubjectByEducationLevelView",
-    "health_check",
     "clear_subject_caches",
-    "SchoolStreamConfigurationViewSet",
-    "SchoolStreamSubjectAssignmentViewSet",
+    "health_check",
 ]
-
 
 # ==============================================================================
 # VIEWSET CONFIGURATION

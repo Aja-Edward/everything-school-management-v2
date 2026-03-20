@@ -4,6 +4,9 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 
 from .models import (
     Exam,
+    ExamType,
+    ExamStatus,
+    DifficultyLevel,
     ExamSchedule,
     ExamRegistration,
     ExamStatistics,
@@ -12,6 +15,7 @@ from .models import (
     ExamReview,
     ExamReviewer,
     ExamReviewComment,
+    ReviewStatus,
 )
 from result.models import StudentResult
 from classroom.models import GradeLevel, Section, Stream
@@ -20,7 +24,76 @@ from teacher.models import Teacher
 from students.models import Student
 
 
-# Nested serializers for related models
+# ==============================================================================
+# NEW FK MODEL SERIALIZERS
+# ==============================================================================
+
+
+class ExamTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExamType
+        fields = [
+            "id",
+            "name",
+            "code",
+            "description",
+            "default_weight",
+            "display_order",
+            "is_active",
+        ]
+
+
+class ExamStatusSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExamStatus
+        fields = [
+            "id",
+            "name",
+            "code",
+            "description",
+            "is_initial",
+            "is_final",
+            "allows_editing",
+            "color_code",
+            "display_order",
+            "is_active",
+        ]
+
+
+class DifficultyLevelSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DifficultyLevel
+        fields = [
+            "id",
+            "name",
+            "code",
+            "description",
+            "color_code",
+            "display_order",
+            "is_active",
+        ]
+
+
+class ReviewStatusSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ReviewStatus
+        fields = [
+            "id",
+            "name",
+            "code",
+            "description",
+            "is_initial",
+            "is_final",
+            "color_code",
+            "display_order",
+            "is_active",
+        ]
+
+
+# ==============================================================================
+# NESTED SERIALIZERS FOR RELATED MODELS
+# ==============================================================================
+
 class GradeLevelSerializer(serializers.ModelSerializer):
     class Meta:
         model = GradeLevel
@@ -91,7 +164,10 @@ class ExamScheduleSerializer(serializers.ModelSerializer):
         ]
 
 
-# Main Exam Serializers
+# ==============================================================================
+# MAIN EXAM SERIALIZERS
+# ==============================================================================
+
 class ExamListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for exam lists"""
 
@@ -105,6 +181,10 @@ class ExamListSerializer(serializers.ModelSerializer):
     exam_schedule_name = serializers.CharField(
         source="exam_schedule.name", read_only=True
     )
+
+    # FK objects — return nested id+name for exam_type, status, difficulty_level
+    exam_type = ExamTypeSerializer(read_only=True)
+    status = ExamStatusSerializer(read_only=True)
 
     # Computed fields
     duration_hours = serializers.ReadOnlyField()
@@ -171,7 +251,6 @@ class ExamListSerializer(serializers.ModelSerializer):
         ]
 
     def get_pass_percentage(self, obj):
-        """Calculate pass percentage based on pass_marks and total_marks"""
         if obj.pass_marks and obj.total_marks and obj.total_marks > 0:
             return round((obj.pass_marks / obj.total_marks) * 100, 2)
         return 0
@@ -189,22 +268,17 @@ class ExamDetailSerializer(serializers.ModelSerializer):
     exam_schedule = ExamScheduleSerializer(read_only=True)
     invigilators = TeacherSerializer(many=True, read_only=True)
 
+    # FK objects — full nested serializers
+    exam_type = ExamTypeSerializer(read_only=True)
+    status = ExamStatusSerializer(read_only=True)
+    difficulty_level = DifficultyLevelSerializer(read_only=True)
+
     # Computed fields
     duration_hours = serializers.ReadOnlyField()
     is_completed = serializers.ReadOnlyField()
     is_ongoing = serializers.ReadOnlyField()
     registered_students_count = serializers.ReadOnlyField()
     pass_percentage = serializers.SerializerMethodField()
-
-    # Human-readable choice fields
-    exam_type_display = serializers.CharField(
-        source="get_exam_type_display", read_only=True
-    )
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
-    term_display = serializers.CharField(source="get_term_display", read_only=True)
-    difficulty_level_display = serializers.CharField(
-        source="get_difficulty_level_display", read_only=True
-    )
 
     # Approval fields
     approved_by_name = serializers.CharField(
@@ -230,9 +304,7 @@ class ExamDetailSerializer(serializers.ModelSerializer):
             "exam_schedule",
             "invigilators",
             "exam_type",
-            "exam_type_display",
             "difficulty_level",
-            "difficulty_level_display",
             "exam_date",
             "start_time",
             "end_time",
@@ -246,12 +318,10 @@ class ExamDetailSerializer(serializers.ModelSerializer):
             "materials_allowed",
             "materials_provided",
             "status",
-            "status_display",
             "is_practical",
             "requires_computer",
             "is_online",
             "term",
-            "term_display",
             "session_year",
             "is_completed",
             "is_ongoing",
@@ -275,13 +345,11 @@ class ExamDetailSerializer(serializers.ModelSerializer):
         ]
 
     def get_pass_percentage(self, obj):
-        """Calculate pass percentage based on pass_marks and total_marks"""
         if obj.pass_marks and obj.total_marks and obj.total_marks > 0:
             return round((obj.pass_marks / obj.total_marks) * 100, 2)
         return 0
 
     def get_stream(self, obj):
-        """Get stream information for the exam"""
         if obj.stream:
             return {
                 "id": obj.stream.id,
@@ -294,7 +362,6 @@ class ExamDetailSerializer(serializers.ModelSerializer):
 class ExamCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating and updating exams"""
 
-    # Foreign key fields with validation
     subject = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all())
     grade_level = serializers.PrimaryKeyRelatedField(queryset=GradeLevel.objects.all())
     section = serializers.PrimaryKeyRelatedField(
@@ -313,23 +380,26 @@ class ExamCreateUpdateSerializer(serializers.ModelSerializer):
         queryset=Teacher.objects.all(), many=True, required=False
     )
 
+    # FK fields — accept IDs on write
+    exam_type = serializers.PrimaryKeyRelatedField(queryset=ExamType.objects.all())
+    status = serializers.PrimaryKeyRelatedField(queryset=ExamStatus.objects.all())
+    difficulty_level = serializers.PrimaryKeyRelatedField(
+        queryset=DifficultyLevel.objects.all(), required=False, allow_null=True
+    )
+
     def create(self, validated_data):
-        """Override create method to add debugging and handle created_by"""
         print("🔍 DEBUG - ExamCreateUpdateSerializer.create()")
         print(f"🔍 validated_data: {validated_data}")
         print(f"🔍 subject type: {type(validated_data.get('subject'))}")
         print(f"🔍 subject value: {validated_data.get('subject')}")
 
-        # Check if subject is a Subject instance or ID
         subject = validated_data.get("subject")
         if hasattr(subject, "id"):
             print(f"🔍 Subject is an object with id: {subject.id}")
         else:
             print(f"🔍 Subject is an ID: {subject}")
 
-        # Remove created_by from validated_data since Exam model doesn't have this field
         validated_data.pop("created_by", None)
-
         return super().create(validated_data)
 
     class Meta:
@@ -362,8 +432,6 @@ class ExamCreateUpdateSerializer(serializers.ModelSerializer):
             "is_practical",
             "requires_computer",
             "is_online",
-            "term",
-            "session_year",
             "objective_questions",
             "theory_questions",
             "practical_questions",
@@ -373,13 +441,12 @@ class ExamCreateUpdateSerializer(serializers.ModelSerializer):
             "practical_instructions",
         ]
         extra_kwargs = {
-            "code": {"required": False},  # Auto-generated if not provided
-            "duration_minutes": {"required": False},  # Calculated if not provided
-            "pass_marks": {"required": False},  # Set from subject if not provided
+            "code": {"required": False},
+            "duration_minutes": {"required": False},
+            "pass_marks": {"required": False},
         }
 
     def validate(self, data):
-        """Cross-field validation"""
         print("🔍 DEBUG - ExamCreateUpdateSerializer.validate()")
         print(f"🔍 data: {data}")
         print(f"🔍 subject type: {type(data.get('subject'))}")
@@ -387,26 +454,24 @@ class ExamCreateUpdateSerializer(serializers.ModelSerializer):
 
         errors = {}
 
-        # Validate time
         start_time = data.get("start_time")
         end_time = data.get("end_time")
         if start_time and end_time and start_time >= end_time:
             errors["end_time"] = "End time must be after start time."
 
-        # Validate pass marks
         pass_marks = data.get("pass_marks")
         total_marks = data.get("total_marks")
         if pass_marks and total_marks and pass_marks > total_marks:
             errors["pass_marks"] = "Pass marks cannot exceed total marks."
 
-        # Validate exam date (only for new exams)
         exam_date = data.get("exam_date")
+        status = data.get("status")
+        # status is now an ExamStatus instance; check its code
+        status_code = status.code if status else None
         if exam_date and exam_date < timezone.now().date() and not self.instance:
-            status = data.get("status", "scheduled")
-            if status == "scheduled":
+            if status_code == "scheduled":
                 errors["exam_date"] = "Cannot schedule exam for past date."
 
-        # Validate subject compatibility with grade level
         subject = data.get("subject")
         grade_level = data.get("grade_level")
         if subject and grade_level:
@@ -416,7 +481,6 @@ class ExamCreateUpdateSerializer(serializers.ModelSerializer):
                         f"Subject {subject.name} is not available for {grade_level.name}."
                     )
 
-        # Validate practical exam settings
         is_practical = data.get("is_practical", False)
         if (
             is_practical
@@ -434,15 +498,12 @@ class ExamCreateUpdateSerializer(serializers.ModelSerializer):
         return data
 
     def validate_exam_date(self, value):
-        """Validate exam date"""
-        # Allow updates of existing exams even with past dates
         if value < timezone.now().date():
-            if not self.instance:  # Only check for new exams
+            if not self.instance:
                 raise serializers.ValidationError("Cannot schedule exam for past date.")
         return value
 
     def validate_max_students(self, value):
-        """Validate maximum students"""
         if value is not None and value <= 0:
             raise serializers.ValidationError(
                 "Maximum students must be a positive number."
@@ -450,7 +511,10 @@ class ExamCreateUpdateSerializer(serializers.ModelSerializer):
         return value
 
 
-# Registration and Result Serializers
+# ==============================================================================
+# REGISTRATION AND RESULT SERIALIZERS
+# ==============================================================================
+
 class ExamRegistrationSerializer(serializers.ModelSerializer):
     exam = ExamListSerializer(read_only=True)
     student = StudentSerializer(read_only=True)
@@ -485,11 +549,10 @@ class ResultSerializer(serializers.ModelSerializer):
     subject = SubjectSerializer(read_only=True)
     recorded_by = TeacherSerializer(read_only=True)
 
-    # Computed fields
     grade_point = serializers.ReadOnlyField()
     performance_level = serializers.ReadOnlyField()
 
-    # Human-readable fields
+    # grade is still a CharField on StudentResult — these remain valid
     grade_display = serializers.CharField(source="get_grade_display", read_only=True)
     term_display = serializers.CharField(source="get_term_display", read_only=True)
 
@@ -545,26 +608,21 @@ class ResultCreateUpdateSerializer(serializers.ModelSerializer):
             "session_year",
         ]
         extra_kwargs = {
-            "total_marks": {"required": False},  # Set from exam if not provided
+            "total_marks": {"required": False},
         }
 
     def validate(self, data):
-        """Validate result data"""
         errors = {}
 
         score = data.get("score")
         total_marks = data.get("total_marks")
-
-        # Validate score against total marks
         if score and total_marks and score > total_marks:
             errors["score"] = "Score cannot exceed total marks."
 
-        # Validate component scores
         ca_score = data.get("continuous_assessment_score", 0)
         exam_score = data.get("exam_score", 0)
         practical_score = data.get("practical_score", 0)
         component_total = ca_score + exam_score + practical_score
-
         if score and component_total > score:
             errors["score"] = "Total component scores cannot exceed main score."
 
@@ -602,11 +660,17 @@ class ExamStatisticsSerializer(serializers.ModelSerializer):
         ]
 
 
-# Specialized serializers for specific endpoints
+# ==============================================================================
+# SPECIALIZED SERIALIZERS
+# ==============================================================================
+
 class ExamSummarySerializer(serializers.ModelSerializer):
     """Minimal serializer for exam summaries and dropdowns"""
 
     display_name = serializers.SerializerMethodField()
+    # FK objects — lightweight for dropdowns
+    exam_type = ExamTypeSerializer(read_only=True)
+    status = ExamStatusSerializer(read_only=True)
 
     class Meta:
         model = Exam
@@ -630,6 +694,7 @@ class ExamCalendarSerializer(serializers.ModelSerializer):
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     grade_section = serializers.SerializerMethodField()
     color = serializers.SerializerMethodField()
+    status = ExamStatusSerializer(read_only=True)
 
     class Meta:
         model = Exam
@@ -650,33 +715,33 @@ class ExamCalendarSerializer(serializers.ModelSerializer):
         return f"{obj.grade_level.name}{obj.section.name}"
 
     def get_color(self, obj):
-        """Return color based on exam status"""
+        """Return color based on exam status code (FK-safe)"""
         color_map = {
-            "scheduled": "#007bff",  # Blue
-            "in_progress": "#28a745",  # Green
-            "completed": "#6c757d",  # Gray
-            "cancelled": "#dc3545",  # Red
-            "postponed": "#ffc107",  # Yellow
+            "scheduled": "#007bff",
+            "in_progress": "#28a745",
+            "completed": "#6c757d",
+            "cancelled": "#dc3545",
+            "postponed": "#ffc107",
         }
-        return color_map.get(obj.status, "#007bff")
+        status_code = obj.status.code if obj.status else None
+        return color_map.get(status_code, "#007bff")
 
 
-# Bulk operations serializers
 class BulkExamUpdateSerializer(serializers.Serializer):
     exam_ids = serializers.ListField(
         child=serializers.IntegerField(),
         min_length=1,
         help_text="List of exam IDs to update",
     )
-    status = serializers.ChoiceField(
-        choices=Exam._meta.get_field("status").choices,
+    # status is now a FK — accept a PrimaryKeyRelatedField
+    status = serializers.PrimaryKeyRelatedField(
+        queryset=ExamStatus.objects.all(),
         required=False,
         help_text="New status for selected exams",
     )
     venue = serializers.CharField(max_length=100, required=False)
 
     def validate_exam_ids(self, value):
-        """Validate that all exam IDs exist"""
         existing_ids = set(
             Exam.objects.filter(id__in=value).values_list("id", flat=True)
         )
@@ -688,12 +753,10 @@ class BulkExamUpdateSerializer(serializers.Serializer):
         return value
 
 
-# ============================================
-# EXAM-003: NEW EXAM FEATURES SERIALIZERS
-# ============================================
+# ==============================================================================
+# QUESTION BANK SERIALIZERS
+# ==============================================================================
 
-
-# Question Bank Serializers
 class QuestionBankListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for question bank lists"""
 
@@ -701,9 +764,10 @@ class QuestionBankListSerializer(serializers.ModelSerializer):
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     grade_level_name = serializers.CharField(source="grade_level.name", read_only=True)
     question_type_display = serializers.CharField(source="get_question_type_display", read_only=True)
-    difficulty_display = serializers.CharField(source="get_difficulty_display", read_only=True)
 
-    # Preview of question (first 100 chars)
+    # difficulty is now a FK — return nested object
+    difficulty = DifficultyLevelSerializer(read_only=True)
+
     question_preview = serializers.SerializerMethodField()
 
     class Meta:
@@ -718,7 +782,6 @@ class QuestionBankListSerializer(serializers.ModelSerializer):
             "topic",
             "subtopic",
             "difficulty",
-            "difficulty_display",
             "marks",
             "tags",
             "is_shared",
@@ -729,9 +792,8 @@ class QuestionBankListSerializer(serializers.ModelSerializer):
         ]
 
     def get_question_preview(self, obj):
-        """Return first 100 characters of question, stripping HTML"""
         import re
-        # Strip HTML tags
+
         clean_text = re.sub(r'<[^>]+>', '', obj.question)
         return clean_text[:100] + "..." if len(clean_text) > 100 else clean_text
 
@@ -743,7 +805,9 @@ class QuestionBankDetailSerializer(serializers.ModelSerializer):
     grade_level = GradeLevelSerializer(read_only=True)
     created_by = TeacherSerializer(read_only=True)
     question_type_display = serializers.CharField(source="get_question_type_display", read_only=True)
-    difficulty_display = serializers.CharField(source="get_difficulty_display", read_only=True)
+
+    # difficulty is now a FK — full nested serializer
+    difficulty = DifficultyLevelSerializer(read_only=True)
 
     class Meta:
         model = QuestionBank
@@ -762,7 +826,6 @@ class QuestionBankDetailSerializer(serializers.ModelSerializer):
             "topic",
             "subtopic",
             "difficulty",
-            "difficulty_display",
             "grade_level",
             "tags",
             "is_shared",
@@ -780,6 +843,11 @@ class QuestionBankCreateUpdateSerializer(serializers.ModelSerializer):
 
     subject = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all())
     grade_level = serializers.PrimaryKeyRelatedField(queryset=GradeLevel.objects.all())
+
+    # difficulty is now a FK — accept ID on write
+    difficulty = serializers.PrimaryKeyRelatedField(
+        queryset=DifficultyLevel.objects.all()
+    )
 
     class Meta:
         model = QuestionBank
@@ -803,24 +871,24 @@ class QuestionBankCreateUpdateSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, data):
-        """Validate question data based on type"""
         errors = {}
         question_type = data.get("question_type")
-
-        # Validate objective questions have options and correct answer
         if question_type == "objective":
             if not data.get("options"):
                 errors["options"] = "Objective questions must have options."
             if not data.get("correct_answer"):
-                errors["correct_answer"] = "Objective questions must have a correct answer."
-
+                errors["correct_answer"] = (
+                    "Objective questions must have a correct answer."
+                )
         if errors:
             raise serializers.ValidationError(errors)
-
         return data
 
 
-# Exam Template Serializers
+# ==============================================================================
+# EXAM TEMPLATE SERIALIZERS
+# ==============================================================================
+
 class ExamTemplateListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for template lists"""
 
@@ -847,10 +915,8 @@ class ExamTemplateListSerializer(serializers.ModelSerializer):
         ]
 
     def get_section_count(self, obj):
-        """Get number of sections in template"""
         if obj.structure and isinstance(obj.structure, dict):
-            sections = obj.structure.get("sections", [])
-            return len(sections)
+            return len(obj.structure.get("sections", []))
         return 0
 
 
@@ -904,33 +970,31 @@ class ExamTemplateCreateUpdateSerializer(serializers.ModelSerializer):
         ]
 
     def validate_structure(self, value):
-        """Validate template structure"""
         if not isinstance(value, dict):
             raise serializers.ValidationError("Structure must be a dictionary.")
-
         if "sections" not in value:
             raise serializers.ValidationError("Structure must contain 'sections' key.")
-
         sections = value.get("sections", [])
         if not isinstance(sections, list):
             raise serializers.ValidationError("Sections must be a list.")
-
-        # Validate each section has required fields
         for idx, section in enumerate(sections):
             if not isinstance(section, dict):
-                raise serializers.ValidationError(f"Section {idx} must be a dictionary.")
-
+                raise serializers.ValidationError(
+                    f"Section {idx} must be a dictionary."
+                )
             required_fields = ["type", "name", "questionCount", "marksPerQuestion"]
             for field in required_fields:
                 if field not in section:
                     raise serializers.ValidationError(
                         f"Section {idx} missing required field: {field}"
                     )
-
         return value
 
 
-# Exam Review Serializers
+# ==============================================================================
+# EXAM REVIEW SERIALIZERS
+# ==============================================================================
+
 class ExamReviewerSerializer(serializers.ModelSerializer):
     """Serializer for exam reviewers"""
 
@@ -994,7 +1058,10 @@ class ExamReviewListSerializer(serializers.ModelSerializer):
     exam_title = serializers.CharField(source="exam.title", read_only=True)
     submitted_by_name = serializers.CharField(source="submitted_by.full_name", read_only=True)
     approved_by_name = serializers.CharField(source="approved_by.full_name", read_only=True)
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
+
+    # status is now a FK — return nested object
+    status = ReviewStatusSerializer(read_only=True)
+
     reviewer_count = serializers.SerializerMethodField()
     comment_count = serializers.SerializerMethodField()
 
@@ -1005,7 +1072,6 @@ class ExamReviewListSerializer(serializers.ModelSerializer):
             "exam",
             "exam_title",
             "status",
-            "status_display",
             "submitted_by_name",
             "submitted_at",
             "approved_by_name",
@@ -1016,11 +1082,9 @@ class ExamReviewListSerializer(serializers.ModelSerializer):
         ]
 
     def get_reviewer_count(self, obj):
-        """Get number of assigned reviewers"""
         return obj.reviewers.count()
 
     def get_comment_count(self, obj):
-        """Get number of comments"""
         return obj.comments.count()
 
 
@@ -1032,7 +1096,9 @@ class ExamReviewDetailSerializer(serializers.ModelSerializer):
     approved_by = TeacherSerializer(read_only=True)
     reviewers = ExamReviewerSerializer(many=True, read_only=True)
     comments = ExamReviewCommentSerializer(many=True, read_only=True)
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
+
+    # status is now a FK — full nested serializer
+    status = ReviewStatusSerializer(read_only=True)
 
     class Meta:
         model = ExamReview
@@ -1040,7 +1106,6 @@ class ExamReviewDetailSerializer(serializers.ModelSerializer):
             "id",
             "exam",
             "status",
-            "status_display",
             "submitted_by",
             "submitted_at",
             "submission_note",
@@ -1069,7 +1134,6 @@ class ExamReviewSubmitSerializer(serializers.Serializer):
     )
 
     def validate_reviewer_ids(self, value):
-        """Validate that all reviewer IDs exist"""
         existing_ids = set(
             Teacher.objects.filter(id__in=value).values_list("id", flat=True)
         )
@@ -1100,7 +1164,6 @@ class ExamReviewDecisionSerializer(serializers.Serializer):
     )
 
     def validate(self, data):
-        """Validate decision data"""
         if data.get("decision") == "reject" and not data.get("reason"):
             raise serializers.ValidationError(
                 {"reason": "Reason is required when rejecting an exam."}

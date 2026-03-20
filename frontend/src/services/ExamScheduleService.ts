@@ -86,7 +86,7 @@ class ExamScheduleService {
   // Set an exam schedule as default
   static async setDefaultSchedule(id: number): Promise<void> {
     try {
-      await api.post(`exams/schedules/${id}/set-default/`);
+      await api.post(`exams/schedules/${id}/set-default/`, {});
     } catch (error) {
       console.error('Error setting default schedule:', error);
       throw error;

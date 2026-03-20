@@ -1,7 +1,12 @@
-# fees/filters.py
+# fee/filters.py
 import django_filters
-from django.db import models
-from .models import StudentFee, Payment, FeeStructure
+from .models import (
+    StudentFee,
+    Payment,
+    FeeStructure,
+    FEE_TYPE_CHOICES,
+    PAYMENT_STATUS_CHOICES,
+)
 
 
 class StudentFeeFilter(django_filters.FilterSet):
@@ -9,9 +14,9 @@ class StudentFeeFilter(django_filters.FilterSet):
         field_name="student__user__first_name", lookup_expr="icontains"
     )
     fee_type = django_filters.ChoiceFilter(
-        field_name="fee_structure__fee_type", choices=FeeStructure.FEE_TYPE_CHOICES
+        field_name="fee_structure__fee_type", choices=FEE_TYPE_CHOICES
     )
-    status = django_filters.ChoiceFilter(choices=StudentFee.PAYMENT_STATUS_CHOICES)
+    status = django_filters.ChoiceFilter(choices=PAYMENT_STATUS_CHOICES)
     due_date_from = django_filters.DateFilter(field_name="due_date", lookup_expr="gte")
     due_date_to = django_filters.DateFilter(field_name="due_date", lookup_expr="lte")
     amount_due_min = django_filters.NumberFilter(

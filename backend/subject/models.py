@@ -1,9 +1,28 @@
+"""
+Subject Models - BACKWARD COMPATIBLE VERSION
+=============================================
+
+This version maintains the old constants for backward compatibility
+while adding the new models. This allows existing serializers and views
+to continue working while we gradually migrate.
+
+MIGRATION STRATEGY:
+1. Deploy this version (has both old and new)
+2. Update serializers to use new models
+3. Remove old constants in final migration
+"""
+
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 from tenants.models import TenantMixin
 
+
+# ========================================
+# BACKWARD COMPATIBILITY: Keep old constants temporarily
+# These will be removed after serializers are updated
+# ========================================
 
 # Updated subject categories to match your school structure
 SUBJECT_CATEGORY_CHOICES = [
@@ -47,9 +66,130 @@ SS_SUBJECT_TYPES = [
 ]
 
 
-# Subject model must be defined first since other models reference it
+# ========================================
+# NEW: SUBJECT CATEGORY MODEL
+# ========================================
+class SubjectCategory(TenantMixin, models.Model):
+    """
+    Configurable subject categories per tenant.
+    Replaces hardcoded SUBJECT_CATEGORY_CHOICES.
+    """
+
+    name = models.CharField(
+        max_length=100,
+        help_text="Category name (e.g., 'Core Subject', 'Elective', 'Vocational')",
+    )
+
+    code = models.CharField(
+        max_length=50,
+        help_text="Unique code for this category (e.g., 'core', 'elective')",
+    )
+
+    description = models.TextField(blank=True, help_text="Description of this category")
+
+    color_code = models.CharField(
+        max_length=7,
+        blank=True,
+        null=True,
+        help_text="Hex color code for UI display (e.g., '#FF5733')",
+    )
+
+    display_order = models.PositiveIntegerField(
+        default=0, help_text="Order for displaying categories"
+    )
+
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["display_order", "name"]
+        verbose_name = "Subject Category"
+        verbose_name_plural = "Subject Categories"
+        unique_together = [("tenant", "code")]
+        indexes = [
+            models.Index(fields=["tenant", "code"]),
+            models.Index(fields=["tenant", "is_active"]),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.code})"
+
+    @property
+    def subject_count(self):
+        """Count of subjects in this category"""
+        return self.subjects_new.filter(is_active=True).count()
+
+
+# ========================================
+# NEW: SUBJECT TYPE MODEL
+# ========================================
+class SubjectType(TenantMixin, models.Model):
+    """
+    Configurable subject types per tenant.
+    Replaces SS_SUBJECT_TYPES for Senior Secondary classification.
+    """
+
+    name = models.CharField(
+        max_length=100, help_text="Type name (e.g., 'Cross Cutting', 'Core Science')"
+    )
+
+    code = models.CharField(
+        max_length=50,
+        help_text="Unique code for this type (e.g., 'cross_cutting', 'core_science')",
+    )
+
+    description = models.TextField(
+        blank=True, help_text="Description of this subject type"
+    )
+
+    applicable_levels = models.ManyToManyField(
+        "classroom.GradeLevel",
+        related_name="subject_types",
+        blank=True,
+        help_text="Education levels where this type applies",
+    )
+
+    is_cross_cutting = models.BooleanField(
+        default=False, help_text="Whether subjects of this type apply to all streams"
+    )
+
+    display_order = models.PositiveIntegerField(
+        default=0, help_text="Order for displaying types"
+    )
+
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["display_order", "name"]
+        verbose_name = "Subject Type"
+        verbose_name_plural = "Subject Types"
+        unique_together = [("tenant", "code")]
+        indexes = [
+            models.Index(fields=["tenant", "code"]),
+            models.Index(fields=["tenant", "is_active"]),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.code})"
+
+    @property
+    def subject_count(self):
+        """Count of subjects of this type"""
+        return self.subjects_new.filter(is_active=True).count()
+
+
+# ========================================
+# UPDATED: SUBJECT MODEL (TRANSITION VERSION)
+# ========================================
 class Subject(TenantMixin, models.Model):
-    """Enhanced Subject model with flexible stream configuration"""
+    """
+    Subject model - TRANSITION VERSION
+    Contains both old CharField fields and new ForeignKey fields.
+    Old fields will be removed after migration is complete.
+    """
 
     name = models.CharField(
         max_length=100,
@@ -63,54 +203,87 @@ class Subject(TenantMixin, models.Model):
     )
 
     code = models.CharField(
-        max_length=15,
-        help_text="Subject code (e.g., MATH-NUR, ENG-PRI, PHY-SS)",
+        max_length=15, help_text="Subject code (e.g., MATH-NUR, ENG-PRI, PHY-SS)"
     )
 
     description = models.TextField(
         blank=True, help_text="Brief description of the subject content and objectives"
     )
 
-    # Category and classification
+    # ========================================
+    # OLD FIELD: Keep for backward compatibility
+    # Will be removed after migration
+    # ========================================
     category = models.CharField(
         max_length=25,
         choices=SUBJECT_CATEGORY_CHOICES,
         default="core",
-        help_text="Subject category for organization",
+        help_text="Subject category for organization (DEPRECATED - use category_new)",
     )
 
-    # Education level compatibility - Updated for your structure
+    # ========================================
+    # NEW FIELD: Use this going forward
+    # ========================================
+    category_new = models.ForeignKey(
+        SubjectCategory,
+        on_delete=models.PROTECT,
+        related_name="subjects_new",
+        null=True,
+        blank=True,
+        help_text="Subject category (new FK field)",
+    )
+
+    # ========================================
+    # OLD FIELD: Keep for backward compatibility
+    # ========================================
     education_levels = models.JSONField(
         default=list,
-        help_text="Education levels this subject applies to (NURSERY, PRIMARY, JUNIOR_SECONDARY, SENIOR_SECONDARY)",
+        help_text="Education levels this subject applies to (DEPRECATED - use grade_levels)",
     )
 
-    # Nursery specific levels
     nursery_levels = models.JSONField(
-        default=list,
-        blank=True,
-        help_text="Specific nursery levels (PRE_NURSERY, NURSERY_1, NURSERY_2)",
+        default=list, blank=True, help_text="Specific nursery levels (DEPRECATED)"
     )
 
-    # Senior Secondary classification
+    # ========================================
+    # NEW FIELD: Use this going forward
+    # ========================================
+    grade_levels = models.ManyToManyField(
+        "classroom.GradeLevel",
+        related_name="grade_subjects",
+        blank=True,
+        help_text="Grade levels where this subject is taught (new M2M field)",
+    )
+
+    # ========================================
+    # OLD FIELD: Keep for backward compatibility
+    # ========================================
     ss_subject_type = models.CharField(
         max_length=20,
         choices=SS_SUBJECT_TYPES,
         blank=True,
         null=True,
-        help_text="Classification for Senior Secondary subjects",
+        help_text="Classification for Senior Secondary subjects (DEPRECATED - use subject_type_new)",
     )
 
-    # Add new fields for flexible configuration
-    # Note: This field is kept for backward compatibility but the new system
-    # uses SchoolStreamConfiguration for flexible stream management
+    # ========================================
+    # NEW FIELD: Use this going forward
+    # ========================================
+    subject_type_new = models.ForeignKey(
+        SubjectType,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="subjects_new",
+        help_text="Subject type classification (new FK field)",
+    )
+
+    # Legacy fields (keep these)
     is_cross_cutting = models.BooleanField(
         default=False,
-        help_text="Whether this subject is cross-cutting across all streams (legacy field)",
+        help_text="Whether this subject is cross-cutting across all streams",
     )
 
-    # Note: This field is kept for backward compatibility but the new system
-    # uses SchoolStreamConfiguration for flexible stream management
     default_stream_role = models.CharField(
         max_length=20,
         choices=[
@@ -120,18 +293,17 @@ class Subject(TenantMixin, models.Model):
         ],
         blank=True,
         null=True,
-        help_text="Default role if not specifically configured by school (legacy field)",
+        help_text="Default role if not specifically configured by school",
     )
 
-    # Integration with GradeLevel model
-    grade_levels = models.ManyToManyField(
+    # Grade levels - old M2M (keep temporarily)
+    grade_levels_old = models.ManyToManyField(
         "classroom.GradeLevel",
         related_name="subjects",
         blank=True,
-        help_text="Specific grade levels where this subject is taught",
+        help_text="Specific grade levels where this subject is taught (OLD)",
     )
 
-    # Parent subject for component subjects (e.g., Basic Science is a component of Basic Science and Technology)
     parent_subject = models.ForeignKey(
         "self",
         on_delete=models.CASCADE,
@@ -141,7 +313,6 @@ class Subject(TenantMixin, models.Model):
         help_text="Parent subject if this is a component subject",
     )
 
-    # Prerequisites for this subject
     prerequisites = models.ManyToManyField(
         "self",
         blank=True,
@@ -150,22 +321,44 @@ class Subject(TenantMixin, models.Model):
         help_text="Subjects that must be completed before this one",
     )
 
-    # Subject order for display
     subject_order = models.PositiveIntegerField(
-        default=0,
-        help_text="Order for display in lists",
+        default=0, help_text="Order for display in lists"
     )
 
-    # Whether the subject is active
+    # New fields
+    credit_hours = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        default=1.0,
+        validators=[MinValueValidator(0.5), MaxValueValidator(10.0)],
+        help_text="Credit hours for this subject",
+    )
+
+    passing_marks = models.PositiveIntegerField(
+        default=40,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Minimum passing marks percentage",
+    )
+
+    max_marks = models.PositiveIntegerField(
+        default=100,
+        validators=[MinValueValidator(1), MaxValueValidator(1000)],
+        help_text="Maximum marks for this subject",
+    )
+
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["education_levels", "category", "subject_order", "name"]
+        ordering = ["subject_order", "name"]
         verbose_name = "Subject"
         verbose_name_plural = "Subjects"
-        unique_together = ["tenant", "code"]
+        unique_together = [("tenant", "code")]
+        indexes = [
+            models.Index(fields=["tenant", "code"]),
+            models.Index(fields=["tenant", "is_active"]),
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.code})"
@@ -189,18 +382,34 @@ class Subject(TenantMixin, models.Model):
             )
 
     def save(self, *args, **kwargs):
-        self.clean()
+        # Don't run clean on save to avoid M2M issues
         super().save(*args, **kwargs)
+
+    @property
+    def display_name(self):
+        """Return display name - short name if available, otherwise full name"""
+        return self.short_name or self.name
 
     @property
     def education_levels_display(self):
         """Return human-readable education levels"""
+        # Try new field first
+        if self.grade_levels.exists():
+            levels = self.grade_levels.values_list(
+                "education_level", flat=True
+            ).distinct()
+            level_names = []
+            for level in levels:
+                grade_level = self.grade_levels.filter(education_level=level).first()
+                if grade_level:
+                    level_names.append(grade_level.get_education_level_display())
+            return ", ".join(level_names) if level_names else "No levels specified"
+
+        # Fall back to old field
         if not self.education_levels:
             return "No levels specified"
 
-        # Create a mapping of education level codes to display names
         level_mapping = dict(EDUCATION_LEVELS)
-
         display_levels = []
         for level_code in self.education_levels:
             display_name = level_mapping.get(level_code, level_code)
@@ -214,9 +423,7 @@ class Subject(TenantMixin, models.Model):
         if not self.nursery_levels:
             return "Not applicable"
 
-        # Create a mapping of nursery level codes to display names
         level_mapping = dict(NURSERY_LEVELS)
-
         display_levels = []
         for level_code in self.nursery_levels:
             display_name = level_mapping.get(level_code, level_code)
@@ -225,83 +432,104 @@ class Subject(TenantMixin, models.Model):
         return ", ".join(display_levels)
 
     @property
-    def display_name(self):
-        """Return display name - short name if available, otherwise full name"""
-        return self.short_name or self.name
-
-    @property
     def is_nursery_subject(self):
         """Check if this is a nursery subject"""
+        # Try new field first
+        if self.grade_levels.exists():
+            return self.grade_levels.filter(education_level="NURSERY").exists()
+        # Fall back to old field
         return "NURSERY" in (self.education_levels or [])
 
     @property
     def is_primary_subject(self):
         """Check if this is a primary subject"""
+        if self.grade_levels.exists():
+            return self.grade_levels.filter(education_level="PRIMARY").exists()
         return "PRIMARY" in (self.education_levels or [])
 
     @property
     def is_junior_secondary_subject(self):
         """Check if this is a junior secondary subject"""
+        if self.grade_levels.exists():
+            return self.grade_levels.filter(education_level="JUNIOR_SECONDARY").exists()
         return "JUNIOR_SECONDARY" in (self.education_levels or [])
 
     @property
     def is_senior_secondary_subject(self):
         """Check if this is a senior secondary subject"""
+        if self.grade_levels.exists():
+            return self.grade_levels.filter(education_level="SENIOR_SECONDARY").exists()
         return "SENIOR_SECONDARY" in (self.education_levels or [])
 
     @classmethod
-    def get_nursery_subjects(cls):
+    def get_nursery_subjects(cls, tenant=None):
         """Get all nursery subjects"""
-        return cls.objects.filter(
+        queryset = cls.objects.filter(
             education_levels__contains=["NURSERY"], is_active=True
         )
+        if tenant:
+            queryset = queryset.filter(tenant=tenant)
+        return queryset
 
     @classmethod
-    def get_primary_subjects(cls):
+    def get_primary_subjects(cls, tenant=None):
         """Get all primary subjects"""
-        return cls.objects.filter(
+        queryset = cls.objects.filter(
             education_levels__contains=["PRIMARY"], is_active=True
         )
+        if tenant:
+            queryset = queryset.filter(tenant=tenant)
+        return queryset
 
     @classmethod
-    def get_junior_secondary_subjects(cls):
+    def get_junior_secondary_subjects(cls, tenant=None):
         """Get all junior secondary subjects"""
-        return cls.objects.filter(
+        queryset = cls.objects.filter(
             education_levels__contains=["JUNIOR_SECONDARY"], is_active=True
         )
+        if tenant:
+            queryset = queryset.filter(tenant=tenant)
+        return queryset
 
     @classmethod
-    def get_senior_secondary_subjects(cls):
+    def get_senior_secondary_subjects(cls, tenant=None):
         """Get all senior secondary subjects"""
-        return cls.objects.filter(
+        queryset = cls.objects.filter(
             education_levels__contains=["SENIOR_SECONDARY"], is_active=True
         )
+        if tenant:
+            queryset = queryset.filter(tenant=tenant)
+        return queryset
 
     @classmethod
-    def get_cross_cutting_subjects(cls):
+    def get_cross_cutting_subjects(cls, tenant=None):
         """Get cross-cutting subjects for Senior Secondary"""
-        return cls.objects.filter(
+        queryset = cls.objects.filter(
             education_levels__contains=["SENIOR_SECONDARY"],
             is_cross_cutting=True,
             is_active=True,
         )
+        if tenant:
+            queryset = queryset.filter(tenant=tenant)
+        return queryset
 
     def get_dependent_subjects(self):
         """Get subjects that depend on this subject as a prerequisite"""
         return self.unlocks_subjects.filter(is_active=True)
 
 
-# New model for school-specific stream configurations
+# ========================================
+# STREAM CONFIGURATION MODELS (Keep as-is for now)
+# ========================================
 class SchoolStreamConfiguration(TenantMixin, models.Model):
     """Allows schools to configure their own stream subject structure"""
 
     stream = models.ForeignKey(
-        "classroom.Stream",  # Using the existing Stream model from classroom app
+        "classroom.Stream",
         on_delete=models.CASCADE,
         related_name="school_configurations",
     )
 
-    # Subject categorization within this stream
     CORE_SUBJECTS = "core"
     ELECTIVE_SUBJECTS = "elective"
     CROSS_CUTTING_SUBJECTS = "cross_cutting"
@@ -318,7 +546,6 @@ class SchoolStreamConfiguration(TenantMixin, models.Model):
         help_text="Role of subjects in this stream",
     )
 
-    # Minimum and maximum subjects required
     min_subjects_required = models.PositiveIntegerField(
         default=1, help_text="Minimum number of subjects required from this category"
     )
@@ -327,12 +554,10 @@ class SchoolStreamConfiguration(TenantMixin, models.Model):
         default=5, help_text="Maximum number of subjects allowed from this category"
     )
 
-    # Whether this category is compulsory for the stream
     is_compulsory = models.BooleanField(
         default=True, help_text="Whether students must take subjects from this category"
     )
 
-    # Priority/order for display
     display_order = models.PositiveIntegerField(
         default=0, help_text="Display order for this configuration"
     )
@@ -348,8 +573,8 @@ class SchoolStreamConfiguration(TenantMixin, models.Model):
         verbose_name_plural = "School Stream Configurations"
 
     def __str__(self):
-        tenant_name = self.tenant.name if self.tenant else "No Tenant"
-        return f"{tenant_name} - {self.stream.name} - {self.get_subject_role_display()}"
+        school_name = self.tenant.name if self.tenant else "No Tenant"
+        return f"{school_name} - {self.stream.name} - {self.get_subject_role_display()}"
 
 
 class SchoolStreamSubjectAssignment(TenantMixin, models.Model):
@@ -365,17 +590,14 @@ class SchoolStreamSubjectAssignment(TenantMixin, models.Model):
         Subject, on_delete=models.CASCADE, related_name="stream_assignments"
     )
 
-    # Whether this subject is compulsory within the category
     is_compulsory = models.BooleanField(
         default=False, help_text="Whether this specific subject is compulsory"
     )
 
-    # Credit weight for the subject
     credit_weight = models.PositiveIntegerField(
         default=1, help_text="Credit weight for this subject in the stream"
     )
 
-    # Prerequisites (if any)
     prerequisites = models.ManyToManyField(
         Subject,
         blank=True,
@@ -384,7 +606,6 @@ class SchoolStreamSubjectAssignment(TenantMixin, models.Model):
         help_text="Subjects that must be completed before this one",
     )
 
-    # Whether this subject can be taken as an elective in other streams
     can_be_elective_elsewhere = models.BooleanField(
         default=True,
         help_text="Whether this subject can be taken as elective in other streams",

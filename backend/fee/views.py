@@ -1,10 +1,10 @@
-# fees/views.py
+# fees/views.py - UPDATED FOR FK-BASED MODELS
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import Sum, Q, Count
+from django.db.models import Sum, Q, Count, Prefetch
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.http import HttpResponse
@@ -34,9 +34,11 @@ from academics.models import Term, AcademicSession
 from academics.serializers import AcademicSessionSerializer
 from .serializers import (
     FeeStructureSerializer,
+    FeeStructureCreateUpdateSerializer,  # NEW: Separate writable serializer
     StudentFeeSerializer,
     StudentFeeListSerializer,
     PaymentSerializer,
+    PaymentCreateSerializer,  # NEW: Use create serializer
     PaymentInitiationSerializer,
     PaymentVerificationSerializer,
     StudentDashboardSerializer,
@@ -46,7 +48,9 @@ from .serializers import (
     BulkFeeGenerationSerializer,
     FeeReportSerializer,
     PaymentGatewayConfigSerializer,
+    PaymentGatewayConfigAdminSerializer,  # NEW: Admin serializer
     PaymentPlanSerializer,
+    PaymentPlanCreateSerializer,  # NEW: Create serializer
     PaymentInstallmentSerializer,
     PaymentAttemptSerializer,
     PaymentWebhookSerializer,
@@ -54,23 +58,28 @@ from .serializers import (
 from .filters import StudentFeeFilter, PaymentFilter
 from .permissions import IsAdminOrReadOnly, IsOwnerOrAdmin
 from .services.services import PaymentService, FeeService, ReportService
-from students.models import Student
+from students.models import Student, Class as StudentClass, EducationLevel
 
 
+# ==============================================================================
+# FeeStructure ViewSet - UPDATED FOR FK
+# ==============================================================================
 class FeeStructureViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     """
-    CRITICAL: TenantFilterMixin ensures tenant isolation.
     ViewSet for managing fee structures
+    UPDATED: Uses FK-based education_level and student_class
     """
 
     queryset = FeeStructure.objects.all().order_by("name")
     serializer_class = FeeStructureSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrReadOnly]
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate fee structures
+    pagination_class = StandardResultsPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+
+    # UPDATED: Filter by FK IDs
     filterset_fields = [
-        "education_level",
-        "student_class",
+        "education_level",  # FK to EducationLevel
+        "student_class",  # FK to StudentClass
         "fee_type",
         "frequency",
         "is_active",
@@ -79,70 +88,174 @@ class FeeStructureViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     ordering_fields = ["name", "amount", "created_at"]
     ordering = ["name"]
 
+    def get_queryset(self):
+        """Optimize queries with select_related for FK fields"""
+        queryset = super().get_queryset()
+        return queryset.select_related(
+            "education_level",
+            "student_class",
+            "student_class__education_level",  # Nested FK
+        )
+
+    def get_serializer_class(self):
+        """Use different serializers for read vs write operations"""
+        if self.action in ["create", "update", "partial_update"]:
+            return FeeStructureCreateUpdateSerializer
+        return FeeStructureSerializer
+
     @action(detail=False, methods=["get"])
-    def by_class(self, request):
-        """Get fee structures filtered by education level and class"""
-        education_level = request.query_params.get("education_level")
-        student_class = request.query_params.get("student_class")
+    def by_education_level(self, request):
+        """
+        Get fee structures by education level
+        Query params: education_level_id (FK ID)
+        """
+        education_level_id = request.query_params.get("education_level_id")
 
-        queryset = self.get_queryset().filter(is_active=True)
+        if not education_level_id:
+            return Response(
+                {"error": "education_level_id parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        if education_level:
-            queryset = queryset.filter(education_level=education_level)
-        if student_class:
-            queryset = queryset.filter(student_class=student_class)
+        queryset = self.get_queryset().filter(
+            education_level_id=education_level_id, is_active=True
+        )
 
-        # PERFORMANCE: Add pagination to handle large datasets
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
 
-        # Fallback if pagination is disabled
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
+    @action(detail=False, methods=["get"])
+    def by_class(self, request):
+        """
+        Get fee structures by class
+        Query params:
+        - education_level_id: FK ID (optional)
+        - student_class_id: FK ID (optional)
+        """
+        education_level_id = request.query_params.get("education_level_id")
+        student_class_id = request.query_params.get("student_class_id")
 
+        queryset = self.get_queryset().filter(is_active=True)
+
+        if education_level_id:
+            queryset = queryset.filter(education_level_id=education_level_id)
+        if student_class_id:
+            queryset = queryset.filter(student_class_id=student_class_id)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get"])
+    def statistics(self, request):
+        """Get fee structure statistics by education level"""
+        queryset = self.get_queryset().filter(is_active=True)
+
+        # Group by education level
+        by_education_level = []
+        education_levels = EducationLevel.objects.filter(is_active=True)
+
+        for edu_level in education_levels:
+            fee_structures = queryset.filter(education_level=edu_level)
+
+            by_education_level.append(
+                {
+                    "education_level_id": edu_level.id,
+                    "education_level_name": edu_level.name,
+                    "education_level_code": edu_level.code,
+                    "fee_structure_count": fee_structures.count(),
+                    "total_amount": fee_structures.aggregate(total=Sum("amount"))[
+                        "total"
+                    ]
+                    or 0,
+                }
+            )
+
+        return Response(
+            {
+                "total_fee_structures": queryset.count(),
+                "active_fee_structures": queryset.filter(is_active=True).count(),
+                "by_education_level": by_education_level,
+            }
+        )
+
+
+# ==============================================================================
+# StudentFee ViewSet - UPDATED FOR FK
+# ==============================================================================
 class StudentFeeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     """
-    CRITICAL: TenantFilterMixin ensures tenant isolation.
     ViewSet for managing student fees
+    UPDATED: Optimized queries for FK relationships
     """
 
-    queryset = (
-        StudentFee.objects.select_related(
-            "student", "fee_structure", "academic_session"
-        )
-        .all()
-        .order_by("-created_at")
-    )
+    queryset = StudentFee.objects.all().order_by("-created_at")
     permission_classes = [permissions.IsAuthenticated]
-    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate large fee datasets
+    pagination_class = LargeResultsPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = StudentFeeFilter
     search_fields = [
         "student__user__first_name",
         "student__user__last_name",
         "fee_structure__name",
-        "student__admission_number",
+        "student__registration_number",
     ]
     ordering_fields = ["amount_due", "amount_paid", "due_date", "created_at"]
     ordering = ["-created_at"]
 
-    def get_serializer_class(self):
-        if self.action == "list":
-            return StudentFeeListSerializer
-        return StudentFeeSerializer
-
     def get_queryset(self):
-        # CRITICAL: Call super() to get tenant-filtered queryset first
+        """
+        Optimize queries with select_related and prefetch_related
+        UPDATED: Include FK chains for student_class and education_level
+        """
         queryset = super().get_queryset()
+
+        # Optimize with select_related for FK fields
+        queryset = queryset.select_related(
+            "student",
+            "student__user",
+            "student__student_class",  # FK to StudentClass
+            "student__student_class__education_level",  # Nested FK
+            "student__stream",  # FK to Stream
+            "student__stream__stream_type_new",  # FK to StreamType
+            "fee_structure",
+            "fee_structure__education_level",  # FK
+            "fee_structure__student_class",  # FK
+            "academic_session",
+        )
+
+        # Prefetch related payments and plans
+        queryset = queryset.prefetch_related(
+            Prefetch(
+                "payments",
+                queryset=Payment.objects.filter(verified=True).order_by(
+                    "-payment_date"
+                ),
+            ),
+            Prefetch(
+                "payment_plans", queryset=PaymentPlan.objects.filter(is_active=True)
+            ),
+        )
 
         # If user is a student, only show their own fees
         if hasattr(self.request.user, "student_profile"):
             queryset = queryset.filter(student=self.request.user.student_profile)
 
         return queryset
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return StudentFeeListSerializer
+        return StudentFeeSerializer
 
     @action(detail=False, methods=["get"])
     def dashboard(self, request):
@@ -154,19 +267,69 @@ class StudentFeeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         return Response({"error": "User is not a student"}, status=400)
 
     @action(detail=False, methods=["get"])
+    def by_education_level(self, request):
+        """
+        Get fees by education level
+        Query params: education_level_id (FK ID)
+        """
+        education_level_id = request.query_params.get("education_level_id")
+
+        if not education_level_id:
+            return Response(
+                {"error": "education_level_id parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        queryset = self.get_queryset().filter(
+            student__student_class__education_level_id=education_level_id
+        )
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get"])
+    def by_class(self, request):
+        """
+        Get fees by student class
+        Query params: student_class_id (FK ID)
+        """
+        student_class_id = request.query_params.get("student_class_id")
+
+        if not student_class_id:
+            return Response(
+                {"error": "student_class_id parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        queryset = self.get_queryset().filter(
+            student__student_class_id=student_class_id
+        )
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get"])
     def overdue(self, request):
         """Get overdue fees"""
         queryset = self.get_queryset().filter(
             due_date__lt=timezone.now().date(), status__in=["PENDING", "PARTIAL"]
         )
 
-        # PERFORMANCE: Add pagination to handle large datasets
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
 
-        # Fallback if pagination is disabled
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
@@ -184,7 +347,8 @@ class StudentFeeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
                 student=student_fee.student, discount=discount
             ).exists():
                 return Response(
-                    {"error": "Discount already applied to this student"}, status=400
+                    {"error": "Discount already applied to this student"},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
             # Apply discount
@@ -203,16 +367,21 @@ class StudentFeeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
             )
 
         except FeeDiscount.DoesNotExist:
-            return Response({"error": "Discount not found"}, status=404)
+            return Response(
+                {"error": "Discount not found"}, status=status.HTTP_404_NOT_FOUND
+            )
 
     @action(detail=False, methods=["post"])
     def bulk_generate(self, request):
-        """Bulk generate fees for students"""
+        """
+        Bulk generate fees for students
+        UPDATED: Uses FK-based education_level_id and student_class_id
+        """
         serializer = BulkFeeGenerationSerializer(data=request.data)
         if serializer.is_valid():
             result = FeeService.bulk_generate_fees(serializer.validated_data)
             return Response(result)
-        return Response(serializer.errors, status=400)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=["post"])
     def create_payment_plan(self, request, pk=None):
@@ -221,7 +390,9 @@ class StudentFeeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
 
         # Check if user can create payment plans
         if not (request.user.is_staff or hasattr(request.user, "student_profile")):
-            return Response({"error": "Permission denied"}, status=403)
+            return Response(
+                {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
+            )
 
         # Validate that this is the student's own fee if not staff
         if (
@@ -229,10 +400,11 @@ class StudentFeeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
             and student_fee.student != request.user.student_profile
         ):
             return Response(
-                {"error": "Can only create payment plans for your own fees"}, status=403
+                {"error": "Can only create payment plans for your own fees"},
+                status=status.HTTP_403_FORBIDDEN,
             )
 
-        serializer = PaymentPlanSerializer(data=request.data)
+        serializer = PaymentPlanCreateSerializer(data=request.data)
         if serializer.is_valid():
             try:
                 payment_plan = FeeService.create_payment_plan(
@@ -240,26 +412,83 @@ class StudentFeeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
                 )
                 return Response(PaymentPlanSerializer(payment_plan).data)
             except Exception as e:
-                return Response({"error": str(e)}, status=400)
-        return Response(serializer.errors, status=400)
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=["get"])
+    def statistics(self, request):
+        """
+        Get fee statistics
+        UPDATED: Group by education level using FK
+        """
+        queryset = self.get_queryset()
+
+        # Overall statistics
+        overall_stats = queryset.aggregate(
+            total_fees=Count("id"),
+            total_amount_due=Sum("amount_due"),
+            total_amount_paid=Sum("amount_paid"),
+            total_balance=Sum("amount_due") - Sum("amount_paid"),
+        )
+
+        # By education level
+        by_education_level = []
+        education_levels = EducationLevel.objects.filter(is_active=True)
+
+        for edu_level in education_levels:
+            level_fees = queryset.filter(
+                student__student_class__education_level=edu_level
+            )
+
+            level_stats = level_fees.aggregate(
+                count=Count("id"),
+                total_due=Sum("amount_due"),
+                total_paid=Sum("amount_paid"),
+            )
+
+            by_education_level.append(
+                {
+                    "education_level_id": edu_level.id,
+                    "education_level_name": edu_level.name,
+                    "education_level_code": edu_level.code,
+                    "fee_count": level_stats["count"] or 0,
+                    "total_due": level_stats["total_due"] or 0,
+                    "total_paid": level_stats["total_paid"] or 0,
+                    "balance": (level_stats["total_due"] or 0)
+                    - (level_stats["total_paid"] or 0),
+                }
+            )
+
+        # By status
+        by_status = {
+            "paid": queryset.filter(status="PAID").count(),
+            "pending": queryset.filter(status="PENDING").count(),
+            "partial": queryset.filter(status="PARTIAL").count(),
+            "overdue": queryset.filter(status="OVERDUE").count(),
+        }
+
+        return Response(
+            {
+                "overall": overall_stats,
+                "by_education_level": by_education_level,
+                "by_status": by_status,
+            }
+        )
 
 
+# ==============================================================================
+# Payment ViewSet - UPDATED
+# ==============================================================================
 class PaymentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     """
-    CRITICAL: TenantFilterMixin ensures tenant isolation.
     ViewSet for managing payments with multi-gateway support
+    UPDATED: Optimized queries
     """
 
-    queryset = (
-        Payment.objects.select_related(
-            "student_fee__student", "student_fee__fee_structure"
-        )
-        .all()
-        .order_by("-created_at")
-    )
+    queryset = Payment.objects.all().order_by("-created_at")
     serializer_class = PaymentSerializer
     permission_classes = [permissions.IsAuthenticated]
-    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate large payment datasets
+    pagination_class = LargeResultsPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = PaymentFilter
     search_fields = [
@@ -273,8 +502,21 @@ class PaymentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     ordering = ["-created_at"]
 
     def get_queryset(self):
-        # CRITICAL: Call super() to get tenant-filtered queryset first
+        """
+        Optimize queries with select_related
+        UPDATED: Include FK chains for student class and education level
+        """
         queryset = super().get_queryset()
+
+        queryset = queryset.select_related(
+            "student_fee",
+            "student_fee__student",
+            "student_fee__student__user",
+            "student_fee__student__student_class",
+            "student_fee__student__student_class__education_level",
+            "student_fee__fee_structure",
+            "student_fee__academic_session",
+        )
 
         # If user is a student, only show their own payments
         if hasattr(self.request.user, "student_profile"):
@@ -283,6 +525,12 @@ class PaymentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
             )
 
         return queryset
+
+    def get_serializer_class(self):
+        """Use different serializers for different actions"""
+        if self.action == "create":
+            return PaymentCreateSerializer
+        return PaymentSerializer
 
     @action(detail=False, methods=["post"])
     def initiate(self, request):
@@ -295,8 +543,8 @@ class PaymentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
                 )
                 return Response(result)
             except Exception as e:
-                return Response({"error": str(e)}, status=400)
-        return Response(serializer.errors, status=400)
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=False, methods=["post"])
     def verify(self, request):
@@ -309,8 +557,8 @@ class PaymentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
                 )
                 return Response(result)
             except Exception as e:
-                return Response({"error": str(e)}, status=400)
-        return Response(serializer.errors, status=400)
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=["get"])
     def receipt(self, request, pk=None):
@@ -318,10 +566,10 @@ class PaymentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         payment = self.get_object()
 
         if not payment.verified:
-            return Response({"error": "Payment not verified"}, status=400)
+            return Response(
+                {"error": "Payment not verified"}, status=status.HTTP_400_BAD_REQUEST
+            )
 
-        # Generate PDF receipt (you'll need to implement this)
-        # For now, return payment details
         return Response(
             {
                 "payment": PaymentSerializer(payment).data,
@@ -350,13 +598,37 @@ class PaymentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         if status_filter:
             queryset = queryset.filter(gateway_status=status_filter)
 
-        # PERFORMANCE: Add pagination to handle large datasets
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
 
-        # Fallback if pagination is disabled
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get"])
+    def by_education_level(self, request):
+        """
+        Get payments by education level
+        Query params: education_level_id (FK ID)
+        """
+        education_level_id = request.query_params.get("education_level_id")
+
+        if not education_level_id:
+            return Response(
+                {"error": "education_level_id parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        queryset = self.get_queryset().filter(
+            student_fee__student__student_class__education_level_id=education_level_id
+        )
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
@@ -366,30 +638,91 @@ class PaymentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         payment = self.get_object()
 
         if not payment.verified or payment.gateway_status != "SUCCESS":
-            return Response({"error": "Payment cannot be refunded"}, status=400)
+            return Response(
+                {"error": "Payment cannot be refunded"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             result = PaymentService.initiate_refund(payment, request.data.get("reason"))
             return Response(result)
         except Exception as e:
-            return Response({"error": str(e)}, status=400)
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=["get"])
+    def statistics(self, request):
+        """Get payment statistics"""
+        queryset = self.get_queryset()
+
+        overall_stats = queryset.aggregate(
+            total_payments=Count("id"),
+            total_amount=Sum("amount"),
+            verified_payments=Count("id", filter=Q(verified=True)),
+            total_verified_amount=Sum("amount", filter=Q(verified=True)),
+        )
+
+        # By gateway
+        by_gateway = (
+            queryset.filter(verified=True)
+            .values("payment_gateway")
+            .annotate(count=Count("id"), total_amount=Sum("amount"))
+            .order_by("-total_amount")
+        )
+
+        # By education level
+        by_education_level = []
+        education_levels = EducationLevel.objects.filter(is_active=True)
+
+        for edu_level in education_levels:
+            level_payments = queryset.filter(
+                student_fee__student__student_class__education_level=edu_level,
+                verified=True,
+            )
+
+            level_stats = level_payments.aggregate(
+                count=Count("id"), total_amount=Sum("amount")
+            )
+
+            by_education_level.append(
+                {
+                    "education_level_id": edu_level.id,
+                    "education_level_name": edu_level.name,
+                    "education_level_code": edu_level.code,
+                    "payment_count": level_stats["count"] or 0,
+                    "total_amount": level_stats["total_amount"] or 0,
+                }
+            )
+
+        return Response(
+            {
+                "overall": overall_stats,
+                "by_gateway": list(by_gateway),
+                "by_education_level": by_education_level,
+            }
+        )
 
 
+# ==============================================================================
+# PaymentGatewayConfig ViewSet
+# ==============================================================================
 class PaymentGatewayConfigViewSet(TenantFilterMixin, viewsets.ModelViewSet):
-    """
-    CRITICAL: TenantFilterMixin ensures tenant isolation.
-    ViewSet for managing payment gateway configurations
-    """
+    """ViewSet for managing payment gateway configurations"""
 
     queryset = PaymentGatewayConfig.objects.all().order_by("gateway")
     serializer_class = PaymentGatewayConfigSerializer
     permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate gateway configs
+    pagination_class = StandardResultsPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["gateway", "is_active", "is_test_mode"]
     search_fields = ["gateway"]
     ordering_fields = ["gateway", "created_at"]
     ordering = ["gateway"]
+
+    def get_serializer_class(self):
+        """Use admin serializer for detail/create/update"""
+        if self.action in ["retrieve", "create", "update", "partial_update"]:
+            return PaymentGatewayConfigAdminSerializer
+        return PaymentGatewayConfigSerializer
 
     @action(detail=True, methods=["post"])
     def toggle_status(self, request, pk=None):
@@ -414,24 +747,34 @@ class PaymentGatewayConfigViewSet(TenantFilterMixin, viewsets.ModelViewSet):
             result = PaymentService.test_gateway_connection(gateway_config)
             return Response(result)
         except Exception as e:
-            return Response({"error": str(e)}, status=400)
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
+# ==============================================================================
+# PaymentAttempt ViewSet
+# ==============================================================================
 class PaymentAttemptViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
-    """
-    CRITICAL: TenantFilterMixin ensures tenant isolation.
-    ViewSet for viewing payment attempts
-    """
+    """ViewSet for viewing payment attempts"""
 
     queryset = PaymentAttempt.objects.all().order_by("-created_at")
     serializer_class = PaymentAttemptSerializer
     permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
-    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate payment attempts
+    pagination_class = LargeResultsPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["gateway", "status", "student_fee"]
     search_fields = ["attempt_reference", "error_message"]
     ordering_fields = ["created_at", "amount"]
     ordering = ["-created_at"]
+
+    def get_queryset(self):
+        """Optimize queries"""
+        queryset = super().get_queryset()
+        return queryset.select_related(
+            "student_fee",
+            "student_fee__student",
+            "student_fee__student__user",
+            "student_fee__fee_structure",
+        )
 
     @action(detail=False, methods=["get"])
     def failure_analysis(self, request):
@@ -440,24 +783,29 @@ class PaymentAttemptViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
             analysis = PaymentService.get_failure_analysis()
             return Response(analysis)
         except Exception as e:
-            return Response({"error": str(e)}, status=400)
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
+# ==============================================================================
+# PaymentWebhook ViewSet
+# ==============================================================================
 class PaymentWebhookViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
-    """
-    CRITICAL: TenantFilterMixin ensures tenant isolation.
-    ViewSet for managing payment webhooks
-    """
+    """ViewSet for managing payment webhooks"""
 
     queryset = PaymentWebhook.objects.all().order_by("-created_at")
     serializer_class = PaymentWebhookSerializer
     permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate webhooks
+    pagination_class = StandardResultsPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["gateway", "event_type", "processed"]
     search_fields = ["event_type", "event_id"]
     ordering_fields = ["created_at", "processed_at"]
     ordering = ["-created_at"]
+
+    def get_queryset(self):
+        """Optimize queries"""
+        queryset = super().get_queryset()
+        return queryset.select_related("payment")
 
     @action(detail=True, methods=["post"])
     def reprocess(self, request, pk=None):
@@ -468,38 +816,32 @@ class PaymentWebhookViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
             result = PaymentService.process_webhook(webhook)
             return Response(result)
         except Exception as e:
-            return Response({"error": str(e)}, status=400)
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=False, methods=["get"])
     def unprocessed(self, request):
         """Get unprocessed webhooks"""
         queryset = self.get_queryset().filter(processed=False)
 
-        # PERFORMANCE: Add pagination to handle large datasets
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
 
-        # Fallback if pagination is disabled
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
 
+# ==============================================================================
+# PaymentPlan ViewSet
+# ==============================================================================
 class PaymentPlanViewSet(TenantFilterMixin, viewsets.ModelViewSet):
-    """
-    CRITICAL: TenantFilterMixin ensures tenant isolation.
-    ViewSet for managing payment plans
-    """
+    """ViewSet for managing payment plans"""
 
-    queryset = (
-        PaymentPlan.objects.select_related("student_fee__student")
-        .all()
-        .order_by("-created_at")
-    )
+    queryset = PaymentPlan.objects.all().order_by("-created_at")
     serializer_class = PaymentPlanSerializer
     permission_classes = [permissions.IsAuthenticated]
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate payment plans
+    pagination_class = StandardResultsPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["is_active", "is_completed", "student_fee"]
     search_fields = [
@@ -511,8 +853,19 @@ class PaymentPlanViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     ordering = ["-created_at"]
 
     def get_queryset(self):
-        # CRITICAL: Call super() to get tenant-filtered queryset first
+        """Optimize queries"""
         queryset = super().get_queryset()
+
+        queryset = queryset.select_related(
+            "student_fee",
+            "student_fee__student",
+            "student_fee__student__user",
+            "student_fee__fee_structure",
+        ).prefetch_related(
+            Prefetch(
+                "installments", queryset=PaymentInstallment.objects.order_by("due_date")
+            )
+        )
 
         # If user is a student, only show their own payment plans
         if hasattr(self.request.user, "student_profile"):
@@ -521,6 +874,12 @@ class PaymentPlanViewSet(TenantFilterMixin, viewsets.ModelViewSet):
             )
 
         return queryset
+
+    def get_serializer_class(self):
+        """Use create serializer for create action"""
+        if self.action == "create":
+            return PaymentPlanCreateSerializer
+        return PaymentPlanSerializer
 
     @action(detail=True, methods=["get"])
     def installments(self, request, pk=None):
@@ -542,7 +901,10 @@ class PaymentPlanViewSet(TenantFilterMixin, viewsets.ModelViewSet):
             )
 
             if installment.is_paid:
-                return Response({"error": "Installment already paid"}, status=400)
+                return Response(
+                    {"error": "Installment already paid"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             # Create payment for installment
             result = PaymentService.create_installment_payment(
@@ -551,21 +913,23 @@ class PaymentPlanViewSet(TenantFilterMixin, viewsets.ModelViewSet):
             return Response(result)
 
         except PaymentInstallment.DoesNotExist:
-            return Response({"error": "Installment not found"}, status=404)
+            return Response(
+                {"error": "Installment not found"}, status=status.HTTP_404_NOT_FOUND
+            )
         except Exception as e:
-            return Response({"error": str(e)}, status=400)
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
+# ==============================================================================
+# FeeDiscount ViewSet
+# ==============================================================================
 class FeeDiscountViewSet(TenantFilterMixin, viewsets.ModelViewSet):
-    """
-    CRITICAL: TenantFilterMixin ensures tenant isolation.
-    ViewSet for managing fee discounts
-    """
+    """ViewSet for managing fee discounts"""
 
     queryset = FeeDiscount.objects.all().order_by("name")
     serializer_class = FeeDiscountSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrReadOnly]
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate discounts
+    pagination_class = StandardResultsPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["discount_type", "is_active"]
     search_fields = ["name", "description"]
@@ -577,31 +941,25 @@ class FeeDiscountViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         """Get active discounts"""
         queryset = self.get_queryset().filter(is_active=True)
 
-        # PERFORMANCE: Add pagination for consistency
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
 
-        # Fallback if pagination is disabled
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
 
+# ==============================================================================
+# StudentDiscount ViewSet
+# ==============================================================================
 class StudentDiscountViewSet(TenantFilterMixin, viewsets.ModelViewSet):
-    """
-    CRITICAL: TenantFilterMixin ensures tenant isolation.
-    ViewSet for managing student discounts
-    """
+    """ViewSet for managing student discounts"""
 
-    queryset = (
-        StudentDiscount.objects.select_related("student", "discount", "applied_by")
-        .all()
-        .order_by("-applied_date")
-    )
+    queryset = StudentDiscount.objects.all().order_by("-applied_date")
     serializer_class = StudentDiscountSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrReadOnly]
-    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate student discounts
+    pagination_class = LargeResultsPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["student", "discount", "is_active"]
     search_fields = [
@@ -611,6 +969,13 @@ class StudentDiscountViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     ]
     ordering_fields = ["applied_date"]
     ordering = ["-applied_date"]
+
+    def get_queryset(self):
+        """Optimize queries"""
+        queryset = super().get_queryset()
+        return queryset.select_related(
+            "student", "student__user", "discount", "applied_by"
+        )
 
     @action(detail=True, methods=["post"])
     def deactivate(self, request, pk=None):
@@ -627,22 +992,16 @@ class StudentDiscountViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         return Response({"message": "Discount deactivated successfully"})
 
 
+# ==============================================================================
+# PaymentReminder ViewSet
+# ==============================================================================
 class PaymentReminderViewSet(TenantFilterMixin, viewsets.ModelViewSet):
-    """
-    CRITICAL: TenantFilterMixin ensures tenant isolation.
-    ViewSet for managing payment reminders
-    """
+    """ViewSet for managing payment reminders"""
 
-    queryset = (
-        PaymentReminder.objects.select_related(
-            "student_fee__student", "student_fee__fee_structure"
-        )
-        .all()
-        .order_by("-created_at")
-    )
+    queryset = PaymentReminder.objects.all().order_by("-created_at")
     serializer_class = PaymentReminderSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrReadOnly]
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate reminders
+    pagination_class = StandardResultsPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["sent", "reminder_type"]
     search_fields = [
@@ -651,6 +1010,16 @@ class PaymentReminderViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     ]
     ordering_fields = ["created_at", "sent_date"]
     ordering = ["-created_at"]
+
+    def get_queryset(self):
+        """Optimize queries"""
+        queryset = super().get_queryset()
+        return queryset.select_related(
+            "student_fee",
+            "student_fee__student",
+            "student_fee__student__user",
+            "student_fee__fee_structure",
+        )
 
     @action(detail=False, methods=["post"])
     def send_bulk(self, request):
@@ -664,7 +1033,7 @@ class PaymentReminderViewSet(TenantFilterMixin, viewsets.ModelViewSet):
             )
             return Response({"message": f"{count} reminders sent successfully"})
         except Exception as e:
-            return Response({"error": str(e)}, status=400)
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=["post"])
     def mark_sent(self, request, pk=None):
@@ -677,22 +1046,31 @@ class PaymentReminderViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         return Response({"message": "Reminder marked as sent"})
 
 
+# ==============================================================================
+# Report ViewSet - UPDATED
+# ==============================================================================
 class ReportViewSet(viewsets.ViewSet):
-    """ViewSet for generating reports"""
+    """
+    ViewSet for generating reports
+    UPDATED: Uses FK-based filtering
+    """
 
     permission_classes = [permissions.IsAuthenticated, IsAdminOrReadOnly]
 
     @action(detail=False, methods=["post"])
     def generate(self, request):
-        """Generate fee reports"""
+        """
+        Generate fee reports
+        UPDATED: Uses education_level_id and student_class_id
+        """
         serializer = FeeReportSerializer(data=request.data)
         if serializer.is_valid():
             try:
                 report_data = ReportService.generate_report(serializer.validated_data)
                 return Response(report_data)
             except Exception as e:
-                return Response({"error": str(e)}, status=400)
-        return Response(serializer.errors, status=400)
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=False, methods=["post"])
     def export_csv(self, request):
@@ -700,7 +1078,6 @@ class ReportViewSet(viewsets.ViewSet):
         serializer = FeeReportSerializer(data=request.data)
         if serializer.is_valid():
             try:
-                # Generate CSV content
                 csv_content = ReportService.export_csv(serializer.validated_data)
 
                 response = HttpResponse(csv_content, content_type="text/csv")
@@ -710,16 +1087,22 @@ class ReportViewSet(viewsets.ViewSet):
                 return response
 
             except Exception as e:
-                return Response({"error": str(e)}, status=400)
-        return Response(serializer.errors, status=400)
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=False, methods=["get"])
     def summary(self, request):
-        """Get fee summary statistics"""
+        """
+        Get fee summary statistics
+        UPDATED: Groups by education level using FK
+        """
         active_session = AcademicSession.objects.filter(is_active=True).first()
 
         if not active_session:
-            return Response({"error": "No active academic session"}, status=400)
+            return Response(
+                {"error": "No active academic session"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Calculate summary statistics
         total_fees = StudentFee.objects.filter(
@@ -732,7 +1115,7 @@ class ReportViewSet(viewsets.ViewSet):
 
         # Count statistics
         fee_counts = {
-            "total_students": Student.objects.count(),
+            "total_students": Student.objects.filter(is_active=True).count(),
             "total_fees": StudentFee.objects.filter(
                 academic_session=active_session
             ).count(),
@@ -757,12 +1140,42 @@ class ReportViewSet(viewsets.ViewSet):
             .order_by("-total_amount")
         )
 
+        # NEW: Education level statistics
+        by_education_level = []
+        education_levels = EducationLevel.objects.filter(is_active=True)
+
+        for edu_level in education_levels:
+            level_fees = StudentFee.objects.filter(
+                academic_session=active_session,
+                student__student_class__education_level=edu_level,
+            )
+
+            level_stats = level_fees.aggregate(
+                count=Count("id"),
+                total_due=Sum("amount_due"),
+                total_paid=Sum("amount_paid"),
+            )
+
+            by_education_level.append(
+                {
+                    "education_level_id": edu_level.id,
+                    "education_level_name": edu_level.name,
+                    "education_level_code": edu_level.code,
+                    "fee_count": level_stats["count"] or 0,
+                    "total_due": level_stats["total_due"] or 0,
+                    "total_paid": level_stats["total_paid"] or 0,
+                    "balance": (level_stats["total_due"] or 0)
+                    - (level_stats["total_paid"] or 0),
+                }
+            )
+
         return Response(
             {
                 "session": AcademicSessionSerializer(active_session).data,
                 "financial_summary": total_fees,
                 "fee_counts": fee_counts,
                 "gateway_statistics": list(gateway_stats),
+                "by_education_level": by_education_level,
             }
         )
 
@@ -777,7 +1190,7 @@ class ReportViewSet(viewsets.ViewSet):
             )
             return Response(analytics)
         except Exception as e:
-            return Response({"error": str(e)}, status=400)
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=False, methods=["get"])
     def gateway_performance(self, request):
@@ -786,4 +1199,4 @@ class ReportViewSet(viewsets.ViewSet):
             performance = ReportService.get_gateway_performance()
             return Response(performance)
         except Exception as e:
-            return Response({"error": str(e)}, status=400)
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)

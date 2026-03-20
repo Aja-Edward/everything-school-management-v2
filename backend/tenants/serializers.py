@@ -31,22 +31,47 @@ class TenantSerializer(serializers.ModelSerializer):
 
 class TenantSettingsSerializer(serializers.ModelSerializer):
     """Serializer for TenantSettings model."""
-    tenant_name = serializers.CharField(source='tenant.name', read_only=True)
+    school_name = serializers.CharField(source="tenant.name", read_only=True)
 
     class Meta:
         model = TenantSettings
         fields = [
-            'tenant', 'tenant_name', 'school_code', 'school_motto',
-            'address', 'city', 'state', 'country', 'postal_code',
-            'phone', 'email', 'website',
-            'logo', 'favicon', 'primary_color', 'secondary_color',
-            'current_session', 'current_term', 'billing_period',
-            'timezone', 'date_format', 'language', 'currency',
-            'allow_student_registration', 'allow_parent_registration',
-            'require_email_verification', 'session_timeout_minutes', 'max_login_attempts',
-            'student_portal_enabled', 'teacher_portal_enabled', 'parent_portal_enabled',
-            'show_position_on_result', 'show_class_average_on_result', 'require_token_for_result',
-            'created_at', 'updated_at'
+            "tenant",
+            "school_name",
+            "school_code",
+            "school_motto",
+            "address",
+            "city",
+            "state",
+            "country",
+            "postal_code",
+            "phone",
+            "email",
+            "website",
+            "logo",
+            "favicon",
+            "primary_color",
+            "secondary_color",
+            "current_session",
+            "current_term",
+            "billing_period",
+            "timezone",
+            "date_format",
+            "language",
+            "currency",
+            "allow_student_registration",
+            "allow_parent_registration",
+            "require_email_verification",
+            "session_timeout_minutes",
+            "max_login_attempts",
+            "student_portal_enabled",
+            "teacher_portal_enabled",
+            "parent_portal_enabled",
+            "show_position_on_result",
+            "show_class_average_on_result",
+            "require_token_for_result",
+            "created_at",
+            "updated_at",
         ]
         read_only_fields = ['tenant', 'created_at', 'updated_at']
 
@@ -120,7 +145,7 @@ class TenantPaymentSerializer(serializers.ModelSerializer):
 
 class TenantInvoiceSerializer(serializers.ModelSerializer):
     """Serializer for TenantInvoice model."""
-    tenant_name = serializers.CharField(source='tenant.name', read_only=True)
+    school_name = serializers.CharField(source="tenant.name", read_only=True)
     line_items = TenantInvoiceLineItemSerializer(many=True, read_only=True)
     payments = TenantPaymentSerializer(many=True, read_only=True)
     academic_session_name = serializers.CharField(source='academic_session.name', read_only=True)
@@ -129,15 +154,34 @@ class TenantInvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = TenantInvoice
         fields = [
-            'id', 'invoice_number', 'tenant', 'tenant_name',
-            'billing_period', 'academic_session', 'academic_session_name', 'term', 'term_name',
-            'base_price_per_student', 'student_count',
-            'base_amount', 'services_amount', 'subtotal',
-            'discount_amount', 'discount_reason', 'total_amount',
-            'amount_paid', 'balance_due', 'status',
-            'issue_date', 'due_date', 'paid_at',
-            'notes', 'line_items', 'payments',
-            'created_at', 'updated_at'
+            "id",
+            "invoice_number",
+            "tenant",
+            "school_name",
+            "billing_period",
+            "academic_session",
+            "academic_session_name",
+            "term",
+            "term_name",
+            "base_price_per_student",
+            "student_count",
+            "base_amount",
+            "services_amount",
+            "subtotal",
+            "discount_amount",
+            "discount_reason",
+            "total_amount",
+            "amount_paid",
+            "balance_due",
+            "status",
+            "issue_date",
+            "due_date",
+            "paid_at",
+            "notes",
+            "line_items",
+            "payments",
+            "created_at",
+            "updated_at",
         ]
         read_only_fields = [
             'id', 'invoice_number', 'base_amount', 'services_amount',
@@ -151,7 +195,7 @@ class TenantInvoiceSerializer(serializers.ModelSerializer):
 
 class TenantInvitationSerializer(serializers.ModelSerializer):
     """Serializer for TenantInvitation model."""
-    tenant_name = serializers.CharField(source='tenant.name', read_only=True)
+    school_name = serializers.CharField(source="tenant.name", read_only=True)
     invited_by_name = serializers.SerializerMethodField()
     is_valid = serializers.ReadOnlyField()
     is_expired = serializers.ReadOnlyField()
@@ -159,9 +203,21 @@ class TenantInvitationSerializer(serializers.ModelSerializer):
     class Meta:
         model = TenantInvitation
         fields = [
-            'id', 'tenant', 'tenant_name', 'email', 'role', 'section',
-            'token', 'status', 'is_valid', 'is_expired',
-            'invited_by', 'invited_by_name', 'created_at', 'expires_at', 'accepted_at'
+            "id",
+            "tenant",
+            "school_name",
+            "email",
+            "role",
+            "section",
+            "token",
+            "status",
+            "is_valid",
+            "is_expired",
+            "invited_by",
+            "invited_by_name",
+            "created_at",
+            "expires_at",
+            "accepted_at",
         ]
         read_only_fields = ['id', 'token', 'status', 'invited_by', 'created_at', 'accepted_at']
 

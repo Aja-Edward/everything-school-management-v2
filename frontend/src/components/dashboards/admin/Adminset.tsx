@@ -32,7 +32,7 @@ const tabIcons = {
 };
 
 // Premium Toggle Component
-const PremiumToggle = ({ checked, onChange, size = 'default', disabled = false, label, description }) => {
+const PremiumToggle = ({ checked, onChange, size = 'default', disabled = false, label, description }: { checked: boolean; onChange: () => void; size?: 'default' | 'large' | 'small'; disabled?: boolean; label?: string; description?: string }) => {
   const sizeClasses = size === 'large' ? 'h-8 w-14' : size === 'small' ? 'h-4 w-8' : 'h-6 w-11';
   const thumbClasses = size === 'large' ? 'h-6 w-6' : size === 'small' ? 'h-2 w-2' : 'h-4 w-4';
   const translateClasses = size === 'large' 
@@ -76,7 +76,7 @@ const PremiumToggle = ({ checked, onChange, size = 'default', disabled = false, 
 };
 
 // Premium Input Component
-const PremiumInput = ({ type = 'text', placeholder, value, onChange, icon: Icon, className = '', ...props }) => (
+const PremiumInput = ({ type = 'text', placeholder, value, onChange, icon: Icon, className = '', ...props }: { type?: string; placeholder?: string; value?: string; onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void; icon?: React.ComponentType<{ className: string }>; className?: string; [key: string]: unknown }) => (
   <div className="relative group">
     {Icon && (
       <div className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors duration-200">
@@ -96,7 +96,7 @@ const PremiumInput = ({ type = 'text', placeholder, value, onChange, icon: Icon,
 );
 
 // Premium Select Component
-const PremiumSelect = ({ value, onChange, options, placeholder, icon: Icon }) => (
+const PremiumSelect = ({ value, onChange, options, placeholder, icon: Icon }: { value: string; onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void; options: Array<{ value: string; label: string }>; placeholder?: string; icon?: React.ComponentType<{ className: string }> }) => (
   <div className="relative group">
     {Icon && (
       <div className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors duration-200 z-10">
@@ -125,7 +125,7 @@ const PremiumSelect = ({ value, onChange, options, placeholder, icon: Icon }) =>
 );
 
 // Premium Card Component
-const PremiumCard = ({ children, className = '', gradient = 'from-white/80 to-white/60', border = 'border-white/50' }) => (
+const PremiumCard = ({ children, className = '', gradient = 'from-white/80 to-white/60', border = 'border-white/50' }: { children: React.ReactNode; className?: string; gradient?: string; border?: string }) => (
   <div className={`relative overflow-hidden rounded-3xl bg-gradient-to-br ${gradient} backdrop-blur-xl border ${border} shadow-xl hover:shadow-2xl transition-all duration-500 group ${className}`}>
     <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 via-transparent to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
     <div className="relative z-10">

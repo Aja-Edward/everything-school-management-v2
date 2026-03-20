@@ -11,6 +11,7 @@ export enum UserRole {
   PARENT = 'parent',
   ADMIN = 'admin',
   SUPERADMIN = 'superadmin',
+  PLATFORM_ADMIN = 'platform_admin',
   NURSERY_ADMIN = 'nursery_admin',
   PRIMARY_ADMIN = 'primary_admin',
   JUNIOR_SECONDARY_ADMIN = 'junior_secondary_admin',
@@ -288,7 +289,7 @@ export interface SoftDeletableEntity extends BaseEntity {
 export interface SchoolSettings {
   // General settings
   site_name: string;
-  tenant_name: string;
+  school_name: string;
   school_code: string;
   address: string;
   phone: string;
@@ -3426,7 +3427,7 @@ export interface BillingSummary {
  */
 export interface PendingPayment {
   id: string;
-  tenant_name: string;
+  school_name: string;
   invoice: Invoice;
   notification_date: string;
   payment_reference: string;

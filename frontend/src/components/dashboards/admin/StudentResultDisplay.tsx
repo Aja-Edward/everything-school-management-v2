@@ -369,11 +369,11 @@ const StudentResultDisplay: React.FC<StudentResultDisplayProps> = ({ student, se
 
   // Get school name for display
   const getSchoolName = () => {
-    if (schoolSettings?.tenant_name) {
-      return schoolSettings.tenant_name;
+    if (schoolSettings?.school_name) {
+      return schoolSettings.school_name;
     }
-    if (enhancedResult?.school_info?.tenant_name) {
-      return enhancedResult.school_info.tenant_name;
+    if (enhancedResult?.school_info?.school_name) {
+      return enhancedResult.school_info.school_name;
     }
     return "School Name";
   };
@@ -977,7 +977,7 @@ const StudentResultDisplay: React.FC<StudentResultDisplayProps> = ({ student, se
           </div>
           {schoolSettings && (
             <div className={`text-xs ${themeClasses.textTertiary} mt-2`}>
-              School: {schoolSettings.tenant_name || schoolSettings.tenant_name || 'Unknown'}
+              School: {schoolSettings.school_name || schoolSettings.school_name || 'Unknown'}
             </div>
           )}
         </div>

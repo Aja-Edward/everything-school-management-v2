@@ -99,6 +99,7 @@ const DashboardHome: React.FC = () => {
           const student: Student = {
             id: studentData?.id || user.id,
             user: user.user_data,
+            username: user.user_data.username || `user${user.id}`,
             student_id: studentData?.student_id || `STU${user.id}`,
             gender: studentData?.gender || 'not_specified' as Gender,
             date_of_birth: studentData?.date_of_birth || new Date().toISOString(),

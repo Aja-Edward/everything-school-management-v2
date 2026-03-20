@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
   School, Plus, Search, Edit3, Trash2, Eye, Grid3X3, List, UserPlus
 } from 'lucide-react';
 import { useGlobalTheme } from '@/contexts/GlobalThemeContext';
-import { classroomService, Classroom, Teacher, Subject, ClassroomTeacherAssignment, UpdateClassroomData, CreateClassroomData } from '@/services/ClassroomService';
+import { Classroom, EducationLevelType,  Subject, ClassroomTeacherAssignment, UpdateClassroomData, CreateClassroomData } from '@/services/ClassroomService';
+import { useClassroom } from '@/contexts/ClassroomContext';
 import { toast } from 'react-toastify';
 import ClassroomViewModal from './ClassroomViewModal';
 
@@ -11,16 +12,7 @@ interface ClassroomManagementProps {}
 
 const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
   const { theme } = useGlobalTheme();
-  const isDark = theme === 'dark';
-  
-  // State management
-  const [classrooms, setClassrooms] = useState<Classroom[]>([]);
-  const [filteredClassrooms, setFilteredClassrooms] = useState<Classroom[]>([]);
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  
+  const isDark = theme === 'dark';  
   // Modal states
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -41,10 +33,7 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
   });
 
   // Additional data for forms
-  const [gradeLevels, setGradeLevels] = useState<any[]>([]);
-  const [sections, setSections] = useState<any[]>([]);
-  const [academicSessions, setAcademicSessions] = useState<any[]>([]);
-  const [terms, setTerms] = useState<any[]>([]);
+
   
   // Assignment form - Complete interface implementation
   const [assignmentData, setAssignmentData] = useState({
@@ -60,85 +49,40 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
   // Multiple subject selection
   const [selectedSubjects, setSelectedSubjects] = useState<number[]>([]);
   
-  // Filters
-  const [searchTerm, setSearchTerm] = useState('');
-  const [levelFilter, setLevelFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
+ const {
+  filteredClassrooms,
+  sections,   
+  terms,      
+  teachers,
+  subjects,
+  gradeLevels,
+  academicSessions,
+  loading,
+  error,
+  searchTerm,
+  levelFilter,
+  statusFilter,
+  setSearchTerm,
+  setLevelFilter,
+  setStatusFilter,
+  createClassroom,
+  updateClassroom,
+  deleteClassroom,
+  createTeacherAssignment,
+  deleteTeacherAssignment,
+  loadSections,
+  loadClassrooms, 
+  loadTerms,
+} = useClassroom();
   
   
   // View toggle
   const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
 
   // Load data
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const [classroomsRes, teachersRes, subjectsRes, gradeLevelsRes, academicSessionsRes] = await Promise.all([
-  classroomService.getClassrooms(),
-  classroomService.getAllTeachers(),
-  classroomService.getAllSubjects(),
-  classroomService.getGradeLevels(),
-  classroomService.getAcademicYears(),
-]);
-      
-
-      // Robust response handling
-      const classrooms = Array.isArray(classroomsRes) ? classroomsRes : (classroomsRes.results || []);
-      
-      console.log('🔍 Parsed classrooms:', classrooms);
-    console.log('🔍 Classrooms count:', classrooms.length);
-      
-      const teachers = Array.isArray(teachersRes) ? teachersRes : (teachersRes.results || []);
-      const subjects = Array.isArray(subjectsRes) ? subjectsRes : (subjectsRes.results || []);
-      const gradeLevels = Array.isArray(gradeLevelsRes) ? gradeLevelsRes : (gradeLevelsRes.results || []);
-      const academicSessions = Array.isArray(academicSessionsRes) ? academicSessionsRes : (academicSessionsRes.results || []);
-      
-      
-      
-      setClassrooms(classrooms);
-      setFilteredClassrooms(classrooms);
-      setTeachers(teachers);
-      setSubjects(subjects);
-      setGradeLevels(gradeLevels);
-      setAcademicSessions(academicSessions);
-    } catch (err: any) {
-      const errorMessage = err.message || 'Failed to load data';
-      setError(errorMessage);
-      toast.error('Failed to load classroom data');
-      console.error('Error loading data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  
   // Filter classrooms
-  useEffect(() => {
-    let filtered = classrooms;
-
-    if (searchTerm) {
-      filtered = filtered.filter(c => 
-        c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.grade_level_name.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-
-    if (levelFilter !== 'all') {
-      filtered = filtered.filter(c => c.education_level === levelFilter);
-    }
-
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(c => c.is_active === (statusFilter === 'active'));
-    }
-
-
-    setFilteredClassrooms(filtered);
-  }, [classrooms, searchTerm, levelFilter, statusFilter]);
+  
 
   // Handle form submission with proper validation
   const handleSubmit = async (e: React.FormEvent) => {
@@ -167,8 +111,8 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
           room_number: formData.room_number.trim(),
           max_capacity: formData.max_capacity,
         };
-        await classroomService.updateClassroom(selectedClassroom.id, updateData);
-        toast.success('Classroom updated successfully');
+        await updateClassroom(selectedClassroom.id, updateData);
+       
       } else {
         // Create new classroom
         const createData: CreateClassroomData = {
@@ -180,14 +124,13 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
           room_number: formData.room_number.trim(),
           max_capacity: formData.max_capacity,
         };
-        await classroomService.createClassroom(createData);
-        toast.success('Classroom created successfully');
+        await createClassroom(createData);
       }
       
       resetForm();
       setShowAddModal(false);
       setShowEditModal(false);
-      await loadData();
+  
     } catch (err: any) {
       toast.error(err.message || 'Operation failed');
     }
@@ -211,7 +154,7 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
     
     try {
       const assignmentPromises = selectedSubjects.map(subjectId =>
-        classroomService.createTeacherAssignment({
+        createTeacherAssignment({
           classroom_id: selectedClassroom.id,
           teacher_id: parseInt(assignmentData.teacher_id),
           subject_id: subjectId,
@@ -225,7 +168,7 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
       
       resetAssignmentForm();
       setShowAssignTeacherModal(false);
-      await loadData();
+     
     } catch (err: any) {
       toast.error(err.message || 'Assignment failed');
     }
@@ -240,9 +183,9 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
     }
     
     try {
-      await classroomService.deleteTeacherAssignment(assignmentId);
+      await deleteTeacherAssignment(assignmentId);
       toast.success('Teacher assignment removed successfully');
-      await loadData();
+
     } catch (err: any) {
       toast.error(err.message || 'Failed to remove assignment');
     }
@@ -255,10 +198,8 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
     }
 
     try {
-      const response = await classroomService.deleteClassroom(classroom.id);
-      const successMessage = response?.message || 'Classroom deleted successfully';
-      toast.success(successMessage);
-      await loadData();
+      await deleteClassroom(classroom.id);
+
     } catch (err: any) {
       toast.error(err.message || 'Failed to delete classroom');
     }
@@ -266,27 +207,13 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
 
   // Load sections for a specific grade level
   const loadSectionsForGradeLevel = async (gradeLevelId: number) => {
-    try {
-      const sectionsRes = await classroomService.getSections(gradeLevelId);
-      const sections = Array.isArray(sectionsRes) ? sectionsRes : (sectionsRes.results || []);
-      setSections(sections);
-    } catch (err: any) {
-      console.error('Error loading sections:', err);
-      setSections([]);
-    }
-  };
+  await loadSections(gradeLevelId);
+};
 
   // Load terms for a specific academic year
   const loadTermsForAcademicSession = async (academicSessionId: number) => {
-    try {
-      const termsRes = await classroomService.getTerms(academicSessionId);
-      const terms = Array.isArray(termsRes) ? termsRes : (termsRes.results || []);
-      setTerms(terms);
-    } catch (err: any) {
-      console.error('Error loading terms:', err);
-      setTerms([]);
-    }
-  };
+  await loadTerms(academicSessionId);
+};
 
   // Get available subjects for selected teacher
   const getAvailableSubjectsForTeacher = async (teacherId: string) => {
@@ -329,8 +256,7 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
       room_number: '',
       max_capacity: 30,
     });
-    setSections([]);
-    setTerms([]);
+    
   };
 
   const resetAssignmentForm = () => {
@@ -376,7 +302,7 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
     borderPrimary: isDark ? 'border-gray-700' : 'border-gray-200',
   };
 
-  if (loading) {
+  if (loading.classrooms) {
     return (
       <div className={`min-h-screen ${themeClasses.bgPrimary} p-6`}>
         <div className="text-center py-12">
@@ -397,7 +323,7 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
             <p className="text-sm">{error}</p>
           </div>
           <button
-            onClick={loadData}
+            onClick={loadClassrooms}
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
           >
             Retry
@@ -466,7 +392,7 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
             <div className="flex gap-4 flex-wrap">
               <select
                 value={levelFilter}
-                onChange={(e) => setLevelFilter(e.target.value)}
+                onChange={(e) => setLevelFilter(e.target.value as EducationLevelType | 'all')}
                 className={`px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all duration-300 ${themeClasses.borderPrimary} ${themeClasses.textPrimary} bg-white`}
               >
                 <option value="all">All Levels</option>
@@ -477,7 +403,7 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
               </select>
               <select
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
+                onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
                 className={`px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all duration-300 ${themeClasses.borderPrimary} ${themeClasses.textPrimary} bg-white`}
               >
                 <option value="all">All Status</option>
@@ -782,7 +708,7 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
           </div>
         )}
 
-        {filteredClassrooms.length === 0 && !loading && (
+        {filteredClassrooms.length === 0 && !loading.classrooms && (
           <div className="text-center py-12">
             <School size={48} className={`mx-auto ${themeClasses.textSecondary} mb-4`} />
             <p className={themeClasses.textSecondary}>No classrooms found</p>
@@ -850,9 +776,7 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
                       // Load terms for selected academic year
                       if (academicYearId) {
                         loadTermsForAcademicSession(academicYearId);
-                      } else {
-                        setTerms([]);
-                      }
+                      } 
                     }}
                     className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none ${themeClasses.borderPrimary} ${themeClasses.textPrimary} bg-white`}
                     required
@@ -896,9 +820,7 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
                       // Load sections for selected grade level
                       if (gradeLevelId) {
                         loadSectionsForGradeLevel(parseInt(gradeLevelId));
-                      } else {
-                        setSections([]);
-                      }
+                      } 
                     }}
                     className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none ${themeClasses.borderPrimary} ${themeClasses.textPrimary} bg-white`}
                     required

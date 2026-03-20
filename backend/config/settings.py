@@ -85,6 +85,12 @@ DJANGO_SECRET_KEY = SECRET_KEY  # Keep as alias for compatibility
 
 # Debug mode
 DEBUG = os.getenv("DEBUG", "False").lower() in ["true", "1", "yes"]
+# Force token return in development for cross-origin HTTP
+if DEBUG:
+    AUTH_RETURN_TOKENS_IN_BODY = True
+else:
+    # In production with HTTPS, cookies work fine
+    AUTH_RETURN_TOKENS_IN_BODY = False
 
 # Frontend URL
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
@@ -177,19 +183,54 @@ SITE_ID = 1
 # ============================================
 
 MIDDLEWARE = [
-    "corsheaders.middleware.CorsMiddleware",  # Must be at the top
+    "corsheaders.middleware.CorsMiddleware",  # FIRST
     "django.middleware.security.SecurityMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",  # Before auth
     "debug_toolbar.middleware.DebugToolbarMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",  # Before tenant
     "allauth.account.middleware.AccountMiddleware",
-    "tenants.middleware.TenantMiddleware",  # Tenant identification
+    "tenants.middleware.TenantMiddleware",  # AFTER auth
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
+# ============================================
+# TENANT MIDDLEWARE - PUBLIC PATHS
+# ============================================
+
+# These paths should be accessible without tenant or authentication
+TENANT_PUBLIC_PATHS = [
+    "/api/auth/register/",
+    "/api/auth/login/",
+    "/api/auth/verify/",
+    "/api/auth/resend-verification/",
+    "/api/auth/refresh/",
+    "/api/auth/status/",
+    "/api/auth/csrf/",
+    "/api/auth/password-reset/",
+    "/api/auth/check-email/",
+    "/api/tenants/settings/",  # For public landing page info
+    "/api/school-settings/school-settings/",  # For tenant registration
+    "/admin/",
+    "/static/",
+    "/media/",
+]
+
+
+# ============================================
+# SESSION SETTINGS
+# ============================================
+
+# Ensure sessions work properly for tenant storage
+SESSION_ENGINE = "django.contrib.sessions.backends.db"
+SESSION_COOKIE_NAME = "sessionid"
+SESSION_COOKIE_AGE = 1209600  # 2 weeks
+SESSION_SAVE_EVERY_REQUEST = False  # Only save when modified
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_SECURE = not DEBUG  # True in production
 # ============================================
 # CSRF & COOKIE SETTINGS FOR AUTHENTICATION
 # ============================================
@@ -394,8 +435,16 @@ REST_FRAMEWORK = {
         "authentication.cookie_auth.CookieJWTAuthentication",  # Cookie-based JWT (primary)
         "rest_framework_simplejwt.authentication.JWTAuthentication",  # Header-based JWT (fallback)
     ),
-    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
+    # CRITICAL FIX: Don't require authentication by default
+    # Individual views will specify their own permission classes
+    "DEFAULT_PERMISSION_CLASSES": (
+        "rest_framework.permissions.AllowAny",  # Changed from IsAuthenticated
+    ),
     "DEFAULT_FILTER_BACKENDS": ["django_filters.rest_framework.DjangoFilterBackend"],
+    # Add exception handler to provide better error messages
+    "EXCEPTION_HANDLER": "rest_framework.views.exception_handler",
+    # Ensure unauthenticated users get proper responses
+    "UNAUTHENTICATED_USER": "django.contrib.auth.models.AnonymousUser",
 }
 
 # ============================================

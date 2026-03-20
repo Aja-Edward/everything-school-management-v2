@@ -62,22 +62,40 @@ const SettingsDashboard = () => {
   };
 
   const tabs = [
-    { id: 'general', label: 'General', icon: Settings, component: GeneralTab },
-    { id: 'services', label: 'Services', icon: Blocks, component: ServicesTab },
-    { id: 'domain', label: 'Domain', icon: Globe, component: DomainTab },
-    { id: 'design', label: 'Design', icon: Palette, component: DesignTab },
-    { id: 'communication', label: 'Communication', icon: MessageSquare, component: CommunicationTab },
-    { id: 'roles', label: 'Roles & Permissions', icon: Shield, component: RolesPermissionsTab },
-    { id: 'academic', label: 'Academic', icon: GraduationCap, component: AcademicTab },
-    { id: 'gradelevel', label: 'GradeLevel', icon: GraduationCap, component: AcademicGradeLevelTab },
-    { id: 'exams', label: 'Exams & Result', icon: FileText, component: ExamsResultTab },
-    { id: 'calendar', label: 'Academic Calendar', icon: Calendar, component: AcademicCalendarTab },
-    { id: 'finance', label: 'Finance', icon: CreditCard, component: FinanceTab },
-    { id: 'security', label: 'Security', icon: Lock, component: SecurityTab },
-    { id: 'advanced', label: 'Advanced', icon: Zap, component: AdvancedTab },
+    { id: 'general',      label: 'General',           icon: Settings      },
+    { id: 'services',     label: 'Services',           icon: Blocks        },
+    { id: 'domain',       label: 'Domain',             icon: Globe         },
+    { id: 'design',       label: 'Design',             icon: Palette       },
+    { id: 'communication',label: 'Communication',      icon: MessageSquare },
+    { id: 'roles',        label: 'Roles & Permissions',icon: Shield        },
+    { id: 'academic',     label: 'Academic',           icon: GraduationCap },
+    { id: 'gradelevel',   label: 'GradeLevel',         icon: GraduationCap },
+    { id: 'exams',        label: 'Exams & Result',     icon: FileText      },
+    { id: 'calendar',     label: 'Academic Calendar',  icon: Calendar      },
+    { id: 'finance',      label: 'Finance',            icon: CreditCard    },
+    { id: 'security',     label: 'Security',           icon: Lock          },
+    { id: 'advanced',     label: 'Advanced',           icon: Zap           },
   ];
 
-  const ActiveComponent = tabs.find(tab => tab.id === activeTab)?.component || GeneralTab;
+  const renderActiveTab = () => {
+    const props = { settings, onSettingsUpdate: handleSettingsUpdate };
+    switch (activeTab) {
+      case 'general':       return <GeneralTab {...props} />;
+      case 'services':      return <ServicesTab {...props} />;
+      case 'domain':        return <DomainTab {...props} />;
+      case 'design':        return <DesignTab {...props} />;
+      case 'communication': return <CommunicationTab/>;
+      case 'roles':         return <RolesPermissionsTab />;
+      case 'academic':      return <AcademicTab />;
+      case 'gradelevel':    return <AcademicGradeLevelTab  />;
+      case 'exams':         return <ExamsResultTab {...props} />;
+      case 'calendar':      return <AcademicCalendarTab />;
+      case 'finance':       return <FinanceTab />;
+      case 'security':      return <SecurityTab {...props} />;
+      case 'advanced':      return <AdvancedTab />;
+      default:              return <GeneralTab {...props} />;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -146,10 +164,7 @@ const SettingsDashboard = () => {
               </div>
             </div>
           ) : (
-            <ActiveComponent
-              settings={settings}
-              onSettingsUpdate={handleSettingsUpdate}
-            />
+            renderActiveTab()
           )}
         </div>
       </div>

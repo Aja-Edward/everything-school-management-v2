@@ -1,19 +1,28 @@
-# fees/models.py - Enhanced for Multi-Gateway Support
+# fee/models.py
 from django.db import models
 from django.contrib.auth import get_user_model
-from students.models import Student, EDUCATION_LEVEL_CHOICES, CLASS_CHOICES
+from students.models import Student
+from students.models import (
+    Class as StudentClass,
+    EducationLevel,
+)
 from decimal import Decimal
 import uuid
 from academics.models import AcademicSession
 from datetime import date, datetime
-import json
 from tenants.models import TenantMixin
+from students.constants import (
+    EDUCATION_LEVEL_CHOICES,
+    CLASS_CHOICES,
+)
 
 User = get_user_model()
 
-# Enhanced Payment Method Choices
+# ============================================
+# CHOICES
+# ============================================
+
 PAYMENT_METHOD_CHOICES = (
-    # Gateway methods
     ("PAYSTACK_CARD", "Paystack - Card Payment"),
     ("PAYSTACK_BANK", "Paystack - Bank Transfer"),
     ("FLUTTERWAVE_CARD", "Flutterwave - Card Payment"),
@@ -21,13 +30,11 @@ PAYMENT_METHOD_CHOICES = (
     ("FLUTTERWAVE_MOBILE", "Flutterwave - Mobile Money"),
     ("STRIPE_CARD", "Stripe - Card Payment"),
     ("STRIPE_BANK", "Stripe - Bank Transfer"),
-    # Traditional methods
     ("BANK_TRANSFER", "Direct Bank Transfer"),
     ("CASH", "Cash"),
     ("CHEQUE", "Cheque"),
 )
 
-# Payment Gateway Choices
 PAYMENT_GATEWAY_CHOICES = (
     ("PAYSTACK", "Paystack"),
     ("FLUTTERWAVE", "Flutterwave"),
@@ -35,7 +42,6 @@ PAYMENT_GATEWAY_CHOICES = (
     ("MANUAL", "Manual Payment"),
 )
 
-# Gateway Transaction Status
 GATEWAY_STATUS_CHOICES = (
     ("PENDING", "Pending"),
     ("PROCESSING", "Processing"),
@@ -46,7 +52,6 @@ GATEWAY_STATUS_CHOICES = (
     ("REFUNDED", "Refunded"),
 )
 
-# Your existing choices remain the same...
 FEE_TYPE_CHOICES = (
     ("TUITION", "Tuition Fee"),
     ("LIBRARY", "Library Fee"),
@@ -98,34 +103,29 @@ REMINDER_TYPE_CHOICES = (
 )
 
 
-# class AcademicSession(models.Model):
-#     """Academic session model"""
-
-#     name = models.CharField(max_length=100)
-#     start_date = models.DateField()
-#     end_date = models.DateField()
-#     is_current = models.BooleanField(default=False)
-#     is_active = models.BooleanField(default=True)
-#     created_at = models.DateTimeField(auto_now_add=True)
-#     updated_at = models.DateTimeField(auto_now=True)
-
-#     class Meta:
-#         verbose_name = "Academic Session"
-#         verbose_name_plural = "Academic Sessions"
-#         ordering = ["-start_date"]
-
-#     def __str__(self):
-#         return self.name
-
+# ============================================
+# FEE STRUCTURE
+# ============================================
 
 class FeeStructure(TenantMixin, models.Model):
     """Fee structure model"""
 
-    FEE_TYPE_CHOICES = FEE_TYPE_CHOICES
     name = models.CharField(max_length=100)
     fee_type = models.CharField(max_length=20, choices=FEE_TYPE_CHOICES)
-    education_level = models.CharField(max_length=20, choices=EDUCATION_LEVEL_CHOICES)
-    student_class = models.CharField(max_length=20, choices=CLASS_CHOICES)
+
+    education_level = models.ForeignKey(
+        EducationLevel,
+        on_delete=models.PROTECT,
+        related_name="fee_structures",
+        help_text="Education level this fee applies to",
+    )
+    student_class = models.ForeignKey(
+        StudentClass,
+        on_delete=models.PROTECT,
+        related_name="fee_structures",
+        help_text="Specific class this fee applies to",
+    )
+
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     frequency = models.CharField(max_length=10, choices=FEE_FREQUENCY_CHOICES)
     description = models.TextField(blank=True, null=True)
@@ -134,42 +134,46 @@ class FeeStructure(TenantMixin, models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = "fee_fee_structure"
         verbose_name = "Fee Structure"
         verbose_name_plural = "Fee Structures"
         ordering = ["name"]
         indexes = [
             models.Index(fields=["tenant", "fee_type"]),
             models.Index(fields=["tenant", "education_level"]),
+            models.Index(fields=["tenant", "student_class"]),
+            models.Index(fields=["tenant", "is_active"]),
         ]
 
     def __str__(self):
-        return f"{self.name} - {self.get_fee_type_display()}"
+        return (
+            f"{self.name} - {self.get_fee_type_display()} - {self.student_class.name}"
+        )
 
+
+# ============================================
+# STUDENT FEE
+# ============================================
 
 class StudentFee(TenantMixin, models.Model):
     """Student fee model"""
 
-    PAYMENT_STATUS_CHOICES = PAYMENT_STATUS_CHOICES
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="fee")
     fee_structure = models.ForeignKey(FeeStructure, on_delete=models.CASCADE)
     academic_session = models.ForeignKey(AcademicSession, on_delete=models.CASCADE)
     term = models.CharField(max_length=10, choices=TERM_CHOICES)
 
-    # Amount fields
     amount_due = models.DecimalField(max_digits=10, decimal_places=2)
     amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     late_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
 
-    # Dates
     due_date = models.DateField()
 
-    # Status
     status = models.CharField(
         max_length=10, choices=PAYMENT_STATUS_CHOICES, default="PENDING"
     )
 
-    # Additional info
     remarks = models.TextField(blank=True, null=True)
     is_overdue = models.BooleanField(default=False)
 
@@ -177,6 +181,7 @@ class StudentFee(TenantMixin, models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = "fee_student_fee"
         verbose_name = "Student Fee"
         verbose_name_plural = "Student Fees"
         ordering = ["-created_at"]
@@ -184,6 +189,8 @@ class StudentFee(TenantMixin, models.Model):
         indexes = [
             models.Index(fields=["tenant", "student"]),
             models.Index(fields=["tenant", "status"]),
+            models.Index(fields=["tenant", "due_date"]),
+            models.Index(fields=["tenant", "is_overdue"]),
         ]
 
     def __str__(self):
@@ -191,12 +198,10 @@ class StudentFee(TenantMixin, models.Model):
 
     @property
     def balance(self):
-        """Calculate remaining balance"""
         return self.amount_due - self.amount_paid - self.discount_amount
 
     @property
     def payment_percentage(self):
-        """Calculate payment percentage"""
         if self.amount_due == 0:
             return 0
         total_paid = self.amount_paid + self.discount_amount
@@ -213,7 +218,6 @@ class StudentFee(TenantMixin, models.Model):
         else:
             self.status = "PENDING"
 
-        # Check if overdue
         if self.due_date < date.today() and self.status != "PAID":
             self.is_overdue = True
             if self.status == "PENDING":
@@ -221,6 +225,10 @@ class StudentFee(TenantMixin, models.Model):
 
         self.save()
 
+
+# ============================================
+# FEE DISCOUNT
+# ============================================
 
 class FeeDiscount(TenantMixin, models.Model):
     """Fee discount model"""
@@ -237,16 +245,22 @@ class FeeDiscount(TenantMixin, models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = "fee_fee_discount"
         verbose_name = "Fee Discount"
         verbose_name_plural = "Fee Discounts"
         ordering = ["name"]
         indexes = [
             models.Index(fields=["tenant", "is_active"]),
+            models.Index(fields=["tenant", "valid_from", "valid_to"]),
         ]
 
     def __str__(self):
         return f"{self.name} - {self.get_discount_type_display()}"
 
+
+# ============================================
+# STUDENT DISCOUNT
+# ============================================
 
 class StudentDiscount(TenantMixin, models.Model):
     """Student discount application model"""
@@ -261,16 +275,22 @@ class StudentDiscount(TenantMixin, models.Model):
     is_active = models.BooleanField(default=True)
 
     class Meta:
+        db_table = "fee_student_discount"
         verbose_name = "Student Discount"
         verbose_name_plural = "Student Discounts"
         unique_together = ["tenant", "student", "discount", "academic_session"]
         indexes = [
             models.Index(fields=["tenant", "student"]),
+            models.Index(fields=["tenant", "is_active"]),
         ]
 
     def __str__(self):
         return f"{self.student.full_name} - {self.discount.name}"
 
+
+# ============================================
+# PAYMENT REMINDER
+# ============================================
 
 class PaymentReminder(TenantMixin, models.Model):
     """Payment reminder model"""
@@ -285,11 +305,13 @@ class PaymentReminder(TenantMixin, models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        db_table = "fee_payment_reminder"
         verbose_name = "Payment Reminder"
         verbose_name_plural = "Payment Reminders"
         ordering = ["-sent_date"]
         indexes = [
             models.Index(fields=["tenant", "is_sent"]),
+            models.Index(fields=["tenant", "student_fee"]),
         ]
 
     def __str__(self):
@@ -298,30 +320,28 @@ class PaymentReminder(TenantMixin, models.Model):
         )
 
 
+# ============================================
+# PAYMENT GATEWAY CONFIG
+# ============================================
+
 class PaymentGatewayConfig(TenantMixin, models.Model):
     """Configuration for different payment gateways"""
 
-    gateway = models.CharField(
-        max_length=20, choices=PAYMENT_GATEWAY_CHOICES
-    )
+    gateway = models.CharField(max_length=20, choices=PAYMENT_GATEWAY_CHOICES)
     is_active = models.BooleanField(default=True)
     is_test_mode = models.BooleanField(default=True)
 
-    # API Keys (encrypted in production)
     public_key = models.TextField(blank=True, null=True)
     secret_key = models.TextField(blank=True, null=True)
 
-    # Gateway specific settings
     webhook_url = models.URLField(blank=True, null=True)
     callback_url = models.URLField(blank=True, null=True)
 
-    # Transaction limits
     min_amount = models.DecimalField(max_digits=10, decimal_places=2, default=100.00)
     max_amount = models.DecimalField(
         max_digits=10, decimal_places=2, default=1000000.00
     )
 
-    # Fees and charges
     transaction_fee_percentage = models.DecimalField(
         max_digits=5, decimal_places=2, default=0.00
     )
@@ -331,6 +351,7 @@ class PaymentGatewayConfig(TenantMixin, models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = "fee_payment_gateway_config"
         verbose_name = "Payment Gateway Config"
         verbose_name_plural = "Payment Gateway Configs"
         unique_together = ["tenant", "gateway"]
@@ -342,6 +363,10 @@ class PaymentGatewayConfig(TenantMixin, models.Model):
         return f"{self.gateway} ({'Live' if not self.is_test_mode else 'Test'})"
 
 
+# ============================================
+# PAYMENT
+# ============================================
+
 class Payment(TenantMixin, models.Model):
     """Enhanced Payment model supporting multiple gateways"""
 
@@ -350,106 +375,86 @@ class Payment(TenantMixin, models.Model):
         "StudentFee", on_delete=models.CASCADE, related_name="payments"
     )
 
-    # Payment details
     reference = models.CharField(max_length=100)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     currency = models.CharField(max_length=3, default="NGN")
 
-    # Gateway information
     payment_gateway = models.CharField(max_length=20, choices=PAYMENT_GATEWAY_CHOICES)
-    payment_method = models.CharField(
-        max_length=50, choices=PAYMENT_METHOD_CHOICES
-    )  # ⚠️ CHANGE: 25 → 50
+    payment_method = models.CharField(max_length=50, choices=PAYMENT_METHOD_CHOICES)
 
-    # Payment status
     status = models.CharField(
-        max_length=20,
-        choices=PAYMENT_STATUS_CHOICES,
-        default="PENDING",  # ⚠️ CHANGE: 10 → 20
+        max_length=20, choices=PAYMENT_STATUS_CHOICES, default="PENDING"
     )
     gateway_status = models.CharField(
-        max_length=20,
-        choices=GATEWAY_STATUS_CHOICES,
-        default="PENDING",  # ⚠️ CHANGE: 15 → 20
+        max_length=20, choices=GATEWAY_STATUS_CHOICES, default="PENDING"
     )
 
-    # Timestamps
     payment_date = models.DateTimeField(auto_now_add=True)
     verified = models.BooleanField(default=False)
     verification_date = models.DateTimeField(blank=True, null=True)
 
-    # Universal gateway fields
-    gateway_reference = models.CharField(
-        max_length=200, blank=True, null=True
-    )  # ⚠️ CHANGE: 100 → 200
-    gateway_transaction_id = models.CharField(
-        max_length=200, blank=True, null=True
-    )  # ⚠️ CHANGE: 100 → 200
+    gateway_reference = models.CharField(max_length=200, blank=True, null=True)
+    gateway_transaction_id = models.CharField(max_length=200, blank=True, null=True)
     gateway_response = models.JSONField(blank=True, null=True)
 
-    # Customer information
     payer_email = models.EmailField(blank=True, null=True)
-    payer_name = models.CharField(
-        max_length=200, blank=True, null=True
-    )  # ⚠️ CHANGE: 100 → 200
+    payer_name = models.CharField(max_length=200, blank=True, null=True)
     payer_phone = models.CharField(max_length=20, blank=True, null=True)
 
-    # Card/Bank details
     card_last_four = models.CharField(max_length=4, blank=True, null=True)
-    card_type = models.CharField(
-        max_length=50, blank=True, null=True
-    )  # ⚠️ CHANGE: 20 → 50
-    bank_name = models.CharField(
-        max_length=200, blank=True, null=True
-    )  # ⚠️ CHANGE: 100 → 200
+    card_type = models.CharField(max_length=50, blank=True, null=True)
+    bank_name = models.CharField(max_length=200, blank=True, null=True)
 
-    # Transaction fees
     gateway_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     net_amount = models.DecimalField(
         max_digits=10, decimal_places=2, blank=True, null=True
     )
 
-    # Receipt and documentation
-    receipt_number = models.CharField(
-        max_length=50, blank=True, null=True
-    )  # ⚠️ CHANGE: 20 → 50
+    # receipt_number is nullable so NOT in unique_together — use a partial unique index via
+    # a conditional constraint instead (handled in app logic / migration if needed)
+    receipt_number = models.CharField(max_length=50, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
-
-    # Metadata
     metadata = models.JSONField(blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = "fee_payment"
         ordering = ["-payment_date"]
         verbose_name = "Payment"
         verbose_name_plural = "Payments"
+        # Only reference (always set) in unique_together; receipt_number is nullable
+        # so uniqueness on it is enforced in save() logic instead
         unique_together = [
             ["tenant", "reference"],
-            ["tenant", "receipt_number"],
         ]
         indexes = [
             models.Index(fields=["tenant", "gateway_reference"]),
             models.Index(fields=["tenant", "payment_gateway", "gateway_status"]),
             models.Index(fields=["tenant", "student_fee", "verified"]),
+            models.Index(fields=["tenant", "receipt_number"]),
+            models.Index(fields=["tenant", "verified"]),
         ]
 
     def __str__(self):
         return f"Payment {self.reference} - ₦{self.amount} ({self.payment_gateway})"
 
     def save(self, *args, **kwargs):
-        # Calculate net amount
+        # Calculate net amount before saving
         if self.net_amount is None:
             self.net_amount = self.amount - self.gateway_fee
 
+        # Generate receipt number inline (before save) to avoid recursive double-save
+        if self.verified and not self.receipt_number:
+            year = datetime.now().year
+            count = Payment.objects.filter(payment_date__year=year).count() + 1
+            self.receipt_number = f"RCT{year}{count:06d}"
+
         super().save(*args, **kwargs)
 
-        if self.verified and not self.receipt_number:
-            self.generate_receipt_number()
-
-        # Update student fee payment status
+        # Update student fee payment status after saving
         if self.verified:
             self.student_fee.amount_paid = (
                 self.student_fee.payments.filter(verified=True).aggregate(
@@ -459,22 +464,12 @@ class Payment(TenantMixin, models.Model):
             )
             self.student_fee.update_status()
 
-    def generate_receipt_number(self):
-        """Generate unique receipt number"""
-        if not self.receipt_number:
-            year = datetime.now().year
-            count = Payment.objects.filter(payment_date__year=year).count() + 1
-            self.receipt_number = f"RCT{year}{count:06d}"
-            self.save()
-
     @property
     def is_successful(self):
-        """Check if payment was successful"""
         return self.verified and self.gateway_status == "SUCCESS"
 
     @property
     def gateway_display_name(self):
-        """Get display name for the gateway"""
         gateway_names = {
             "PAYSTACK": "Paystack",
             "FLUTTERWAVE": "Flutterwave",
@@ -483,6 +478,10 @@ class Payment(TenantMixin, models.Model):
         }
         return gateway_names.get(self.payment_gateway, self.payment_gateway)
 
+
+# ============================================
+# PAYMENT ATTEMPT
+# ============================================
 
 class PaymentAttempt(TenantMixin, models.Model):
     """Track payment attempts and failures"""
@@ -501,34 +500,35 @@ class PaymentAttempt(TenantMixin, models.Model):
     gateway = models.CharField(max_length=20, choices=PAYMENT_GATEWAY_CHOICES)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
 
-    # Attempt tracking
     attempt_reference = models.CharField(max_length=200)
     status = models.CharField(max_length=15, choices=GATEWAY_STATUS_CHOICES)
 
-    # Error tracking
     error_code = models.CharField(max_length=100, blank=True, null=True)
     error_message = models.TextField(blank=True, null=True)
-
-    # Gateway response
     gateway_response = models.JSONField(blank=True, null=True)
 
-    # User info
     ip_address = models.GenericIPAddressField(blank=True, null=True)
     user_agent = models.TextField(blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        db_table = "fee_payment_attempt"
         ordering = ["-created_at"]
         verbose_name = "Payment Attempt"
         verbose_name_plural = "Payment Attempts"
         indexes = [
             models.Index(fields=["tenant", "gateway", "status"]),
+            models.Index(fields=["tenant", "student_fee"]),
         ]
 
     def __str__(self):
         return f"Attempt {self.attempt_reference} - {self.gateway} - {self.status}"
 
+
+# ============================================
+# PAYMENT WEBHOOK
+# ============================================
 
 class PaymentWebhook(TenantMixin, models.Model):
     """Store webhook events from payment gateways"""
@@ -537,34 +537,41 @@ class PaymentWebhook(TenantMixin, models.Model):
     event_type = models.CharField(max_length=100)
     event_id = models.CharField(max_length=100, blank=True, null=True)
 
-    # Webhook data
     payload = models.JSONField()
     headers = models.JSONField(blank=True, null=True)
 
-    # Processing status
     processed = models.BooleanField(default=False)
     processed_at = models.DateTimeField(blank=True, null=True)
     processing_error = models.TextField(blank=True, null=True)
 
-    # Related payment (if found)
     payment = models.ForeignKey(
-        Payment, on_delete=models.SET_NULL, blank=True, null=True
+        Payment,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="webhooks",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        db_table = "fee_payment_webhook"
         ordering = ["-created_at"]
         verbose_name = "Payment Webhook"
         verbose_name_plural = "Payment Webhooks"
         indexes = [
             models.Index(fields=["tenant", "gateway", "event_type"]),
             models.Index(fields=["tenant", "processed", "created_at"]),
+            models.Index(fields=["tenant", "event_id"]),
         ]
 
     def __str__(self):
         return f"{self.gateway} - {self.event_type} - {self.created_at}"
 
+
+# ============================================
+# PAYMENT PLAN
+# ============================================
 
 class PaymentPlan(TenantMixin, models.Model):
     """Installment payment plans"""
@@ -574,25 +581,33 @@ class PaymentPlan(TenantMixin, models.Model):
     )
     name = models.CharField(max_length=100)
 
-    # Plan details
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)
     number_of_installments = models.IntegerField()
     installment_amount = models.DecimalField(max_digits=10, decimal_places=2)
 
-    # Status
     is_active = models.BooleanField(default=True)
     is_completed = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = "fee_payment_plan"
+        verbose_name = "Payment Plan"
+        verbose_name_plural = "Payment Plans"
+        ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["tenant", "is_active"]),
+            models.Index(fields=["tenant", "student_fee"]),
         ]
 
     def __str__(self):
         return f"{self.student_fee.student.full_name} - {self.name}"
 
+
+# ============================================
+# PAYMENT INSTALLMENT
+# ============================================
 
 class PaymentInstallment(TenantMixin, models.Model):
     """Individual installments in a payment plan"""
@@ -605,20 +620,28 @@ class PaymentInstallment(TenantMixin, models.Model):
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     due_date = models.DateField()
 
-    # Payment tracking
     payment = models.ForeignKey(
-        Payment, on_delete=models.SET_NULL, blank=True, null=True
+        Payment,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="installments",
     )
     is_paid = models.BooleanField(default=False)
     paid_date = models.DateTimeField(blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = "fee_payment_installment"
         ordering = ["installment_number"]
+        verbose_name = "Payment Installment"
+        verbose_name_plural = "Payment Installments"
         unique_together = ["tenant", "payment_plan", "installment_number"]
         indexes = [
             models.Index(fields=["tenant", "is_paid"]),
+            models.Index(fields=["tenant", "due_date"]),
         ]
 
     def __str__(self):

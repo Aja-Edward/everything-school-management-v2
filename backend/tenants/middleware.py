@@ -135,17 +135,18 @@ class TenantMiddleware:
     def _is_public_path(self, path):
         """Check if the path is public and doesn't require tenant context."""
         public_paths = [
-            '/api/tenants/register/',
-            '/api/tenants/check-slug/',
-            '/api/tenants/check-domain/',
-            '/api/tenants/setup/exchange/',
-            '/api/tenants/public/',
-            '/api/auth/',
-            '/admin/',
-            '/health/',
-            '/api/force-migrate/',
-            '/api/check-schema/',
-            '/api/school-settings/',
+            "/api/tenants/register/",
+            "/api/tenants/check-slug/",
+            "/api/tenants/check-domain/",
+            "/api/tenants/setup/exchange/",
+            "/api/tenants/public/",
+            "/api/auth/",
+            "/admin/",
+            "/health/",
+            "/api/force-migrate/",
+            "/api/check-schema/",
+            "/api/school-settings/",
+            "/api/platform/",
         ]
         return any(path.startswith(p) for p in public_paths)
 

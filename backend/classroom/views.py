@@ -1,4 +1,4 @@
-# views.py - FIXED VERSION
+# views.py - UPDATED FOR FK-BASED STREAM AND STREAMTYPE
 from rest_framework import viewsets, status, filters
 from rest_framework.views import APIView
 from rest_framework.decorators import action, api_view, permission_classes
@@ -26,6 +26,7 @@ from .models import (
     ClassSchedule,
     Section,
     Stream,
+    StreamType,  # NEW: Import StreamType
 )
 from students.models import Student
 from teacher.models import Teacher
@@ -41,6 +42,7 @@ from .serializers import (
     GradeLevelSerializer,
     SectionSerializer,
     StreamSerializer,
+    StreamTypeSerializer,  # NEW: Import StreamTypeSerializer
 )
 from teacher.serializers import TeacherSerializer
 from subject.serializers import SubjectSerializer, SubjectEducationLevelSerializer
@@ -55,7 +57,7 @@ logger = logging.getLogger(__name__)
 
 
 # ==============================================================================
-# FIXED VIEWSETS
+# VIEWSETS
 # ==============================================================================
 
 
@@ -65,7 +67,7 @@ class GradeLevelViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
     queryset = GradeLevel.objects.all()
     serializer_class = GradeLevelSerializer
     permission_classes = []  # public access
-    pagination_class = None  # PERFORMANCE: Paginate grade levels
+    pagination_class = None
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -76,7 +78,6 @@ class GradeLevelViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
     ordering_fields = ["order", "name"]
 
     def get_queryset(self):
-        # Let mixin handle section filtering
         queryset = super().get_queryset()
         return queryset.order_by("order", "name")
 
@@ -84,7 +85,7 @@ class GradeLevelViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
     def subjects(self, request, pk=None):
         grade = self.get_object()
         subjects = grade.subject_set.all()
-        subjects = self.apply_section_filters(subjects)  # Apply filtering
+        subjects = self.apply_section_filters(subjects)
         serializer = SubjectSerializer(subjects, many=True)
         return Response(serializer.data)
 
@@ -92,7 +93,7 @@ class GradeLevelViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
     def sections(self, request, pk=None):
         grade = self.get_object()
         sections = Section.objects.filter(grade_level=grade)
-        sections = self.apply_section_filters(sections)  # Apply filtering
+        sections = self.apply_section_filters(sections)
         serializer = SectionSerializer(sections, many=True)
         return Response(serializer.data)
 
@@ -127,7 +128,7 @@ class SectionViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
     queryset = Section.objects.all()
     serializer_class = SectionSerializer
     permission_classes = [IsAuthenticated]
-    pagination_class = None  # PERFORMANCE: Paginate sections
+    pagination_class = None
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -138,7 +139,6 @@ class SectionViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
     ordering_fields = ["name"]
 
     def get_queryset(self):
-        # Let mixin handle section filtering
         queryset = super().get_queryset()
         return queryset.order_by("grade_level__order", "name")
 
@@ -146,57 +146,380 @@ class SectionViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
     def classrooms(self, request, pk=None):
         section = self.get_object()
         classrooms = Classroom.objects.filter(section=section)
-        classrooms = self.apply_section_filters(classrooms)  # Apply filtering
+        classrooms = self.apply_section_filters(classrooms)
         serializer = ClassroomSerializer(classrooms, many=True)
         return Response(serializer.data)
 
 
-class StreamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
-    """ViewSet for Stream model"""
+# ==============================================================================
+# NEW: StreamType ViewSet
+# ==============================================================================
+class StreamTypeViewSet(
+    TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet
+):
+    """
+    ViewSet for StreamType model (Science, Arts, Commercial, etc.)
+    """
 
-    queryset = Stream.objects.all()  # FIXED: Was Section.objects
-    permission_classes = []
-    serializer_class = StreamSerializer
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate streams
+    queryset = StreamType.objects.all()
+    permission_classes = [IsAuthenticated]
+    serializer_class = StreamTypeSerializer
+    pagination_class = StandardResultsPagination
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
         filters.OrderingFilter,
     ]
-    filterset_fields = ["stream_type", "is_active"]
+    filterset_fields = ["is_active"]
     search_fields = ["name", "code", "description"]
-    ordering_fields = ["name", "stream_type", "created_at"]
+    ordering_fields = ["display_order", "name", "created_at"]
 
     def get_queryset(self):
-        # Let mixin handle section filtering
         queryset = super().get_queryset()
-        return queryset.order_by("name")
+        return queryset.prefetch_related("applicable_levels").order_by(
+            "display_order", "name"
+        )
+
+    @action(detail=True, methods=["get"])
+    def streams(self, request, pk=None):
+        """Get all streams of this type"""
+        stream_type = self.get_object()
+        streams = Stream.objects.filter(
+            stream_type_new=stream_type, is_active=True
+        ).select_related("grade_level", "academic_session", "stream_coordinator__user")
+
+        streams = self.apply_section_filters(streams)
+        serializer = StreamSerializer(streams, many=True)
+
+        return Response(
+            {
+                "stream_type": StreamTypeSerializer(stream_type).data,
+                "total_streams": streams.count(),
+                "streams": serializer.data,
+            }
+        )
+
+    @action(detail=True, methods=["get"])
+    def applicable_levels(self, request, pk=None):
+        """Get grade levels where this stream type is available"""
+        stream_type = self.get_object()
+        levels = stream_type.applicable_levels.filter(is_active=True)
+        levels = self.apply_section_filters(levels)
+        serializer = GradeLevelSerializer(levels, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get"])
+    def statistics(self, request):
+        """Get stream type statistics"""
+        queryset = self.get_queryset()
+
+        stats = {
+            "total_stream_types": queryset.count(),
+            "active_stream_types": queryset.filter(is_active=True).count(),
+            "requiring_entrance_exam": queryset.filter(
+                requires_entrance_exam=True
+            ).count(),
+            "with_grade_requirements": queryset.filter(
+                min_grade_requirement__isnull=False
+            ).count(),
+            "by_stream_type": [],
+        }
+
+        # Get stream count per type
+        for stream_type in queryset.filter(is_active=True):
+            stream_count = Stream.objects.filter(
+                stream_type_new=stream_type, is_active=True
+            ).count()
+
+            stats["by_stream_type"].append(
+                {
+                    "id": stream_type.id,
+                    "name": stream_type.name,
+                    "code": stream_type.code,
+                    "stream_count": stream_count,
+                    "requires_entrance_exam": stream_type.requires_entrance_exam,
+                    "min_grade_requirement": stream_type.min_grade_requirement,
+                }
+            )
+
+        return Response(stats)
+
+    def perform_create(self, serializer):
+        serializer.save(tenant=self.request.tenant)
+
+
+# ==============================================================================
+# UPDATED: Stream ViewSet (FK-based)
+# ==============================================================================
+class StreamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+    """
+    ViewSet for Stream model - UPDATED for FK-based stream_type_new
+    """
+
+    queryset = Stream.objects.all()
+    permission_classes = [IsAuthenticated]
+    serializer_class = StreamSerializer
+    pagination_class = StandardResultsPagination
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter,
+    ]
+    # UPDATED: Filter by stream_type_new FK instead of CharField
+    filterset_fields = [
+        "stream_type_new",
+        "grade_level",
+        "academic_session",
+        "is_active",
+    ]
+    search_fields = ["name", "code", "description"]
+    ordering_fields = ["name", "created_at"]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.select_related(
+            "stream_type_new",  # NEW: Prefetch StreamType
+            "grade_level",
+            "academic_session",
+            "stream_coordinator__user",
+        ).order_by("name")
 
     @action(detail=False, methods=["get"])
     def by_type(self, request):
-        stream_type = request.query_params.get("stream_type")
-        if stream_type:
-            queryset = self.get_queryset().filter(
-                stream_type=stream_type, is_active=True
-            )
-        else:
-            queryset = self.get_queryset().filter(is_active=True)
+        """
+        Get streams by stream type - UPDATED for FK
+        Query params:
+        - stream_type_id: StreamType ID (NEW - preferred)
+        - stream_type: StreamType code (NEW - alternative)
+        - stream_type_old: Old CharField value (DEPRECATED - backward compat)
+        """
+        # NEW: Support FK-based filtering
+        stream_type_id = request.query_params.get("stream_type_id")
+        stream_type_code = request.query_params.get("stream_type")
 
-        # PERFORMANCE: Add pagination for consistency
+        # DEPRECATED: Support old CharField filtering during transition
+        stream_type_old = request.query_params.get("stream_type_old")
+
+        queryset = self.get_queryset().filter(is_active=True)
+
+        if stream_type_id:
+            # Filter by StreamType ID (preferred)
+            queryset = queryset.filter(stream_type_new_id=stream_type_id)
+        elif stream_type_code:
+            # Filter by StreamType code
+            queryset = queryset.filter(stream_type_new__code=stream_type_code)
+        elif stream_type_old:
+            # DEPRECATED: Fallback to old CharField
+            queryset = queryset.filter(stream_type=stream_type_old)
+
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = StreamSerializer(page, many=True)
             return self.get_paginated_response(serializer.data)
 
-        # Fallback if pagination is disabled
         serializer = StreamSerializer(queryset, many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=["get"])
+    def by_grade_level(self, request):
+        """Get streams by grade level"""
+        grade_level_id = request.query_params.get("grade_level_id")
+
+        if not grade_level_id:
+            return Response(
+                {"error": "grade_level_id parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        queryset = self.get_queryset().filter(
+            grade_level_id=grade_level_id, is_active=True
+        )
+
+        serializer = StreamSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get"])
+    def by_academic_session(self, request):
+        """Get streams by academic session"""
+        session_id = request.query_params.get("session_id")
+
+        if not session_id:
+            return Response(
+                {"error": "session_id parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        queryset = self.get_queryset().filter(
+            academic_session_id=session_id, is_active=True
+        )
+
+        serializer = StreamSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["get"])
+    def students(self, request, pk=None):
+        """Get students enrolled in this stream"""
+        stream = self.get_object()
+        students = Student.objects.filter(stream=stream, is_active=True).select_related(
+            "user", "student_class"
+        )
+
+        students = self.apply_section_filters(students)
+
+        from students.serializers import StudentListSerializer
+
+        serializer = StudentListSerializer(students, many=True)
+
+        return Response(
+            {
+                "stream": StreamSerializer(stream).data,
+                "total_students": students.count(),
+                "enrollment_percentage": stream.enrollment_percentage,
+                "available_spots": stream.available_spots,
+                "students": serializer.data,
+            }
+        )
+
+    @action(detail=True, methods=["get"])
+    def classrooms(self, request, pk=None):
+        """Get classrooms associated with this stream"""
+        stream = self.get_object()
+        classrooms = Classroom.objects.filter(
+            stream=stream, is_active=True
+        ).select_related(
+            "section__grade_level", "academic_session", "term", "class_teacher__user"
+        )
+
+        classrooms = self.apply_section_filters(classrooms)
+        serializer = ClassroomSerializer(classrooms, many=True)
+
+        return Response(
+            {
+                "stream": StreamSerializer(stream).data,
+                "total_classrooms": classrooms.count(),
+                "classrooms": serializer.data,
+            }
+        )
+
+    @action(detail=False, methods=["get"])
+    def statistics(self, request):
+        """Get stream statistics - UPDATED for FK"""
+        queryset = self.get_queryset()
+
+        # Overall stats
+        total_streams = queryset.count()
+        active_streams = queryset.filter(is_active=True).count()
+
+        # Count by stream type (FK-based)
+        by_stream_type = []
+        stream_types = StreamType.objects.filter(is_active=True)
+
+        for stream_type in stream_types:
+            stream_count = queryset.filter(
+                stream_type_new=stream_type, is_active=True
+            ).count()
+
+            total_capacity = sum(
+                s.max_capacity
+                for s in queryset.filter(stream_type_new=stream_type, is_active=True)
+            )
+
+            total_enrollment = sum(
+                s.current_enrollment
+                for s in queryset.filter(stream_type_new=stream_type, is_active=True)
+            )
+
+            by_stream_type.append(
+                {
+                    "stream_type_id": stream_type.id,
+                    "stream_type_name": stream_type.name,
+                    "stream_type_code": stream_type.code,
+                    "stream_count": stream_count,
+                    "total_capacity": total_capacity,
+                    "total_enrollment": total_enrollment,
+                    "utilization_rate": (
+                        round((total_enrollment / total_capacity) * 100, 1)
+                        if total_capacity > 0
+                        else 0
+                    ),
+                }
+            )
+
+        return Response(
+            {
+                "total_streams": total_streams,
+                "active_streams": active_streams,
+                "by_stream_type": by_stream_type,
+                "overall_capacity": sum(
+                    s.max_capacity for s in queryset.filter(is_active=True)
+                ),
+                "overall_enrollment": sum(
+                    s.current_enrollment for s in queryset.filter(is_active=True)
+                ),
+            }
+        )
+
+    @action(detail=True, methods=["post"])
+    def assign_coordinator(self, request, pk=None):
+        """Assign a stream coordinator"""
+        stream = self.get_object()
+        teacher_id = request.data.get("teacher_id")
+
+        if not teacher_id:
+            return Response(
+                {"error": "teacher_id is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            teacher = Teacher.objects.get(id=teacher_id)
+            stream.stream_coordinator = teacher
+            stream.save()
+
+            serializer = StreamSerializer(stream)
+            return Response(
+                {
+                    "message": f"Teacher {teacher.user.get_full_name()} assigned as stream coordinator",
+                    "stream": serializer.data,
+                }
+            )
+        except Teacher.DoesNotExist:
+            return Response(
+                {"error": "Teacher not found"}, status=status.HTTP_404_NOT_FOUND
+            )
+
+    @action(detail=True, methods=["post"])
+    def remove_coordinator(self, request, pk=None):
+        """Remove stream coordinator"""
+        stream = self.get_object()
+        stream.stream_coordinator = None
+        stream.save()
+
+        return Response(
+            {
+                "message": "Stream coordinator removed successfully",
+                "stream": StreamSerializer(stream).data,
+            }
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(tenant=self.request.tenant)
+
+    def create(self, request, *args, **kwargs):
+        try:
+            return super().create(request, *args, **kwargs)
+        except Exception as e:
+            import traceback
+
+            logger.error(f"Stream create error: {traceback.format_exc()}")
+            return Response(
+                {"error": str(e), "type": type(e).__name__},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """
-    ViewSet for Classroom model with automatic section filtering.
-    FIXED: Removed duplicate get_queryset() methods
+    ViewSet for Classroom model with automatic section filtering
     """
 
     queryset = Classroom.objects.all().annotate(
@@ -206,29 +529,27 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
     )
     serializer_class = ClassroomSerializer
     permission_classes = [IsAuthenticated]
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate classrooms
+    pagination_class = StandardResultsPagination
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
         filters.OrderingFilter,
     ]
-    filterset_fields = ["section", "name", "is_active"]
-    search_fields = ["name"]
+    # UPDATED: Add stream to filterset
+    filterset_fields = ["section", "stream", "academic_session", "term", "is_active"]
+    search_fields = ["name", "room_number"]
     ordering_fields = ["name"]
 
     def get_queryset(self):
-        """
-        FIXED: Single get_queryset() that properly uses the mixin
-        """
-        # Let AutoSectionFilterMixin handle section filtering
         queryset = super().get_queryset()
 
-        # Add related data prefetching
         queryset = queryset.select_related(
             "section__grade_level",
             "academic_session",
             "term",
             "class_teacher__user",
+            "stream",  # NEW: Prefetch stream
+            "stream__stream_type_new",  # NEW: Prefetch stream type
         ).prefetch_related(
             "students",
             "schedules",
@@ -237,7 +558,7 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                 queryset=ClassroomTeacherAssignment.objects.filter(
                     is_active=True
                 ).select_related("teacher__user", "subject"),
-                to_attr="active_assignments",  # store prefetched data here
+                to_attr="active_assignments",
             ),
         )
 
@@ -262,10 +583,11 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                 f"🔍 Fetching students for classroom: {classroom.name} (ID: {classroom.id})"
             )
 
-            # Get active enrollments for this classroom
             enrollments = StudentEnrollment.objects.filter(
                 classroom=classroom, is_active=True
-            ).select_related("student__user")
+            ).select_related(
+                "student__user", "student__stream", "student__stream__stream_type_new"
+            )
 
             students = [enrollment.student for enrollment in enrollments]
 
@@ -301,7 +623,6 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
             classroomteacherassignment__classroom=classroom,
             classroomteacherassignment__is_active=True,
         ).distinct()
-        # Apply section filtering to subjects
         subjects = self.apply_section_filters(subjects)
         from subject.serializers import SubjectSerializer
 
@@ -319,14 +640,35 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
         return Response(serializer.data)
 
     @action(detail=False, methods=["get"])
+    def by_stream(self, request):
+        """Get classrooms by stream"""
+        stream_id = request.query_params.get("stream_id")
+
+        if not stream_id:
+            return Response(
+                {"error": "stream_id parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        queryset = self.get_queryset().filter(stream_id=stream_id, is_active=True)
+        serializer = ClassroomSerializer(queryset, many=True)
+
+        return Response(
+            {
+                "stream_id": stream_id,
+                "total_classrooms": queryset.count(),
+                "classrooms": serializer.data,
+            }
+        )
+
+    @action(detail=False, methods=["get"])
     def statistics(self, request):
         """Get classroom statistics based on user's section access"""
-        queryset = self.get_queryset()  # Already filtered by section
+        queryset = self.get_queryset()
 
         total_classrooms = queryset.count()
         active_classrooms = queryset.filter(is_active=True).count()
 
-        # Calculate enrollment from the filtered queryset
         total_enrollment = 0
         for classroom in queryset:
             total_enrollment += classroom.current_enrollment
@@ -335,7 +677,7 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
             total_enrollment / total_classrooms if total_classrooms > 0 else 0
         )
 
-        # By education level (from filtered queryset)
+        # By education level
         nursery_count = queryset.filter(
             section__grade_level__education_level="NURSERY"
         ).count()
@@ -349,6 +691,24 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
             section__grade_level__education_level="SENIOR_SECONDARY"
         ).count()
 
+        # NEW: By stream type
+        by_stream_type = []
+        stream_types = StreamType.objects.filter(is_active=True)
+
+        for stream_type in stream_types:
+            classrooms_in_type = queryset.filter(
+                stream__stream_type_new=stream_type, is_active=True
+            )
+
+            by_stream_type.append(
+                {
+                    "stream_type_id": stream_type.id,
+                    "stream_type_name": stream_type.name,
+                    "stream_type_code": stream_type.code,
+                    "classroom_count": classrooms_in_type.count(),
+                }
+            )
+
         return Response(
             {
                 "total_classrooms": total_classrooms,
@@ -361,6 +721,7 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                     "junior_secondary": junior_secondary_count,
                     "senior_secondary": senior_secondary_count,
                 },
+                "by_stream_type": by_stream_type,
             }
         )
 
@@ -394,7 +755,6 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
             teacher = Teacher.objects.get(id=teacher_id)
             subject = Subject.objects.get(id=subject_id)
 
-            # Check for existing assignment
             existing_assignment = ClassroomTeacherAssignment.objects.filter(
                 classroom=classroom, teacher=teacher, subject=subject, is_active=True
             ).first()
@@ -407,12 +767,10 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # Create assignment
             assignment = ClassroomTeacherAssignment.objects.create(
                 classroom=classroom, teacher=teacher, subject=subject
             )
 
-            # For nursery/primary, set class_teacher
             if classroom.section.grade_level.education_level in ["NURSERY", "PRIMARY"]:
                 classroom.class_teacher = teacher
                 classroom.save()
@@ -457,7 +815,6 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
             assignment.is_active = False
             assignment.save()
 
-            # For nursery/primary, clear class_teacher if no more assignments
             if classroom.section.grade_level.education_level in ["NURSERY", "PRIMARY"]:
                 remaining = classroom.classroomteacherassignment_set.filter(
                     is_active=True
@@ -493,7 +850,6 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
         try:
             student = Student.objects.get(id=student_id)
 
-            # Check existing enrollment
             existing = StudentEnrollment.objects.filter(
                 student=student, classroom=classroom, is_active=True
             ).first()
@@ -554,6 +910,76 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
+    def transfer_student(self, request, pk=None):
+        """Transfer a student from this classroom to another"""
+        classroom = self.get_object()
+        student_id = request.data.get("student_id")
+        target_classroom_id = request.data.get("target_classroom_id")
+
+        if not student_id or not target_classroom_id:
+            return Response(
+                {"error": "Both student_id and target_classroom_id are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            student = Student.objects.get(id=student_id)
+            target_classroom = Classroom.objects.get(id=target_classroom_id)
+
+            # Check target capacity
+            if target_classroom.is_full:
+                return Response(
+                    {
+                        "error": f"Target classroom '{target_classroom.name}' is full.",
+                        "max_capacity": target_classroom.max_capacity,
+                        "current_enrollment": target_classroom.current_enrollment,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Deactivate current enrollment
+            StudentEnrollment.objects.filter(
+                student=student, classroom=classroom, is_active=True
+            ).update(is_active=False)
+
+            # Enroll in target — reactivate if record exists
+            enrollment, created = StudentEnrollment.objects.get_or_create(
+                student=student,
+                classroom=target_classroom,
+                defaults={"is_active": True},
+            )
+            if not created:
+                enrollment.is_active = True
+                enrollment.enrollment_date = timezone.now().date()
+                enrollment.save(update_fields=["is_active", "enrollment_date"])
+
+            serializer = StudentEnrollmentSerializer(enrollment)
+            return Response(
+                {
+                    "message": f"Student {student.user.get_full_name()} transferred successfully.",
+                    "from_classroom": classroom.name,
+                    "to_classroom": target_classroom.name,
+                    "enrollment": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Student.DoesNotExist:
+            return Response(
+                {"error": "Student not found"}, status=status.HTTP_404_NOT_FOUND
+            )
+        except Classroom.DoesNotExist:
+            return Response(
+                {"error": "Target classroom not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as e:
+            logger.error(f"Error transferring student: {str(e)}", exc_info=True)
+            return Response(
+                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class ClassroomTeacherAssignmentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """ViewSet for ClassroomTeacherAssignment model"""
@@ -561,10 +987,9 @@ class ClassroomTeacherAssignmentViewSet(TenantFilterMixin, AutoSectionFilterMixi
     queryset = ClassroomTeacherAssignment.objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = ClassroomTeacherAssignmentSerializer
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate teacher assignments
+    pagination_class = StandardResultsPagination
 
     def get_queryset(self):
-        # Let mixin handle section filtering
         queryset = super().get_queryset()
         return queryset.order_by("classroom__name")
 
@@ -582,13 +1007,11 @@ class ClassroomTeacherAssignmentViewSet(TenantFilterMixin, AutoSectionFilterMixi
             classroom__academic_session_id=academic_session_id
         )
 
-        # PERFORMANCE: Add pagination to handle large datasets
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
 
-        # Fallback if pagination is disabled
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
@@ -604,20 +1027,18 @@ class ClassroomTeacherAssignmentViewSet(TenantFilterMixin, AutoSectionFilterMixi
 
         queryset = self.get_queryset().filter(subject_id=subject_id)
 
-        # PERFORMANCE: Add pagination to handle large datasets
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
 
-        # Fallback if pagination is disabled
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
     @action(detail=False, methods=["get"])
     def workload_analysis(self, request):
         """Get workload analysis based on user's section access"""
-        queryset = self.get_queryset()  # Already filtered
+        queryset = self.get_queryset()
 
         teacher_workload = queryset.values(
             "teacher__user__first_name", "teacher__user__last_name"
@@ -644,17 +1065,21 @@ class StudentEnrollmentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewse
     queryset = StudentEnrollment.objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = StudentEnrollmentSerializer
-    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate large enrollment datasets
+    pagination_class = LargeResultsPagination
 
     def get_queryset(self):
-        # Let mixin handle section filtering
         queryset = super().get_queryset()
-        return queryset.order_by("student__user__first_name")
+        return queryset.select_related(
+            "student__user",
+            "student__stream",
+            "student__stream__stream_type_new",  # NEW: Prefetch stream type
+            "classroom",
+        ).order_by("student__user__first_name")
 
     @action(detail=False, methods=["get"])
     def statistics(self, request):
         """Get enrollment statistics based on user's section access"""
-        queryset = self.get_queryset()  # Already filtered
+        queryset = self.get_queryset()
 
         total_enrollments = queryset.count()
         active_students = queryset.filter(student__is_active=True).count()
@@ -673,6 +1098,22 @@ class StudentEnrollmentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewse
             classroom__section__grade_level__education_level="SENIOR_SECONDARY"
         ).count()
 
+        # NEW: By stream type
+        by_stream_type = []
+        stream_types = StreamType.objects.filter(is_active=True)
+
+        for stream_type in stream_types:
+            enrollments = queryset.filter(student__stream__stream_type_new=stream_type)
+
+            by_stream_type.append(
+                {
+                    "stream_type_id": stream_type.id,
+                    "stream_type_name": stream_type.name,
+                    "stream_type_code": stream_type.code,
+                    "enrollment_count": enrollments.count(),
+                }
+            )
+
         return Response(
             {
                 "total_enrollments": total_enrollments,
@@ -683,6 +1124,7 @@ class StudentEnrollmentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewse
                     "junior_secondary": junior_secondary_enrollments,
                     "senior_secondary": senior_secondary_enrollments,
                 },
+                "by_stream_type": by_stream_type,
             }
         )
 
@@ -693,10 +1135,9 @@ class ClassScheduleViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.M
     queryset = ClassSchedule.objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = ClassScheduleSerializer
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate schedules
+    pagination_class = StandardResultsPagination
 
     def get_queryset(self):
-        # Let mixin handle section filtering
         queryset = super().get_queryset()
         return queryset.order_by("day_of_week", "start_time")
 
@@ -745,7 +1186,6 @@ class ClassScheduleViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.M
     @action(detail=False, methods=["get"])
     def conflicts(self, request):
         """Get schedule conflicts"""
-        # Find overlapping schedules
         queryset = self.get_queryset()
 
         conflicts = []
@@ -758,9 +1198,7 @@ class ClassScheduleViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.M
                 end_time__gt=schedule.start_time,
             ).exclude(id=schedule.id)
 
-            # Check for teacher conflicts
             teacher_conflicts = overlaps.filter(teacher=schedule.teacher)
-            # Check for classroom conflicts
             classroom_conflicts = overlaps.filter(classroom=schedule.classroom)
 
             if teacher_conflicts.exists() or classroom_conflicts.exists():
@@ -822,7 +1260,6 @@ class ClassScheduleViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.M
         if teacher_id:
             queryset = queryset.filter(teacher_id=teacher_id)
 
-        # Group by day
         days = [
             "monday",
             "tuesday",
@@ -842,7 +1279,7 @@ class ClassScheduleViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.M
 
 
 # ==============================================================================
-# FIXED: Teacher, Student, and Subject ViewSets from Classroom app
+# Teacher, Student, Subject ViewSets
 # ==============================================================================
 
 
@@ -852,7 +1289,7 @@ class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
     queryset = Teacher.objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = TeacherSerializer
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate teachers
+    pagination_class = StandardResultsPagination
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -863,7 +1300,6 @@ class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
     ordering_fields = ["user__first_name", "user__last_name", "hire_date"]
 
     def get_queryset(self):
-        # Let mixin handle section filtering
         queryset = super().get_queryset()
         return queryset.select_related("user").order_by(
             "user__first_name", "user__last_name"
@@ -874,11 +1310,9 @@ class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         """Get classes for a specific teacher"""
         teacher = self.get_object()
 
-        # Get primary classes (where teacher is class_teacher)
         primary_classes = Classroom.objects.filter(class_teacher=teacher)
         primary_classes = self.apply_section_filters(primary_classes)
 
-        # Get assigned classes (through ClassroomTeacherAssignment)
         assigned_classes = Classroom.objects.filter(
             classroomteacherassignment__teacher=teacher,
             classroomteacherassignment__is_active=True,
@@ -905,7 +1339,6 @@ class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         ).select_related("subject")
 
         subjects = [assignment.subject for assignment in assignments]
-        # Apply section filtering to subjects
         subjects_qs = Subject.objects.filter(id__in=[s.id for s in subjects])
         subjects_qs = self.apply_section_filters(subjects_qs)
 
@@ -922,7 +1355,6 @@ class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             teacher=teacher, is_active=True
         ).select_related("classroom", "subject")
 
-        # Apply section filtering
         schedules = self.apply_section_filters(schedules)
 
         serializer = ClassScheduleSerializer(schedules, many=True)
@@ -933,7 +1365,6 @@ class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         """Get workload for a specific teacher"""
         teacher = self.get_object()
 
-        # Get filtered classes
         primary_classes = Classroom.objects.filter(class_teacher=teacher)
         primary_classes = self.apply_section_filters(primary_classes)
 
@@ -947,45 +1378,53 @@ class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             is_active=True
         ).count()
 
+        # NEW: Coordinated streams
+        coordinated_streams = Stream.objects.filter(
+            stream_coordinator=teacher, is_active=True
+        ).count()
+
         return Response(
             {
                 "primary_classes_count": primary_classes.count(),
                 "assigned_classes_count": assigned_classes.count(),
                 "total_subjects": total_subjects,
+                "coordinated_streams": coordinated_streams,
                 "total_workload": primary_classes.count() + assigned_classes.count(),
             }
         )
 
 
 class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
-    """
-    ViewSet for Student model
-    FIXED: Was using Classroom.objects, now uses Student.objects
-    """
+    """ViewSet for Student model"""
 
     queryset = Student.objects.all()
     permission_classes = [IsAuthenticated]
-    serializer_class = None  # You need to add StudentSerializer
-    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate large student datasets
+    serializer_class = None  # Add StudentSerializer
+    pagination_class = LargeResultsPagination
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
         filters.OrderingFilter,
     ]
-    search_fields = ["user__first_name", "user__last_name", "admission_number"]
+    # UPDATED: Add stream filter
+    filterset_fields = ["is_active", "stream", "student_class"]
+    search_fields = ["user__first_name", "user__last_name", "registration_number"]
     ordering_fields = ["user__first_name", "user__last_name"]
 
     def get_queryset(self):
-        # Let mixin handle section filtering
         queryset = super().get_queryset()
-        return queryset.select_related("user").order_by("user__first_name")
+        return queryset.select_related(
+            "user",
+            "stream",
+            "stream__stream_type_new",  # NEW: Prefetch stream type
+            "student_class",
+        ).order_by("user__first_name")
 
     @action(detail=True, methods=["get"])
     def current_class(self, request, pk=None):
         """Get current class for a specific student"""
         student = self.get_object()
 
-        # Get current active enrollment
         enrollment = (
             StudentEnrollment.objects.filter(student=student, is_active=True)
             .select_related("classroom")
@@ -1004,7 +1443,6 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         """Get subjects for a specific student based on their classroom"""
         student = self.get_object()
 
-        # Get student's current classroom
         enrollment = (
             StudentEnrollment.objects.filter(student=student, is_active=True)
             .select_related("classroom")
@@ -1014,7 +1452,6 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         if not enrollment:
             return Response({"message": "Student not currently enrolled"})
 
-        # Get subjects for that classroom
         subjects = Subject.objects.filter(
             classroomteacherassignment__classroom=enrollment.classroom,
             classroomteacherassignment__is_active=True,
@@ -1030,7 +1467,6 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         """Get schedule for a specific student"""
         student = self.get_object()
 
-        # Get student's current classroom
         enrollment = (
             StudentEnrollment.objects.filter(student=student, is_active=True)
             .select_related("classroom")
@@ -1040,7 +1476,6 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         if not enrollment:
             return Response({"message": "Student not currently enrolled"})
 
-        # Get classroom schedule
         schedules = (
             ClassSchedule.objects.filter(classroom=enrollment.classroom, is_active=True)
             .select_related("subject", "teacher__user")
@@ -1066,6 +1501,27 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             {"total_enrollments": enrollments.count(), "enrollments": serializer.data}
         )
 
+    @action(detail=False, methods=["get"])
+    def by_stream(self, request):
+        """Get students by stream"""
+        stream_id = request.query_params.get("stream_id")
+
+        if not stream_id:
+            return Response(
+                {"error": "stream_id parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        queryset = self.get_queryset().filter(stream_id=stream_id, is_active=True)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
 
 class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """ViewSet for Subject model"""
@@ -1073,77 +1529,20 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
     queryset = Subject.objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = SubjectSerializer
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate subjects
+    pagination_class = StandardResultsPagination
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
         filters.OrderingFilter,
     ]
-    filterset_fields = ["category", "is_active", "is_compulsory"]
+    # UPDATED: Use category_new FK field
+    filterset_fields = ["category_new", "is_active", "is_cross_cutting"]
     search_fields = ["name", "code", "description"]
-    ordering_fields = ["name", "code", "subject_order"]
+    ordering_fields = ["name", "code"]
 
     def get_queryset(self):
-        # Let mixin handle section filtering
         queryset = super().get_queryset()
-        return queryset.order_by("name")
-
-    @action(detail=False, methods=["get"])
-    def by_category(self, request):
-        """Get subjects grouped by category"""
-        from subject.models import SUBJECT_CATEGORY_CHOICES
-
-        queryset = self.get_queryset()
-        grouped = {}
-
-        for category_code, category_name in SUBJECT_CATEGORY_CHOICES:
-            subjects = queryset.filter(category=category_code)
-            grouped[category_code] = {
-                "name": category_name,
-                "count": subjects.count(),
-                "subjects": self.get_serializer(subjects, many=True).data,
-            }
-
-        return Response(grouped)
-
-    @action(detail=False, methods=["get"])
-    def by_education_level(self, request):
-        """Get subjects grouped by education level"""
-        from subject.models import EDUCATION_LEVELS
-
-        queryset = self.get_queryset()
-        grouped = {}
-
-        for level_code, level_name in EDUCATION_LEVELS:
-            subjects = queryset.filter(education_level=level_code)
-            grouped[level_code] = {
-                "name": level_name,
-                "count": subjects.count(),
-                "subjects": self.get_serializer(subjects, many=True).data,
-            }
-
-        return Response(grouped)
-
-    @action(detail=False, methods=["get"])
-    def nursery_subjects(self, request):
-        """Get nursery subjects"""
-        subjects = self.get_queryset().filter(education_level="NURSERY")
-        serializer = self.get_serializer(subjects, many=True)
-        return Response(serializer.data)
-
-    @action(detail=False, methods=["get"])
-    def senior_secondary_subjects(self, request):
-        """Get senior secondary subjects"""
-        subjects = self.get_queryset().filter(education_level="SENIOR_SECONDARY")
-        serializer = self.get_serializer(subjects, many=True)
-        return Response(serializer.data)
-
-    @action(detail=False, methods=["get"])
-    def cross_cutting_subjects(self, request):
-        """Get cross-cutting subjects"""
-        subjects = self.get_queryset().filter(is_cross_cutting=True)
-        serializer = self.get_serializer(subjects, many=True)
-        return Response(serializer.data)
+        return queryset.prefetch_related("grade_levels").order_by("name")
 
     @action(detail=False, methods=["get"])
     def for_grade(self, request):
@@ -1155,7 +1554,6 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Get subjects for this grade level
         subjects = (
             self.get_queryset()
             .filter(Q(grade_levels__id=grade_id) | Q(is_cross_cutting=True))
@@ -1174,22 +1572,62 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             {
                 "total_subjects": queryset.count(),
                 "active_subjects": queryset.filter(is_active=True).count(),
-                "compulsory_subjects": queryset.filter(is_compulsory=True).count(),
-                "elective_subjects": queryset.filter(is_compulsory=False).count(),
                 "cross_cutting_subjects": queryset.filter(
                     is_cross_cutting=True
                 ).count(),
-                "with_practicals": queryset.filter(has_practical=True).count(),
             }
         )
 
-    @action(detail=True, methods=["get"])
-    def prerequisites(self, request, pk=None):
-        """Get prerequisites for a subject"""
-        subject = self.get_object()
-        prerequisites = subject.prerequisites.all()
-        serializer = self.get_serializer(prerequisites, many=True)
-        return Response({"subject": subject.name, "prerequisites": serializer.data})
+
+@api_view(["GET"])
+def health_check(request):
+    """Enhanced health check endpoint"""
+    try:
+        total_subjects = Subject.objects.count()
+        active_subjects = Subject.objects.filter(is_active=True).count()
+
+        cache_key = "health_check_test"
+        cache.set(cache_key, "test", 10)
+        cache_working = cache.get(cache_key) == "test"
+        cache.delete(cache_key)
+
+        # NEW: Stream statistics
+        total_streams = Stream.objects.count()
+        total_stream_types = StreamType.objects.count()
+
+        return Response(
+            {
+                "status": "healthy",
+                "timestamp": timezone.now().isoformat(),
+                "version": "v2.1-fk-streams",
+                "service": "nigerian-education-api",
+                "system_info": {
+                    "database": {
+                        "connected": True,
+                        "total_subjects": total_subjects,
+                        "active_subjects": active_subjects,
+                        "total_streams": total_streams,
+                        "total_stream_types": total_stream_types,
+                    },
+                    "cache": {
+                        "connected": cache_working,
+                        "backend": getattr(settings, "CACHES", {})
+                        .get("default", {})
+                        .get("BACKEND", "unknown"),
+                    },
+                },
+            }
+        )
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return Response(
+            {
+                "status": "unhealthy",
+                "timestamp": timezone.now().isoformat(),
+                "error": str(e),
+            },
+            status=500,
+        )
 
 
 class SubjectAnalyticsViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ReadOnlyModelViewSet):

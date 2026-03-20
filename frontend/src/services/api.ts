@@ -155,6 +155,7 @@ const handleResponseError = async (
     '/tenants/register/',
     '/tenants/check-slug/',
     '/tenants/check-domain/',
+    
   ];
 
   // Check if this is a public endpoint

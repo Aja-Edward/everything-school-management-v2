@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from decimal import Decimal
 from django.utils import timezone
-from students.models import Student
+from students.models import Student, Class as StudentClass, EducationLevel
 from subject.models import Subject
 from academics.models import AcademicSession
 from students.serializers import StudentDetailSerializer
@@ -42,14 +42,22 @@ class StudentMinimalSerializer(serializers.ModelSerializer):
         source="registration_number", read_only=True
     )
     full_name = serializers.CharField(read_only=True)
-    student_class_display = serializers.CharField(
-        source="get_student_class_display", read_only=True
+
+    # student_class is now a FK — expose name for display
+    student_class_name = serializers.CharField(
+        source="student_class.name", read_only=True, allow_null=True
     )
+    # Keep student_class id for filtering/lookups
+    student_class = serializers.PrimaryKeyRelatedField(read_only=True)
+
+    # education_level is a @property returning level_type string
+    education_level = serializers.CharField(read_only=True)
+    # Human-readable display comes from the FK chain
     education_level_display = serializers.CharField(
-        source="get_education_level_display", read_only=True
+        source="education_level_display", read_only=True
     )
 
-    # ✅ ADD: Classroom information from current enrollment
+    # Classroom info from active enrollment
     classroom_id = serializers.SerializerMethodField()
     classroom_name = serializers.SerializerMethodField()
 
@@ -60,60 +68,63 @@ class StudentMinimalSerializer(serializers.ModelSerializer):
             "admission_number",
             "full_name",
             "student_class",
-            "student_class_display",
+            "student_class_name",
             "education_level",
             "education_level_display",
-            "classroom_id",  # ✅ NEW
-            "classroom_name",  # ✅ NEW
+            "classroom_id",
+            "classroom_name",
         ]
 
     def get_classroom_id(self, obj):
-        """Get the student's current classroom ID from active enrollment"""
         try:
-            # Get active enrollment for this student
             enrollment = (
                 obj.studentenrollment_set.filter(is_active=True)
                 .select_related("classroom")
                 .first()
             )
-
-            if enrollment and enrollment.classroom:
-                return enrollment.classroom.id
-            return None
+            return (
+                enrollment.classroom.id if enrollment and enrollment.classroom else None
+            )
         except Exception:
             return None
 
     def get_classroom_name(self, obj):
-        """Get the student's current classroom name from active enrollment"""
         try:
-            # Get active enrollment for this student
             enrollment = (
                 obj.studentenrollment_set.filter(is_active=True)
                 .select_related("classroom")
                 .first()
             )
-
-            if enrollment and enrollment.classroom:
-                return enrollment.classroom.name
-            return None
+            return (
+                enrollment.classroom.name
+                if enrollment and enrollment.classroom
+                else None
+            )
         except Exception:
             return None
 
 
 class SubjectMinimalSerializer(serializers.ModelSerializer):
-    """Minimal subject serializer"""
-
     class Meta:
         model = Subject
         fields = ["id", "name", "code"]
 
 
 class AcademicSessionMinimalSerializer(serializers.ModelSerializer):
-    """Minimal academic session serializer"""
-
     class Meta:
         model = AcademicSession
         fields = ["id", "name", "start_date", "end_date", "is_active"]
+
+
+# ===== EDUCATION LEVEL SERIALIZER =====
+
+
+class EducationLevelMinimalSerializer(serializers.ModelSerializer):
+    """Minimal EducationLevel for nested use in other serializers"""
+
+    class Meta:
+        model = EducationLevel
+        fields = ["id", "name", "code", "level_type"]
 
 
 # ===== GRADING SYSTEM SERIALIZERS =====
@@ -208,7 +219,6 @@ class GradingSystemCreateUpdateSerializer(serializers.ModelSerializer):
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
-
         if grades_data is not None:
             instance.grades.all().delete()
             for grade_data in grades_data:
@@ -220,8 +230,13 @@ class GradingSystemCreateUpdateSerializer(serializers.ModelSerializer):
 
 
 class ScoringConfigurationSerializer(serializers.ModelSerializer):
+    # education_level is now a FK — expose nested detail
+    education_level_detail = EducationLevelMinimalSerializer(
+        source="education_level", read_only=True
+    )
+    # Keep flat display field derived from FK name
     education_level_display = serializers.CharField(
-        source="get_education_level_display", read_only=True
+        source="education_level.name", read_only=True, allow_null=True
     )
     result_type_display = serializers.CharField(
         source="get_result_type_display", read_only=True
@@ -232,7 +247,6 @@ class ScoringConfigurationSerializer(serializers.ModelSerializer):
     created_by_name = serializers.CharField(
         source="created_by.get_full_name", read_only=True, allow_null=True
     )
-
     first_test_max_score = serializers.DecimalField(
         source="test1_max_score", read_only=True, max_digits=5, decimal_places=2
     )
@@ -250,6 +264,11 @@ class ScoringConfigurationSerializer(serializers.ModelSerializer):
 
 
 class ScoringConfigurationCreateUpdateSerializer(serializers.ModelSerializer):
+    # education_level accepts a FK id
+    education_level = serializers.PrimaryKeyRelatedField(
+        queryset=EducationLevel.objects.all()
+    )
+
     first_test_max_score = serializers.DecimalField(
         source="test1_max_score",
         max_digits=5,
@@ -297,10 +316,12 @@ class ScoringConfigurationCreateUpdateSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, data):
+        # Derive level_type from FK object
+        education_level_obj = data.get("education_level")
+        level_type = education_level_obj.level_type if education_level_obj else None
         result_type = data.get("result_type", "TERMLY")
-        education_level = data.get("education_level")
 
-        if education_level in ["JUNIOR_SECONDARY", "PRIMARY"]:
+        if level_type in ["JUNIOR_SECONDARY", "PRIMARY"]:
             required_fields = [
                 "continuous_assessment_max_score",
                 "take_home_test_max_score",
@@ -310,25 +331,25 @@ class ScoringConfigurationCreateUpdateSerializer(serializers.ModelSerializer):
                 "note_copying_max_score",
             ]
             for field in required_fields:
-                if field not in data or data[field] is None:
+                if not data.get(field):
                     raise serializers.ValidationError(
-                        {field: [f"This field is required for {education_level}"]}
+                        {field: [f"This field is required for {level_type}"]}
                     )
 
-        elif education_level == "SENIOR_SECONDARY":
+        elif level_type == "SENIOR_SECONDARY":
             for field in ["test1_max_score", "test2_max_score", "test3_max_score"]:
-                if field not in data or data[field] is None:
+                if not data.get(field):
                     raise serializers.ValidationError(
                         {field: ["This field is required for Senior Secondary"]}
                     )
 
-        elif education_level == "NURSERY":
-            if "total_max_score" not in data or data["total_max_score"] is None:
+        elif level_type == "NURSERY":
+            if not data.get("total_max_score"):
                 raise serializers.ValidationError(
                     {"total_max_score": ["Required for Nursery"]}
                 )
 
-        if result_type == "TERMLY" and education_level != "NURSERY":
+        if result_type == "TERMLY" and level_type != "NURSERY":
             ca_weight = data.get("ca_weight_percentage", 0)
             exam_weight = data.get("exam_weight_percentage", 0)
             if ca_weight + exam_weight != 100:
@@ -347,8 +368,12 @@ class ScoringConfigurationCreateUpdateSerializer(serializers.ModelSerializer):
 
 
 class AssessmentTypeSerializer(serializers.ModelSerializer):
+    # education_level is now a FK — show name for display
+    education_level_detail = EducationLevelMinimalSerializer(
+        source="education_level", read_only=True
+    )
     education_level_display = serializers.CharField(
-        source="get_education_level_display", read_only=True
+        source="education_level.name", read_only=True, allow_null=True
     )
 
     class Meta:
@@ -358,6 +383,13 @@ class AssessmentTypeSerializer(serializers.ModelSerializer):
 
 
 class AssessmentTypeCreateUpdateSerializer(serializers.ModelSerializer):
+    # education_level accepts FK id; null/blank means ALL levels
+    education_level = serializers.PrimaryKeyRelatedField(
+        queryset=EducationLevel.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+
     class Meta:
         model = AssessmentType
         fields = [
@@ -396,7 +428,6 @@ class ExamSessionSerializer(serializers.ModelSerializer):
 
 
 class ExamSessionCreateUpdateSerializer(serializers.ModelSerializer):
-
     class Meta:
         model = ExamSession
         fields = [
@@ -476,6 +507,10 @@ class SeniorSecondaryResultSerializer(serializers.ModelSerializer):
     stream_name = serializers.CharField(
         source="stream.name", read_only=True, allow_null=True
     )
+    # stream_type via new FK — graceful fallback to None
+    stream_type = serializers.CharField(
+        source="stream.stream_type_new.name", read_only=True, allow_null=True
+    )
     status_display = serializers.CharField(source="get_status_display", read_only=True)
 
     entered_by_name = serializers.CharField(
@@ -542,16 +577,17 @@ class SeniorSecondaryResultCreateUpdateSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, data):
-        if data.get("first_test_score", 0) > 10:
-            raise serializers.ValidationError("First test score cannot exceed 10 marks")
-        if data.get("second_test_score", 0) > 10:
-            raise serializers.ValidationError(
-                "Second test score cannot exceed 10 marks"
-            )
-        if data.get("third_test_score", 0) > 10:
-            raise serializers.ValidationError("Third test score cannot exceed 10 marks")
-        if data.get("exam_score", 0) > 70:
-            raise serializers.ValidationError("Exam score cannot exceed 70 marks")
+        score_limits = {
+            "first_test_score": 10,
+            "second_test_score": 10,
+            "third_test_score": 10,
+            "exam_score": 70,
+        }
+        for field, limit in score_limits.items():
+            if data.get(field, 0) > limit:
+                raise serializers.ValidationError(
+                    f"{field.replace('_', ' ').title()} cannot exceed {limit} marks"
+                )
         return data
 
     def create(self, validated_data):
@@ -578,11 +614,11 @@ class SeniorSecondaryTermReportSerializer(serializers.ModelSerializer):
     stream_name = serializers.CharField(
         source="stream.name", read_only=True, allow_null=True
     )
+    stream_type = serializers.CharField(
+        source="stream.stream_type_new.name", read_only=True, allow_null=True
+    )
     status_display = serializers.CharField(source="get_status_display", read_only=True)
-
-    # CHANGE: Use SerializerMethodField to manually fetch results
     subject_results = serializers.SerializerMethodField()
-
     position_formatted = serializers.CharField(read_only=True)
 
     class_teacher_signature = serializers.URLField(
@@ -593,6 +629,7 @@ class SeniorSecondaryTermReportSerializer(serializers.ModelSerializer):
         read_only=True, allow_null=True, allow_blank=True
     )
     head_teacher_signed_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
     class Meta:
         model = SeniorSecondaryTermReport
         fields = "__all__"
@@ -605,30 +642,22 @@ class SeniorSecondaryTermReportSerializer(serializers.ModelSerializer):
             "total_students",
             "created_at",
             "updated_at",
-            "class_teacher_signature",  # ✅ Add here too
+            "class_teacher_signature",
             "class_teacher_signed_at",
             "head_teacher_signature",
             "head_teacher_signed_at",
         ]
 
-    # ADD THIS METHOD:
     def get_subject_results(self, obj):
-        """
-        Fetch all subject results for this student and exam session.
-        This works even without a direct foreign key relationship.
-        """
-        from result.models import SeniorSecondaryResult
-
-        # Query by student and exam_session (matches what's in the term report)
         results = (
             SeniorSecondaryResult.objects.filter(
                 student=obj.student, exam_session=obj.exam_session
             )
-            .select_related("subject", "grading_system", "stream")
+            .select_related(
+                "subject", "grading_system", "stream", "stream__stream_type_new"
+            )
             .order_by("subject__name")
         )
-
-        # Serialize the results
         return SeniorSecondaryResultSerializer(results, many=True).data
 
     def get_first_signatory_role(self, obj):
@@ -643,19 +672,16 @@ class SeniorSecondaryTermReportSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         user = self.context["request"].user
         instance = self.instance
-
         if "class_teacher_remark" in attrs:
             if not instance.can_edit_teacher_remark(user):
                 raise serializers.ValidationError(
                     "You are not allowed to edit this remark."
                 )
-
         if "head_teacher_remark" in attrs:
             if not instance.can_edit_head_teacher_remark(user):
                 raise serializers.ValidationError(
                     "You are not allowed to edit this remark."
                 )
-
         return attrs
 
 
@@ -665,6 +691,9 @@ class SeniorSecondarySessionResultSerializer(serializers.ModelSerializer):
     academic_session = AcademicSessionMinimalSerializer(read_only=True)
     stream_name = serializers.CharField(
         source="stream.name", read_only=True, allow_null=True
+    )
+    stream_type = serializers.CharField(
+        source="stream.stream_type_new.name", read_only=True, allow_null=True
     )
     status_display = serializers.CharField(source="get_status_display", read_only=True)
 
@@ -709,6 +738,9 @@ class SeniorSecondarySessionReportSerializer(serializers.ModelSerializer):
     stream_name = serializers.CharField(
         source="stream.name", read_only=True, allow_null=True
     )
+    stream_type = serializers.CharField(
+        source="stream.stream_type_new.name", read_only=True, allow_null=True
+    )
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     subject_results = SeniorSecondarySessionResultSerializer(many=True, read_only=True)
 
@@ -743,19 +775,16 @@ class SeniorSecondarySessionReportSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         user = self.context["request"].user
         instance = self.instance
-
         if "class_teacher_remark" in attrs:
             if not instance.can_edit_teacher_remark(user):
                 raise serializers.ValidationError(
                     "You are not allowed to edit this remark."
                 )
-
         if "head_teacher_remark" in attrs:
             if not instance.can_edit_head_teacher_remark(user):
                 raise serializers.ValidationError(
                     "You are not allowed to edit this remark."
                 )
-
         return attrs
 
 
@@ -773,7 +802,6 @@ class JuniorSecondaryResultSerializer(serializers.ModelSerializer):
         source="entered_by.get_full_name", read_only=True, allow_null=True
     )
     position_formatted = serializers.CharField(read_only=True)
-
     exam_marks = serializers.DecimalField(
         source="exam_score", read_only=True, max_digits=5, decimal_places=2
     )
@@ -892,7 +920,7 @@ class JuniorSecondaryTermReportSerializer(serializers.ModelSerializer):
             "total_students",
             "created_at",
             "updated_at",
-            "class_teacher_signature",  # ✅ Add here too
+            "class_teacher_signature",
             "class_teacher_signed_at",
             "head_teacher_signature",
             "head_teacher_signed_at",
@@ -910,19 +938,16 @@ class JuniorSecondaryTermReportSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         user = self.context["request"].user
         instance = self.instance
-
         if "class_teacher_remark" in attrs:
             if not instance.can_edit_teacher_remark(user):
                 raise serializers.ValidationError(
                     "You are not allowed to edit this remark."
                 )
-
         if "head_teacher_remark" in attrs:
             if not instance.can_edit_head_teacher_remark(user):
                 raise serializers.ValidationError(
                     "You are not allowed to edit this remark."
                 )
-
         return attrs
 
 
@@ -940,7 +965,6 @@ class PrimaryResultSerializer(serializers.ModelSerializer):
         source="entered_by.get_full_name", read_only=True, allow_null=True
     )
     position_formatted = serializers.CharField(read_only=True)
-
     exam_marks = serializers.DecimalField(
         source="exam_score", read_only=True, max_digits=5, decimal_places=2
     )
@@ -978,7 +1002,6 @@ class PrimaryResultSerializer(serializers.ModelSerializer):
 
 
 class PrimaryResultCreateUpdateSerializer(serializers.ModelSerializer):
-
     class Meta:
         model = PrimaryResult
         fields = [
@@ -1060,7 +1083,7 @@ class PrimaryTermReportSerializer(serializers.ModelSerializer):
             "total_students",
             "created_at",
             "updated_at",
-            "class_teacher_signature",  # ✅ Add here too
+            "class_teacher_signature",
             "class_teacher_signed_at",
             "head_teacher_signature",
             "head_teacher_signed_at",
@@ -1078,19 +1101,16 @@ class PrimaryTermReportSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         user = self.context["request"].user
         instance = self.instance
-
         if "class_teacher_remark" in attrs:
             if not instance.can_edit_teacher_remark(user):
                 raise serializers.ValidationError(
                     "You are not allowed to edit this remark."
                 )
-
         if "head_teacher_remark" in attrs:
             if not instance.can_edit_head_teacher_remark(user):
                 raise serializers.ValidationError(
                     "You are not allowed to edit this remark."
                 )
-
         return attrs
 
 
@@ -1110,6 +1130,7 @@ class NurseryResultSerializer(serializers.ModelSerializer):
     position = serializers.IntegerField(source="subject_position", read_only=True)
     position_formatted = serializers.CharField(read_only=True)
 
+    # Report-level fields pulled from the FK'd term report
     physical_development = serializers.SerializerMethodField()
     health = serializers.SerializerMethodField()
     cleanliness = serializers.SerializerMethodField()
@@ -1225,7 +1246,7 @@ class NurseryTermReportSerializer(serializers.ModelSerializer):
             "total_students_in_class",
             "created_at",
             "updated_at",
-            "class_teacher_signature",  # ✅ Add here too
+            "class_teacher_signature",
             "class_teacher_signed_at",
             "head_teacher_signature",
             "head_teacher_signed_at",
@@ -1243,19 +1264,16 @@ class NurseryTermReportSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         user = self.context["request"].user
         instance = self.instance
-
         if "class_teacher_remark" in attrs:
             if not instance.can_edit_teacher_remark(user):
                 raise serializers.ValidationError(
                     "You are not allowed to edit this remark."
                 )
-
         if "head_teacher_remark" in attrs:
             if not instance.can_edit_head_teacher_remark(user):
                 raise serializers.ValidationError(
                     "You are not allowed to edit this remark."
                 )
-
         return attrs
 
 
@@ -1297,6 +1315,9 @@ class StudentResultSerializer(serializers.ModelSerializer):
     stream_name = serializers.CharField(
         source="stream.name", read_only=True, allow_null=True
     )
+    stream_type = serializers.CharField(
+        source="stream.stream_type_new.name", read_only=True, allow_null=True
+    )
     status_display = serializers.CharField(source="get_status_display", read_only=True)
 
     class Meta:
@@ -1335,10 +1356,10 @@ class StudentTermResultSerializer(serializers.ModelSerializer):
         ]
 
     def get_subject_results(self, obj):
-        """Get all subject results based on education level"""
-        education_level = obj.student.education_level
+        """Route to correct result model based on education level (FK-derived)"""
+        education_level = obj.student.education_level  # @property → level_type string
 
-        result_models = {
+        result_map = {
             "SENIOR_SECONDARY": (
                 SeniorSecondaryResult,
                 SeniorSecondaryResultSerializer,
@@ -1350,17 +1371,14 @@ class StudentTermResultSerializer(serializers.ModelSerializer):
             "PRIMARY": (PrimaryResult, PrimaryResultSerializer),
             "NURSERY": (NurseryResult, NurseryResultSerializer),
         }
-
-        model_class, serializer_class = result_models.get(
+        model_class, serializer_class = result_map.get(
             education_level, (StudentResult, StudentResultSerializer)
         )
-
         results = model_class.objects.filter(
             student=obj.student,
             exam_session__academic_session=obj.academic_session,
             exam_session__term=obj.term,
         ).select_related("subject", "grading_system", "exam_session")
-
         return serializer_class(results, many=True).data
 
 
@@ -1385,14 +1403,18 @@ class StudentTermResultCreateUpdateSerializer(serializers.ModelSerializer):
 
 class ResultSheetSerializer(serializers.ModelSerializer):
     exam_session = ExamSessionSerializer(read_only=True)
-    student_class_display = serializers.CharField(
-        source="get_student_class_display", read_only=True
-    )
-    education_level_display = serializers.CharField(
-        source="get_education_level_display", read_only=True
-    )
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
 
+    # student_class is now a FK to StudentClass model
+    student_class_name = serializers.CharField(
+        source="student_class.name", read_only=True, allow_null=True
+    )
+    student_class_detail = serializers.SerializerMethodField()
+
+    # education_level now comes from the FK chain
+    education_level = serializers.SerializerMethodField()
+    education_level_display = serializers.SerializerMethodField()
+
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
     prepared_by_name = serializers.CharField(
         source="prepared_by.get_full_name", read_only=True, allow_null=True
     )
@@ -1415,6 +1437,28 @@ class ResultSheetSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    def get_student_class_detail(self, obj):
+        if obj.student_class:
+            return {
+                "id": obj.student_class.id,
+                "name": obj.student_class.name,
+                "code": obj.student_class.code,
+            }
+        return None
+
+    def get_education_level(self, obj):
+        """Traverse FK: ResultSheet → student_class → education_level → level_type"""
+        try:
+            return obj.student_class.education_level.level_type
+        except AttributeError:
+            return None
+
+    def get_education_level_display(self, obj):
+        try:
+            return obj.student_class.education_level.name
+        except AttributeError:
+            return None
+
 
 # ===== RESULT TEMPLATE SERIALIZERS =====
 
@@ -1423,8 +1467,12 @@ class ResultTemplateSerializer(serializers.ModelSerializer):
     template_type_display = serializers.CharField(
         source="get_template_type_display", read_only=True
     )
+    # education_level is a FK — derive display from FK name
+    education_level_detail = EducationLevelMinimalSerializer(
+        source="education_level", read_only=True
+    )
     education_level_display = serializers.CharField(
-        source="get_education_level_display", read_only=True, allow_blank=True
+        source="education_level.name", read_only=True, allow_null=True
     )
 
     class Meta:
@@ -1434,6 +1482,13 @@ class ResultTemplateSerializer(serializers.ModelSerializer):
 
 
 class ResultTemplateCreateUpdateSerializer(serializers.ModelSerializer):
+    education_level = serializers.PrimaryKeyRelatedField(
+        queryset=EducationLevel.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text="Education level this template applies to (None = ALL)",
+    )
+
     class Meta:
         model = ResultTemplate
         fields = [
@@ -1515,15 +1570,9 @@ class SeniorSecondarySessionResultCreateUpdateSerializer(serializers.ModelSerial
         ]
 
     def validate(self, data):
-        for field, max_score in [
-            ("first_term_score", 100),
-            ("second_term_score", 100),
-            ("third_term_score", 100),
-        ]:
-            if data.get(field, 0) > max_score:
-                raise serializers.ValidationError(
-                    f"{field} cannot exceed {max_score} marks"
-                )
+        for field in ["first_term_score", "second_term_score", "third_term_score"]:
+            if data.get(field, 0) > 100:
+                raise serializers.ValidationError(f"{field} cannot exceed 100 marks")
         return data
 
 
@@ -1548,18 +1597,15 @@ class ConsolidatedTermReportSerializer(serializers.Serializer):
 
     def to_representation(self, instance):
         education_level = getattr(instance.student, "education_level", None)
-
         serializer_map = {
             "SENIOR_SECONDARY": SeniorSecondaryTermReportSerializer,
             "JUNIOR_SECONDARY": JuniorSecondaryTermReportSerializer,
             "PRIMARY": PrimaryTermReportSerializer,
             "NURSERY": NurseryTermReportSerializer,
         }
-
         serializer_class = serializer_map.get(education_level)
         if serializer_class:
             return serializer_class(instance, context=self.context).data
-
         return {
             "id": str(instance.id),
             "student": StudentMinimalSerializer(instance.student).data,
@@ -1574,14 +1620,12 @@ class ConsolidatedResultSerializer(serializers.Serializer):
 
     def to_representation(self, instance):
         education_level = getattr(instance.student, "education_level", None)
-
         serializer_map = {
             "SENIOR_SECONDARY": SeniorSecondaryResultSerializer,
             "JUNIOR_SECONDARY": JuniorSecondaryResultSerializer,
             "PRIMARY": PrimaryResultSerializer,
             "NURSERY": NurseryResultSerializer,
         }
-
         serializer_class = serializer_map.get(education_level, StudentResultSerializer)
         return serializer_class(instance, context=self.context).data
 
@@ -1590,8 +1634,6 @@ class ConsolidatedResultSerializer(serializers.Serializer):
 
 
 class BulkResultCreateSerializer(serializers.Serializer):
-    """Serializer for bulk result creation"""
-
     education_level = serializers.ChoiceField(
         choices=["SENIOR_SECONDARY", "JUNIOR_SECONDARY", "PRIMARY", "NURSERY"],
         required=True,
@@ -1617,14 +1659,11 @@ class BulkResultCreateSerializer(serializers.Serializer):
 
 
 class BulkResultUpdateSerializer(serializers.Serializer):
-    """Serializer for bulk result updates"""
-
     results = serializers.ListField(child=serializers.DictField(), required=True)
 
     def validate_results(self, value):
         if not value:
             raise serializers.ValidationError("Results list cannot be empty")
-
         for result in value:
             if "id" not in result:
                 raise serializers.ValidationError("Each result must have an 'id' field")
@@ -1632,8 +1671,6 @@ class BulkResultUpdateSerializer(serializers.Serializer):
 
 
 class BulkStatusUpdateSerializer(serializers.Serializer):
-    """Serializer for bulk status updates"""
-
     result_ids = serializers.ListField(child=serializers.UUIDField(), required=True)
     status = serializers.ChoiceField(
         choices=["DRAFT", "SUBMITTED", "APPROVED", "PUBLISHED"], required=True
@@ -1650,8 +1687,6 @@ class BulkStatusUpdateSerializer(serializers.Serializer):
 
 
 class StatusTransitionSerializer(serializers.Serializer):
-    """Serializer for status transitions"""
-
     status = serializers.ChoiceField(
         choices=["DRAFT", "SUBMITTED", "APPROVED", "PUBLISHED"], required=True
     )
@@ -1661,19 +1696,15 @@ class StatusTransitionSerializer(serializers.Serializer):
         instance = self.context.get("instance")
         if not instance:
             return value
-
         current_status = instance.status
-
         valid_transitions = {
             "DRAFT": ["SUBMITTED", "APPROVED"],
             "SUBMITTED": ["APPROVED", "DRAFT"],
             "APPROVED": ["PUBLISHED", "SUBMITTED"],
             "PUBLISHED": [],
         }
-
         if current_status == value:
             return value
-
         if value not in valid_transitions.get(current_status, []):
             raise serializers.ValidationError(
                 f"Cannot change status from {current_status} to {value}"
@@ -1682,8 +1713,6 @@ class StatusTransitionSerializer(serializers.Serializer):
 
 
 class PublishResultSerializer(serializers.Serializer):
-    """Serializer for publishing results"""
-
     result_ids = serializers.ListField(child=serializers.UUIDField(), required=True)
     publish_date = serializers.DateTimeField(required=False, allow_null=True)
     notification_message = serializers.CharField(required=False, allow_blank=True)
@@ -1699,8 +1728,6 @@ class PublishResultSerializer(serializers.Serializer):
 
 
 class ReportGenerationSerializer(serializers.Serializer):
-    """Serializer for report generation requests"""
-
     student_ids = serializers.ListField(
         child=serializers.UUIDField(), required=False, allow_empty=True
     )
@@ -1722,18 +1749,26 @@ class ReportGenerationSerializer(serializers.Serializer):
 
     def validate_student_ids(self, value):
         if value:
-            existing_count = Student.objects.filter(id__in=value).count()
-            if existing_count != len(value):
+            if Student.objects.filter(id__in=value).count() != len(value):
                 raise serializers.ValidationError("Some student IDs do not exist")
         return value
 
 
 class BulkReportGenerationSerializer(serializers.Serializer):
-    """Serializer for bulk report generation"""
-
     exam_session_id = serializers.UUIDField(required=True)
-    student_class = serializers.CharField(required=False, allow_blank=True)
-    education_level = serializers.CharField(required=False, allow_blank=True)
+    # student_class and education_level now accept FK ids for filtering
+    student_class_id = serializers.PrimaryKeyRelatedField(
+        queryset=StudentClass.objects.all(),
+        required=False,
+        allow_null=True,
+        source="student_class",
+    )
+    education_level_id = serializers.PrimaryKeyRelatedField(
+        queryset=EducationLevel.objects.all(),
+        required=False,
+        allow_null=True,
+        source="education_level",
+    )
     stream_id = serializers.IntegerField(required=False, allow_null=True)
     report_type = serializers.ChoiceField(
         choices=["TERM_REPORT", "SESSION_REPORT"], required=True
@@ -1747,9 +1782,9 @@ class BulkReportGenerationSerializer(serializers.Serializer):
 
 
 # ===== STATISTICS SERIALIZERS =====
-class ResultStatisticsSerializer(serializers.Serializer):
-    """Serializer for result statistics"""
 
+
+class ResultStatisticsSerializer(serializers.Serializer):
     total_students = serializers.IntegerField()
     students_passed = serializers.IntegerField()
     students_failed = serializers.IntegerField()
@@ -1764,8 +1799,6 @@ class ResultStatisticsSerializer(serializers.Serializer):
 
 
 class SubjectPerformanceSerializer(serializers.Serializer):
-    """Serializer for subject performance statistics"""
-
     subject_id = serializers.IntegerField()
     subject_name = serializers.CharField()
     subject_code = serializers.CharField()
@@ -1779,8 +1812,6 @@ class SubjectPerformanceSerializer(serializers.Serializer):
 
 
 class StudentPerformanceTrendSerializer(serializers.Serializer):
-    """Serializer for student performance trends"""
-
     student = StudentMinimalSerializer()
     term_scores = serializers.ListField(child=serializers.DictField())
     average_score = serializers.DecimalField(max_digits=5, decimal_places=2)
@@ -1791,8 +1822,6 @@ class StudentPerformanceTrendSerializer(serializers.Serializer):
 
 
 class ClassPerformanceSerializer(serializers.Serializer):
-    """Serializer for class-level performance"""
-
     student_class = serializers.CharField()
     education_level = serializers.CharField()
     total_students = serializers.IntegerField()
@@ -1803,8 +1832,6 @@ class ClassPerformanceSerializer(serializers.Serializer):
 
 
 class SessionComparisonSerializer(serializers.Serializer):
-    """Serializer for comparing performance across sessions"""
-
     student_id = serializers.UUIDField()
     student_name = serializers.CharField()
     sessions = serializers.ListField(child=serializers.DictField())
@@ -1818,8 +1845,6 @@ class SessionComparisonSerializer(serializers.Serializer):
 
 
 class ResultValidationSerializer(serializers.Serializer):
-    """Serializer for validating result data before submission"""
-
     education_level = serializers.ChoiceField(
         choices=["SENIOR_SECONDARY", "JUNIOR_SECONDARY", "PRIMARY", "NURSERY"]
     )
@@ -1828,26 +1853,21 @@ class ResultValidationSerializer(serializers.Serializer):
     def validate(self, data):
         education_level = data.get("education_level")
         result_data = data.get("result_data", {})
-
         if education_level == "SENIOR_SECONDARY":
-            required_fields = [
+            for field in [
                 "first_test_score",
                 "second_test_score",
                 "third_test_score",
                 "exam_score",
-            ]
-            for field in required_fields:
+            ]:
                 if field not in result_data:
                     raise serializers.ValidationError(
                         f"{field} is required for Senior Secondary"
                     )
-
         elif education_level in ["JUNIOR_SECONDARY", "PRIMARY"]:
-            required_fields = ["continuous_assessment_score", "exam_score"]
-            for field in required_fields:
+            for field in ["continuous_assessment_score", "exam_score"]:
                 if field not in result_data:
                     raise serializers.ValidationError(f"{field} is required")
-
         elif education_level == "NURSERY":
             if (
                 "mark_obtained" not in result_data
@@ -1856,7 +1876,6 @@ class ResultValidationSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     "Both mark_obtained and max_marks_obtainable are required"
                 )
-
         return data
 
 
@@ -1864,8 +1883,6 @@ class ResultValidationSerializer(serializers.Serializer):
 
 
 class ResultImportSerializer(serializers.Serializer):
-    """Serializer for importing results from file"""
-
     file = serializers.FileField(required=True)
     education_level = serializers.ChoiceField(
         choices=["SENIOR_SECONDARY", "JUNIOR_SECONDARY", "PRIMARY", "NURSERY"]
@@ -1882,8 +1899,6 @@ class ResultImportSerializer(serializers.Serializer):
 
 
 class ResultExportSerializer(serializers.Serializer):
-    """Serializer for exporting results"""
-
     exam_session_id = serializers.UUIDField(required=True)
     education_level = serializers.CharField(required=False, allow_blank=True)
     student_class = serializers.CharField(required=False, allow_blank=True)
@@ -1896,8 +1911,6 @@ class ResultExportSerializer(serializers.Serializer):
 
 
 class TermComparisonSerializer(serializers.Serializer):
-    """Serializer for comparing student performance across terms"""
-
     student_id = serializers.UUIDField()
     academic_session_id = serializers.IntegerField()
     terms = serializers.ListField(child=serializers.DictField())
@@ -1907,8 +1920,6 @@ class TermComparisonSerializer(serializers.Serializer):
 
 
 class GradeDistributionSerializer(serializers.Serializer):
-    """Serializer for grade distribution analytics"""
-
     exam_session_id = serializers.UUIDField()
     education_level = serializers.CharField()
     student_class = serializers.CharField()
@@ -1918,8 +1929,6 @@ class GradeDistributionSerializer(serializers.Serializer):
 
 
 class AttendancePerformanceCorrelationSerializer(serializers.Serializer):
-    """Serializer for correlating attendance with performance"""
-
     student_id = serializers.UUIDField()
     attendance_rate = serializers.DecimalField(max_digits=5, decimal_places=2)
     average_score = serializers.DecimalField(max_digits=5, decimal_places=2)
@@ -1931,8 +1940,6 @@ class AttendancePerformanceCorrelationSerializer(serializers.Serializer):
 
 
 class ResultNotificationSerializer(serializers.Serializer):
-    """Serializer for result notification"""
-
     student_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
     exam_session_id = serializers.UUIDField(required=True)
     notification_type = serializers.ChoiceField(
@@ -1951,8 +1958,6 @@ class ResultNotificationSerializer(serializers.Serializer):
 
 
 class ResultSummarySerializer(serializers.Serializer):
-    """Serializer for result summary dashboard"""
-
     total_results = serializers.IntegerField()
     published_results = serializers.IntegerField()
     pending_approval = serializers.IntegerField()
@@ -1964,8 +1969,6 @@ class ResultSummarySerializer(serializers.Serializer):
 
 
 class StudentResultSummarySerializer(serializers.Serializer):
-    """Serializer for individual student result summary"""
-
     student = StudentMinimalSerializer()
     total_subjects = serializers.IntegerField()
     subjects_passed = serializers.IntegerField()
@@ -1980,8 +1983,6 @@ class StudentResultSummarySerializer(serializers.Serializer):
 
 
 class DetailedStudentResultSerializer(serializers.ModelSerializer):
-    """Detailed serializer for StudentResult with full assessment breakdown"""
-
     student = StudentDetailSerializer(read_only=True)
     subject = SubjectSerializer(read_only=True)
     exam_session = ExamSessionSerializer(read_only=True)
@@ -2002,8 +2003,6 @@ class DetailedStudentResultSerializer(serializers.ModelSerializer):
 
 
 class AssessmentScoreNestedSerializer(serializers.ModelSerializer):
-    """Nested serializer for assessment scores within results"""
-
     assessment_type_name = serializers.CharField(
         source="assessment_type.name", read_only=True
     )
@@ -2022,15 +2021,12 @@ class AssessmentScoreNestedSerializer(serializers.ModelSerializer):
             "max_score",
             "percentage",
             "remarks",
-            "created_at",
-            "updated_at",
+            "date_assessed",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "percentage"]
 
 
 class ResultCommentNestedSerializer(serializers.ModelSerializer):
-    """Nested serializer for result comments"""
-
     commented_by_name = serializers.SerializerMethodField()
 
     class Meta:
@@ -2042,9 +2038,8 @@ class ResultCommentNestedSerializer(serializers.ModelSerializer):
             "commented_by",
             "commented_by_name",
             "created_at",
-            "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at"]
 
     def get_commented_by_name(self, obj):
         if obj.commented_by:
@@ -2073,19 +2068,23 @@ class StudentTermResultDetailSerializer(serializers.ModelSerializer):
         )
 
     def get_subject_results(self, obj):
-        """Get all results for this student in this term across education levels"""
         education_level = getattr(obj.student, "education_level", None)
 
         if education_level == "SENIOR_SECONDARY":
-            senior_results = SeniorSecondaryResult.objects.filter(
+            results = SeniorSecondaryResult.objects.filter(
                 student=obj.student,
                 exam_session__term=obj.term,
                 exam_session__academic_session=obj.academic_session,
-            ).select_related("subject", "grading_system", "exam_session", "stream")
+            ).select_related(
+                "subject",
+                "grading_system",
+                "exam_session",
+                "stream",
+                "stream__stream_type_new",
+            )
 
-            # Map Senior Secondary fields to a shape compatible with frontend SubjectResult
             mapped = []
-            for r in senior_results:
+            for r in results:
                 mapped.append(
                     {
                         "id": str(r.id),
@@ -2095,16 +2094,23 @@ class StudentTermResultDetailSerializer(serializers.ModelSerializer):
                             {
                                 "id": r.stream.id,
                                 "name": r.stream.name,
-                                "stream_type": getattr(r.stream, "stream_type", ""),
+                                # stream_type via new FK
+                                "stream_type": (
+                                    r.stream.stream_type_new.name
+                                    if r.stream.stream_type_new
+                                    else None
+                                ),
                             }
                             if r.stream
                             else None
                         ),
                         "stream_name": r.stream.name if r.stream else None,
                         "stream_type": (
-                            getattr(r.stream, "stream_type", None) if r.stream else None
+                            r.stream.stream_type_new.name
+                            if r.stream and r.stream.stream_type_new
+                            else None
                         ),
-                        "ca_score": r.total_ca_score,  # total of tests
+                        "ca_score": r.total_ca_score,
                         "exam_score": r.exam_score,
                         "total_score": r.total_score,
                         "percentage": r.percentage,
@@ -2152,21 +2158,18 @@ class StudentTermResultDetailSerializer(serializers.ModelSerializer):
                 many=True,
             ).data
 
-        else:
-            # Fallback to base StudentResult
-            results = StudentResult.objects.filter(
-                student=obj.student,
-                exam_session__term=obj.term,
-                exam_session__academic_session=obj.academic_session,
-            ).select_related("subject", "grading_system", "exam_session")
-            return StudentResultSerializer(results, many=True).data
+        results = StudentResult.objects.filter(
+            student=obj.student,
+            exam_session__term=obj.term,
+            exam_session__academic_session=obj.academic_session,
+        ).select_related("subject", "grading_system", "exam_session")
+        return StudentResultSerializer(results, many=True).data
 
-# Add these to your serializers.py
+
+# ===== REMARK / SIGNATURE SERIALIZERS =====
 
 
 class TeacherRemarkUpdateSerializer(serializers.Serializer):
-    """For updating teacher remarks on term reports"""
-
     class_teacher_remark = serializers.CharField(
         max_length=500,
         required=True,
@@ -2182,8 +2185,6 @@ class TeacherRemarkUpdateSerializer(serializers.Serializer):
 
 
 class HeadTeacherRemarkUpdateSerializer(serializers.Serializer):
-    """For updating head teacher remarks on term reports"""
-
     head_teacher_remark = serializers.CharField(
         max_length=500,
         required=True,
@@ -2199,28 +2200,19 @@ class HeadTeacherRemarkUpdateSerializer(serializers.Serializer):
 
 
 class SignatureUploadSerializer(serializers.Serializer):
-    """For uploading signatures to Cloudinary"""
-
     signature_image = serializers.ImageField(
         required=True, help_text="Signature image (PNG, JPG, max 2MB)"
     )
 
     def validate_signature_image(self, value):
-        # Validate file size (max 2MB)
         if value.size > 2 * 1024 * 1024:
             raise serializers.ValidationError("Signature image must be less than 2MB")
-
-        # Validate file type
-        allowed_types = ["image/png", "image/jpeg", "image/jpg"]
-        if value.content_type not in allowed_types:
+        if value.content_type not in ["image/png", "image/jpeg", "image/jpg"]:
             raise serializers.ValidationError("Only PNG and JPEG images are allowed")
-
         return value
 
 
 class ProfessionalAssignmentStudentSerializer(serializers.Serializer):
-    """Student info for Professional Assignment tab"""
-
     id = serializers.UUIDField()
     full_name = serializers.CharField()
     admission_number = serializers.CharField()
@@ -2231,5 +2223,5 @@ class ProfessionalAssignmentStudentSerializer(serializers.Serializer):
     )
     term_report_id = serializers.UUIDField(allow_null=True)
     has_remark = serializers.BooleanField()
-    remark_status = serializers.CharField()  # 'completed', 'pending', 'draft'
+    remark_status = serializers.CharField()
     last_remark = serializers.CharField(allow_blank=True)

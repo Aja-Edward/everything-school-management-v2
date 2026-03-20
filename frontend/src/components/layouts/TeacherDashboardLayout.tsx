@@ -293,7 +293,7 @@ const TeacherDashboardLayout: React.FC<TeacherDashboardLayoutProps> = ({ childre
                 </div>
                 <div>
                   <h1 className="text-lg font-bold text-slate-900 dark:text-white">
-                    {settings?.tenant_name || 'School'}
+                    {settings?.school_name || 'School'}
                   </h1>
                   <p className="text-xs text-slate-500 dark:text-slate-400">Teacher Portal</p>
                 </div>

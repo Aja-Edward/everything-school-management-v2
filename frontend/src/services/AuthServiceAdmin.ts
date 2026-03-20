@@ -1,4 +1,4 @@
-import { useAuth } from '@/hooks/useAuth'; // Import your existing auth context
+import { useAuth } from '@/hooks/useAuth'; 
 import api from '@/services/api';
 import type { 
   // UserProfile, 

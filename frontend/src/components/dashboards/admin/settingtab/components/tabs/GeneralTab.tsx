@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Save, Loader2, Building2, Globe, Calendar, Check, X } from 'lucide-react';
 import SettingsService from '@/services/SettingsService';
+import { API_BASE_URL } from '@/services/api';
 
 interface GeneralTabProps {
   settings?: any;
@@ -9,7 +10,7 @@ interface GeneralTabProps {
 
 const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSettingsUpdate }) => {
   const [formData, setFormData] = useState({
-    tenant_name: '',
+    school_name: '',
     site_name: '',
     school_code: '',
     address: '',
@@ -54,7 +55,7 @@ const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSe
         if (urlOrFilename.startsWith('http')) return urlOrFilename;
         // If it's just a filename or relative path, construct full URL
         const cleanPath = urlOrFilename.startsWith('/') ? urlOrFilename : `/${urlOrFilename}`;
-        return `https://school-project-with-edward.onrender.com${cleanPath}`;
+        return `${API_BASE_URL}${cleanPath}`;
       };
       
       const logoUrl = constructFullUrl(initialSettings.logo);
@@ -64,7 +65,7 @@ const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSe
       console.log('GeneralTab: Constructed favicon URL:', faviconUrl);
       
       setFormData({
-        tenant_name: initialSettings.tenant_name || '',
+        school_name: initialSettings.school_name || '',
         site_name: initialSettings.site_name || '',
         school_code: initialSettings.school_code || '',
         address: initialSettings.address || '',
@@ -125,7 +126,7 @@ const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSe
       const fullLogoUrl = result.logoUrl
         ? result.logoUrl.startsWith('http')
           ? result.logoUrl
-          : `https://school-project-with-edward.onrender.com${result.logoUrl.startsWith('/') ? result.logoUrl : '/' + result.logoUrl}`
+          : `${API_BASE_URL}${result.logoUrl.startsWith('/') ? result.logoUrl : '/' + result.logoUrl}`
         : '';
       console.log('GeneralTab: Logo upload result:', result);
       console.log('GeneralTab: Full logo URL:', fullLogoUrl);
@@ -170,7 +171,7 @@ const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSe
       const fullFaviconUrl = result.faviconUrl
         ? result.faviconUrl.startsWith('http')
           ? result.faviconUrl
-          : `https://school-project-with-edward.onrender.com${result.faviconUrl.startsWith('/') ? result.faviconUrl : '/' + result.faviconUrl}`
+          : `${API_BASE_URL}${result.faviconUrl.startsWith('/') ? result.faviconUrl : '/' + result.faviconUrl}`
         : '';
       
       console.log('GeneralTab: Favicon upload result:', result);
@@ -198,7 +199,7 @@ const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSe
     setUploadError(null);
 
     // Validate required fields
-    if (!formData.tenant_name?.trim()) {
+    if (!formData.school_name?.trim()) {
       setError('School name is required');
       setIsLoading(false);
       return;
@@ -314,8 +315,8 @@ const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSe
             </label>
             <input
               type="text"
-              value={formData.tenant_name}
-              onChange={(e) => handleInputChange('s_name', e.target.value)}
+              value={formData.school_name}
+              onChange={(e) => handleInputChange('school_name', e.target.value)}
               className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
               placeholder="Enter school name"
               required

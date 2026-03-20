@@ -10,7 +10,7 @@ class CustomUserAdmin(BaseUserAdmin):
         "email",
         "full_name",
         "role",
-        "tenant_name",  # Show tenant name
+        "school_name",  # Show tenant name
         "section",
         "is_active",
         "is_staff",
@@ -105,12 +105,12 @@ class CustomUserAdmin(BaseUserAdmin):
 
     readonly_fields = ["date_joined", "last_login"]
 
-    def tenant_name(self, obj):
+    def school_name(self, obj):
         """Display tenant name in list"""
         return obj.tenant.name if obj.tenant else "-"
 
-    tenant_name.short_description = "School"
-    tenant_name.admin_order_field = "tenant__name"
+    school_name.short_description = "School"
+    school_name.admin_order_field = "tenant__name"
 
     def get_queryset(self, request):
         """Filter users by tenant for non-superusers"""

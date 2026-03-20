@@ -155,7 +155,7 @@ const SuperAdminDashboard = () => {
   ];
 
   // 🔥 SIMPLIFIED: Direct access to school settings
-  const schoolName = schoolSettings?.tenant_name || "School name";
+  const schoolName = schoolSettings?.school_name || "School name";
   const schoolCode = schoolSettings?.school_code || "SCH";
   const schoolMotto = schoolSettings?.motto || "Excellence in Education";
  const academicYear = 

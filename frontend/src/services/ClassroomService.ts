@@ -1,5 +1,26 @@
 import api from '@/services/api';
 
+// ============================================================================
+// EDUCATION LEVEL TYPE
+// GradeLevel.education_level CharField choices (Django):
+//   NURSERY | PRIMARY | JUNIOR_SECONDARY | SENIOR_SECONDARY
+// This is NOT a FK — it's a CharField on GradeLevel.
+// But it's exposed on Classroom as a serializer-computed read-only field:
+//   classroom.education_level = classroom.section.grade_level.education_level
+// Old code used lowercase 'nursery'/'primary'/'secondary' — wrong.
+// ============================================================================
+export type EducationLevelType =
+  | 'NURSERY'
+  | 'PRIMARY'
+  | 'JUNIOR_SECONDARY'
+  | 'SENIOR_SECONDARY';
+
+// ============================================================================
+// TEACHER
+// Teacher.level was 'nursery'|'primary'|'secondary' — now aligned to
+// the same EducationLevelType uppercase values used everywhere else.
+// 'secondary' (combined) is removed — API distinguishes JUNIOR/SENIOR.
+// ============================================================================
 export interface Teacher {
   id: number;
   first_name: string;
@@ -8,14 +29,32 @@ export interface Teacher {
   email: string;
   phone_number?: string;
   employee_id: string;
-  level: 'nursery' | 'primary' | 'junior_secondary' | 'senior_secondary' | 'secondary';
+  // FIXED: was 'nursery'|'primary'|'junior_secondary'|'senior_secondary'|'secondary'
+  // Now aligned to EducationLevelType — uppercase, no combined 'secondary'
+  level?: EducationLevelType;
   is_active: boolean;
   assigned_subjects: Array<{
     id: number;
     name: string;
+    code?: string;
   }>;
 }
 
+export interface TransferStudentData {
+  student_id: number;
+  target_classroom_id: number;
+}
+
+export interface TransferStudentResponse {
+  message: string;
+  from_classroom: string;
+  to_classroom: string;
+  enrollment: any;
+}
+
+// ============================================================================
+// SUBJECT
+// ============================================================================
 export interface Subject {
   id: number;
   name: string;
@@ -23,23 +62,32 @@ export interface Subject {
   description?: string;
   is_core: boolean;
   is_active: boolean;
+  // education_levels is an array (ArrayField on Django Subject model)
+  education_levels?: EducationLevelType[];
 }
 
-// Updated to use the new ClassroomTeacherAssignment model
+// ============================================================================
+// CLASSROOM TEACHER ASSIGNMENT
+// ClassroomTeacherAssignment model — FK-based:
+//   teacher FK → Teacher
+//   subject FK → Subject
+//   classroom FK → Classroom
+// Serializer exposes teacher_* and subject_* as flat fields.
+// ============================================================================
 export interface ClassroomTeacherAssignment {
   id: number;
-  teacher: number; // teacher ID
-  subject: number; // subject ID
-  classroom: number; // classroom ID
-  classroom_name?: string;
-  // Teacher details as separate fields
+  teacher: number;           // FK → Teacher.id
+  subject: number;           // FK → Subject.id
+  classroom: number;         // FK → Classroom.id
+  classroom_name?: string;   // serializer-computed
+  // Serializer-computed flat fields from teacher FK:
   teacher_name?: string;
   teacher_email?: string;
   teacher_phone?: string;
   teacher_employee_id?: string;
   teacher_first_name?: string;
   teacher_last_name?: string;
-  // Subject details as separate fields
+  // Serializer-computed flat fields from subject FK:
   subject_name?: string;
   subject_code?: string;
   is_primary_teacher: boolean;
@@ -48,47 +96,130 @@ export interface ClassroomTeacherAssignment {
   is_active: boolean;
 }
 
-// Legacy interface for backward compatibility (deprecated)
-export interface TeacherAssignment {
+// ============================================================================
+// STREAM
+// Stream model has been migrated:
+//   stream_type CharField → stream_type_new FK → StreamType model
+// The stream field on Classroom is a FK → Stream (was not present before).
+// ============================================================================
+export interface StreamType {
   id: number;
-  teacher: Teacher;
-  subject: Subject;
-  assigned_date: string;
+  name: string;
+  code: string;
+  description?: string;
+  requires_entrance_exam?: boolean;
+  min_grade_requirement?: number | null;
   is_active: boolean;
 }
 
+export interface Stream {
+  id: number;
+  name: string;
+  code?: string;
+  description?: string;
+  // stream_type is the old CharField (deprecated but still on model)
+  stream_type?: string;
+  // stream_type_new is the new FK → StreamType
+  stream_type_new?: number | StreamType;   // FK id or nested object
+  stream_type_name?: string;              // serializer-computed
+  grade_level?: number;                   // FK → GradeLevel.id
+  grade_level_name?: string;             // serializer-computed
+  academic_session?: number;             // FK → AcademicSession.id
+  academic_session_name?: string;        // serializer-computed
+  stream_coordinator?: number | null;    // FK → Teacher.id
+  stream_coordinator_name?: string;      // serializer-computed
+  max_capacity?: number;
+  current_enrollment?: number;
+  available_spots?: number;
+  enrollment_percentage?: number;
+  is_active: boolean;
+}
+
+// ============================================================================
+// CLASSROOM
+// All relational fields are FKs:
+//   section FK → Section
+//   academic_session FK → AcademicSession
+//   term FK → Term
+//   class_teacher FK → Teacher (nullable)
+//   stream FK → Stream (nullable)
+//
+// The serializer exposes *_name computed fields for display.
+// education_level is NOT a direct field — it is computed:
+//   classroom.section → grade_level → education_level
+// ============================================================================
 export interface Classroom {
   id: number;
   name: string;
-  section: number;
-  section_name: string;
-  grade_level_name: string;
-  education_level: string;
-  academic_session: number;
-  academic_session_name: string;
-  term: number;
-  term_name: string;
-  class_teacher: number | null;
-  class_teacher_name: string;
+
+  // --- FK fields (sent to API as numeric IDs) ---
+  section: number;                // FK → Section.id
+  academic_session: number;       // FK → AcademicSession.id
+  term: number;                   // FK → Term.id
+  class_teacher: number | null;   // FK → Teacher.id (nullable)
+  stream?: number | null;         // FK → Stream.id (nullable, newly added)
+
+  // --- Serializer-computed display fields (read-only) ---
+  section_name: string;           // from section.name
+  grade_level_name: string;       // from section.grade_level.name
+  // education_level = section.grade_level.education_level (CharField choices)
+  // Values: NURSERY | PRIMARY | JUNIOR_SECONDARY | SENIOR_SECONDARY
+  // FIXED: old interfaces typed this as plain string or used lowercase values
+  education_level: EducationLevelType;
+  academic_session_name: string;  // from academic_session.name
+  term_name: string;              // from term.name or term.name_display
+  class_teacher_name: string;     // from class_teacher.user.get_full_name()
   class_teacher_phone?: string;
   class_teacher_employee_id?: string;
+  stream_name?: string;           // from stream.name (FK, nullable)
+
+  // --- Enrollment fields ---
   room_number: string;
   max_capacity: number;
   current_enrollment: number;
   available_spots: number;
   enrollment_percentage: number;
-  stream?: string;
-  stream_name?: string;
   is_full: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
-  // Updated to use new assignment model
+
+  // Teacher assignments (ClassroomTeacherAssignment FK-based model)
   teacher_assignments?: ClassroomTeacherAssignment[];
-  // Legacy field for backward compatibility
-  old_teacher_assignments?: TeacherAssignment[];
 }
 
+// ============================================================================
+// GRADE LEVEL
+// GradeLevel.education_level is a CharField (not a FK).
+// ============================================================================
+export interface GradeLevel {
+  id: number;
+  name: string;
+  education_level: EducationLevelType; // CharField choices — UPPERCASE
+  order: number;
+  is_active: boolean;
+  description?: string;
+}
+
+// ============================================================================
+// SECTION
+// Section.grade_level is a FK → GradeLevel
+// ============================================================================
+export interface Section {
+  id: number;
+  name: string;
+  grade_level: number;          // FK → GradeLevel.id
+  grade_level_name?: string;    // serializer-computed
+  // education_level may be annotated on section by some serializers
+  education_level?: EducationLevelType;
+  is_active: boolean;
+  description?: string;
+}
+
+// ============================================================================
+// ACADEMIC SESSION & TERM
+// Term.academic_session is a FK → AcademicSession
+// ============================================================================
 export interface AcademicSession {
   id: number;
   name: string;
@@ -102,7 +233,8 @@ export interface AcademicSession {
 export interface Term {
   id: number;
   name: string;
-  academic_session: number;
+  name_display?: string;        // serializer-computed display name
+  academic_session: number;     // FK → AcademicSession.id
   academic_session_name?: string;
   start_date: string;
   end_date: string;
@@ -110,6 +242,18 @@ export interface Term {
   is_active: boolean;
 }
 
+// ============================================================================
+// CLASSROOM STATS
+// Returned by ClassroomViewSet.statistics() action.
+// by_education_level keys are snake_case lowercase matching Django variable names:
+//   nursery_count → nursery
+//   primary_count → primary
+//   junior_secondary_count → junior_secondary
+//   senior_secondary_count → senior_secondary
+//
+// FIXED: old interface had { nursery, primary, secondary } — 'secondary' does not
+// exist as a key. The views.py returns junior_secondary and senior_secondary separately.
+// ============================================================================
 export interface ClassroomStats {
   total_classrooms: number;
   active_classrooms: number;
@@ -118,25 +262,44 @@ export interface ClassroomStats {
   by_education_level: {
     nursery: number;
     primary: number;
-    secondary: number;
+    junior_secondary: number;   // FIXED: was missing (merged into 'secondary')
+    senior_secondary: number;   // FIXED: was missing (merged into 'secondary')
+    // 'secondary' key does NOT exist in the API response
   };
+  // views.py also returns by_stream_type — optional here
+  by_stream_type?: Array<{
+    stream_type_id: number;
+    stream_type_name: string;
+    stream_type_code: string;
+    classroom_count: number;
+  }>;
 }
 
+// ============================================================================
+// FORM DATA TYPES
+// These are the payloads sent TO the API.
+// Only FK ids are sent — never *_name display fields (those are read-only).
+// grade_level_id is a UI-only helper for filtering sections and must NOT be sent.
+// ============================================================================
 export interface CreateClassroomData {
   name: string;
-  section: number;
-  academic_session: number;
-  term: number;
-  class_teacher?: number;
+  section: number;              // FK → Section.id (required)
+  academic_session: number;     // FK → AcademicSession.id (required)
+  term: number;                 // FK → Term.id (required)
+  class_teacher?: number;       // FK → Teacher.id (optional)
+  stream?: number;              // FK → Stream.id (optional)
   room_number?: string;
   max_capacity: number;
+  // NOTE: grade_level_id is intentionally excluded — UI-only, not an API field
 }
-
 
 export interface UpdateClassroomData extends Partial<CreateClassroomData> {
   is_active?: boolean;
 }
 
+// ============================================================================
+// TEACHER ASSIGNMENT DATA
+// ============================================================================
 export interface AssignTeacherData {
   teacher_id: number;
   subject_id: number;
@@ -149,7 +312,6 @@ export interface RemoveTeacherAssignmentData {
   subject_id: number;
 }
 
-// New interface for enhanced teacher assignment
 export interface CreateTeacherAssignmentData {
   classroom_id: number;
   teacher_id: number;
@@ -164,349 +326,288 @@ export interface UpdateTeacherAssignmentData {
   is_active?: boolean;
 }
 
+// ============================================================================
+// SERVICE CLASS
+// ============================================================================
 class ClassroomService {
-  // Get all classrooms with optional filters
-async getClassrooms(params?: {
-  search?: string;
-  education_level?: string;
-  is_active?: boolean;
-  academic_session?: number;
-  ordering?: string;
-  page?: number;
-  page_size?: number;
-}) {
-  try {
-    console.log('📡 Fetching classrooms with params:', params);
-    
-    const response = await api.get('/api/classrooms/classrooms/', params);
-    
-    
-    // 🔍 DEBUG: Log the raw response
-      console.log('📡 Raw API Response:', {
-        type: typeof response,
-        isArray: Array.isArray(response),
-        keys: Object.keys(response || {}),
-        data: response
-      });
-    
-    // Check different response structures
-    if (Array.isArray(response)) {
-        console.log('✅ Response is array, length:', response.length);
-        return response;
-      } else if (response?.data) {
-        console.log('✅ Response has .data property');
-        if (Array.isArray(response.data)) {
-          console.log('✅ Response.data is array, length:', response.data.length);
-          return response.data;
-        } else if (response.data?.results) {
-          console.log('✅ Response.data.results exists, length:', response.data.results.length);
-          return response.data;
-        }
-        return response.data;
-      } else if (response?.results) {
-        console.log('✅ Response has .results property, length:', response.results.length);
-        return response;
-      }
-      
-      console.warn('⚠️ Unexpected response structure:', response);
+
+  async getClassrooms(params?: {
+    search?: string;
+    // FIXED: education_level filter uses EducationLevelType values, not lowercase strings
+    // Pass to filterset via section__grade_level__education_level or use computed field
+    section?: number;
+    stream?: number;            // NEW: stream FK filter (added in views.py)
+    academic_session?: number;
+    term?: number;
+    is_active?: boolean;
+    ordering?: string;
+    page?: number;
+    page_size?: number;
+  }) {
+    try {
+      const response = await api.get('/api/classrooms/classrooms/', params);
+      if (Array.isArray(response)) return response;
+      if (response?.results) return response;
+      if (response?.data) return response.data;
       return response;
-    
-   } catch (error: any) {
-      console.error('❌ Error fetching classrooms:', {
-        message: error.message,
-        status: error.response?.status,
-        data: error.response?.data,
-        url: error.config?.url
-      });
+    } catch (error: any) {
+      console.error('Error fetching classrooms:', error);
       throw error;
     }
   }
 
-  // Get a single classroom by ID
   async getClassroom(id: number) {
-    const response = await api.get(`/api/classrooms/classrooms/${id}/`);
-    return response;
+    return await api.get(`/api/classrooms/classrooms/${id}/`);
   }
-  // Create a new classroom
+
   async createClassroom(data: CreateClassroomData) {
-  try {
-    console.log("📤 Creating classroom with data:", JSON.stringify(data, null, 2));
-    const response = await api.post('/api/classrooms/classrooms/', data);
-    console.log("✅ Classroom created successfully:", response);
-    return response;
-  } catch (error: any) {
-    console.error("❌ Failed to create classroom:", {
-      status: error.response?.status,
-      data: error.response?.data,
-      message: error.message
-    });
-    throw error;
+    // grade_level_id must never be in this payload — it's UI-only
+    const { ...payload } = data;
+    return await api.post('/api/classrooms/classrooms/', payload);
   }
-}
 
-  // Update a classroom
   async updateClassroom(id: number, data: UpdateClassroomData) {
-    console.log("📤 Creating classroom with data:", data);
-    const response = await api.patch(`/api/classrooms/classrooms/${id}/`, data);
-    return response;
+    return await api.patch(`/api/classrooms/classrooms/${id}/`, data);
   }
 
-  // Delete a classroom
   async deleteClassroom(id: number): Promise<{ message: string; status: string }> {
-    const response = await api.delete(`/api/classrooms/classrooms/${id}/`);
-    return response;
+    return await api.delete(`/api/classrooms/classrooms/${id}/`);
   }
 
-  // Get classroom statistics
-  async getClassroomStats() {
-    const response = await api.get('/api/classrooms/classrooms/statistics/');
-    return response;
+  async getClassroomStats(): Promise<ClassroomStats> {
+    return await api.get('/api/classrooms/classrooms/statistics/');
   }
 
-  // Get students in a classroom
   async getClassroomStudents(classroomId: number) {
-    const response = await api.get(`/api/classrooms/classrooms/${classroomId}/students/`);
-    return response;
+    return await api.get(`/api/classrooms/classrooms/${classroomId}/students/`);
   }
 
-  // Get teachers in a classroom
   async getClassroomTeachers(classroomId: number) {
-    const response = await api.get(`/api/classrooms/classrooms/${classroomId}/teachers/`);
-    return response;
+    return await api.get(`/api/classrooms/classrooms/${classroomId}/teachers/`);
   }
 
-  // Assign teacher to classroom (using new ClassroomTeacherAssignment model)
   async assignTeacherToClassroom(classroomId: number, data: AssignTeacherData) {
-    const response = await api.post(`/api/classrooms/classrooms/${classroomId}/assign_teacher/`, data);
-    return response;
+    return await api.post(`/api/classrooms/classrooms/${classroomId}/assign_teacher/`, data);
   }
 
-  // Remove teacher assignment from classroom
   async removeTeacherFromClassroom(classroomId: number, data: RemoveTeacherAssignmentData) {
-    const response = await api.post(`/api/classrooms/classrooms/${classroomId}/remove_teacher/`, data);
-    return response;
+    return await api.post(`/api/classrooms/classrooms/${classroomId}/remove_teacher/`, data);
   }
 
-  // New methods for enhanced teacher assignment management
+  // ClassroomTeacherAssignment CRUD
   async createTeacherAssignment(data: CreateTeacherAssignmentData) {
-    const response = await api.post('/api/classrooms/teacher-assignments/', data);
-    return response;
+    return await api.post('/api/classrooms/teacher-assignments/', data);
   }
 
   async updateTeacherAssignment(assignmentId: number, data: UpdateTeacherAssignmentData) {
-    const response = await api.patch(`/api/classrooms/teacher-assignments/${assignmentId}/`, data);
-    return response;
+    return await api.patch(`/api/classrooms/teacher-assignments/${assignmentId}/`, data);
   }
 
   async deleteTeacherAssignment(assignmentId: number) {
-    const response = await api.delete(`/api/classrooms/teacher-assignments/${assignmentId}/`);
-    return response;
+    return await api.delete(`/api/classrooms/teacher-assignments/${assignmentId}/`);
   }
 
   async getTeacherAssignments(classroomId?: number, teacherId?: number) {
-    const params: any = {};
+    const params: Record<string, number> = {};
     if (classroomId) params.classroom = classroomId;
     if (teacherId) params.teacher = teacherId;
-    
-    const response = await api.get('/api/classrooms/teacher-assignments/', params);
-    return response;
+    return await api.get('/api/classrooms/teacher-assignments/', params);
   }
 
-  // Get available teachers for assignment
-  async getAvailableTeachers(classroomId: number, subjectId?: number) {
-    const params = subjectId ? { subject_id: subjectId } : {};
-    const response = await api.get(`/api/classrooms/classrooms/${classroomId}/available-teachers/`, params);
-    return response;
-  }
-
-  // Get available subjects for classroom
-  async getAvailableSubjects(classroomId: number) {
-    const response = await api.get(`/api/classrooms/classrooms/${classroomId}/available-subjects/`);
-    return response;
-  }
-
-  // Get all teachers (for assignment dropdowns)
   async getAllTeachers() {
-    const response = await api.get('/api/teachers/teachers/');
-    return response;
+    return await api.get('/api/teachers/teachers/');
   }
 
-  // Get all subjects (for assignment dropdowns)
   async getAllSubjects() {
-    try {
-      console.log('🔍 [ClassroomService] Fetching all subjects...');
-      const response = await api.get('/api/subjects/');
-      console.log('🔍 [ClassroomService] Subjects response:', response);
-      return response;
-    } catch (error) {
-      console.error('🔍 [ClassroomService] Error fetching subjects:', error);
-      // Return fallback subjects structure
-      return {
-        results: [
-          { id: 1, name: 'English Studies', code: 'ENG', education_levels: ['PRIMARY', 'JUNIOR_SECONDARY', 'SENIOR_SECONDARY'], is_active: true },
-          { id: 2, name: 'Mathematics', code: 'MATH', education_levels: ['PRIMARY', 'JUNIOR_SECONDARY', 'SENIOR_SECONDARY'], is_active: true },
-          { id: 3, name: 'Basic Science', code: 'SCI', education_levels: ['PRIMARY', 'JUNIOR_SECONDARY'], is_active: true },
-          { id: 4, name: 'Social Studies', code: 'SOC', education_levels: ['PRIMARY', 'JUNIOR_SECONDARY'], is_active: true },
-          { id: 5, name: 'Physics', code: 'PHY', education_levels: ['SENIOR_SECONDARY'], is_active: true },
-          { id: 6, name: 'Chemistry', code: 'CHEM', education_levels: ['SENIOR_SECONDARY'], is_active: true },
-          { id: 7, name: 'Biology', code: 'BIO', education_levels: ['SENIOR_SECONDARY'], is_active: true },
-        ]
-      };
-    }
+    return await api.get('/api/subjects/');
   }
 
-  // Get grade levels
-  async getGradeLevels() {
-    const response = await api.get('/api/classrooms/grades/');
-    return response;
+  // GradeLevel — education_level is a CharField with UPPERCASE values
+  async getGradeLevels(): Promise<GradeLevel[] | { results: GradeLevel[] }> {
+    return await api.get('/api/classrooms/grades/');
   }
 
-  // Get sections for a grade level
-  async getSections(gradeLevelId: number) {
-    const response = await api.get(`/api/classrooms/grades/${gradeLevelId}/sections/`);
-    return response;
+  // Sections for a grade level — section.grade_level is a FK → GradeLevel
+  async getSections(gradeLevelId: number): Promise<Section[] | { results: Section[] }> {
+    return await api.get(`/api/classrooms/grades/${gradeLevelId}/sections/`);
   }
 
-  // ✅ UPDATED: Get academic sessions (previously academic years)
-  async getAcademicYears() {
-    const response = await api.get('/api/classrooms/academic-sessions/');
-    return response;
+  async getAcademicYears(): Promise<AcademicSession[] | { results: AcademicSession[] }> {
+    return await api.get('/api/classrooms/academic-sessions/');
   }
 
-  // ✅ NEW: Get current academic session
-  async getCurrentAcademicSession() {
-    const response = await api.get('/api/classrooms/academic-sessions/current/');
-    return response;
+  async getCurrentAcademicSession(): Promise<AcademicSession> {
+    return await api.get('/api/classrooms/academic-sessions/current/');
   }
 
-  // ✅ NEW: Set current academic session
   async setCurrentAcademicSession(sessionId: number) {
-    const response = await api.post(`/api/classrooms/academic-sessions/${sessionId}/set-current/`, {});
-    return response;
+    return await api.post(`/api/classrooms/academic-sessions/${sessionId}/set-current/`, {});
   }
 
-  // ✅ NEW: Get academic session statistics
   async getAcademicSessionStats(sessionId: number) {
-    const response = await api.get(`/api/classrooms/academic-sessions/${sessionId}/statistics/`);
-    return response;
+    return await api.get(`/api/classrooms/academic-sessions/${sessionId}/statistics/`);
   }
 
-  // ✅ UPDATED: Get terms for an academic session (with enhanced filtering)
-  async getTerms(academicSessionId?: number) {
+  // Term.academic_session is a FK — getTerms can filter by it
+  async getTerms(academicSessionId?: number): Promise<Term[] | { results: Term[] }> {
     if (academicSessionId) {
-      // Use the specific endpoint that returns terms for a session
-      const response = await api.get(`/api/classrooms/academic-sessions/${academicSessionId}/terms/`);
-      return response;
-    } else {
-      // Get all terms with optional filtering
-      const response = await api.get('/api/classrooms/terms/');
-      return response;
+      return await api.get(`/api/classrooms/academic-sessions/${academicSessionId}/terms/`);
     }
+    return await api.get('/api/classrooms/terms/');
   }
 
-  // ✅ NEW: Get terms by session using query parameter
   async getTermsBySession(sessionId: number) {
-    const response = await api.get('/api/classrooms/terms/by-session/', {
-      params: { session_id: sessionId }
-    });
-    return response;
+    return await api.get('/api/classrooms/terms/by-session/', { params: { session_id: sessionId } });
   }
 
-  // ✅ NEW: Get current term
-  async getCurrentTerm() {
-    const response = await api.get('/api/classrooms/terms/current/');
-    return response;
+  async getCurrentTerm(): Promise<Term> {
+    return await api.get('/api/classrooms/terms/current/');
   }
 
-  // ✅ NEW: Set current term
   async setCurrentTerm(termId: number) {
-    const response = await api.post(`/api/classrooms/terms/${termId}/set-current/`, {});
-    return response;
+    return await api.post(`/api/classrooms/terms/${termId}/set-current/`, {});
   }
 
-  // ✅ NEW: Get subjects for a specific term
   async getTermSubjects(termId: number) {
-    const response = await api.get(`/api/classrooms/terms/${termId}/subjects/`);
-    return response;
+    return await api.get(`/api/classrooms/terms/${termId}/subjects/`);
   }
 
-  
-  // Get detailed student information
   async getStudentDetails(studentId: number) {
-    const response = await api.get(`/api/students/students/${studentId}/`);
-    return response;
+    return await api.get(`/api/students/students/${studentId}/`);
   }
 
   // ============================================================================
   // STREAM MANAGEMENT
+  // Stream model: stream_type CharField → stream_type_new FK → StreamType
+  // When filtering streams, prefer stream_type_new or stream_type_id params.
   // ============================================================================
 
-  async getStreams(params?: { section?: number; type?: string }) {
-    const response = await api.get('/api/classrooms/streams/', params);
-    return response;
+  async getStreams(params?: {
+    stream_type_new?: number;   // NEW: FK-based filter (preferred)
+    grade_level?: number;       // FK filter
+    academic_session?: number;  // FK filter
+    is_active?: boolean;
+  }) {
+    return await api.get('/api/classrooms/streams/', params);
   }
 
   async getStream(id: number) {
-    const response = await api.get(`/api/classrooms/streams/${id}/`);
-    return response;
+    return await api.get(`/api/classrooms/streams/${id}/`);
   }
 
-  async createStream(data: { name: string; section: number; type: string; description?: string }) {
-    const response = await api.post('/api/classrooms/streams/', data);
-    return response;
+  async createStream(data: {
+    name: string;
+    code?: string;
+    grade_level?: number;       // FK → GradeLevel.id
+    academic_session?: number;  // FK → AcademicSession.id
+    stream_type_new?: number;   // FK → StreamType.id (preferred over stream_type)
+    description?: string;
+    max_capacity?: number;
+  }) {
+    return await api.post('/api/classrooms/streams/', data);
   }
 
-  async updateStream(id: number, data: Partial<{ name: string; type: string; description?: string; is_active: boolean }>) {
-    const response = await api.patch(`/api/classrooms/streams/${id}/`, data);
-    return response;
+  async updateStream(id: number, data: Partial<{
+    name: string;
+    stream_type_new?: number;   // FK → StreamType.id
+    description?: string;
+    is_active: boolean;
+  }>) {
+    return await api.patch(`/api/classrooms/streams/${id}/`, data);
   }
 
   async deleteStream(id: number) {
-    const response = await api.delete(`/api/classrooms/streams/${id}/`);
-    return response;
+    return await api.delete(`/api/classrooms/streams/${id}/`);
   }
 
-  async getStreamsByType(params?: { type?: string }) {
-    const response = await api.get('/api/classrooms/streams/by-type/', params);
-    return response;
+  // by_type action: use stream_type_id (FK) not stream_type (old CharField)
+  async getStreamsByType(params?: {
+    stream_type_id?: number;    // NEW: FK-based (preferred)
+    stream_type?: string;       // OLD: CharField code (deprecated)
+  }) {
+    return await api.get('/api/classrooms/streams/by-type/', params);
+  }
+
+  async getStreamsByGradeLevel(gradeLevelId: number) {
+    return await api.get('/api/classrooms/streams/by-grade-level/', {
+      params: { grade_level_id: gradeLevelId },
+    });
+  }
+
+  async getStreamsByAcademicSession(sessionId: number) {
+    return await api.get('/api/classrooms/streams/by-academic-session/', {
+      params: { session_id: sessionId },
+    });
+  }
+
+  // StreamType CRUD (new model that replaces stream_type CharField)
+  async getStreamTypes(params?: { is_active?: boolean }) {
+    return await api.get('/api/classrooms/stream-types/', params);
+  }
+
+  async getStreamType(id: number) {
+    return await api.get(`/api/classrooms/stream-types/${id}/`);
+  }
+
+  async createStreamType(data: {
+    name: string;
+    code: string;
+    description?: string;
+    requires_entrance_exam?: boolean;
+    min_grade_requirement?: number;
+  }) {
+    return await api.post('/api/classrooms/stream-types/', data);
+  }
+
+  async updateStreamType(id: number, data: Partial<{
+    name: string;
+    description?: string;
+    is_active: boolean;
+  }>) {
+    return await api.patch(`/api/classrooms/stream-types/${id}/`, data);
   }
 
   // ============================================================================
-  // ENHANCED SECTION MANAGEMENT
+  // SECTION MANAGEMENT
+  // Section.grade_level is a FK → GradeLevel
   // ============================================================================
 
-  async createSection(data: { name: string; grade_level: number; description?: string }) {
-    const response = await api.post('/api/classrooms/sections/', data);
-    return response;
+  async createSection(data: {
+    name: string;
+    grade_level: number;   // FK → GradeLevel.id
+    description?: string;
+  }) {
+    return await api.post('/api/classrooms/sections/', data);
   }
 
-  async updateSection(id: number, data: Partial<{ name: string; description?: string; is_active: boolean }>) {
-    const response = await api.patch(`/api/classrooms/sections/${id}/`, data);
-    return response;
+  async updateSection(id: number, data: Partial<{
+    name: string;
+    description?: string;
+    is_active: boolean;
+  }>) {
+    return await api.patch(`/api/classrooms/sections/${id}/`, data);
   }
 
   async deleteSection(id: number) {
-    const response = await api.delete(`/api/classrooms/sections/${id}/`);
-    return response;
+    return await api.delete(`/api/classrooms/sections/${id}/`);
   }
 
   async getSectionClassrooms(sectionId: number) {
-    const response = await api.get(`/api/classrooms/sections/${sectionId}/classrooms/`);
-    return response;
+    return await api.get(`/api/classrooms/sections/${sectionId}/classrooms/`);
   }
 
   // ============================================================================
-  // ENHANCED GRADE LEVEL MANAGEMENT
+  // GRADE LEVEL MANAGEMENT
+  // GradeLevel.education_level is a CharField — pass UPPERCASE values
   // ============================================================================
 
   async createGradeLevel(data: {
     name: string;
-    education_level: 'NURSERY' | 'PRIMARY' | 'JUNIOR_SECONDARY' | 'SENIOR_SECONDARY';
+    education_level: EducationLevelType; // UPPERCASE enum values
     order: number;
     description?: string;
   }) {
-    const response = await api.post('/api/classrooms/grades/', data);
-    return response;
+    return await api.post('/api/classrooms/grades/', data);
   }
 
   async updateGradeLevel(id: number, data: Partial<{
@@ -515,47 +616,41 @@ async getClassrooms(params?: {
     description?: string;
     is_active: boolean;
   }>) {
-    const response = await api.patch(`/api/classrooms/grades/${id}/`, data);
-    return response;
+    return await api.patch(`/api/classrooms/grades/${id}/`, data);
   }
 
   async deleteGradeLevel(id: number) {
-    const response = await api.delete(`/api/classrooms/grades/${id}/`);
-    return response;
+    return await api.delete(`/api/classrooms/grades/${id}/`);
   }
 
   async getGradeClassrooms(gradeId: number) {
-    const response = await api.get(`/api/classrooms/grades/${gradeId}/classrooms/`);
-    return response;
+    return await api.get(`/api/classrooms/grades/${gradeId}/classrooms/`);
   }
 
   async getGradeStudents(gradeId: number) {
-    const response = await api.get(`/api/classrooms/grades/${gradeId}/students/`);
-    return response;
+    return await api.get(`/api/classrooms/grades/${gradeId}/students/`);
   }
 
+  // These actions filter by education_level CharField — use UPPERCASE
   async getNurseryGrades() {
-    const response = await api.get('/api/classrooms/grades/nursery/');
-    return response;
+    return await api.get('/api/classrooms/grades/nursery_grades/');
   }
 
   async getPrimaryGrades() {
-    const response = await api.get('/api/classrooms/grades/primary/');
-    return response;
+    return await api.get('/api/classrooms/grades/primary_grades/');
   }
 
   async getJuniorSecondaryGrades() {
-    const response = await api.get('/api/classrooms/grades/junior-secondary/');
-    return response;
+    return await api.get('/api/classrooms/grades/junior_secondary_grades/');
   }
 
   async getSeniorSecondaryGrades() {
-    const response = await api.get('/api/classrooms/grades/senior-secondary/');
-    return response;
+    return await api.get('/api/classrooms/grades/senior_secondary_grades/');
   }
 
   // ============================================================================
-  // STUDENT ENROLLMENT MANAGEMENT
+  // STUDENT ENROLLMENT
+  // StudentEnrollment: student FK, classroom FK
   // ============================================================================
 
   async getStudentEnrollments(params?: {
@@ -564,22 +659,15 @@ async getClassrooms(params?: {
     academic_session?: number;
     is_active?: boolean;
   }) {
-    const response = await api.get('/api/classrooms/student-enrollments/', params);
-    return response;
-  }
-
-  async getStudentEnrollment(id: number) {
-    const response = await api.get(`/api/classrooms/student-enrollments/${id}/`);
-    return response;
+    return await api.get('/api/classrooms/student-enrollments/', params);
   }
 
   async createStudentEnrollment(data: {
-    student: number;
-    classroom: number;
+    student: number;     // FK → Student.id
+    classroom: number;   // FK → Classroom.id
     enrollment_date?: string;
   }) {
-    const response = await api.post('/api/classrooms/student-enrollments/', data);
-    return response;
+    return await api.post('/api/classrooms/student-enrollments/', data);
   }
 
   async updateStudentEnrollment(id: number, data: Partial<{
@@ -587,32 +675,20 @@ async getClassrooms(params?: {
     withdrawal_date?: string;
     is_active: boolean;
   }>) {
-    const response = await api.patch(`/api/classrooms/student-enrollments/${id}/`, data);
-    return response;
+    return await api.patch(`/api/classrooms/student-enrollments/${id}/`, data);
   }
 
   async deleteStudentEnrollment(id: number) {
-    const response = await api.delete(`/api/classrooms/student-enrollments/${id}/`);
-    return response;
-  }
-
-  async getEnrollmentsByAcademicYear(academicYearId: number) {
-    const response = await api.get(`/api/classrooms/student-enrollments/by-academic-year/${academicYearId}/`);
-    return response;
-  }
-
-  async getEnrollmentsByGrade(gradeId: number) {
-    const response = await api.get(`/api/classrooms/student-enrollments/by-grade/${gradeId}/`);
-    return response;
+    return await api.delete(`/api/classrooms/student-enrollments/${id}/`);
   }
 
   async getEnrollmentStatistics() {
-    const response = await api.get('/api/classrooms/student-enrollments/statistics/');
-    return response;
+    return await api.get('/api/classrooms/student-enrollments/statistics/');
   }
 
   // ============================================================================
-  // CLASS SCHEDULE MANAGEMENT
+  // CLASS SCHEDULE
+  // ClassSchedule: classroom FK, teacher FK, subject FK
   // ============================================================================
 
   async getClassSchedules(params?: {
@@ -621,26 +697,19 @@ async getClassrooms(params?: {
     subject?: number;
     day_of_week?: string;
   }) {
-    const response = await api.get('/api/classrooms/schedules/', params);
-    return response;
-  }
-
-  async getClassSchedule(id: number) {
-    const response = await api.get(`/api/classrooms/schedules/${id}/`);
-    return response;
+    return await api.get('/api/classrooms/schedules/', params);
   }
 
   async createClassSchedule(data: {
-    classroom: number;
-    subject: number;
-    teacher: number;
+    classroom: number;    // FK → Classroom.id
+    subject: number;      // FK → Subject.id
+    teacher: number;      // FK → Teacher.id
     day_of_week: string;
     start_time: string;
     end_time: string;
     period_number?: number;
   }) {
-    const response = await api.post('/api/classrooms/schedules/', data);
-    return response;
+    return await api.post('/api/classrooms/schedules/', data);
   }
 
   async updateClassSchedule(id: number, data: Partial<{
@@ -650,43 +719,23 @@ async getClassrooms(params?: {
     period_number?: number;
     is_active: boolean;
   }>) {
-    const response = await api.patch(`/api/classrooms/schedules/${id}/`, data);
-    return response;
+    return await api.patch(`/api/classrooms/schedules/${id}/`, data);
   }
 
   async deleteClassSchedule(id: number) {
-    const response = await api.delete(`/api/classrooms/schedules/${id}/`);
-    return response;
+    return await api.delete(`/api/classrooms/schedules/${id}/`);
   }
 
-  async getSchedulesByClassroom(classroomId: number) {
-    const response = await api.get(`/api/classrooms/schedules/by-classroom/${classroomId}/`);
-    return response;
+  async getScheduleConflicts(params?: { classroom?: number; teacher?: number }) {
+    return await api.get('/api/classrooms/schedules/conflicts/', params);
   }
 
-  async getSchedulesByTeacher(teacherId: number) {
-    const response = await api.get(`/api/classrooms/schedules/by-teacher/${teacherId}/`);
-    return response;
+  async getDailySchedule(day: string, params?: { classroom?: number; teacher?: number }) {
+    return await api.get('/api/classrooms/schedules/daily_schedule/', { ...params, day });
   }
 
-  async getSchedulesBySubject(subjectId: number) {
-    const response = await api.get(`/api/classrooms/schedules/by-subject/${subjectId}/`);
-    return response;
-  }
-
-  async getScheduleConflicts(params?: { classroom?: number; teacher?: number; date?: string }) {
-    const response = await api.get('/api/classrooms/schedules/conflicts/', params);
-    return response;
-  }
-
-  async getDailySchedule(date: string, params?: { classroom?: number; teacher?: number }) {
-    const response = await api.get(`/api/classrooms/schedules/daily/${date}/`, params);
-    return response;
-  }
-
-  async getWeeklySchedule(params?: { classroom?: number; teacher?: number; week_start?: string }) {
-    const response = await api.get('/api/classrooms/schedules/weekly/', params);
-    return response;
+  async getWeeklySchedule(params?: { classroom?: number; teacher?: number }) {
+    return await api.get('/api/classrooms/schedules/weekly_schedule/', params);
   }
 
   // ============================================================================
@@ -694,177 +743,153 @@ async getClassrooms(params?: {
   // ============================================================================
 
   async getClassroomSchedule(classroomId: number) {
-    const response = await api.get(`/api/classrooms/classrooms/${classroomId}/schedule/`);
-    return response;
+    return await api.get(`/api/classrooms/classrooms/${classroomId}/schedule/`);
   }
 
   async getClassroomSubjects(classroomId: number) {
-    const response = await api.get(`/api/classrooms/classrooms/${classroomId}/subjects/`);
-    return response;
+    return await api.get(`/api/classrooms/classrooms/${classroomId}/subjects/`);
+  }
+
+  async getClassroomsByStream(streamId: number) {
+    return await api.get('/api/classrooms/classrooms/by_stream/', {
+      params: { stream_id: streamId },
+    });
   }
 
   async enrollStudent(classroomId: number, data: { student_id: number }) {
-    const response = await api.post(`/api/classrooms/classrooms/${classroomId}/enroll_student/`, data);
-    return response;
+    return await api.post(`/api/classrooms/classrooms/${classroomId}/enroll_student/`, data);
   }
 
   async unenrollStudent(classroomId: number, data: { student_id: number }) {
-    const response = await api.post(`/api/classrooms/classrooms/${classroomId}/unenroll_student/`, data);
-    return response;
+    return await api.post(`/api/classrooms/classrooms/${classroomId}/unenroll_student/`, data);
   }
+
+  // Transfer a student from one classroom to another
+async transferStudent(
+  sourceClassroomId: number,
+  data: TransferStudentData
+): Promise<TransferStudentResponse> {
+  try {
+    console.log(
+      `📤 Transferring student ${data.student_id} from classroom ${sourceClassroomId} to ${data.target_classroom_id}`
+    );
+    const response = await api.post(
+      `/api/classrooms/classrooms/${sourceClassroomId}/transfer_student/`,
+      data
+    );
+    console.log("✅ Transfer successful:", response);
+    return response;
+  } catch (error: any) {
+    console.error("❌ Transfer failed:", {
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message,
+    });
+    throw error;
+  }
+}
 
   // ============================================================================
-  // ENHANCED SUBJECT OPERATIONS
-  // ============================================================================
-
-  async getSubjectsByCategory(params?: { category?: string }) {
-    const response = await api.get('/api/classrooms/subjects/by-category/', params);
-    return response;
-  }
-
-  async getSubjectsByEducationLevel(params?: { education_level?: string }) {
-    const response = await api.get('/api/classrooms/subjects/by-education-level/', params);
-    return response;
-  }
-
-  async getSubjectsForGrade(params?: { grade_id?: number }) {
-    const response = await api.get('/api/classrooms/subjects/for-grade/', params);
-    return response;
-  }
-
-  async getNurserySubjects() {
-    const response = await api.get('/api/classrooms/subjects/nursery/');
-    return response;
-  }
-
-  async getSeniorSecondarySubjects() {
-    const response = await api.get('/api/classrooms/subjects/senior-secondary/');
-    return response;
-  }
-
-  async getCrossCuttingSubjects() {
-    const response = await api.get('/api/classrooms/subjects/cross-cutting/');
-    return response;
-  }
-
-  async getSubjectPrerequisites(subjectId: number) {
-    const response = await api.get(`/api/classrooms/subjects/${subjectId}/prerequisites/`);
-    return response;
-  }
-
-  async getSubjectEducationLevels(subjectId: number) {
-    const response = await api.get(`/api/classrooms/subjects/${subjectId}/education-levels/`);
-    return response;
-  }
-
-  async checkSubjectAvailability(subjectId: number, params?: { classroom_id?: number }) {
-    const response = await api.get(`/api/classrooms/subjects/${subjectId}/check-availability/`, params);
-    return response;
-  }
-
-  async getSubjectStatistics() {
-    const response = await api.get('/api/classrooms/subjects/statistics/');
-    return response;
-  }
-
-  // ============================================================================
-  // ENHANCED STUDENT OPERATIONS
-  // ============================================================================
-
-  async getStudentCurrentClass(studentId: number) {
-    const response = await api.get(`/api/classrooms/students/${studentId}/current-class/`);
-    return response;
-  }
-
-  async getStudentEnrollmentHistory(studentId: number) {
-    const response = await api.get(`/api/classrooms/students/${studentId}/enrollment-history/`);
-    return response;
-  }
-
-  async getStudentSchedule(studentId: number) {
-    const response = await api.get(`/api/classrooms/students/${studentId}/schedule/`);
-    return response;
-  }
-
-  async getStudentSubjects(studentId: number) {
-    const response = await api.get(`/api/classrooms/students/${studentId}/subjects/`);
-    return response;
-  }
-
-  // ============================================================================
-  // ENHANCED TEACHER OPERATIONS
+  // TEACHER OPERATIONS
   // ============================================================================
 
   async getTeacherClasses(teacherId: number) {
-    const response = await api.get(`/api/classrooms/teachers/${teacherId}/classes/`);
-    return response;
+    return await api.get(`/api/classrooms/teachers/${teacherId}/classes/`);
   }
 
   async getTeacherSchedule(teacherId: number) {
-    const response = await api.get(`/api/classrooms/teachers/${teacherId}/schedule/`);
-    return response;
+    return await api.get(`/api/classrooms/teachers/${teacherId}/schedule/`);
   }
 
   async getTeacherSubjects(teacherId: number) {
-    const response = await api.get(`/api/classrooms/teachers/${teacherId}/subjects/`);
-    return response;
+    return await api.get(`/api/classrooms/teachers/${teacherId}/subjects/`);
   }
 
   async getTeacherWorkload(teacherId: number) {
-    const response = await api.get(`/api/classrooms/teachers/${teacherId}/workload/`);
-    return response;
+    return await api.get(`/api/classrooms/teachers/${teacherId}/workload/`);
   }
 
   // ============================================================================
-  // ENHANCED TEACHER ASSIGNMENT OPERATIONS
+  // TEACHER ASSIGNMENT OPERATIONS
   // ============================================================================
 
   async getAssignmentsByAcademicYear(academicYearId: number) {
-    const response = await api.get(`/api/classrooms/teacher-assignments/by-academic-year/${academicYearId}/`);
-    return response;
+    return await api.get('/api/classrooms/teacher-assignments/by_academic_year/', {
+      params: { academic_session_id: academicYearId },
+    });
   }
 
   async getAssignmentsBySubject(subjectId: number) {
-    const response = await api.get(`/api/classrooms/teacher-assignments/by-subject/${subjectId}/`);
-    return response;
+    return await api.get('/api/classrooms/teacher-assignments/by_subject/', {
+      params: { subject_id: subjectId },
+    });
   }
 
   async getTeacherWorkloadAnalysis() {
-    const response = await api.get('/api/classrooms/teacher-assignments/workload-analysis/');
-    return response;
+    return await api.get('/api/classrooms/teacher-assignments/workload_analysis/');
   }
 
   // ============================================================================
-  // SUBJECT ANALYTICS & MANAGEMENT
+  // SUBJECT OPERATIONS
+  // Subject.category_new is now a FK → SubjectCategory (was CharField)
+  // Use category_new in filter params, not category
   // ============================================================================
 
-  async getSubjectAnalytics(params?: { subject_id?: number; academic_session?: number }) {
-    const response = await api.get('/api/classrooms/analytics/subjects/', params);
-    return response;
+  async getSubjectsByCategory(params?: {
+    category_new?: number;  // FK → SubjectCategory.id (preferred)
+    category?: string;      // old CharField (deprecated)
+  }) {
+    return await api.get('/api/classrooms/subjects/by-category/', params);
   }
 
-  async getSubjectManagement(params?: { is_active?: boolean }) {
-    const response = await api.get('/api/classrooms/management/subjects/', params);
-    return response;
+  async getSubjectsByEducationLevel(params?: {
+    education_level?: EducationLevelType; // UPPERCASE values only
+  }) {
+    return await api.get('/api/classrooms/subjects/by-education-level/', params);
+  }
+
+  async getSubjectsForGrade(params?: { grade_id?: number }) {
+    return await api.get('/api/classrooms/subjects/for-grade/', params);
+  }
+
+  async getSubjectStatistics() {
+    return await api.get('/api/classrooms/subjects/statistics/');
   }
 
   // ============================================================================
-  // UTILITY OPERATIONS
+  // STUDENT OPERATIONS
+  // ============================================================================
+
+  async getStudentCurrentClass(studentId: number) {
+    return await api.get(`/api/classrooms/students/${studentId}/current-class/`);
+  }
+
+  async getStudentEnrollmentHistory(studentId: number) {
+    return await api.get(`/api/classrooms/students/${studentId}/enrollment-history/`);
+  }
+
+  async getStudentSchedule(studentId: number) {
+    return await api.get(`/api/classrooms/students/${studentId}/schedule/`);
+  }
+
+  async getStudentSubjects(studentId: number) {
+    return await api.get(`/api/classrooms/students/${studentId}/subjects/`);
+  }
+
+  // ============================================================================
+  // UTILITY
   // ============================================================================
 
   async clearCaches() {
-    const response = await api.get('/api/classrooms/clear-caches/');
-    return response;
+    return await api.post('/api/classrooms/clear-caches/', {});
   }
 
   async healthCheck() {
-    const response = await api.get('/api/classrooms/health/');
-    return response;
+    return await api.get('/api/classrooms/health/');
   }
 
   async getSystemInfo() {
-    const response = await api.get('/api/classrooms/system-info/');
-    return response;
+    return await api.get('/api/classrooms/system-info/');
   }
 }
 

@@ -203,11 +203,13 @@ class ReportGenerator:
 
     def generate_pdf(self, html_string, filename):
         """Generate PDF from HTML string"""
-        if not WEASYPRINT_AVAILABLE:
+        try:
+            from weasyprint import HTML  # ← moved here from top of file
+        except (ImportError, OSError) as e:
             return JsonResponse(
                 {
                     "error": "PDF generation is currently unavailable",
-                    "detail": "WeasyPrint system dependencies are not installed. Please contact the administrator.",
+                    "detail": str(e),
                 },
                 status=503,
             )
@@ -219,7 +221,6 @@ class ReportGenerator:
                     if self.request
                     else getattr(settings, "WEASYPRINT_BASEURL", "")
                 )
-
                 HTML(string=html_string, base_url=base_url).write_pdf(
                     target=output.name
                 )

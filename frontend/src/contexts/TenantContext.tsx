@@ -1,5 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { tenantService, Tenant, TenantSettings } from '@/services/TenantService';
+import { tenantService, PublicTenant, PublicTenantSettings } from '@/services/TenantService';
+
+
+
 
 interface TenantContextType {
   // Whether we're on a subdomain (school portal) or main domain
@@ -7,9 +10,9 @@ interface TenantContextType {
   // The subdomain slug (e.g., "bayschool" from "bayschool.schoolplatform.com")
   slug: string | null;
   // The tenant data (loaded from API for subdomains)
-  tenant: Tenant | null;
+  tenant: PublicTenant | null;
   // Tenant settings (branding, etc.)
-  settings: TenantSettings | null;
+  settings: PublicTenantSettings | null;
   // Loading state
   isLoading: boolean;
   // Error state
@@ -78,8 +81,8 @@ interface TenantProviderProps {
 
 export function TenantProvider({ children }: TenantProviderProps) {
   const [slug, setSlug] = useState<string | null>(null);
-  const [tenant, setTenant] = useState<Tenant | null>(null);
-  const [settings, setSettings] = useState<TenantSettings | null>(null);
+  const [tenant, setTenant] = useState<PublicTenant | null>(null);
+  const [settings, setSettings] = useState<PublicTenantSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

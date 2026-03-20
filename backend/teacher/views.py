@@ -446,6 +446,10 @@ class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    def perform_create(self, serializer):
+        tenant = getattr(self.request, "tenant", None)
+        serializer.save(tenant=tenant)
+
     def retrieve(self, request, *args, **kwargs):
         """Override retrieve to add education_level to assignments"""
         instance = self.get_object()
@@ -484,69 +488,329 @@ class AssignmentRequestViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewse
     """
     CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
     Assignment Request ViewSet with automatic section filtering.
+
+    Features:
+    - Automatic tenant isolation via TenantFilterMixin
+    - Teachers can only see/manage their own requests
+    - Admins can see all requests in their tenant
+    - Section filtering applied automatically
+    - Custom actions: approve, reject, cancel
     """
 
-    queryset = AssignmentRequest.objects.all()
+    queryset = AssignmentRequest.objects.select_related(
+        "teacher", "teacher__user", "reviewed_by"
+    ).prefetch_related(
+        "requested_subjects", "requested_grade_levels", "requested_sections"
+    )
     serializer_class = AssignmentRequestSerializer
     permission_classes = [drf_permissions.IsAuthenticated]
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate assignment requests
+    pagination_class = StandardResultsPagination
 
     def get_queryset(self):
         """
-        Get queryset with automatic section filtering, then apply additional filters.
+        Get queryset with automatic tenant and section filtering.
+        Teachers see only their own requests unless they're admin/staff.
         """
-        # Let mixin handle section filtering
+        # CRITICAL: Call super() to get tenant-filtered queryset
         queryset = super().get_queryset()
         user = self.request.user
 
-        # Teachers see only their own requests
-        if hasattr(user, "teacher") and not user.is_staff and not user.is_superuser:
-            queryset = queryset.filter(teacher__user=user)
+        logger.info(
+            f"[AssignmentRequestViewSet] Getting queryset for user: {user.username}"
+        )
 
-        # Apply additional filters
+        # Teachers see only their own requests (unless admin/staff)
+        if hasattr(user, "teacher") and not user.is_staff and not user.is_superuser:
+            # Check if they have admin role
+            if not self._is_admin(user):
+                queryset = queryset.filter(teacher=user.teacher)
+                logger.info(
+                    f"[AssignmentRequestViewSet] Filtered to teacher's own requests"
+                )
+
+        # Apply query parameter filters
         teacher_id = self.request.query_params.get("teacher_id")
         if teacher_id:
             queryset = queryset.filter(teacher_id=teacher_id)
+            logger.info(
+                f"[AssignmentRequestViewSet] Filtered by teacher_id={teacher_id}"
+            )
 
         status_filter = self.request.query_params.get("status")
         if status_filter:
             queryset = queryset.filter(status=status_filter)
+            logger.info(
+                f"[AssignmentRequestViewSet] Filtered by status={status_filter}"
+            )
 
         request_type = self.request.query_params.get("request_type")
         if request_type:
             queryset = queryset.filter(request_type=request_type)
+            logger.info(
+                f"[AssignmentRequestViewSet] Filtered by request_type={request_type}"
+            )
 
+        logger.info(
+            f"[AssignmentRequestViewSet] Final queryset count: {queryset.count()}"
+        )
         return queryset
 
     def perform_create(self, serializer):
-        teacher = get_object_or_404(Teacher, user=self.request.user)
-        serializer.save(teacher=teacher)
+        """
+        CRITICAL: Calls super() to let TenantFilterMixin assign tenant.
+        Also validates teacher belongs to current tenant and auto-assigns teacher.
+        """
+        user = self.request.user
 
-    @action(detail=True, methods=["post"])
+        # Ensure user has a teacher profile
+        if not hasattr(user, "teacher"):
+            from rest_framework.exceptions import ValidationError
+
+            logger.error(
+                f"[AssignmentRequestViewSet] User {user.email} attempted to create "
+                f"assignment request but has no teacher profile"
+            )
+            raise ValidationError(
+                {
+                    "error": "Only users with teacher profiles can create assignment requests."
+                }
+            )
+
+        teacher = user.teacher
+        tenant = getattr(self.request, "tenant", None)
+
+        # Validate teacher belongs to current tenant
+        if tenant and hasattr(teacher, "tenant") and teacher.tenant != tenant:
+            from rest_framework.exceptions import PermissionDenied
+
+            logger.error(
+                f"[AssignmentRequestViewSet] Teacher {teacher} (tenant: {teacher.tenant}) "
+                f"attempted to create request in different tenant: {tenant}"
+            )
+            raise PermissionDenied(
+                "Your teacher profile does not belong to the current school context."
+            )
+
+        # CRITICAL: Call super() to let TenantFilterMixin handle tenant assignment
+        # The super().perform_create() will call serializer.save() with tenant
+        # We need to override that to also pass teacher
+
+        # Get the save_kwargs that TenantFilterMixin would use
+        save_kwargs = {}
+        if tenant:
+            save_kwargs["tenant"] = tenant
+
+        # Add teacher
+        save_kwargs["teacher"] = teacher
+
+        # Save with both tenant and teacher
+        serializer.save(**save_kwargs)
+
+        logger.info(
+            f"[AssignmentRequestViewSet] Created assignment request by {teacher} "
+            f"(ID: {serializer.instance.id}) for tenant {tenant}"
+        )
+
+    @action(
+        detail=True,
+        methods=["post"],
+        permission_classes=[drf_permissions.IsAuthenticated],
+    )
     def approve(self, request, pk=None):
+        """
+        Approve an assignment request (admin only).
+        Updates status, reviewer info, and admin notes.
+        """
         assignment_request = self.get_object()
-        assignment_request.status = "approved"
-        assignment_request.reviewed_at = timezone.now()
-        assignment_request.reviewed_by = request.user
-        assignment_request.save()
-        return Response({"status": "Request approved"})
 
-    @action(detail=True, methods=["post"])
-    def reject(self, request, pk=None):
-        assignment_request = self.get_object()
-        assignment_request.status = "rejected"
+        # Check admin privileges
+        if not self._is_admin(request.user):
+            logger.warning(
+                f"[AssignmentRequestViewSet] Non-admin user {request.user.email} "
+                f"attempted to approve request {pk}"
+            )
+            return Response(
+                {"error": "Only administrators can approve assignment requests"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Validate status
+        if assignment_request.status != "pending":
+            return Response(
+                {
+                    "error": "Only pending requests can be approved",
+                    "current_status": assignment_request.status,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Update request
+        assignment_request.status = "approved"
         assignment_request.reviewed_at = timezone.now()
         assignment_request.reviewed_by = request.user
         assignment_request.admin_notes = request.data.get("admin_notes", "")
         assignment_request.save()
-        return Response({"status": "Request rejected"})
 
-    @action(detail=True, methods=["post"])
-    def cancel(self, request, pk=None):
+        logger.info(
+            f"[AssignmentRequestViewSet] Request {pk} approved by {request.user.email}"
+        )
+
+        serializer = self.get_serializer(assignment_request)
+        return Response(
+            {
+                "message": "Assignment request approved successfully",
+                "data": serializer.data,
+            }
+        )
+
+    @action(
+        detail=True,
+        methods=["post"],
+        permission_classes=[drf_permissions.IsAuthenticated],
+    )
+    def reject(self, request, pk=None):
+        """
+        Reject an assignment request (admin only).
+        Admin notes explaining rejection are recommended.
+        """
         assignment_request = self.get_object()
+
+        # Check admin privileges
+        if not self._is_admin(request.user):
+            logger.warning(
+                f"[AssignmentRequestViewSet] Non-admin user {request.user.email} "
+                f"attempted to reject request {pk}"
+            )
+            return Response(
+                {"error": "Only administrators can reject assignment requests"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Validate status
+        if assignment_request.status != "pending":
+            return Response(
+                {
+                    "error": "Only pending requests can be rejected",
+                    "current_status": assignment_request.status,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Get admin notes (recommended for rejections)
+        admin_notes = request.data.get("admin_notes", "")
+        if not admin_notes:
+            logger.warning(
+                f"[AssignmentRequestViewSet] Request {pk} rejected without admin notes "
+                f"by {request.user.email}"
+            )
+
+        # Update request
+        assignment_request.status = "rejected"
+        assignment_request.reviewed_at = timezone.now()
+        assignment_request.reviewed_by = request.user
+        assignment_request.admin_notes = admin_notes
+        assignment_request.save()
+
+        logger.info(
+            f"[AssignmentRequestViewSet] Request {pk} rejected by {request.user.email}"
+        )
+
+        serializer = self.get_serializer(assignment_request)
+        return Response(
+            {"message": "Assignment request rejected", "data": serializer.data}
+        )
+
+    @action(
+        detail=True,
+        methods=["post"],
+        permission_classes=[drf_permissions.IsAuthenticated],
+    )
+    def cancel(self, request, pk=None):
+        """
+        Cancel an assignment request.
+        - Teachers can cancel their own pending or approved requests
+        - Admins can cancel any request
+        """
+        assignment_request = self.get_object()
+        user = request.user
+
+        # Determine if user can cancel
+        can_cancel = False
+
+        # Admins can cancel any request
+        if self._is_admin(user):
+            can_cancel = True
+        # Teachers can only cancel their own requests
+        elif hasattr(user, "teacher"):
+            if assignment_request.teacher == user.teacher:
+                can_cancel = True
+            else:
+                logger.warning(
+                    f"[AssignmentRequestViewSet] Teacher {user.email} "
+                    f"attempted to cancel another teacher's request {pk}"
+                )
+                return Response(
+                    {"error": "You can only cancel your own assignment requests"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+        if not can_cancel:
+            return Response(
+                {"error": "You do not have permission to cancel this request"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Validate status - only pending or approved can be cancelled
+        if assignment_request.status not in ["pending", "approved"]:
+            return Response(
+                {
+                    "error": "Only pending or approved requests can be cancelled",
+                    "current_status": assignment_request.status,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Update request
         assignment_request.status = "cancelled"
         assignment_request.save()
-        return Response({"status": "Request cancelled"})
+
+        logger.info(
+            f"[AssignmentRequestViewSet] Request {pk} cancelled by {user.email}"
+        )
+
+        serializer = self.get_serializer(assignment_request)
+        return Response(
+            {
+                "message": "Assignment request cancelled successfully",
+                "data": serializer.data,
+            }
+        )
+
+    def _is_admin(self, user):
+        """
+        Check if user has administrative privileges.
+        Returns True for staff, superusers, and users with admin roles.
+        """
+        # Staff and superusers
+        if user.is_staff or user.is_superuser:
+            return True
+
+        # Role-based check
+        if hasattr(user, "role") and user.role:
+            admin_roles = [
+                "admin",
+                "superadmin",
+                "principal",
+                "secondary_admin",
+                "nursery_admin",
+                "primary_admin",
+                "junior_secondary_admin",
+                "senior_secondary_admin",
+            ]
+            if user.role.lower() in admin_roles:
+                return True
+
+        return False
 
 
 class TeacherScheduleViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):

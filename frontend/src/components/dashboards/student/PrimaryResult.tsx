@@ -123,11 +123,11 @@ const WatermarkLogo = ({ schoolInfo }: { schoolInfo: SchoolSettings }) => (
             />
           ) : (
             <div className="text-5xl font-bold mb-3" style={{ opacity: 0.1 }}>
-              {schoolInfo?.tenant_name?.split(' ').map((word: string) => word[0]).join('') || 'GTS'}
+              {schoolInfo?.school_name?.split(' ').map((word: string) => word[0]).join('') || 'GTS'}
             </div>
           )}
           <div className="text-lg font-semibold" style={{ opacity: 0.1 }}>
-            {schoolInfo?.tenant_name?.toUpperCase() || "School Name"}
+            {schoolInfo?.school_name?.toUpperCase() || "School Name"}
           </div>
         </div>
       </div>
@@ -135,7 +135,7 @@ const WatermarkLogo = ({ schoolInfo }: { schoolInfo: SchoolSettings }) => (
         className="text-6xl font-bold tracking-wider"
         style={{ color: 'rgba(30, 64, 175, 0.08)' }}
       >
-        {schoolInfo?.tenant_name?.toUpperCase() || "School Name"}
+        {schoolInfo?.school_name?.toUpperCase() || "School Name"}
       </div>
     </div>
   </div>
@@ -676,7 +676,7 @@ export default function PrimaryResult({
 
   const schoolInfo = schoolSettings ? {
     ...schoolSettings,
-    tenant_name: schoolSettings.tenant_name || schoolSettings.tenant_name || 'School Name'
+    school_name: schoolSettings.school_name || schoolSettings.school_name || 'School Name'
   } as SchoolSettings : null;
 
   return (
@@ -730,7 +730,7 @@ export default function PrimaryResult({
                 />
               ) : (
                 <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-xs font-bold">
-                  {schoolSettings?.tenant_name?.split(' ').map((word: string) => word[0]).join('') || 'LOGO'}
+                  {schoolSettings?.school_name?.split(' ').map((word: string) => word[0]).join('') || 'LOGO'}
                 </div>
               )}
             </div>
@@ -738,7 +738,7 @@ export default function PrimaryResult({
             {/* School name block - 70% width, centered */}
             <div className="text-center relative z-10">
               <h1 className="text-3xl font-bold text-blue-900 mb-2">
-                {schoolInfo?.tenant_name?.toUpperCase() || "SCHOOL NAME HERE"}
+                {schoolInfo?.school_name?.toUpperCase() || "SCHOOL NAME HERE"}
               </h1>
               <p className="text-xs text-gray-600">
                 {schoolSettings?.address || "School Address, City, State"}

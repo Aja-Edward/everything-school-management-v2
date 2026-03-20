@@ -16,13 +16,20 @@ import {
   Mail,
   BookOpen,
   Trash2,
-  X,
   ChevronDown,
-  Users
+  Users,
 } from 'lucide-react';
-import StudentService, { Student } from '@/services/StudentService';
+import StudentService, {
+  Student,
+  GenderType,
+  EducationLevelType,
+} from '@/services/StudentService';
 import { useNavigate } from 'react-router-dom';
 import ResultSheetView from './ResultSheetView';
+
+// ============================================================================
+// HELPERS
+// ============================================================================
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -33,31 +40,45 @@ function useDebounce<T>(value: T, delay: number): T {
   return debouncedValue;
 }
 
-const EDUCATION_LEVEL_CHOICES = [
+const EDUCATION_LEVEL_CHOICES: { value: EducationLevelType; label: string }[] = [
   { value: 'NURSERY', label: 'Nursery' },
   { value: 'PRIMARY', label: 'Primary' },
   { value: 'JUNIOR_SECONDARY', label: 'Junior Secondary' },
   { value: 'SENIOR_SECONDARY', label: 'Senior Secondary' },
-  { value: 'SECONDARY', label: 'Secondary (Legacy)' },
 ];
 
-const CLASS_CHOICES = [
-  { value: 'PRE_NURSERY', label: 'Pre-nursery', level: 'NURSERY' },
-  { value: 'NURSERY_1', label: 'Nursery 1', level: 'NURSERY' },
-  { value: 'NURSERY_2', label: 'Nursery 2', level: 'NURSERY' },
-  { value: 'PRIMARY_1', label: 'Primary 1', level: 'PRIMARY' },
-  { value: 'PRIMARY_2', label: 'Primary 2', level: 'PRIMARY' },
-  { value: 'PRIMARY_3', label: 'Primary 3', level: 'PRIMARY' },
-  { value: 'PRIMARY_4', label: 'Primary 4', level: 'PRIMARY' },
-  { value: 'PRIMARY_5', label: 'Primary 5', level: 'PRIMARY' },
-  { value: 'PRIMARY_6', label: 'Primary 6', level: 'PRIMARY' },
-  { value: 'JSS_1', label: 'JSS 1', level: 'JUNIOR_SECONDARY' },
-  { value: 'JSS_2', label: 'JSS 2', level: 'JUNIOR_SECONDARY' },
-  { value: 'JSS_3', label: 'JSS 3', level: 'JUNIOR_SECONDARY' },
-  { value: 'SS_1', label: 'SS 1', level: 'SENIOR_SECONDARY' },
-  { value: 'SS_2', label: 'SS 2', level: 'SENIOR_SECONDARY' },
-  { value: 'SS_3', label: 'SS 3', level: 'SENIOR_SECONDARY' },
-];
+const EDUCATION_LEVEL_LABEL: Record<EducationLevelType, string> = {
+  NURSERY: 'Nursery',
+  PRIMARY: 'Primary',
+  JUNIOR_SECONDARY: 'Junior Secondary',
+  SENIOR_SECONDARY: 'Senior Secondary',
+};
+
+const GENDER_LABEL: Record<GenderType, string> = { M: 'Male', F: 'Female' };
+
+/**
+ * Resolve a display name for student_class.
+ * The field can be a DB ID (number), a name string, or null.
+ * Prefer the pre-resolved display field from the serializer when available.
+ */
+const resolveClassDisplay = (
+  student: Student,
+): string => {
+  if (student.student_class_display) return student.student_class_display;
+  if (student.student_class_detail) return student.student_class_detail.name;
+  if (student.student_class != null) return String(student.student_class);
+  return '—';
+};
+
+const resolveEducationLevelDisplay = (student: Student): string => {
+  if (student.education_level_display) return student.education_level_display;
+  if (student.education_level) return EDUCATION_LEVEL_LABEL[student.education_level];
+  return '—';
+};
+
+// ============================================================================
+// COMPONENT
+// ============================================================================
 
 const StudentListEnhanced: React.FC = () => {
   const [students, setStudents] = useState<Student[]>([]);
@@ -66,11 +87,16 @@ const StudentListEnhanced: React.FC = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+
+  // The dropdown menu open state: stores the student id whose menu is open
+  const [openMenuId, setOpenMenuId] = useState<number | null>(null);
+
   const [showFilters, setShowFilters] = useState(false);
-  const [educationLevelFilter, setEducationLevelFilter] = useState('');
+  const [educationLevelFilter, setEducationLevelFilter] = useState<EducationLevelType | ''>('');
+  // classFilter stores the raw student_class value (string or numeric string)
   const [classFilter, setClassFilter] = useState('');
-  const [genderFilter, setGenderFilter] = useState('');
+  const [genderFilter, setGenderFilter] = useState<GenderType | ''>('');
+
   const [showResultSheet, setShowResultSheet] = useState(false);
   const [deleteStudentId, setDeleteStudentId] = useState<number | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -107,27 +133,61 @@ const StudentListEnhanced: React.FC = () => {
     fetchStudents();
   }, [fetchStudents]);
 
+  // ---- Filtering ----
   useEffect(() => {
     let filtered = students;
+
     if (debouncedSearch) {
-      filtered = filtered.filter(student =>
-        student.full_name?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-        student.username?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-        student.email?.toLowerCase().includes(debouncedSearch.toLowerCase())
+      const q = debouncedSearch.toLowerCase();
+      filtered = filtered.filter(
+        (s) =>
+          s.full_name?.toLowerCase().includes(q) ||
+          s.username?.toLowerCase().includes(q) ||
+          // email lives under user_details
+          s.user_details?.email?.toLowerCase().includes(q) ||
+          s.registration_number?.toLowerCase().includes(q),
       );
     }
+
     if (educationLevelFilter) {
-      filtered = filtered.filter(student => student.education_level === educationLevelFilter);
+      filtered = filtered.filter((s) => s.education_level === educationLevelFilter);
     }
+
     if (classFilter) {
-      filtered = filtered.filter(student => student.student_class === classFilter);
+      // Match against the raw FK value (could be number or string)
+      filtered = filtered.filter(
+        (s) => s.student_class != null && String(s.student_class) === classFilter,
+      );
     }
+
     if (genderFilter) {
-      filtered = filtered.filter(student => student.gender === genderFilter);
+      filtered = filtered.filter((s) => s.gender === genderFilter);
     }
+
     setFilteredStudents(filtered);
   }, [students, debouncedSearch, educationLevelFilter, classFilter, genderFilter]);
 
+  /**
+   * Build a unique list of classes from the loaded students for the filter
+   * dropdown — avoids relying on a hardcoded CLASS_CHOICES list.
+   */
+  const availableClasses = React.useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const s of students) {
+      if (s.student_class == null) continue;
+      // Skip if an education level filter is active and doesn't match
+      if (educationLevelFilter && s.education_level !== educationLevelFilter) continue;
+      const key = String(s.student_class);
+      if (!seen.has(key)) {
+        seen.set(key, resolveClassDisplay(s));
+      }
+    }
+    return Array.from(seen.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [students, educationLevelFilter]);
+
+  // ---- Delete ----
   const handleDeleteStudent = (studentId: number) => {
     setDeleteStudentId(studentId);
     setShowDeleteModal(true);
@@ -138,47 +198,42 @@ const StudentListEnhanced: React.FC = () => {
     try {
       setDeleting(true);
       await StudentService.deleteStudent(deleteStudentId);
-      setStudents(prev => prev.filter(student => student.id !== deleteStudentId));
-      setFilteredStudents(prev => prev.filter(student => student.id !== deleteStudentId));
+      setStudents((prev) => prev.filter((s) => s.id !== deleteStudentId));
+      setFilteredStudents((prev) => prev.filter((s) => s.id !== deleteStudentId));
       setShowDeleteModal(false);
       setDeleteStudentId(null);
-    } catch (error) {
-      console.error('Error deleting student:', error);
+    } catch (err) {
+      console.error('Error deleting student:', err);
       setError('Failed to delete student. Please try again.');
     } finally {
       setDeleting(false);
     }
   };
 
-  const getClassLabel = (classValue: string) => {
-    const classChoice = CLASS_CHOICES.find(c => c.value === classValue);
-    return classChoice ? classChoice.label : classValue;
-  };
-
-  const getEducationLevelLabel = (level: string) => {
-    const levelChoice = EDUCATION_LEVEL_CHOICES.find(l => l.value === level);
-    return levelChoice ? levelChoice.label : level;
-  };
-
-  const getFilteredClasses = () => {
-    if (!educationLevelFilter) return CLASS_CHOICES;
-    return CLASS_CHOICES.filter(c => c.level === educationLevelFilter);
-  };
-
   const activeFiltersCount = [educationLevelFilter, classFilter, genderFilter].filter(Boolean).length;
+
+  const clearFilters = () => {
+    setEducationLevelFilter('');
+    setClassFilter('');
+    setGenderFilter('');
+  };
+
+  // ============================================================================
+  // LOADING / ERROR STATES
+  // ============================================================================
 
   if (loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-gray-200 border-t-gray-800 rounded-full animate-spin mx-auto" />
-          <p className="text-sm text-gray-500 mt-4">Loading students...</p>
+          <p className="text-sm text-gray-500 mt-4">Loading students…</p>
         </div>
       </div>
     );
   }
 
-  if (error) {
+  if (error && students.length === 0) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
         <div className="text-center max-w-sm">
@@ -198,10 +253,18 @@ const StudentListEnhanced: React.FC = () => {
     );
   }
 
+  // ============================================================================
+  // RENDER
+  // ============================================================================
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className={`transition-all duration-500 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'}`}>
+    <div className="space-y-6" onClick={() => setOpenMenuId(null)}>
+      {/* ---- Header ---- */}
+      <div
+        className={`transition-all duration-500 ${
+          mounted ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'
+        }`}
+      >
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Students</h1>
@@ -228,8 +291,12 @@ const StudentListEnhanced: React.FC = () => {
         </div>
       </div>
 
-      {/* Search & Filters */}
-      <div className={`bg-white rounded-xl border border-gray-200 transition-all duration-500 delay-100 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+      {/* ---- Search & Filters ---- */}
+      <div
+        className={`bg-white rounded-xl border border-gray-200 transition-all duration-500 delay-100 ${
+          mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
+        }`}
+      >
         <div className="p-4">
           <div className="flex flex-col lg:flex-row lg:items-center gap-3">
             {/* Search */}
@@ -237,7 +304,7 @@ const StudentListEnhanced: React.FC = () => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search by name, registration number, or email..."
+                placeholder="Search by name, registration number, or email…"
                 className="w-full h-10 pl-10 pr-4 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-shadow"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -247,7 +314,7 @@ const StudentListEnhanced: React.FC = () => {
             <div className="flex items-center gap-2">
               {/* Filter Toggle */}
               <button
-                onClick={() => setShowFilters(!showFilters)}
+                onClick={(e) => { e.stopPropagation(); setShowFilters(!showFilters); }}
                 className={`flex items-center gap-2 h-10 px-4 rounded-lg text-sm font-medium transition-colors ${
                   showFilters || activeFiltersCount > 0
                     ? 'bg-gray-900 text-white'
@@ -267,16 +334,20 @@ const StudentListEnhanced: React.FC = () => {
               <div className="flex bg-gray-100 rounded-lg p-1">
                 <button
                   onClick={() => setViewMode('list')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                    viewMode === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  className={`flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                    viewMode === 'list'
+                      ? 'bg-white text-gray-900 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700'
                   }`}
                 >
                   <List className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => setViewMode('grid')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                    viewMode === 'grid' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  className={`flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                    viewMode === 'grid'
+                      ? 'bg-white text-gray-900 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700'
                   }`}
                 >
                   <Grid3X3 className="w-4 h-4" />
@@ -289,26 +360,32 @@ const StudentListEnhanced: React.FC = () => {
           {showFilters && (
             <div className="mt-4 pt-4 border-t border-gray-100">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Education Level */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1.5">Education Level</label>
+                  <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                    Education Level
+                  </label>
                   <div className="relative">
                     <select
                       value={educationLevelFilter}
                       onChange={(e) => {
-                        setEducationLevelFilter(e.target.value);
-                        setClassFilter('');
+                        setEducationLevelFilter(e.target.value as EducationLevelType | '');
+                        setClassFilter(''); // reset class when level changes
                       }}
                       className="w-full h-10 px-3 pr-8 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent appearance-none"
                     >
                       <option value="">All Levels</option>
-                      {EDUCATION_LEVEL_CHOICES.map(level => (
-                        <option key={level.value} value={level.value}>{level.label}</option>
+                      {EDUCATION_LEVEL_CHOICES.map((l) => (
+                        <option key={l.value} value={l.value}>
+                          {l.label}
+                        </option>
                       ))}
                     </select>
                     <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                   </div>
                 </div>
 
+                {/* Class — populated dynamically from loaded students */}
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1.5">Class</label>
                   <div className="relative">
@@ -318,25 +395,28 @@ const StudentListEnhanced: React.FC = () => {
                       className="w-full h-10 px-3 pr-8 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent appearance-none"
                     >
                       <option value="">All Classes</option>
-                      {getFilteredClasses().map(cls => (
-                        <option key={cls.value} value={cls.value}>{cls.label}</option>
+                      {availableClasses.map((cls) => (
+                        <option key={cls.value} value={cls.value}>
+                          {cls.label}
+                        </option>
                       ))}
                     </select>
                     <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                   </div>
                 </div>
 
+                {/* Gender — values match GenderType: 'M' | 'F' */}
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1.5">Gender</label>
                   <div className="relative">
                     <select
                       value={genderFilter}
-                      onChange={(e) => setGenderFilter(e.target.value)}
+                      onChange={(e) => setGenderFilter(e.target.value as GenderType | '')}
                       className="w-full h-10 px-3 pr-8 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent appearance-none"
                     >
                       <option value="">All Genders</option>
-                      <option value="MALE">Male</option>
-                      <option value="FEMALE">Female</option>
+                      <option value="M">Male</option>
+                      <option value="F">Female</option>
                     </select>
                     <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                   </div>
@@ -346,11 +426,7 @@ const StudentListEnhanced: React.FC = () => {
               {activeFiltersCount > 0 && (
                 <div className="mt-3 flex justify-end">
                   <button
-                    onClick={() => {
-                      setEducationLevelFilter('');
-                      setClassFilter('');
-                      setGenderFilter('');
-                    }}
+                    onClick={clearFilters}
                     className="text-sm text-gray-500 hover:text-gray-700"
                   >
                     Clear all filters
@@ -362,60 +438,99 @@ const StudentListEnhanced: React.FC = () => {
         </div>
       </div>
 
-      {/* Students Display */}
-      <div className={`transition-all duration-500 delay-200 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+      {/* ---- Student Display ---- */}
+      <div
+        className={`transition-all duration-500 delay-200 ${
+          mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
+        }`}
+      >
         {viewMode === 'list' ? (
+          // ==================================================================
+          // LIST VIEW
+          // ==================================================================
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-gray-100">
-                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Student</th>
-                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Class</th>
-                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Level</th>
-                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Gender</th>
-                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Status</th>
-                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Actions</th>
+                    {['Student', 'Class', 'Level', 'Gender', 'Status', 'Actions'].map((h) => (
+                      <th
+                        key={h}
+                        className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3"
+                      >
+                        {h}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {filteredStudents.map((student) => (
                     <tr key={student.id} className="hover:bg-gray-50 transition-colors">
+                      {/* Student */}
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center">
-                            <User className="w-4 h-4 text-gray-500" />
-                          </div>
+                          {student.profile_picture ? (
+                            <img
+                              src={student.profile_picture}
+                              alt={student.full_name}
+                              className="w-9 h-9 rounded-full object-cover bg-gray-100"
+                            />
+                          ) : (
+                            <div className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
+                              <User className="w-4 h-4 text-gray-500" />
+                            </div>
+                          )}
                           <div>
                             <p className="text-sm font-medium text-gray-900">{student.full_name}</p>
-                            <p className="text-xs text-gray-500">{student.username || student.email || 'No ID'}</p>
+                            <p className="text-xs text-gray-500">
+                              {student.registration_number ??
+                                student.user_details?.email ??
+                                student.username ??
+                                `#${student.id}`}
+                            </p>
                           </div>
                         </div>
                       </td>
+
+                      {/* Class */}
                       <td className="px-6 py-4">
-                        <span className="text-sm text-gray-900">{getClassLabel(student.student_class)}</span>
+                        <span className="text-sm text-gray-900">{resolveClassDisplay(student)}</span>
                       </td>
+
+                      {/* Education Level */}
                       <td className="px-6 py-4">
-                        <span className="text-sm text-gray-900">{getEducationLevelLabel(student.education_level)}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                          (student.gender === 'M' || student.gender === 'MALE')
-                            ? 'bg-blue-50 text-blue-700'
-                            : 'bg-pink-50 text-pink-700'
-                        }`}>
-                          {(student.gender === 'M' || student.gender === 'MALE') ? 'Male' : 'Female'}
+                        <span className="text-sm text-gray-900">
+                          {resolveEducationLevelDisplay(student)}
                         </span>
                       </td>
+
+                      {/* Gender */}
                       <td className="px-6 py-4">
-                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                          student.is_active
-                            ? 'bg-emerald-50 text-emerald-700'
-                            : 'bg-gray-100 text-gray-600'
-                        }`}>
+                        <span
+                          className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                            student.gender === 'M'
+                              ? 'bg-blue-50 text-blue-700'
+                              : 'bg-pink-50 text-pink-700'
+                          }`}
+                        >
+                          {GENDER_LABEL[student.gender] ?? student.gender}
+                        </span>
+                      </td>
+
+                      {/* Status */}
+                      <td className="px-6 py-4">
+                        <span
+                          className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                            student.is_active
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : 'bg-gray-100 text-gray-600'
+                          }`}
+                        >
                           {student.is_active ? 'Active' : 'Inactive'}
                         </span>
                       </td>
+
+                      {/* Actions */}
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-1">
                           <button
@@ -455,6 +570,9 @@ const StudentListEnhanced: React.FC = () => {
             </div>
           </div>
         ) : (
+          // ==================================================================
+          // GRID VIEW
+          // ==================================================================
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {filteredStudents.map((student) => (
               <div
@@ -463,44 +581,64 @@ const StudentListEnhanced: React.FC = () => {
               >
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
-                      <User className="w-5 h-5 text-gray-500" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-semibold text-gray-900">{student.full_name}</h3>
-                      <p className="text-xs text-gray-500">{student.username || 'No ID'}</p>
+                    {student.profile_picture ? (
+                      <img
+                        src={student.profile_picture}
+                        alt={student.full_name}
+                        className="w-10 h-10 rounded-full object-cover bg-gray-100 flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <User className="w-5 h-5 text-gray-500" />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-semibold text-gray-900 truncate">
+                        {student.full_name}
+                      </h3>
+                      <p className="text-xs text-gray-500 truncate">
+                        {student.registration_number ?? student.username ?? `#${student.id}`}
+                      </p>
                     </div>
                   </div>
-                  <div className="relative">
+
+                  {/* Overflow menu */}
+                  <div className="relative flex-shrink-0">
                     <button
-                      onClick={() => setSelectedStudent(selectedStudent?.id === student.id ? null : student)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenMenuId(openMenuId === student.id ? null : student.id);
+                      }}
                       className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
                     >
                       <MoreVertical className="w-4 h-4 text-gray-400" />
                     </button>
 
-                    {selectedStudent?.id === student.id && (
-                      <div className="absolute right-0 top-8 bg-white border border-gray-200 rounded-lg shadow-lg z-10 py-1 min-w-[140px]">
+                    {openMenuId === student.id && (
+                      <div
+                        className="absolute right-0 top-8 bg-white border border-gray-200 rounded-lg shadow-lg z-10 py-1 min-w-[140px]"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <button
-                          onClick={() => { navigate(`/admin/students/${student.id}`); setSelectedStudent(null); }}
+                          onClick={() => { navigate(`/admin/students/${student.id}`); setOpenMenuId(null); }}
                           className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                         >
                           <Eye className="w-4 h-4" /> View
                         </button>
                         <button
-                          onClick={() => { navigate(`/admin/students/${student.id}/edit`); setSelectedStudent(null); }}
+                          onClick={() => { navigate(`/admin/students/${student.id}/edit`); setOpenMenuId(null); }}
                           className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                         >
                           <Edit className="w-4 h-4" /> Edit
                         </button>
                         <button
-                          onClick={() => { navigate(`/admin/students/${student.id}/results`); setSelectedStudent(null); }}
+                          onClick={() => { navigate(`/admin/students/${student.id}/results`); setOpenMenuId(null); }}
                           className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                         >
                           <FileText className="w-4 h-4" /> Results
                         </button>
                         <button
-                          onClick={() => { handleDeleteStudent(student.id); setSelectedStudent(null); }}
+                          onClick={() => { handleDeleteStudent(student.id); setOpenMenuId(null); }}
                           className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
                         >
                           <Trash2 className="w-4 h-4" /> Delete
@@ -510,42 +648,53 @@ const StudentListEnhanced: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Card details */}
                 <div className="space-y-2.5">
                   <div className="flex items-center gap-2 text-sm">
-                    <GraduationCap className="w-4 h-4 text-gray-400" />
-                    <span className="text-gray-600">{getClassLabel(student.student_class)}</span>
+                    <GraduationCap className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                    <span className="text-gray-600 truncate">{resolveClassDisplay(student)}</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm">
-                    <BookOpen className="w-4 h-4 text-gray-400" />
-                    <span className="text-gray-600">{getEducationLevelLabel(student.education_level)}</span>
+                    <BookOpen className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                    <span className="text-gray-600">{resolveEducationLevelDisplay(student)}</span>
                   </div>
-                  {student.email && (
+                  {student.user_details?.email && (
                     <div className="flex items-center gap-2 text-sm">
-                      <Mail className="w-4 h-4 text-gray-400" />
-                      <span className="text-gray-600 truncate">{student.email}</span>
+                      <Mail className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                      <span className="text-gray-600 truncate">{student.user_details.email}</span>
                     </div>
                   )}
                   {student.date_of_birth && (
                     <div className="flex items-center gap-2 text-sm">
-                      <Calendar className="w-4 h-4 text-gray-400" />
-                      <span className="text-gray-600">{new Date(student.date_of_birth).toLocaleDateString()}</span>
+                      <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                      <span className="text-gray-600">
+                        {new Date(student.date_of_birth).toLocaleDateString('en-GB', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                        })}
+                      </span>
                     </div>
                   )}
                 </div>
 
                 <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
-                  <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                    (student.gender === 'M' || student.gender === 'MALE')
-                      ? 'bg-blue-50 text-blue-700'
-                      : 'bg-pink-50 text-pink-700'
-                  }`}>
-                    {(student.gender === 'M' || student.gender === 'MALE') ? 'Male' : 'Female'}
+                  <span
+                    className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                      student.gender === 'M'
+                        ? 'bg-blue-50 text-blue-700'
+                        : 'bg-pink-50 text-pink-700'
+                    }`}
+                  >
+                    {GENDER_LABEL[student.gender] ?? student.gender}
                   </span>
-                  <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                    student.is_active
-                      ? 'bg-emerald-50 text-emerald-700'
-                      : 'bg-gray-100 text-gray-600'
-                  }`}>
+                  <span
+                    className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                      student.is_active
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : 'bg-gray-100 text-gray-600'
+                    }`}
+                  >
                     {student.is_active ? 'Active' : 'Inactive'}
                   </span>
                 </div>
@@ -555,7 +704,7 @@ const StudentListEnhanced: React.FC = () => {
         )}
       </div>
 
-      {/* Empty State */}
+      {/* ---- Empty State ---- */}
       {filteredStudents.length === 0 && !loading && (
         <div className="text-center py-16">
           <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -577,14 +726,14 @@ const StudentListEnhanced: React.FC = () => {
         </div>
       )}
 
-      {/* Result Sheet Modal */}
+      {/* ---- Result Sheet Modal ---- */}
       <ResultSheetView
         isOpen={showResultSheet}
         onClose={() => setShowResultSheet(false)}
         selectedClass={classFilter}
       />
 
-      {/* Delete Confirmation Modal */}
+      {/* ---- Delete Confirmation Modal ---- */}
       {showDeleteModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
@@ -618,7 +767,7 @@ const StudentListEnhanced: React.FC = () => {
                 {deleting ? (
                   <>
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Deleting...
+                    Deleting…
                   </>
                 ) : (
                   'Delete'

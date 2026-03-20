@@ -3,6 +3,7 @@ from .models import Teacher, AssignmentRequest, TeacherSchedule
 from classroom.models import GradeLevel, Section, ClassroomTeacherAssignment, Classroom
 from subject.models import Subject
 import logging
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,29 @@ class AssignmentRequestSerializer(serializers.ModelSerializer):
             "reviewed_by_name",
             "days_since_submitted",
         ]
-        read_only_fields = ["teacher", "submitted_at", "reviewed_at", "reviewed_by"]
+        read_only_fields = [
+            "tenant",  # ✅ ADD THIS - auto-populated by TenantFilterMixin
+            "teacher",
+            "submitted_at",
+            "reviewed_at",
+            "reviewed_by",
+            "status",  # ✅ ADD THIS - only changed via approve/reject/cancel actions
+        ]
+
+    def get_requested_subjects_names(self, obj):
+        return [subject.name for subject in obj.requested_subjects.all()]
+
+    def get_requested_grade_levels_names(self, obj):
+        return [grade.name for grade in obj.requested_grade_levels.all()]
+
+    def get_requested_sections_names(self, obj):
+        return [section.name for section in obj.requested_sections.all()]
+
+    def get_days_since_submitted(self, obj):
+        if obj.submitted_at:
+            delta = timezone.now() - obj.submitted_at
+            return delta.days
+        return None
 
     def get_requested_subjects_names(self, obj):
         return [subject.name for subject in obj.requested_subjects.all()]

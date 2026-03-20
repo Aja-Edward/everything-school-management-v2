@@ -1,2313 +1,3 @@
-# from rest_framework import viewsets, filters, status, permissions
-# from rest_framework.decorators import action
-# from rest_framework.response import Response
-# from django_filters.rest_framework import DjangoFilterBackend
-# from django.http import HttpResponse
-# from django.core.exceptions import ValidationError
-# from django.db import transaction
-# from django.db.models import Q, Count, Avg, Max, Min
-# from django.utils import timezone
-# from io import TextIOWrapper
-# import csv
-# from datetime import datetime, timedelta
-# from utils.section_filtering import SectionFilterMixin, AutoSectionFilterMixin
-# import logging
-
-# # Import models
-# from .models import Exam, ExamSchedule, ExamRegistration, ExamStatistics
-# from result.models import StudentResult
-# from classroom.models import GradeLevel, Section
-# from subject.models import Subject
-# from teacher.models import Teacher
-# from students.models import Student
-# from django.shortcuts import render, redirect
-# from django.contrib import messages
-# from .forms import ExamForm, ExamScheduleForm
-
-
-# # Import serializers
-# from .serializers import (
-#     ExamListSerializer,
-#     ExamDetailSerializer,
-#     ExamCreateUpdateSerializer,
-#     ExamScheduleSerializer,
-#     ExamRegistrationSerializer,
-#     ResultSerializer,
-#     ResultCreateUpdateSerializer,
-#     ExamStatisticsSerializer,
-# )
-
-# # Import filters
-# from .filters import ExamFilter
-
-# logger = logging.getLogger(__name__)
-
-
-# def create_exam(request):
-#     if request.method == "POST":
-#         form = ExamForm(request.POST)
-#         if form.is_valid():
-#             exam = form.save()
-#             messages.success(request, f'Exam "{exam.title}" created successfully!')
-#             return redirect("exam_list")  # Adjust URL name as needed
-#     else:
-#         form = ExamForm()
-
-#     return render(request, "exams/exam_form.html", {"form": form})
-
-
-# def create_exam_schedule(request):
-#     if request.method == "POST":
-#         form = ExamScheduleForm(request.POST)
-#         if form.is_valid():
-#             schedule = form.save()
-#             messages.success(
-#                 request, f'Exam schedule "{schedule.name}" created successfully!'
-#             )
-#             return redirect("exam_schedule_list")  # Adjust URL name as needed
-#     else:
-#         form = ExamScheduleForm()
-
-#     return render(request, "exams/exam_schedule_form.html", {"form": form})
-
-
-# class ExamViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
-#     """
-#     Streamlined ViewSet for managing exams
-#     """
-
-#     queryset = Exam.objects.select_related(
-#         "subject", "grade_level", "section", "teacher"
-#     ).prefetch_related("invigilators")
-
-#     filter_backends = [
-#         DjangoFilterBackend,
-#         filters.SearchFilter,
-#         filters.OrderingFilter,
-#     ]
-#     filterset_class = ExamFilter
-#     search_fields = ["title", "description", "code", "subject__name", "venue"]
-#     ordering_fields = ["exam_date", "start_time", "title", "created_at"]
-#     ordering = ["-exam_date", "start_time"]
-#     permission_classes = [permissions.IsAuthenticated]
-
-#     def get_serializer_class(self):
-#         """Return appropriate serializer based on action"""
-#         if self.action == "list":
-#             return ExamListSerializer
-#         elif self.action in ["create", "update", "partial_update"]:
-#             return ExamCreateUpdateSerializer
-#         return ExamDetailSerializer
-
-#     def get_queryset(self):
-#         """Optimize queryset for list view with section filtering"""
-#         queryset = super().get_queryset()
-
-#         if self.action == "list":
-#             queryset = queryset.annotate(
-#                 registered_students_count=Count("examregistration", distinct=True)
-#             )
-
-#         # Apply section-based filtering for authenticated users
-#         if self.request.user.is_authenticated:
-#             user = self.request.user
-
-#             # 🟢 TEACHERS: Check FIRST - See only their own exams
-#             if hasattr(user, "teacher"):
-#                 return queryset.filter(teacher_id=user.teacher.id)
-
-#             # 🟢 ADMINS/STAFF: See all exams (checked AFTER teachers)
-#             if user.is_superuser or user.is_staff:
-#                 return queryset
-
-#             # 🟢 STUDENTS/PARENTS: Filter by section access
-#             section_access = self.get_user_section_access()
-#             education_levels = self.get_education_levels_for_sections(section_access)
-
-#             if not education_levels:
-#                 return queryset.none()
-
-#             queryset = queryset.filter(
-#                 grade_level__education_level__in=education_levels
-#             )
-
-#         return queryset
-
-#     def perform_create(self, serializer):
-#         serializer.save(created_by=self.request.user)
-
-#     def perform_update(self, serializer):
-#         serializer.save(updated_by=self.request.user)
-
-#     @action(detail=False, methods=["post"])
-#     def bulk_create(self, request):
-#         """Bulk create results"""
-#         results_data = request.data.get("results", [])
-
-#         if not results_data:
-#             return Response(
-#                 {"error": "Results data is required"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         created_results = []
-#         errors = []
-
-#         with transaction.atomic():
-#             for i, result_data in enumerate(results_data):
-#                 serializer = ResultCreateUpdateSerializer(data=result_data)
-#                 if serializer.is_valid():
-#                     result = serializer.save(recorded_by=request.user)
-#                     created_results.append(result.id)
-#                 else:
-#                     errors.append({"index": i, "errors": serializer.errors})
-
-#             if errors:
-#                 transaction.set_rollback(True)
-#                 return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
-
-#         return Response(
-#             {
-#                 "message": f"Created {len(created_results)} results",
-#                 "created_ids": created_results,
-#             },
-#             status=status.HTTP_201_CREATED,
-#         )
-
-#     @action(detail=False, methods=["post"])
-#     def bulk_update(self, request):
-#         """Bulk update results"""
-#         results_data = request.data.get("results", [])
-
-#         if not results_data:
-#             return Response(
-#                 {"error": "Results data is required"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         updated_count = 0
-#         errors = []
-
-#         with transaction.atomic():
-#             for i, result_data in enumerate(results_data):
-#                 result_id = result_data.get("id")
-#                 if not result_id:
-#                     errors.append({"index": i, "error": "Result ID is required"})
-#                     continue
-
-#                 try:
-#                     result = StudentResult.objects.get(id=result_id)
-#                     serializer = ResultCreateUpdateSerializer(
-#                         result, data=result_data, partial=True
-#                     )
-#                     if serializer.is_valid():
-#                         serializer.save(updated_by=request.user)
-#                         updated_count += 1
-#                     else:
-#                         errors.append({"index": i, "errors": serializer.errors})
-#                 except StudentResult.DoesNotExist:
-#                     errors.append(
-#                         {"index": i, "error": f"Result {result_id} not found"}
-#                     )
-#                 except Exception as e:
-#                     errors.append({"index": i, "error": str(e)})
-
-#             if errors:
-#                 transaction.set_rollback(True)
-#                 return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
-
-#         return Response(
-#             {
-#                 "message": f"Updated {updated_count} results",
-#                 "updated_count": updated_count,
-#             }
-#         )
-
-#     @action(detail=False, methods=["get"])
-#     def by_student(self, request, student_id=None):
-#         """Get results by student"""
-#         if not student_id:
-#             return Response(
-#                 {"error": "Student ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         results = self.get_queryset().filter(student_id=student_id)
-#         serializer = self.get_serializer(results, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def by_exam(self, request, exam_id=None):
-#         """Get results by exam"""
-#         if not exam_id:
-#             return Response(
-#                 {"error": "Exam ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         results = self.get_queryset().filter(exam_id=exam_id)
-#         serializer = self.get_serializer(results, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def by_subject(self, request, subject_id=None):
-#         """Get results by subject"""
-#         if not subject_id:
-#             return Response(
-#                 {"error": "Subject ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         results = self.get_queryset().filter(subject_id=subject_id)
-#         serializer = self.get_serializer(results, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def by_grade(self, request, grade_id=None):
-#         """Get results by grade level"""
-#         if not grade_id:
-#             return Response(
-#                 {"error": "Grade ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         results = self.get_queryset().filter(grade_level_id=grade_id)
-#         serializer = self.get_serializer(results, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def student_transcript(self, request, student_id=None):
-#         """Get student transcript"""
-#         if not student_id:
-#             return Response(
-#                 {"error": "Student ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         results = (
-#             self.get_queryset()
-#             .filter(student_id=student_id)
-#             .order_by("exam__exam_date")
-#         )
-#         serializer = self.get_serializer(results, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def grade_sheet(self, request, exam_id=None):
-#         """Get grade sheet for an exam"""
-#         if not exam_id:
-#             return Response(
-#                 {"error": "Exam ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         results = (
-#             self.get_queryset()
-#             .filter(exam_id=exam_id)
-#             .order_by("student__user__first_name")
-#         )
-#         serializer = self.get_serializer(results, many=True)
-#         return Response(serializer.data)
-
-#     # Core Exam Management
-#     @action(detail=True, methods=["post"])
-#     def start_exam(self, request, pk=None):
-#         """Start an exam"""
-#         exam = self.get_object()
-
-#         if exam.status != "scheduled":
-#             return Response(
-#                 {"error": "Only scheduled exams can be started"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         exam.status = "in_progress"
-#         exam.save()
-#         return Response({"message": "Exam started successfully"})
-
-#     @action(detail=True, methods=["post"])
-#     def end_exam(self, request, pk=None):
-#         """End an exam and generate statistics"""
-#         exam = self.get_object()
-
-#         if exam.status != "in_progress":
-#             return Response(
-#                 {"error": "Only exams in progress can be ended"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         exam.status = "completed"
-#         exam.save()
-
-#         # Generate statistics
-#         self._generate_exam_statistics(exam)
-#         return Response({"message": "Exam ended successfully"})
-
-#     @action(detail=True, methods=["post"])
-#     def cancel_exam(self, request, pk=None):
-#         """Cancel an exam"""
-#         exam = self.get_object()
-
-#         if exam.status == "completed":
-#             return Response(
-#                 {"error": "Cannot cancel completed exam"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         exam.status = "cancelled"
-#         exam.cancellation_reason = request.data.get("reason", "")
-#         exam.save()
-#         return Response({"message": "Exam cancelled successfully"})
-
-#     @action(detail=True, methods=["post"])
-#     def postpone_exam(self, request, pk=None):
-#         """Postpone an exam"""
-#         exam = self.get_object()
-#         new_date = request.data.get("new_date")
-#         new_start_time = request.data.get("new_start_time")
-#         new_end_time = request.data.get("new_end_time")
-#         reason = request.data.get("reason", "")
-
-#         if not new_date:
-#             return Response(
-#                 {"error": "New date is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         if exam.status == "completed":
-#             return Response(
-#                 {"error": "Cannot postpone completed exam"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         exam.exam_date = new_date
-#         if new_start_time:
-#             exam.start_time = new_start_time
-#         if new_end_time:
-#             exam.end_time = new_end_time
-
-#         exam.postponement_reason = reason
-#         exam.save()
-
-#         return Response({"message": "Exam postponed successfully"})
-
-#     # Approval Workflow
-#     @action(detail=True, methods=["post"])
-#     def approve(self, request, pk=None):
-#         """Approve an exam"""
-#         exam = self.get_object()
-
-#         if exam.status != "pending_approval":
-#             return Response(
-#                 {"error": "Only exams pending approval can be approved"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         # Get approver - try to get Teacher from User, or use None if not available
-#         approver = None
-#         if hasattr(request, "user") and request.user.is_authenticated:
-#             try:
-#                 from teacher.models import Teacher
-
-#                 approver = Teacher.objects.get(user=request.user)
-#             except Teacher.DoesNotExist:
-#                 # If user is not a teacher, we'll leave approver as None
-#                 pass
-
-#         notes = request.data.get("notes", "")
-
-#         exam.approve(approver, notes)
-
-#         return Response(
-#             {
-#                 "message": "Exam approved successfully",
-#                 "status": exam.status,
-#                 "approved_at": exam.approved_at,
-#                 "approved_by": exam.approved_by.id if exam.approved_by else None,
-#             }
-#         )
-
-#     @action(detail=True, methods=["post"])
-#     def reject(self, request, pk=None):
-#         """Reject an exam"""
-#         exam = self.get_object()
-
-#         if exam.status != "pending_approval":
-#             return Response(
-#                 {"error": "Only exams pending approval can be rejected"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         # Get approver - try to get Teacher from User, or use None if not available
-#         approver = None
-#         if hasattr(request, "user") and request.user.is_authenticated:
-#             try:
-#                 from teacher.models import Teacher
-
-#                 approver = Teacher.objects.get(user=request.user)
-#             except Teacher.DoesNotExist:
-#                 # If user is not a teacher, we'll leave approver as None
-#                 pass
-
-#         reason = request.data.get("reason", "")
-
-#         exam.reject(approver, reason)
-
-#         return Response(
-#             {
-#                 "message": "Exam rejected successfully",
-#                 "status": exam.status,
-#                 "rejected_at": exam.approved_at,
-#                 "rejected_by": exam.approved_by.id if exam.approved_by else None,
-#                 "rejection_reason": exam.rejection_reason,
-#             }
-#         )
-
-#     @action(detail=True, methods=["post"])
-#     def submit_for_approval(self, request, pk=None):
-#         """Submit exam for approval"""
-#         exam = self.get_object()
-
-#         if exam.status not in ["draft", "rejected"]:
-#             return Response(
-#                 {"error": "Only draft or rejected exams can be submitted for approval"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         exam.submit_for_approval()
-
-#         return Response(
-#             {
-#                 "message": "Exam submitted for approval successfully",
-#                 "status": exam.status,
-#             }
-#         )
-
-#     # Student Registration
-#     @action(detail=True, methods=["post"])
-#     def register_student(self, request, pk=None):
-#         """Register a student for an exam"""
-#         exam = self.get_object()
-#         student_id = request.data.get("student_id")
-
-#         if not student_id:
-#             return Response(
-#                 {"error": "Student ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         try:
-#             student = Student.objects.get(id=student_id)
-#         except Student.DoesNotExist:
-#             return Response(
-#                 {"error": "Student not found"}, status=status.HTTP_404_NOT_FOUND
-#             )
-
-#         # Check if already registered
-#         if ExamRegistration.objects.filter(exam=exam, student=student).exists():
-#             return Response(
-#                 {"error": "Student already registered for this exam"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         registration = ExamRegistration.objects.create(
-#             exam=exam, student=student, registration_date=timezone.now()
-#         )
-
-#         serializer = ExamRegistrationSerializer(registration)
-#         return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-#     @action(detail=True, methods=["delete"])
-#     def unregister_student(self, request, pk=None):
-#         """Unregister a student from an exam"""
-#         exam = self.get_object()
-#         student_id = request.data.get("student_id")
-
-#         try:
-#             registration = ExamRegistration.objects.get(
-#                 exam=exam, student_id=student_id
-#             )
-#             registration.delete()
-#             return Response({"message": "Student unregistered successfully"})
-#         except ExamRegistration.DoesNotExist:
-#             return Response(
-#                 {"error": "Registration not found"}, status=status.HTTP_404_NOT_FOUND
-#             )
-
-#     @action(detail=True, methods=["get"])
-#     def registrations(self, request, pk=None):
-#         """Get all registrations for an exam"""
-#         exam = self.get_object()
-#         registrations = ExamRegistration.objects.filter(exam=exam).select_related(
-#             "student"
-#         )
-#         serializer = ExamRegistrationSerializer(registrations, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=True, methods=["get"])
-#     def get_registrations(self, request, pk=None):
-#         """Get all registrations for an exam (alias for registrations)"""
-#         return self.registrations(request, pk)
-
-#     @action(detail=True, methods=["get"])
-#     def get_results(self, request, pk=None):
-#         """Get results for an exam (alias for results)"""
-#         return self.results(request, pk)
-
-#     @action(detail=True, methods=["get"])
-#     def get_statistics(self, request, pk=None):
-#         """Get statistics for an exam (alias for statistics)"""
-#         return self.statistics(request, pk)
-
-#     # Results Management
-#     @action(detail=True, methods=["get"])
-#     def results(self, request, pk=None):
-#         """Get results for an exam"""
-#         exam = self.get_object()
-#         results = StudentResult.objects.filter(exam=exam).select_related("student")
-#         serializer = ResultSerializer(results, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=True, methods=["post"])
-#     def bulk_create_results(self, request, pk=None):
-#         """Bulk create results for an exam"""
-#         exam = self.get_object()
-#         results_data = request.data.get("results", [])
-
-#         if not results_data:
-#             return Response(
-#                 {"error": "Results data is required"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         created_results = []
-#         errors = []
-
-#         with transaction.atomic():
-#             for i, result_data in enumerate(results_data):
-#                 result_data["exam"] = exam.id
-#                 result_data["subject"] = exam.subject.id
-
-#                 serializer = ResultCreateUpdateSerializer(data=result_data)
-#                 if serializer.is_valid():
-#                     result = serializer.save(recorded_by=request.user)
-#                     created_results.append(result.id)
-#                 else:
-#                     errors.append({"index": i, "errors": serializer.errors})
-
-#             if errors:
-#                 transaction.set_rollback(True)
-#                 return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
-
-#         return Response(
-#             {
-#                 "message": f"Created {len(created_results)} results",
-#                 "created_ids": created_results,
-#             },
-#             status=status.HTTP_201_CREATED,
-#         )
-
-#     @action(detail=True, methods=["get"])
-#     def statistics(self, request, pk=None):
-#         """Get statistics for an exam"""
-#         exam = self.get_object()
-#         stats, created = ExamStatistics.objects.get_or_create(
-#             exam=exam, defaults={"calculated_at": timezone.now()}
-#         )
-
-#         # Recalculate if stats are older than 1 hour
-#         if not created and stats.calculated_at < timezone.now() - timedelta(hours=1):
-#             self._generate_exam_statistics(exam)
-#             stats.refresh_from_db()
-
-#         serializer = ExamStatisticsSerializer(stats)
-#         return Response(serializer.data)
-
-#     # Essential Filters
-#     @action(detail=False, methods=["get"])
-#     def upcoming(self, request):
-#         """Get upcoming exams"""
-#         today = timezone.now().date()
-#         exams = (
-#             self.get_queryset()
-#             .filter(exam_date__gte=today, status="scheduled")
-#             .order_by("exam_date", "start_time")
-#         )
-
-#         serializer = self.get_serializer(exams, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def by_schedule(self, request):
-#         """Get exams by schedule"""
-#         schedule_id = request.GET.get("schedule_id")
-#         if not schedule_id:
-#             return Response(
-#                 {"error": "Schedule ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         exams = self.get_queryset().filter(exam_schedule_id=schedule_id)
-#         serializer = self.get_serializer(exams, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def by_teacher(self, request, teacher_id=None):
-#         try:
-#             teacher = Teacher.objects.get(id=teacher_id)
-#         except Teacher.DoesNotExist:
-#             return Response(
-#                 {"error": "Teacher not found"}, status=status.HTTP_404_NOT_FOUND
-#             )
-
-#         exams = self.get_queryset().filter(teacher_id=teacher.id)
-#         serializer = self.get_serializer(exams, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def by_subject(self, request, subject_id=None):
-#         """Get exams by subject"""
-#         if not subject_id:
-#             return Response(
-#                 {"error": "Subject ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         exams = self.get_queryset().filter(subject_id=subject_id)
-#         serializer = self.get_serializer(exams, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def by_grade(self, request, grade_id=None):
-#         """Get exams by grade level"""
-#         if not grade_id:
-#             return Response(
-#                 {"error": "Grade ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         exams = self.get_queryset().filter(grade_level_id=grade_id)
-#         serializer = self.get_serializer(exams, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def completed(self, request):
-#         """Get completed exams"""
-#         exams = self.get_queryset().filter(status="completed")
-#         serializer = self.get_serializer(exams, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def ongoing(self, request):
-#         """Get ongoing exams"""
-#         exams = self.get_queryset().filter(status="in_progress")
-#         serializer = self.get_serializer(exams, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def calendar_view(self, request):
-#         """Get exams in calendar format"""
-#         start_date = request.GET.get("start_date")
-#         end_date = request.GET.get("end_date")
-
-#         queryset = self.get_queryset()
-
-#         if start_date:
-#             queryset = queryset.filter(exam_date__gte=start_date)
-#         if end_date:
-#             queryset = queryset.filter(exam_date__lte=end_date)
-
-#         exams = queryset.order_by("exam_date", "start_time")
-#         serializer = self.get_serializer(exams, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def summary_list(self, request):
-#         """Get exam summary list"""
-#         exams = self.get_queryset().annotate(
-#             registered_students_count=Count("examregistration", distinct=True)
-#         )
-#         serializer = self.get_serializer(exams, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["post"])
-#     def bulk_update(self, request):
-#         """Bulk update exams"""
-#         exam_ids = request.data.get("exam_ids", [])
-#         update_data = request.data.get("update_data", {})
-
-#         if not exam_ids:
-#             return Response(
-#                 {"error": "Exam IDs are required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         updated_count = 0
-#         errors = []
-
-#         with transaction.atomic():
-#             for exam_id in exam_ids:
-#                 try:
-#                     exam = Exam.objects.get(id=exam_id)
-#                     for field, value in update_data.items():
-#                         if hasattr(exam, field):
-#                             setattr(exam, field, value)
-#                     exam.save()
-#                     updated_count += 1
-#                 except Exam.DoesNotExist:
-#                     errors.append(f"Exam {exam_id} not found")
-#                 except Exception as e:
-#                     errors.append(f"Exam {exam_id}: {str(e)}")
-
-#         return Response(
-#             {
-#                 "message": f"Updated {updated_count} exams",
-#                 "updated_count": updated_count,
-#                 "errors": errors,
-#             }
-#         )
-
-#     @action(detail=False, methods=["post"])
-#     def bulk_delete(self, request):
-#         """Bulk delete exams"""
-#         exam_ids = request.data.get("exam_ids", [])
-
-#         if not exam_ids:
-#             return Response(
-#                 {"error": "Exam IDs are required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         deleted_count = 0
-#         errors = []
-
-#         with transaction.atomic():
-#             for exam_id in exam_ids:
-#                 try:
-#                     exam = Exam.objects.get(id=exam_id)
-#                     exam.delete()
-#                     deleted_count += 1
-#                 except Exam.DoesNotExist:
-#                     errors.append(f"Exam {exam_id} not found")
-#                 except Exception as e:
-#                     errors.append(f"Exam {exam_id}: {str(e)}")
-
-#         return Response(
-#             {
-#                 "message": f"Deleted {deleted_count} exams",
-#                 "deleted_count": deleted_count,
-#                 "errors": errors,
-#             }
-#         )
-
-#     # Import/Export
-#     @action(detail=False, methods=["post"])
-#     def import_csv(self, request):
-#         """Import exams from CSV"""
-#         file = request.FILES.get("file")
-#         if not file or not file.name.endswith(".csv"):
-#             return Response(
-#                 {"error": "Valid CSV file is required"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         try:
-#             decoded_file = TextIOWrapper(file.file, encoding="utf-8")
-#             reader = csv.DictReader(decoded_file)
-
-#             required_headers = [
-#                 "title",
-#                 "subject",
-#                 "grade_level",
-#                 "exam_date",
-#                 "start_time",
-#                 "end_time",
-#             ]
-#             missing_headers = [
-#                 h for h in required_headers if h not in reader.fieldnames
-#             ]
-
-#             if missing_headers:
-#                 return Response(
-#                     {
-#                         "error": f'Missing required columns: {", ".join(missing_headers)}'
-#                     },
-#                     status=status.HTTP_400_BAD_REQUEST,
-#                 )
-
-#             created_exams = []
-#             errors = []
-
-#             with transaction.atomic():
-#                 for row_num, row in enumerate(reader, start=2):
-#                     try:
-#                         exam_data = self._process_csv_row(row, row_num)
-#                         if "error" in exam_data:
-#                             errors.append(exam_data["error"])
-#                             continue
-
-#                         serializer = ExamCreateUpdateSerializer(data=exam_data)
-#                         if serializer.is_valid():
-#                             exam = serializer.save(created_by=request.user)
-#                             created_exams.append(exam.id)
-#                         else:
-#                             errors.append(f"Row {row_num}: {serializer.errors}")
-
-#                     except Exception as e:
-#                         errors.append(f"Row {row_num}: {str(e)}")
-
-#                 if errors:
-#                     transaction.set_rollback(True)
-#                     return Response(
-#                         {"error": "CSV import failed", "details": errors},
-#                         status=status.HTTP_400_BAD_REQUEST,
-#                     )
-
-#             return Response(
-#                 {
-#                     "message": f"Successfully imported {len(created_exams)} exams",
-#                     "created_exam_ids": created_exams,
-#                 },
-#                 status=status.HTTP_201_CREATED,
-#             )
-
-#         except Exception as e:
-#             logger.error(f"CSV import error: {str(e)}")
-#             return Response(
-#                 {"error": f"Import failed: {str(e)}"},
-#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-#             )
-
-#     @action(detail=False, methods=["get"])
-#     def export_csv(self, request):
-#         """Export exams to CSV"""
-#         response = HttpResponse(content_type="text/csv")
-#         response["Content-Disposition"] = 'attachment; filename="exams.csv"'
-
-#         writer = csv.writer(response)
-#         writer.writerow(
-#             [
-#                 "id",
-#                 "title",
-#                 "code",
-#                 "subject_name",
-#                 "grade_level_name",
-#                 "section_name",
-#                 "teacher_name",
-#                 "exam_date",
-#                 "start_time",
-#                 "end_time",
-#                 "duration_minutes",
-#                 "total_marks",
-#                 "pass_marks",
-#                 "venue",
-#                 "status",
-#                 "exam_type",
-#             ]
-#         )
-
-#         for exam in self.filter_queryset(self.get_queryset()).select_related(
-#             "subject", "grade_level", "section", "teacher"
-#         ):
-#             writer.writerow(
-#                 [
-#                     exam.id,
-#                     exam.title,
-#                     exam.code,
-#                     exam.subject.name,
-#                     exam.grade_level.name,
-#                     exam.section.name if exam.section else "",
-#                     exam.teacher.full_name if exam.teacher else "",
-#                     exam.exam_date.strftime("%Y-%m-%d"),
-#                     exam.start_time.strftime("%H:%M"),
-#                     exam.end_time.strftime("%H:%M"),
-#                     exam.duration_minutes,
-#                     exam.total_marks,
-#                     exam.pass_marks,
-#                     exam.venue,
-#                     exam.status,
-#                     exam.exam_type,
-#                 ]
-#             )
-
-#         return response
-
-#     # Helper Methods
-#     def _process_csv_row(self, row, row_num):
-#         """Process a single CSV row"""
-#         try:
-#             # Get related objects
-#             subject = Subject.objects.get(name=row["subject"].strip())
-#             grade_level = GradeLevel.objects.get(name=row["grade_level"].strip())
-
-#             section = None
-#             if row.get("section") and row["section"].strip():
-#                 section = Section.objects.get(name=row["section"].strip())
-
-#             teacher = None
-#             if row.get("teacher") and row["teacher"].strip():
-#                 teacher = Teacher.objects.get(full_name=row["teacher"].strip())
-
-#             # Parse dates
-#             exam_date = datetime.strptime(row["exam_date"], "%Y-%m-%d").date()
-#             start_time = datetime.strptime(row["start_time"], "%H:%M").time()
-#             end_time = datetime.strptime(row["end_time"], "%H:%M").time()
-
-#             return {
-#                 "title": row["title"].strip(),
-#                 "subject": subject.id,
-#                 "grade_level": grade_level.id,
-#                 "section": section.id if section else None,
-#                 "teacher": teacher.id if teacher else None,
-#                 "exam_date": exam_date,
-#                 "start_time": start_time,
-#                 "end_time": end_time,
-#                 "description": row.get("description", "").strip(),
-#                 "total_marks": int(row.get("total_marks", 100)),
-#                 "pass_marks": int(row.get("pass_marks", 40)),
-#                 "venue": row.get("venue", "").strip(),
-#                 "exam_type": row.get("exam_type", "written"),
-#                 "status": row.get("status", "scheduled"),
-#             }
-#         except Exception as e:
-#             return {"error": f"Row {row_num}: {str(e)}"}
-
-#     def _generate_exam_statistics(self, exam):
-#         """Generate statistics for an exam"""
-#         results = StudentResult.objects.filter(exam=exam)
-
-#         if not results.exists():
-#             return
-
-#         total_registered = ExamRegistration.objects.filter(exam=exam).count()
-#         total_appeared = results.count()
-
-#         stats_data = {
-#             "total_registered": total_registered,
-#             "total_appeared": total_appeared,
-#             "total_absent": total_registered - total_appeared,
-#             "highest_score": results.aggregate(Max("score"))["score__max"] or 0,
-#             "lowest_score": results.aggregate(Min("score"))["score__min"] or 0,
-#             "average_score": results.aggregate(Avg("score"))["score__avg"] or 0,
-#             "total_passed": results.filter(is_pass=True).count(),
-#             "total_failed": results.filter(is_pass=False).count(),
-#         }
-
-#         stats_data["pass_percentage"] = (
-#             (stats_data["total_passed"] / stats_data["total_appeared"] * 100)
-#             if stats_data["total_appeared"] > 0
-#             else 0
-#         )
-
-#         ExamStatistics.objects.update_or_create(
-#             exam=exam, defaults={**stats_data, "calculated_at": timezone.now()}
-#         )
-
-
-# # class ExamScheduleViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
-# #     """ViewSet for exam schedules"""
-
-# #     queryset = ExamSchedule.objects.all()
-# #     serializer_class = ExamScheduleSerializer
-# #     ordering = ["-created_at"]
-# #     permission_classes = [permissions.IsAuthenticated]
-
-# #     def get_queryset(self):
-# #         """Apply section-based filtering for authenticated users"""
-# #         queryset = super().get_queryset()
-
-# #         # Apply section-based filtering for authenticated users
-# #         if self.request.user.is_authenticated:
-# #             # Filter exam schedules by exams that belong to allowed education levels
-# #             section_access = self.get_user_section_access()
-# #             education_levels = self.get_education_levels_for_sections(section_access)
-
-# #             if not education_levels:
-# #                 return queryset.none()
-
-# #             # Filter schedules that have exams in allowed education levels
-# #             queryset = queryset.filter(
-# #                 exams__grade_level__education_level__in=education_levels
-# #             ).distinct()
-
-# #         return queryset
-
-# #     @action(detail=True, methods=["get"])
-# #     def exams(self, request, pk=None):
-# #         """Get exams for a schedule"""
-# #         schedule = self.get_object()
-# #         exams = Exam.objects.filter(exam_schedule=schedule)
-# #         from .serializers import ExamListSerializer
-
-# #         serializer = ExamListSerializer(exams, many=True)
-# #         return Response(serializer.data)
-
-# #     @action(detail=True, methods=["get"])
-# #     def get_exams(self, request, pk=None):
-# #         """Get exams for a schedule (alias for exams)"""
-# #         return self.exams(request, pk)
-
-# #     @action(detail=True, methods=["post"])
-# #     def toggle_active(self, request, pk=None):
-# #         """Toggle schedule active status"""
-# #         schedule = self.get_object()
-# #         schedule.is_active = not schedule.is_active
-# #         schedule.save()
-
-# #         status_text = "activated" if schedule.is_active else "deactivated"
-# #         return Response({"message": f"Schedule {status_text}"})
-
-
-# class ExamScheduleViewSet(viewsets.ModelViewSet):
-#     """ViewSet for exam schedules"""
-
-#     queryset = ExamSchedule.objects.all()
-#     serializer_class = ExamScheduleSerializer
-#     ordering = ["-created_at"]
-#     permission_classes = [permissions.IsAuthenticated]
-
-#     def get_queryset(self):
-#         """
-#         Return all exam schedules.
-#         Admin/Staff see everything, others see based on permissions.
-#         """
-#         queryset = super().get_queryset()
-#         user = self.request.user
-
-#         # 🟢 ADMINS/STAFF: See all schedules
-#         if user.is_superuser or user.is_staff:
-#             return queryset
-
-#         # 🟢 For other users, return all schedules
-#         # They can view schedules, but exams will be filtered separately
-#         return queryset
-
-#     @action(detail=True, methods=["get"])
-#     def exams(self, request, pk=None):
-#         """Get exams for a schedule"""
-#         schedule = self.get_object()
-#         exams = Exam.objects.filter(exam_schedule=schedule)
-#         from .serializers import ExamListSerializer
-
-#         serializer = ExamListSerializer(exams, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=True, methods=["get"])
-#     def get_exams(self, request, pk=None):
-#         """Get exams for a schedule (alias for exams)"""
-#         return self.exams(request, pk)
-
-#     @action(detail=True, methods=["post"])
-#     def set_default(self, request, pk=None):
-#         """Set a schedule as the default schedule"""
-#         schedule = self.get_object()
-
-#         # Remove default flag from all other schedules
-#         ExamSchedule.objects.exclude(pk=schedule.pk).update(is_default=False)
-
-#         # Set this schedule as default
-#         schedule.is_default = True
-#         schedule.save()
-
-#         serializer = self.get_serializer(schedule)
-#         return Response(
-#             {
-#                 "message": "Default schedule updated successfully",
-#                 "schedule": serializer.data,
-#             }
-#         )
-
-#     @action(detail=True, methods=["post"])
-#     def toggle_active(self, request, pk=None):
-#         """Toggle schedule active status"""
-#         schedule = self.get_object()
-#         schedule.is_active = not schedule.is_active
-#         schedule.save()
-
-#         status_text = "activated" if schedule.is_active else "deactivated"
-#         return Response(
-#             {"message": f"Schedule {status_text}", "is_active": schedule.is_active}
-#         )
-
-
-# class ExamRegistrationViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
-#     """ViewSet for exam registrations"""
-
-#     queryset = ExamRegistration.objects.select_related("exam", "student")
-#     serializer_class = ExamRegistrationSerializer
-#     ordering = ["-registration_date"]
-#     permission_classes = [permissions.IsAuthenticated]
-
-#     def get_queryset(self):
-#         """Filter by student or exam if provided, with section filtering"""
-#         queryset = super().get_queryset()
-#         student_id = self.request.query_params.get("student_id")
-#         exam_id = self.request.query_params.get("exam_id")
-
-#         if student_id:
-#             queryset = queryset.filter(student_id=student_id)
-#         if exam_id:
-#             queryset = queryset.filter(exam_id=exam_id)
-
-#         # Apply section-based filtering for authenticated users
-#         if self.request.user.is_authenticated:
-#             # Filter exam registrations by exams that belong to allowed education levels
-#             section_access = self.get_user_section_access()
-#             education_levels = self.get_education_levels_for_sections(section_access)
-
-#             if not education_levels:
-#                 return queryset.none()
-
-#             # Filter registrations for exams in allowed education levels
-#             queryset = queryset.filter(
-#                 exam__grade_level__education_level__in=education_levels
-#             )
-
-#         return queryset
-
-#     @action(detail=False, methods=["post"])
-#     def bulk_register(self, request):
-#         """Bulk register students for an exam"""
-#         exam_id = request.data.get("exam_id")
-#         student_ids = request.data.get("student_ids", [])
-
-#         if not exam_id or not student_ids:
-#             return Response(
-#                 {"error": "Exam ID and student IDs are required"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         try:
-#             exam = Exam.objects.get(id=exam_id)
-#         except Exam.DoesNotExist:
-#             return Response(
-#                 {"error": "Exam not found"}, status=status.HTTP_404_NOT_FOUND
-#             )
-
-#         created_registrations = []
-#         errors = []
-
-#         with transaction.atomic():
-#             for student_id in student_ids:
-#                 try:
-#                     student = Student.objects.get(id=student_id)
-
-#                     # Check if already registered
-#                     if ExamRegistration.objects.filter(
-#                         exam=exam, student=student
-#                     ).exists():
-#                         errors.append(f"Student {student_id} already registered")
-#                         continue
-
-#                     registration = ExamRegistration.objects.create(
-#                         exam=exam, student=student, registration_date=timezone.now()
-#                     )
-#                     created_registrations.append(registration.id)
-
-#                 except Student.DoesNotExist:
-#                     errors.append(f"Student {student_id} not found")
-#                 except Exception as e:
-#                     errors.append(f"Student {student_id}: {str(e)}")
-
-#         return Response(
-#             {
-#                 "message": f"Registered {len(created_registrations)} students",
-#                 "created_registrations": created_registrations,
-#                 "errors": errors,
-#             }
-#         )
-
-#     @action(detail=False, methods=["get"])
-#     def by_student(self, request, student_id=None):
-#         """Get registrations by student"""
-#         if not student_id:
-#             return Response(
-#                 {"error": "Student ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         registrations = self.get_queryset().filter(student_id=student_id)
-#         serializer = self.get_serializer(registrations, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def by_exam(self, request, exam_id=None):
-#         """Get registrations by exam"""
-#         if not exam_id:
-#             return Response(
-#                 {"error": "Exam ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         registrations = self.get_queryset().filter(exam_id=exam_id)
-#         serializer = self.get_serializer(registrations, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["post"])
-#     def mark_attendance(self, request):
-#         """Mark attendance for exam registrations"""
-#         attendance_data = request.data.get("attendance", [])
-
-#         if not attendance_data:
-#             return Response(
-#                 {"error": "Attendance data is required"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         updated_count = 0
-#         errors = []
-
-#         with transaction.atomic():
-#             for item in attendance_data:
-#                 registration_id = item.get("registration_id")
-#                 is_present = item.get("is_present", False)
-
-#                 if not registration_id:
-#                     errors.append("Registration ID is required")
-#                     continue
-
-#                 try:
-#                     registration = ExamRegistration.objects.get(id=registration_id)
-#                     registration.is_present = is_present
-#                     registration.save()
-#                     updated_count += 1
-#                 except ExamRegistration.DoesNotExist:
-#                     errors.append(f"Registration {registration_id} not found")
-#                 except Exception as e:
-#                     errors.append(f"Registration {registration_id}: {str(e)}")
-
-#         return Response(
-#             {
-#                 "message": f"Updated attendance for {updated_count} registrations",
-#                 "updated_count": updated_count,
-#                 "errors": errors,
-#             }
-#         )
-
-
-# class ResultViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
-#     """ViewSet for exam results"""
-
-#     queryset = StudentResult.objects.select_related("exam", "student", "subject")
-#     serializer_class = ResultSerializer
-#     ordering = ["-created_at"]
-#     permission_classes = [permissions.IsAuthenticated]
-
-#     def get_queryset(self):
-#         """Filter by exam, student, or subject if provided, with section filtering"""
-#         queryset = super().get_queryset()
-#         exam_id = self.request.query_params.get("exam_id")
-#         student_id = self.request.query_params.get("student_id")
-#         subject_id = self.request.query_params.get("subject_id")
-
-#         if exam_id:
-#             queryset = queryset.filter(exam_id=exam_id)
-#         if student_id:
-#             queryset = queryset.filter(student_id=student_id)
-#         if subject_id:
-#             queryset = queryset.filter(subject_id=subject_id)
-
-#         # Apply section-based filtering for authenticated users
-#         if self.request.user.is_authenticated:
-#             # Filter results by student's education level
-#             section_access = self.get_user_section_access()
-#             education_levels = self.get_education_levels_for_sections(section_access)
-
-#             if not education_levels:
-#                 return queryset.none()
-
-#             queryset = queryset.filter(student__education_level__in=education_levels)
-
-#         return queryset
-
-#     def get_serializer_class(self):
-#         if self.action in ["create", "update", "partial_update"]:
-#             return ResultCreateUpdateSerializer
-#         return ResultSerializer
-
-#     def perform_create(self, serializer):
-#         serializer.save(recorded_by=self.request.user)
-
-#     def perform_update(self, serializer):
-#         serializer.save(recorded_by=self.request.user)
-
-
-# # Add this ExamStatisticsViewSet class to your views.py file
-
-
-# class ExamStatisticsViewSet(SectionFilterMixin, viewsets.ReadOnlyModelViewSet):
-#     """ViewSet for exam statistics (read-only)"""
-
-#     queryset = ExamStatistics.objects.select_related("exam")
-#     serializer_class = ExamStatisticsSerializer
-#     ordering = ["-calculated_at"]
-#     permission_classes = [permissions.IsAuthenticated]
-
-#     def get_queryset(self):
-#         """Filter by exam if provided, with section filtering"""
-#         queryset = super().get_queryset()
-#         exam_id = self.request.query_params.get("exam_id")
-
-#         if exam_id:
-#             queryset = queryset.filter(exam_id=exam_id)
-
-#         # Apply section-based filtering for authenticated users
-#         if self.request.user.is_authenticated:
-#             # Filter exam statistics by exams that belong to allowed education levels
-#             section_access = self.get_user_section_access()
-#             education_levels = self.get_education_levels_for_sections(section_access)
-
-#             if not education_levels:
-#                 return queryset.none()
-
-#             # Filter statistics for exams in allowed education levels
-#             queryset = queryset.filter(
-#                 exam__grade_level__education_level__in=education_levels
-#             )
-
-#         return queryset
-
-#     @action(detail=False, methods=["get"])
-#     def summary(self, request):
-#         """Get statistics summary across all exams"""
-#         stats = self.get_queryset()
-
-#         if not stats.exists():
-#             return Response({"message": "No statistics available", "total_exams": 0})
-
-#         summary_data = {
-#             "total_exams": stats.count(),
-#             "total_students_registered": sum(s.total_registered for s in stats),
-#             "total_students_appeared": sum(s.total_appeared for s in stats),
-#             "average_pass_rate": stats.aggregate(avg_pass=Avg("pass_percentage"))[
-#                 "avg_pass"
-#             ]
-#             or 0,
-#             "highest_average_score": stats.aggregate(max_avg=Max("average_score"))[
-#                 "max_avg"
-#             ]
-#             or 0,
-#         }
-
-#         return Response(summary_data)
-
-#     @action(detail=True, methods=["post"])
-#     def recalculate(self, request, pk=None):
-#         """Recalculate statistics for a specific exam"""
-#         stats = self.get_object()
-#         exam = stats.exam
-
-#         # Use the helper method from ExamViewSet
-#         exam_viewset = ExamViewSet()
-#         exam_viewset._generate_exam_statistics(exam)
-
-#         # Refresh the statistics object
-#         stats.refresh_from_db()
-#         serializer = self.get_serializer(stats)
-
-#         return Response(
-#             {
-#                 "message": "Statistics recalculated successfully",
-#                 "statistics": serializer.data,
-#             }
-#         )
-# from rest_framework import viewsets, filters, status, permissions
-# from rest_framework.decorators import action
-# from rest_framework.response import Response
-# from django_filters.rest_framework import DjangoFilterBackend
-# from django.http import HttpResponse
-# from django.core.exceptions import ValidationError
-# from django.db import transaction
-# from django.db.models import Q, Count, Avg, Max, Min
-# from django.utils import timezone
-# from io import TextIOWrapper
-# import csv
-# from datetime import datetime, timedelta
-# from utils.section_filtering import SectionFilterMixin, AutoSectionFilterMixin
-# import logging
-
-# # Import models
-# from .models import Exam, ExamSchedule, ExamRegistration, ExamStatistics
-# from result.models import StudentResult
-# from classroom.models import GradeLevel, Section
-# from subject.models import Subject
-# from teacher.models import Teacher
-# from students.models import Student
-# from django.shortcuts import render, redirect
-# from django.contrib import messages
-# from .forms import ExamForm, ExamScheduleForm
-
-
-# # Import serializers
-# from .serializers import (
-#     ExamListSerializer,
-#     ExamDetailSerializer,
-#     ExamCreateUpdateSerializer,
-#     ExamScheduleSerializer,
-#     ExamRegistrationSerializer,
-#     ResultSerializer,
-#     ResultCreateUpdateSerializer,
-#     ExamStatisticsSerializer,
-# )
-
-# # Import filters
-# from .filters import ExamFilter
-
-# logger = logging.getLogger(__name__)
-
-
-# def create_exam(request):
-#     if request.method == "POST":
-#         form = ExamForm(request.POST)
-#         if form.is_valid():
-#             exam = form.save()
-#             messages.success(request, f'Exam "{exam.title}" created successfully!')
-#             return redirect("exam_list")
-#     else:
-#         form = ExamForm()
-
-#     return render(request, "exams/exam_form.html", {"form": form})
-
-
-# def create_exam_schedule(request):
-#     if request.method == "POST":
-#         form = ExamScheduleForm(request.POST)
-#         if form.is_valid():
-#             schedule = form.save()
-#             messages.success(
-#                 request, f'Exam schedule "{schedule.name}" created successfully!'
-#             )
-#             return redirect("exam_schedule_list")
-#     else:
-#         form = ExamScheduleForm()
-
-#     return render(request, "exams/exam_schedule_form.html", {"form": form})
-
-
-# class ExamViewSet(AutoSectionFilterMixin, viewsets.ModelViewSet):
-#     """
-#     Streamlined ViewSet for managing exams with section-based filtering
-#     """
-
-#     queryset = Exam.objects.select_related(
-#         "subject", "grade_level", "section", "teacher"
-#     ).prefetch_related("invigilators")
-
-#     filter_backends = [
-#         DjangoFilterBackend,
-#         filters.SearchFilter,
-#         filters.OrderingFilter,
-#     ]
-#     filterset_class = ExamFilter
-#     search_fields = ["title", "description", "code", "subject__name", "venue"]
-#     ordering_fields = ["exam_date", "start_time", "title", "created_at"]
-#     ordering = ["-exam_date", "start_time"]
-#     permission_classes = [permissions.IsAuthenticated]
-
-#     def get_serializer_class(self):
-#         """Return appropriate serializer based on action"""
-#         if self.action == "list":
-#             return ExamListSerializer
-#         elif self.action in ["create", "update", "partial_update"]:
-#             return ExamCreateUpdateSerializer
-#         return ExamDetailSerializer
-
-#     def _get_section_education_levels(self, user):
-#         """
-#         Helper method to get education levels based on user's section/role
-#         Returns a list of education levels the user can access
-#         """
-#         # Map user sections to education levels
-#         SECTION_TO_EDUCATION_LEVEL = {
-#             "nursery": ["NURSERY"],
-#             "primary": ["PRIMARY"],
-#             "junior_secondary": ["JUNIOR_SECONDARY"],
-#             "senior_secondary": ["SENIOR_SECONDARY"],
-#             "secondary": ["JUNIOR_SECONDARY", "SENIOR_SECONDARY"],  # Both JSS and SSS
-#         }
-
-#         # Map user roles to sections (for backward compatibility)
-#         ROLE_TO_SECTION = {
-#             "nursery_admin": "nursery",
-#             "primary_admin": "primary",
-#             "junior_secondary_admin": "junior_secondary",
-#             "senior_secondary_admin": "senior_secondary",
-#             "secondary_admin": "secondary",
-#         }
-
-#         # Get section from user.section first, fallback to role mapping
-#         user_section = user.section
-#         if not user_section and user.role in ROLE_TO_SECTION:
-#             user_section = ROLE_TO_SECTION[user.role]
-
-#         # Return education levels for the user's section
-#         return SECTION_TO_EDUCATION_LEVEL.get(user_section, [])
-
-#     def get_queryset(self):
-#         """Optimize queryset for list view with section filtering"""
-#         queryset = super().get_queryset()
-
-#         if self.action == "list":
-#             queryset = queryset.annotate(
-#                 registered_students_count=Count("examregistration", distinct=True)
-#             )
-
-#         # Apply section-based filtering for authenticated users
-#         if self.request.user.is_authenticated:
-#             user = self.request.user
-
-#             # 🟢 SUPERADMIN: See all exams
-#             if user.is_superuser:
-#                 logger.info(f"Superadmin {user.username} accessing all exams")
-#                 return queryset
-
-#             # 🟢 SECTION ADMINS: See only their section's exams
-#             if user.is_staff and user.is_section_admin:
-#                 education_levels = self._get_section_education_levels(user)
-#                 if not education_levels:
-#                     logger.warning(
-#                         f"Section admin {user.username} has no valid section, returning empty queryset"
-#                     )
-#                     return queryset.none()
-
-#                 logger.info(
-#                     f"Section admin {user.username} ({user.role}) accessing exams for: {education_levels}"
-#                 )
-#                 return queryset.filter(
-#                     grade_level__education_level__in=education_levels
-#                 )
-
-#             # 🟢 TEACHERS: See only their own exams
-#             if hasattr(user, "teacher"):
-#                 logger.info(f"Teacher {user.username} accessing their own exams")
-#                 return queryset.filter(teacher_id=user.teacher.id)
-
-#             # 🟢 REGULAR STAFF (non-section admins): See all exams
-#             if user.is_staff:
-#                 logger.info(f"Staff {user.username} accessing all exams")
-#                 return queryset
-
-#             # 🟢 STUDENTS/PARENTS: Filter by section access
-#             section_access = self.get_user_section_access()
-#             education_levels = self.get_education_levels_for_sections(section_access)
-
-#             if not education_levels:
-#                 return queryset.none()
-
-#             queryset = queryset.filter(
-#                 grade_level__education_level__in=education_levels
-#             )
-
-#         return queryset
-
-#     def perform_create(self, serializer):
-#         serializer.save(created_by=self.request.user)
-
-#     def perform_update(self, serializer):
-#         serializer.save(updated_by=self.request.user)
-
-#     @action(detail=False, methods=["post"])
-#     def bulk_create(self, request):
-#         """Bulk create results"""
-#         results_data = request.data.get("results", [])
-
-#         if not results_data:
-#             return Response(
-#                 {"error": "Results data is required"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         created_results = []
-#         errors = []
-
-#         with transaction.atomic():
-#             for i, result_data in enumerate(results_data):
-#                 serializer = ResultCreateUpdateSerializer(data=result_data)
-#                 if serializer.is_valid():
-#                     result = serializer.save(recorded_by=request.user)
-#                     created_results.append(result.id)
-#                 else:
-#                     errors.append({"index": i, "errors": serializer.errors})
-
-#             if errors:
-#                 transaction.set_rollback(True)
-#                 return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
-
-#         return Response(
-#             {
-#                 "message": f"Created {len(created_results)} results",
-#                 "created_ids": created_results,
-#             },
-#             status=status.HTTP_201_CREATED,
-#         )
-
-#     @action(detail=False, methods=["post"])
-#     def bulk_update(self, request):
-#         """Bulk update results"""
-#         results_data = request.data.get("results", [])
-
-#         if not results_data:
-#             return Response(
-#                 {"error": "Results data is required"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         updated_count = 0
-#         errors = []
-
-#         with transaction.atomic():
-#             for i, result_data in enumerate(results_data):
-#                 result_id = result_data.get("id")
-#                 if not result_id:
-#                     errors.append({"index": i, "error": "Result ID is required"})
-#                     continue
-
-#                 try:
-#                     result = StudentResult.objects.get(id=result_id)
-#                     serializer = ResultCreateUpdateSerializer(
-#                         result, data=result_data, partial=True
-#                     )
-#                     if serializer.is_valid():
-#                         serializer.save(updated_by=request.user)
-#                         updated_count += 1
-#                     else:
-#                         errors.append({"index": i, "errors": serializer.errors})
-#                 except StudentResult.DoesNotExist:
-#                     errors.append(
-#                         {"index": i, "error": f"Result {result_id} not found"}
-#                     )
-#                 except Exception as e:
-#                     errors.append({"index": i, "error": str(e)})
-
-#             if errors:
-#                 transaction.set_rollback(True)
-#                 return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
-
-#         return Response(
-#             {
-#                 "message": f"Updated {updated_count} results",
-#                 "updated_count": updated_count,
-#             }
-#         )
-
-#     @action(detail=False, methods=["get"])
-#     def by_student(self, request, student_id=None):
-#         """Get results by student"""
-#         if not student_id:
-#             return Response(
-#                 {"error": "Student ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         results = self.get_queryset().filter(student_id=student_id)
-#         serializer = self.get_serializer(results, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def by_exam(self, request, exam_id=None):
-#         """Get results by exam"""
-#         if not exam_id:
-#             return Response(
-#                 {"error": "Exam ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         results = self.get_queryset().filter(exam_id=exam_id)
-#         serializer = self.get_serializer(results, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def by_subject(self, request, subject_id=None):
-#         """Get results by subject"""
-#         if not subject_id:
-#             return Response(
-#                 {"error": "Subject ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         results = self.get_queryset().filter(subject_id=subject_id)
-#         serializer = self.get_serializer(results, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def by_grade(self, request, grade_id=None):
-#         """Get results by grade level"""
-#         if not grade_id:
-#             return Response(
-#                 {"error": "Grade ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         results = self.get_queryset().filter(grade_level_id=grade_id)
-#         serializer = self.get_serializer(results, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def student_transcript(self, request, student_id=None):
-#         """Get student transcript"""
-#         if not student_id:
-#             return Response(
-#                 {"error": "Student ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         results = (
-#             self.get_queryset()
-#             .filter(student_id=student_id)
-#             .order_by("exam__exam_date")
-#         )
-#         serializer = self.get_serializer(results, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def grade_sheet(self, request, exam_id=None):
-#         """Get grade sheet for an exam"""
-#         if not exam_id:
-#             return Response(
-#                 {"error": "Exam ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         results = (
-#             self.get_queryset()
-#             .filter(exam_id=exam_id)
-#             .order_by("student__user__first_name")
-#         )
-#         serializer = self.get_serializer(results, many=True)
-#         return Response(serializer.data)
-
-#     # Core Exam Management
-#     @action(detail=True, methods=["post"])
-#     def start_exam(self, request, pk=None):
-#         """Start an exam"""
-#         exam = self.get_object()
-
-#         if exam.status != "scheduled":
-#             return Response(
-#                 {"error": "Only scheduled exams can be started"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         exam.status = "in_progress"
-#         exam.save()
-#         return Response({"message": "Exam started successfully"})
-
-#     @action(detail=True, methods=["post"])
-#     def end_exam(self, request, pk=None):
-#         """End an exam and generate statistics"""
-#         exam = self.get_object()
-
-#         if exam.status != "in_progress":
-#             return Response(
-#                 {"error": "Only exams in progress can be ended"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         exam.status = "completed"
-#         exam.save()
-
-#         # Generate statistics
-#         self._generate_exam_statistics(exam)
-#         return Response({"message": "Exam ended successfully"})
-
-#     @action(detail=True, methods=["post"])
-#     def cancel_exam(self, request, pk=None):
-#         """Cancel an exam"""
-#         exam = self.get_object()
-
-#         if exam.status == "completed":
-#             return Response(
-#                 {"error": "Cannot cancel completed exam"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         exam.status = "cancelled"
-#         exam.cancellation_reason = request.data.get("reason", "")
-#         exam.save()
-#         return Response({"message": "Exam cancelled successfully"})
-
-#     @action(detail=True, methods=["post"])
-#     def postpone_exam(self, request, pk=None):
-#         """Postpone an exam"""
-#         exam = self.get_object()
-#         new_date = request.data.get("new_date")
-#         new_start_time = request.data.get("new_start_time")
-#         new_end_time = request.data.get("new_end_time")
-#         reason = request.data.get("reason", "")
-
-#         if not new_date:
-#             return Response(
-#                 {"error": "New date is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         if exam.status == "completed":
-#             return Response(
-#                 {"error": "Cannot postpone completed exam"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         exam.exam_date = new_date
-#         if new_start_time:
-#             exam.start_time = new_start_time
-#         if new_end_time:
-#             exam.end_time = new_end_time
-
-#         exam.postponement_reason = reason
-#         exam.save()
-
-#         return Response({"message": "Exam postponed successfully"})
-
-#     # Approval Workflow
-#     @action(detail=True, methods=["post"])
-#     def approve(self, request, pk=None):
-#         """Approve an exam"""
-#         exam = self.get_object()
-
-#         if exam.status != "pending_approval":
-#             return Response(
-#                 {"error": "Only exams pending approval can be approved"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         approver = None
-#         if hasattr(request, "user") and request.user.is_authenticated:
-#             try:
-#                 from teacher.models import Teacher
-
-#                 approver = Teacher.objects.get(user=request.user)
-#             except Teacher.DoesNotExist:
-#                 pass
-
-#         notes = request.data.get("notes", "")
-#         exam.approve(approver, notes)
-
-#         return Response(
-#             {
-#                 "message": "Exam approved successfully",
-#                 "status": exam.status,
-#                 "approved_at": exam.approved_at,
-#                 "approved_by": exam.approved_by.id if exam.approved_by else None,
-#             }
-#         )
-
-#     @action(detail=True, methods=["post"])
-#     def reject(self, request, pk=None):
-#         """Reject an exam"""
-#         exam = self.get_object()
-
-#         if exam.status != "pending_approval":
-#             return Response(
-#                 {"error": "Only exams pending approval can be rejected"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         approver = None
-#         if hasattr(request, "user") and request.user.is_authenticated:
-#             try:
-#                 from teacher.models import Teacher
-
-#                 approver = Teacher.objects.get(user=request.user)
-#             except Teacher.DoesNotExist:
-#                 pass
-
-#         reason = request.data.get("reason", "")
-#         exam.reject(approver, reason)
-
-#         return Response(
-#             {
-#                 "message": "Exam rejected successfully",
-#                 "status": exam.status,
-#                 "rejected_at": exam.approved_at,
-#                 "rejected_by": exam.approved_by.id if exam.approved_by else None,
-#                 "rejection_reason": exam.rejection_reason,
-#             }
-#         )
-
-#     @action(detail=True, methods=["post"])
-#     def submit_for_approval(self, request, pk=None):
-#         """Submit exam for approval"""
-#         exam = self.get_object()
-
-#         if exam.status not in ["draft", "rejected"]:
-#             return Response(
-#                 {"error": "Only draft or rejected exams can be submitted for approval"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         exam.submit_for_approval()
-
-#         return Response(
-#             {
-#                 "message": "Exam submitted for approval successfully",
-#                 "status": exam.status,
-#             }
-#         )
-
-#     # Student Registration
-#     @action(detail=True, methods=["post"])
-#     def register_student(self, request, pk=None):
-#         """Register a student for an exam"""
-#         exam = self.get_object()
-#         student_id = request.data.get("student_id")
-
-#         if not student_id:
-#             return Response(
-#                 {"error": "Student ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         try:
-#             student = Student.objects.get(id=student_id)
-#         except Student.DoesNotExist:
-#             return Response(
-#                 {"error": "Student not found"}, status=status.HTTP_404_NOT_FOUND
-#             )
-
-#         if ExamRegistration.objects.filter(exam=exam, student=student).exists():
-#             return Response(
-#                 {"error": "Student already registered for this exam"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         registration = ExamRegistration.objects.create(
-#             exam=exam, student=student, registration_date=timezone.now()
-#         )
-
-#         serializer = ExamRegistrationSerializer(registration)
-#         return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-#     @action(detail=True, methods=["delete"])
-#     def unregister_student(self, request, pk=None):
-#         """Unregister a student from an exam"""
-#         exam = self.get_object()
-#         student_id = request.data.get("student_id")
-
-#         try:
-#             registration = ExamRegistration.objects.get(
-#                 exam=exam, student_id=student_id
-#             )
-#             registration.delete()
-#             return Response({"message": "Student unregistered successfully"})
-#         except ExamRegistration.DoesNotExist:
-#             return Response(
-#                 {"error": "Registration not found"}, status=status.HTTP_404_NOT_FOUND
-#             )
-
-#     @action(detail=True, methods=["get"])
-#     def registrations(self, request, pk=None):
-#         """Get all registrations for an exam"""
-#         exam = self.get_object()
-#         registrations = ExamRegistration.objects.filter(exam=exam).select_related(
-#             "student"
-#         )
-#         serializer = ExamRegistrationSerializer(registrations, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=True, methods=["get"])
-#     def get_registrations(self, request, pk=None):
-#         """Get all registrations for an exam (alias for registrations)"""
-#         return self.registrations(request, pk)
-
-#     @action(detail=True, methods=["get"])
-#     def get_results(self, request, pk=None):
-#         """Get results for an exam (alias for results)"""
-#         return self.results(request, pk)
-
-#     @action(detail=True, methods=["get"])
-#     def get_statistics(self, request, pk=None):
-#         """Get statistics for an exam (alias for statistics)"""
-#         return self.statistics(request, pk)
-
-#     # Results Management
-#     @action(detail=True, methods=["get"])
-#     def results(self, request, pk=None):
-#         """Get results for an exam"""
-#         exam = self.get_object()
-#         results = StudentResult.objects.filter(exam=exam).select_related("student")
-#         serializer = ResultSerializer(results, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=True, methods=["post"])
-#     def bulk_create_results(self, request, pk=None):
-#         """Bulk create results for an exam"""
-#         exam = self.get_object()
-#         results_data = request.data.get("results", [])
-
-#         if not results_data:
-#             return Response(
-#                 {"error": "Results data is required"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         created_results = []
-#         errors = []
-
-#         with transaction.atomic():
-#             for i, result_data in enumerate(results_data):
-#                 result_data["exam"] = exam.id
-#                 result_data["subject"] = exam.subject.id
-
-#                 serializer = ResultCreateUpdateSerializer(data=result_data)
-#                 if serializer.is_valid():
-#                     result = serializer.save(recorded_by=request.user)
-#                     created_results.append(result.id)
-#                 else:
-#                     errors.append({"index": i, "errors": serializer.errors})
-
-#             if errors:
-#                 transaction.set_rollback(True)
-#                 return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
-
-#         return Response(
-#             {
-#                 "message": f"Created {len(created_results)} results",
-#                 "created_ids": created_results,
-#             },
-#             status=status.HTTP_201_CREATED,
-#         )
-
-#     @action(detail=True, methods=["get"])
-#     def statistics(self, request, pk=None):
-#         """Get statistics for an exam"""
-#         exam = self.get_object()
-#         stats, created = ExamStatistics.objects.get_or_create(
-#             exam=exam, defaults={"calculated_at": timezone.now()}
-#         )
-
-#         if not created and stats.calculated_at < timezone.now() - timedelta(hours=1):
-#             self._generate_exam_statistics(exam)
-#             stats.refresh_from_db()
-
-#         serializer = ExamStatisticsSerializer(stats)
-#         return Response(serializer.data)
-
-#     # Essential Filters
-#     @action(detail=False, methods=["get"])
-#     def upcoming(self, request):
-#         """Get upcoming exams"""
-#         today = timezone.now().date()
-#         exams = (
-#             self.get_queryset()
-#             .filter(exam_date__gte=today, status="scheduled")
-#             .order_by("exam_date", "start_time")
-#         )
-
-#         serializer = self.get_serializer(exams, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def by_schedule(self, request):
-#         """Get exams by schedule"""
-#         schedule_id = request.GET.get("schedule_id")
-#         if not schedule_id:
-#             return Response(
-#                 {"error": "Schedule ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         exams = self.get_queryset().filter(exam_schedule_id=schedule_id)
-#         serializer = self.get_serializer(exams, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def by_teacher(self, request, teacher_id=None):
-#         try:
-#             teacher = Teacher.objects.get(id=teacher_id)
-#         except Teacher.DoesNotExist:
-#             return Response(
-#                 {"error": "Teacher not found"}, status=status.HTTP_404_NOT_FOUND
-#             )
-
-#         exams = self.get_queryset().filter(teacher_id=teacher.id)
-#         serializer = self.get_serializer(exams, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def by_subject(self, request, subject_id=None):
-#         """Get exams by subject"""
-#         if not subject_id:
-#             return Response(
-#                 {"error": "Subject ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         exams = self.get_queryset().filter(subject_id=subject_id)
-#         serializer = self.get_serializer(exams, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def by_grade(self, request, grade_id=None):
-#         """Get exams by grade level"""
-#         if not grade_id:
-#             return Response(
-#                 {"error": "Grade ID is required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         exams = self.get_queryset().filter(grade_level_id=grade_id)
-#         serializer = self.get_serializer(exams, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def completed(self, request):
-#         """Get completed exams"""
-#         exams = self.get_queryset().filter(status="completed")
-#         serializer = self.get_serializer(exams, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def ongoing(self, request):
-#         """Get ongoing exams"""
-#         exams = self.get_queryset().filter(status="in_progress")
-#         serializer = self.get_serializer(exams, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def calendar_view(self, request):
-#         """Get exams in calendar format"""
-#         start_date = request.GET.get("start_date")
-#         end_date = request.GET.get("end_date")
-
-#         queryset = self.get_queryset()
-
-#         if start_date:
-#             queryset = queryset.filter(exam_date__gte=start_date)
-#         if end_date:
-#             queryset = queryset.filter(exam_date__lte=end_date)
-
-#         exams = queryset.order_by("exam_date", "start_time")
-#         serializer = self.get_serializer(exams, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["get"])
-#     def summary_list(self, request):
-#         """Get exam summary list"""
-#         exams = self.get_queryset().annotate(
-#             registered_students_count=Count("examregistration", distinct=True)
-#         )
-#         serializer = self.get_serializer(exams, many=True)
-#         return Response(serializer.data)
-
-#     @action(detail=False, methods=["post"])
-#     def bulk_update(self, request):
-#         """Bulk update exams"""
-#         exam_ids = request.data.get("exam_ids", [])
-#         update_data = request.data.get("update_data", {})
-
-#         if not exam_ids:
-#             return Response(
-#                 {"error": "Exam IDs are required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         updated_count = 0
-#         errors = []
-
-#         with transaction.atomic():
-#             for exam_id in exam_ids:
-#                 try:
-#                     exam = Exam.objects.get(id=exam_id)
-#                     for field, value in update_data.items():
-#                         if hasattr(exam, field):
-#                             setattr(exam, field, value)
-#                     exam.save()
-#                     updated_count += 1
-#                 except Exam.DoesNotExist:
-#                     errors.append(f"Exam {exam_id} not found")
-#                 except Exception as e:
-#                     errors.append(f"Exam {exam_id}: {str(e)}")
-
-#         return Response(
-#             {
-#                 "message": f"Updated {updated_count} exams",
-#                 "updated_count": updated_count,
-#                 "errors": errors,
-#             }
-#         )
-
-#     @action(detail=False, methods=["post"])
-#     def bulk_delete(self, request):
-#         """Bulk delete exams"""
-#         exam_ids = request.data.get("exam_ids", [])
-
-#         if not exam_ids:
-#             return Response(
-#                 {"error": "Exam IDs are required"}, status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         deleted_count = 0
-#         errors = []
-
-#         with transaction.atomic():
-#             for exam_id in exam_ids:
-#                 try:
-#                     exam = Exam.objects.get(id=exam_id)
-#                     exam.delete()
-#                     deleted_count += 1
-#                 except Exam.DoesNotExist:
-#                     errors.append(f"Exam {exam_id} not found")
-#                 except Exception as e:
-#                     errors.append(f"Exam {exam_id}: {str(e)}")
-
-#         return Response(
-#             {
-#                 "message": f"Deleted {deleted_count} exams",
-#                 "deleted_count": deleted_count,
-#                 "errors": errors,
-#             }
-#         )
-
-#     # Import/Export
-#     @action(detail=False, methods=["post"])
-#     def import_csv(self, request):
-#         """Import exams from CSV"""
-#         file = request.FILES.get("file")
-#         if not file or not file.name.endswith(".csv"):
-#             return Response(
-#                 {"error": "Valid CSV file is required"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-#         try:
-#             decoded_file = TextIOWrapper(file.file, encoding="utf-8")
-#             reader = csv.DictReader(decoded_file)
-
-#             required_headers = [
-#                 "title",
-#                 "subject",
-#                 "grade_level",
-#                 "exam_date",
-#                 "start_time",
-#                 "end_time",
-#             ]
-#             missing_headers = [
-#                 h for h in required_headers if h not in reader.fieldnames
-#             ]
-
-#             if missing_headers:
-#                 return Response(
-#                     {
-#                         "error": f'Missing required columns: {", ".join(missing_headers)}'
-#                     },
-#                     status=status.HTTP_400_BAD_REQUEST,
-#                 )
-
-#             created_exams = []
-#             errors = []
-
-#             with transaction.atomic():
-#                 for row_num, row in enumerate(reader, start=2):
-#                     try:
-#                         exam_data = self._process_csv_row(row, row_num)
-#                         if "error" in exam_data:
-#                             errors.append(exam_data["error"])
-#                             continue
-
-#                         serializer = ExamCreateUpdateSerializer(data=exam_data)
-#                         if serializer.is_valid():
-#                             exam = serializer.save(created_by=request.user)
-#                             created_exams.append(exam.id)
-#                         else:
-#                             errors.append(f"Row {row_num}: {serializer.errors}")
-
-#                     except Exception as e:
-#                         errors.append(f"Row {row_num}: {str(e)}")
-
-#                 if errors:
-#                     transaction.set_rollback(True)
-#                     return Response(
-#                         {"error": "CSV import failed", "details": errors},
-#                         status=status.HTTP_400_BAD_REQUEST,
-#                     )
-
-#             return Response(
-#                 {
-#                     "message": f"Successfully imported {len(created_exams)} exams",
-#                     "created_exam_ids": created_exams,
-#                 },
-#                 status=status.HTTP_201_CREATED,
-#             )
-
-#         except Exception as e:
-#             logger.error(f"CSV import error: {str(e)}")
-#             return Response(
-#                 {"error": f"Import failed: {str(e)}"},
-#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-#             )
 from rest_framework import viewsets, filters, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -2328,6 +18,9 @@ import logging
 # Import models
 from .models import (
     Exam,
+    ExamType,
+    ExamStatus,
+    DifficultyLevel,
     ExamSchedule,
     ExamRegistration,
     ExamStatistics,
@@ -2336,6 +29,7 @@ from .models import (
     ExamReview,
     ExamReviewer,
     ExamReviewComment,
+    ReviewStatus,
 )
 from result.models import StudentResult
 from classroom.models import GradeLevel, Section
@@ -2379,6 +73,43 @@ from .filters import ExamFilter
 logger = logging.getLogger(__name__)
 
 
+# ==============================================================================
+# FK HELPER UTILITIES
+# ==============================================================================
+
+
+def _get_exam_status(code, tenant):
+    """Fetch an ExamStatus instance by code, scoped to tenant. Returns None if not found."""
+    try:
+        return ExamStatus.objects.get(code=code, tenant=tenant)
+    except ExamStatus.DoesNotExist:
+        logger.error(f"ExamStatus with code='{code}' not found for tenant={tenant}")
+        return None
+
+
+def _get_review_status(code, tenant):
+    """Fetch a ReviewStatus instance by code, scoped to tenant. Returns None if not found."""
+    try:
+        return ReviewStatus.objects.get(code=code, tenant=tenant)
+    except ReviewStatus.DoesNotExist:
+        logger.error(f"ReviewStatus with code='{code}' not found for tenant={tenant}")
+        return None
+
+
+def _exam_status_code(exam):
+    """Safely get the code string from an exam's FK status. Returns '' if unset."""
+    return exam.status.code if exam.status else ""
+
+
+def _review_status_code(review):
+    """Safely get the code string from a review's FK status. Returns '' if unset."""
+    return review.status.code if review.status else ""
+
+
+# ==============================================================================
+# TEMPLATE VIEWS
+# ==============================================================================
+
 def create_exam(request):
     if request.method == "POST":
         form = ExamForm(request.POST)
@@ -2407,76 +138,50 @@ def create_exam_schedule(request):
     return render(request, "exams/exam_schedule_form.html", {"form": form})
 
 
-class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+# ==============================================================================
+# SECTION EDUCATION LEVEL HELPER MIXIN
+# ==============================================================================
+
+
+class SectionEducationLevelMixin:
     """
-    CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
-    Streamlined ViewSet for managing exams with section-based filtering
+    Reusable mixin providing _get_section_education_levels().
+    Eliminates the copy-pasted version in every ViewSet.
     """
 
-    queryset = Exam.objects.select_related(
-        "subject", "grade_level", "section", "teacher"
-    ).prefetch_related("invigilators")
+    SECTION_TO_EDUCATION_LEVEL = {
+        "nursery": ["NURSERY"],
+        "primary": ["PRIMARY"],
+        "junior_secondary": ["JUNIOR_SECONDARY"],
+        "senior_secondary": ["SENIOR_SECONDARY"],
+        "secondary": ["JUNIOR_SECONDARY", "SENIOR_SECONDARY"],
+    }
 
-    filter_backends = [
-        DjangoFilterBackend,
-        filters.SearchFilter,
-        filters.OrderingFilter,
-    ]
-    filterset_class = ExamFilter
-    search_fields = ["title", "description", "code", "subject__name", "venue"]
-    ordering_fields = ["exam_date", "start_time", "title", "created_at"]
-    ordering = ["-exam_date", "start_time"]
-    permission_classes = [permissions.IsAuthenticated]
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate exams
-
-    def get_serializer_class(self):
-        """Return appropriate serializer based on action"""
-        if self.action == "list":
-            return ExamListSerializer
-        elif self.action in ["create", "update", "partial_update"]:
-            return ExamCreateUpdateSerializer
-        return ExamDetailSerializer
+    ROLE_TO_SECTION = {
+        "nursery_admin": "nursery",
+        "primary_admin": "primary",
+        "junior_secondary_admin": "junior_secondary",
+        "senior_secondary_admin": "senior_secondary",
+        "secondary_admin": "secondary",
+    }
 
     def _get_section_education_levels(self, user_or_section):
-        """
-        Universal helper method to get education levels
-        """
-        SECTION_TO_EDUCATION_LEVEL = {
-            "nursery": ["NURSERY"],
-            "primary": ["PRIMARY"],
-            "junior_secondary": ["JUNIOR_SECONDARY"],
-            "senior_secondary": ["SENIOR_SECONDARY"],
-            "secondary": ["JUNIOR_SECONDARY", "SENIOR_SECONDARY"],
-        }
-
-        ROLE_TO_SECTION = {
-            "nursery_admin": "nursery",
-            "primary_admin": "primary",
-            "junior_secondary_admin": "junior_secondary",
-            "senior_secondary_admin": "senior_secondary",
-            "secondary_admin": "secondary",
-        }
-
-        # User object
+        """Return a list of education level strings for the given user or section."""
         if hasattr(user_or_section, "section") and hasattr(user_or_section, "role"):
             user_section = user_or_section.section
-            if not user_section and user_or_section.role in ROLE_TO_SECTION:
-                user_section = ROLE_TO_SECTION[user_or_section.role]
-            return SECTION_TO_EDUCATION_LEVEL.get(user_section, [])
+            if not user_section and user_or_section.role in self.ROLE_TO_SECTION:
+                user_section = self.ROLE_TO_SECTION[user_or_section.role]
+            return self.SECTION_TO_EDUCATION_LEVEL.get(user_section, [])
 
-        # Section model instance OR string containing section/classroom name
-        section_name = None
-        if hasattr(user_or_section, "name"):
-            section_name = str(user_or_section.name).lower()
-        else:
-            section_name = str(user_or_section).lower()
+        section_name = (
+            str(user_or_section.name).lower()
+            if hasattr(user_or_section, "name")
+            else str(user_or_section).lower()
+        )
 
-        # First try the exact match in our mapping
-        if section_name in SECTION_TO_EDUCATION_LEVEL:
-            return SECTION_TO_EDUCATION_LEVEL[section_name]
+        if section_name in self.SECTION_TO_EDUCATION_LEVEL:
+            return self.SECTION_TO_EDUCATION_LEVEL[section_name]
 
-        # If not an exact match, parse the name to detect education level
-        # Handle names like "Primary 1 - Section A", "Nursery 2 - Section B", etc.
         if (
             "nursery" in section_name
             or "pre-nursery" in section_name
@@ -2498,40 +203,79 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
         ):
             return ["SENIOR_SECONDARY"]
 
-        # Last resort: log and return empty list
         logger.warning(
             f"Could not determine education level for section: {section_name}"
         )
         return []
 
+
+# ==============================================================================
+# EXAM VIEWSET
+# ==============================================================================
+
+
+class ExamViewSet(
+    SectionEducationLevelMixin,
+    TenantFilterMixin,
+    AutoSectionFilterMixin,
+    viewsets.ModelViewSet,
+):
+    """
+    CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
+    Streamlined ViewSet for managing exams with section-based filtering.
+    """
+
+    queryset = Exam.objects.select_related(
+        "subject",
+        "grade_level",
+        "section",
+        "teacher",
+        "exam_type",
+        "status",
+        "difficulty_level",  # FK fields
+    ).prefetch_related("invigilators")
+
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter,
+    ]
+    filterset_class = ExamFilter
+    search_fields = ["title", "description", "code", "subject__name", "venue"]
+    ordering_fields = ["exam_date", "start_time", "title", "created_at"]
+    ordering = ["-exam_date", "start_time"]
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsPagination
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return ExamListSerializer
+        elif self.action in ["create", "update", "partial_update"]:
+            return ExamCreateUpdateSerializer
+        return ExamDetailSerializer
+
     def get_queryset(self):
-        """Apply section filtering"""
         queryset = super().get_queryset()
         user = self.request.user
 
         if not user.is_authenticated:
             return queryset.none()
 
-        # Super admin sees everything
         if user.is_superuser:
             logger.info(f"✅ Superuser {user.username} - Full access to all exams")
             return queryset
 
-        # Get user role
         role = (
             self.get_user_role()
             if hasattr(self, "get_user_role")
             else getattr(user, "role", None)
         )
-
         logger.info(f"📋 User {user.username} has role: {role}")
 
-        # Admin/Principal sees everything
         if role in ["admin", "superadmin", "principal"]:
             logger.info(f"✅ Admin {user.username} - Full access to all exams")
             return queryset
 
-        # Section admin filtering - FIXED
         if role in [
             "nursery_admin",
             "primary_admin",
@@ -2543,22 +287,17 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
             logger.info(
                 f"🔒 Section admin '{role}' - restricted to: {education_levels}"
             )
-
             if not education_levels:
                 logger.warning(f"❌ No education levels for {user.username}")
                 return queryset.none()
-
             filtered = queryset.filter(
                 grade_level__education_level__in=education_levels
             )
             logger.info(f"✅ Filtered Exams: {filtered.count()} of {queryset.count()}")
             return filtered
 
-        # Teacher filtering
         if role == "teacher" or hasattr(user, "teacher"):
             try:
-                from teacher.models import Teacher
-
                 teacher = Teacher.objects.get(user=user)
                 filtered = queryset.filter(teacher_id=teacher.id)
                 logger.info(f"✅ Teacher can see {filtered.count()} exams")
@@ -2567,30 +306,25 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
                 logger.warning(f"❌ Teacher object not found for {user.username}")
                 return queryset.none()
 
-        # Staff access (general staff without specific role)
         if user.is_staff:
             logger.info(f"✅ Staff {user.username} - Full access")
             return queryset
 
-        # Student/Parent filtering
         if hasattr(self, "get_user_section_access"):
             section_access = self.get_user_section_access()
             education_levels = []
             for section in section_access:
                 education_levels.extend(self._get_section_education_levels(section))
             education_levels = list(set(education_levels))
-
             if not education_levels:
                 logger.warning(f"❌ No education level access for {user.username}")
                 return queryset.none()
-
             filtered = queryset.filter(
                 grade_level__education_level__in=education_levels
             )
             logger.info(f"✅ Student/Parent can see {filtered.count()} exams")
             return filtered
 
-        # Default: no access
         logger.warning(f"❌ No access rules matched for {user.username}")
         return queryset.none()
 
@@ -2600,11 +334,14 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
 
+    # ------------------------------------------------------------------
+    # Bulk result helpers
+    # ------------------------------------------------------------------
+
     @action(detail=False, methods=["post"])
     def bulk_create(self, request):
         """Bulk create results"""
         results_data = request.data.get("results", [])
-
         if not results_data:
             return Response(
                 {"error": "Results data is required"},
@@ -2639,7 +376,6 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
     def bulk_update(self, request):
         """Bulk update results"""
         results_data = request.data.get("results", [])
-
         if not results_data:
             return Response(
                 {"error": "Results data is required"},
@@ -2655,7 +391,6 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
                 if not result_id:
                     errors.append({"index": i, "error": "Result ID is required"})
                     continue
-
                 try:
                     result = StudentResult.objects.get(id=result_id)
                     serializer = ResultCreateUpdateSerializer(
@@ -2684,99 +419,99 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
             }
         )
 
+    # ------------------------------------------------------------------
+    # Result query helpers
+    # ------------------------------------------------------------------
+
     @action(detail=False, methods=["get"])
     def by_student(self, request, student_id=None):
-        """Get results by student"""
         if not student_id:
             return Response(
                 {"error": "Student ID is required"}, status=status.HTTP_400_BAD_REQUEST
             )
-
         results = self.get_queryset().filter(student_id=student_id)
-        serializer = self.get_serializer(results, many=True)
-        return Response(serializer.data)
+        return Response(self.get_serializer(results, many=True).data)
 
     @action(detail=False, methods=["get"])
     def by_exam(self, request, exam_id=None):
-        """Get results by exam"""
         if not exam_id:
             return Response(
                 {"error": "Exam ID is required"}, status=status.HTTP_400_BAD_REQUEST
             )
-
         results = self.get_queryset().filter(exam_id=exam_id)
-        serializer = self.get_serializer(results, many=True)
-        return Response(serializer.data)
+        return Response(self.get_serializer(results, many=True).data)
 
     @action(detail=False, methods=["get"])
     def by_subject(self, request, subject_id=None):
-        """Get results by subject"""
         if not subject_id:
             return Response(
                 {"error": "Subject ID is required"}, status=status.HTTP_400_BAD_REQUEST
             )
-
         results = self.get_queryset().filter(subject_id=subject_id)
-        serializer = self.get_serializer(results, many=True)
-        return Response(serializer.data)
+        return Response(self.get_serializer(results, many=True).data)
 
     @action(detail=False, methods=["get"])
     def by_grade(self, request, grade_id=None):
-        """Get results by grade level"""
         if not grade_id:
             return Response(
                 {"error": "Grade ID is required"}, status=status.HTTP_400_BAD_REQUEST
             )
-
         results = self.get_queryset().filter(grade_level_id=grade_id)
-        serializer = self.get_serializer(results, many=True)
-        return Response(serializer.data)
+        return Response(self.get_serializer(results, many=True).data)
 
     @action(detail=False, methods=["get"])
     def student_transcript(self, request, student_id=None):
-        """Get student transcript"""
         if not student_id:
             return Response(
                 {"error": "Student ID is required"}, status=status.HTTP_400_BAD_REQUEST
             )
-
         results = (
             self.get_queryset()
             .filter(student_id=student_id)
             .order_by("exam__exam_date")
         )
-        serializer = self.get_serializer(results, many=True)
-        return Response(serializer.data)
+        return Response(self.get_serializer(results, many=True).data)
 
     @action(detail=False, methods=["get"])
     def grade_sheet(self, request, exam_id=None):
-        """Get grade sheet for an exam"""
         if not exam_id:
             return Response(
                 {"error": "Exam ID is required"}, status=status.HTTP_400_BAD_REQUEST
             )
-
         results = (
             self.get_queryset()
             .filter(exam_id=exam_id)
             .order_by("student__user__first_name")
         )
-        serializer = self.get_serializer(results, many=True)
-        return Response(serializer.data)
+        return Response(self.get_serializer(results, many=True).data)
 
-    # Core Exam Management
+    # ------------------------------------------------------------------
+    # Core exam status actions — FK-safe assignments
+    # ------------------------------------------------------------------
+
     @action(detail=True, methods=["post"])
     def start_exam(self, request, pk=None):
         """Start an exam"""
         exam = self.get_object()
 
-        if exam.status != "scheduled":
+        # UPDATED: compare via FK .code
+        if _exam_status_code(exam) != "scheduled":
             return Response(
                 {"error": "Only scheduled exams can be started"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        exam.status = "in_progress"
+        # UPDATED: assign FK instance, not raw string
+        in_progress_status = _get_exam_status("in_progress", exam.tenant)
+        if not in_progress_status:
+            return Response(
+                {
+                    "error": "Exam status 'in_progress' not configured. Please create exam statuses first."
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        exam.status = in_progress_status
         exam.save()
         return Response({"message": "Exam started successfully"})
 
@@ -2785,16 +520,25 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
         """End an exam and generate statistics"""
         exam = self.get_object()
 
-        if exam.status != "in_progress":
+        # UPDATED: compare via FK .code
+        if _exam_status_code(exam) != "in_progress":
             return Response(
                 {"error": "Only exams in progress can be ended"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        exam.status = "completed"
-        exam.save()
+        # UPDATED: assign FK instance
+        completed_status = _get_exam_status("completed", exam.tenant)
+        if not completed_status:
+            return Response(
+                {
+                    "error": "Exam status 'completed' not configured. Please create exam statuses first."
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
-        # Generate statistics
+        exam.status = completed_status
+        exam.save()
         self._generate_exam_statistics(exam)
         return Response({"message": "Exam ended successfully"})
 
@@ -2803,13 +547,24 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
         """Cancel an exam"""
         exam = self.get_object()
 
-        if exam.status == "completed":
+        # UPDATED: compare via FK .code
+        if _exam_status_code(exam) == "completed":
             return Response(
                 {"error": "Cannot cancel completed exam"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        exam.status = "cancelled"
+        # UPDATED: assign FK instance
+        cancelled_status = _get_exam_status("cancelled", exam.tenant)
+        if not cancelled_status:
+            return Response(
+                {
+                    "error": "Exam status 'cancelled' not configured. Please create exam statuses first."
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        exam.status = cancelled_status
         exam.cancellation_reason = request.data.get("reason", "")
         exam.save()
         return Response({"message": "Exam cancelled successfully"})
@@ -2828,10 +583,21 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
                 {"error": "New date is required"}, status=status.HTTP_400_BAD_REQUEST
             )
 
-        if exam.status == "completed":
+        # UPDATED: compare via FK .code
+        if _exam_status_code(exam) == "completed":
             return Response(
                 {"error": "Cannot postpone completed exam"},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # UPDATED: assign FK instance
+        postponed_status = _get_exam_status("postponed", exam.tenant)
+        if not postponed_status:
+            return Response(
+                {
+                    "error": "Exam status 'postponed' not configured. Please create exam statuses first."
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         exam.exam_date = new_date
@@ -2839,40 +605,41 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
             exam.start_time = new_start_time
         if new_end_time:
             exam.end_time = new_end_time
-
+        exam.status = postponed_status
         exam.postponement_reason = reason
         exam.save()
-
         return Response({"message": "Exam postponed successfully"})
 
-    # Approval Workflow
+    # ------------------------------------------------------------------
+    # Approval workflow — FK-safe via model methods
+    # ------------------------------------------------------------------
+
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
         """Approve an exam"""
         exam = self.get_object()
 
-        if exam.status != "pending_approval":
+        # UPDATED: compare via FK .code
+        if _exam_status_code(exam) != "pending_approval":
             return Response(
                 {"error": "Only exams pending approval can be approved"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         approver = None
-        if hasattr(request, "user") and request.user.is_authenticated:
+        if request.user.is_authenticated:
             try:
-                from teacher.models import Teacher
-
                 approver = Teacher.objects.get(user=request.user)
             except Teacher.DoesNotExist:
                 pass
 
         notes = request.data.get("notes", "")
-        exam.approve(approver, notes)
+        exam.approve(approver, notes)  # model method handles FK assignment internally
 
         return Response(
             {
                 "message": "Exam approved successfully",
-                "status": exam.status,
+                "status": exam.status.code if exam.status else None,
                 "approved_at": exam.approved_at,
                 "approved_by": exam.approved_by.id if exam.approved_by else None,
             }
@@ -2883,28 +650,27 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
         """Reject an exam"""
         exam = self.get_object()
 
-        if exam.status != "pending_approval":
+        # UPDATED: compare via FK .code
+        if _exam_status_code(exam) != "pending_approval":
             return Response(
                 {"error": "Only exams pending approval can be rejected"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         approver = None
-        if hasattr(request, "user") and request.user.is_authenticated:
+        if request.user.is_authenticated:
             try:
-                from teacher.models import Teacher
-
                 approver = Teacher.objects.get(user=request.user)
             except Teacher.DoesNotExist:
                 pass
 
         reason = request.data.get("reason", "")
-        exam.reject(approver, reason)
+        exam.reject(approver, reason)  # model method handles FK assignment internally
 
         return Response(
             {
                 "message": "Exam rejected successfully",
-                "status": exam.status,
+                "status": exam.status.code if exam.status else None,
                 "rejected_at": exam.approved_at,
                 "rejected_by": exam.approved_by.id if exam.approved_by else None,
                 "rejection_reason": exam.rejection_reason,
@@ -2916,28 +682,30 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
         """Submit exam for approval"""
         exam = self.get_object()
 
-        if exam.status not in ["draft", "rejected"]:
+        # UPDATED: compare via FK .code
+        if _exam_status_code(exam) not in ["draft", "rejected"]:
             return Response(
                 {"error": "Only draft or rejected exams can be submitted for approval"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        exam.submit_for_approval()
+        exam.submit_for_approval()  # model method handles FK assignment internally
 
         return Response(
             {
                 "message": "Exam submitted for approval successfully",
-                "status": exam.status,
+                "status": exam.status.code if exam.status else None,
             }
         )
 
-    # Student Registration
+    # ------------------------------------------------------------------
+    # Student registration
+    # ------------------------------------------------------------------
+
     @action(detail=True, methods=["post"])
     def register_student(self, request, pk=None):
-        """Register a student for an exam"""
         exam = self.get_object()
         student_id = request.data.get("student_id")
-
         if not student_id:
             return Response(
                 {"error": "Student ID is required"}, status=status.HTTP_400_BAD_REQUEST
@@ -2959,16 +727,15 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
         registration = ExamRegistration.objects.create(
             exam=exam, student=student, registration_date=timezone.now()
         )
-
-        serializer = ExamRegistrationSerializer(registration)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(
+            ExamRegistrationSerializer(registration).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     @action(detail=True, methods=["delete"])
     def unregister_student(self, request, pk=None):
-        """Unregister a student from an exam"""
         exam = self.get_object()
         student_id = request.data.get("student_id")
-
         try:
             registration = ExamRegistration.objects.get(
                 exam=exam, student_id=student_id
@@ -2982,44 +749,38 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
 
     @action(detail=True, methods=["get"])
     def registrations(self, request, pk=None):
-        """Get all registrations for an exam"""
         exam = self.get_object()
         registrations = ExamRegistration.objects.filter(exam=exam).select_related(
             "student"
         )
-        serializer = ExamRegistrationSerializer(registrations, many=True)
-        return Response(serializer.data)
+        return Response(ExamRegistrationSerializer(registrations, many=True).data)
 
     @action(detail=True, methods=["get"])
     def get_registrations(self, request, pk=None):
-        """Get all registrations for an exam (alias for registrations)"""
         return self.registrations(request, pk)
 
     @action(detail=True, methods=["get"])
     def get_results(self, request, pk=None):
-        """Get results for an exam (alias for results)"""
         return self.results(request, pk)
 
     @action(detail=True, methods=["get"])
     def get_statistics(self, request, pk=None):
-        """Get statistics for an exam (alias for statistics)"""
         return self.statistics(request, pk)
 
-    # Results Management
+    # ------------------------------------------------------------------
+    # Results management
+    # ------------------------------------------------------------------
+
     @action(detail=True, methods=["get"])
     def results(self, request, pk=None):
-        """Get results for an exam"""
         exam = self.get_object()
         results = StudentResult.objects.filter(exam=exam).select_related("student")
-        serializer = ResultSerializer(results, many=True)
-        return Response(serializer.data)
+        return Response(ResultSerializer(results, many=True).data)
 
     @action(detail=True, methods=["post"])
     def bulk_create_results(self, request, pk=None):
-        """Bulk create results for an exam"""
         exam = self.get_object()
         results_data = request.data.get("results", [])
-
         if not results_data:
             return Response(
                 {"error": "Results data is required"},
@@ -3033,7 +794,6 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
             for i, result_data in enumerate(results_data):
                 result_data["exam"] = exam.id
                 result_data["subject"] = exam.subject.id
-
                 serializer = ResultCreateUpdateSerializer(data=result_data)
                 if serializer.is_valid():
                     result = serializer.save(recorded_by=request.user)
@@ -3055,45 +815,39 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
 
     @action(detail=True, methods=["get"])
     def statistics(self, request, pk=None):
-        """Get statistics for an exam"""
         exam = self.get_object()
         stats, created = ExamStatistics.objects.get_or_create(
             exam=exam, defaults={"calculated_at": timezone.now()}
         )
-
         if not created and stats.calculated_at < timezone.now() - timedelta(hours=1):
             self._generate_exam_statistics(exam)
             stats.refresh_from_db()
+        return Response(ExamStatisticsSerializer(stats).data)
 
-        serializer = ExamStatisticsSerializer(stats)
-        return Response(serializer.data)
+    # ------------------------------------------------------------------
+    # Essential filters
+    # ------------------------------------------------------------------
 
-    # Essential Filters
     @action(detail=False, methods=["get"])
     def upcoming(self, request):
-        """Get upcoming exams"""
+        """Get upcoming exams — FK-safe: filter via status__code"""
         today = timezone.now().date()
         exams = (
             self.get_queryset()
-            .filter(exam_date__gte=today, status="scheduled")
+            .filter(exam_date__gte=today, status__code="scheduled")
             .order_by("exam_date", "start_time")
         )
-
-        serializer = self.get_serializer(exams, many=True)
-        return Response(serializer.data)
+        return Response(self.get_serializer(exams, many=True).data)
 
     @action(detail=False, methods=["get"])
     def by_schedule(self, request):
-        """Get exams by schedule"""
         schedule_id = request.GET.get("schedule_id")
         if not schedule_id:
             return Response(
                 {"error": "Schedule ID is required"}, status=status.HTTP_400_BAD_REQUEST
             )
-
         exams = self.get_queryset().filter(exam_schedule_id=schedule_id)
-        serializer = self.get_serializer(exams, many=True)
-        return Response(serializer.data)
+        return Response(self.get_serializer(exams, many=True).data)
 
     @action(detail=False, methods=["get"])
     def by_teacher(self, request, teacher_id=None):
@@ -3103,81 +857,62 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
             return Response(
                 {"error": "Teacher not found"}, status=status.HTTP_404_NOT_FOUND
             )
-
         exams = self.get_queryset().filter(teacher_id=teacher.id)
-        serializer = self.get_serializer(exams, many=True)
-        return Response(serializer.data)
+        return Response(self.get_serializer(exams, many=True).data)
 
     @action(detail=False, methods=["get"])
     def by_subject(self, request, subject_id=None):
-        """Get exams by subject"""
         if not subject_id:
             return Response(
                 {"error": "Subject ID is required"}, status=status.HTTP_400_BAD_REQUEST
             )
-
         exams = self.get_queryset().filter(subject_id=subject_id)
-        serializer = self.get_serializer(exams, many=True)
-        return Response(serializer.data)
+        return Response(self.get_serializer(exams, many=True).data)
 
     @action(detail=False, methods=["get"])
     def by_grade(self, request, grade_id=None):
-        """Get exams by grade level"""
         if not grade_id:
             return Response(
                 {"error": "Grade ID is required"}, status=status.HTTP_400_BAD_REQUEST
             )
-
         exams = self.get_queryset().filter(grade_level_id=grade_id)
-        serializer = self.get_serializer(exams, many=True)
-        return Response(serializer.data)
+        return Response(self.get_serializer(exams, many=True).data)
 
     @action(detail=False, methods=["get"])
     def completed(self, request):
-        """Get completed exams"""
-        exams = self.get_queryset().filter(status="completed")
-        serializer = self.get_serializer(exams, many=True)
-        return Response(serializer.data)
+        """Get completed exams — FK-safe: filter via status__code"""
+        exams = self.get_queryset().filter(status__code="completed")
+        return Response(self.get_serializer(exams, many=True).data)
 
     @action(detail=False, methods=["get"])
     def ongoing(self, request):
-        """Get ongoing exams"""
-        exams = self.get_queryset().filter(status="in_progress")
-        serializer = self.get_serializer(exams, many=True)
-        return Response(serializer.data)
+        """Get ongoing exams — FK-safe: filter via status__code"""
+        exams = self.get_queryset().filter(status__code="in_progress")
+        return Response(self.get_serializer(exams, many=True).data)
 
     @action(detail=False, methods=["get"])
     def calendar_view(self, request):
-        """Get exams in calendar format"""
         start_date = request.GET.get("start_date")
         end_date = request.GET.get("end_date")
-
         queryset = self.get_queryset()
-
         if start_date:
             queryset = queryset.filter(exam_date__gte=start_date)
         if end_date:
             queryset = queryset.filter(exam_date__lte=end_date)
-
         exams = queryset.order_by("exam_date", "start_time")
-        serializer = self.get_serializer(exams, many=True)
-        return Response(serializer.data)
+        return Response(self.get_serializer(exams, many=True).data)
 
     @action(detail=False, methods=["get"])
     def summary_list(self, request):
-        """Get exam summary list"""
         exams = self.get_queryset().annotate(
             registered_students_count=Count("examregistration", distinct=True)
         )
-        serializer = self.get_serializer(exams, many=True)
-        return Response(serializer.data)
+        return Response(self.get_serializer(exams, many=True).data)
 
     @action(detail=False, methods=["post"])
     def bulk_update(self, request):
-        """Bulk update exams"""
         exam_ids = request.data.get("exam_ids", [])
         update_data = request.data.get("update_data", {})
-
         if not exam_ids:
             return Response(
                 {"error": "Exam IDs are required"}, status=status.HTTP_400_BAD_REQUEST
@@ -3210,9 +945,7 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
 
     @action(detail=False, methods=["post"])
     def bulk_delete(self, request):
-        """Bulk delete exams"""
         exam_ids = request.data.get("exam_ids", [])
-
         if not exam_ids:
             return Response(
                 {"error": "Exam IDs are required"}, status=status.HTTP_400_BAD_REQUEST
@@ -3224,8 +957,7 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
         with transaction.atomic():
             for exam_id in exam_ids:
                 try:
-                    exam = Exam.objects.get(id=exam_id)
-                    exam.delete()
+                    Exam.objects.get(id=exam_id).delete()
                     deleted_count += 1
                 except Exam.DoesNotExist:
                     errors.append(f"Exam {exam_id} not found")
@@ -3240,10 +972,12 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
             }
         )
 
-    # Import/Export
+    # ------------------------------------------------------------------
+    # Import / Export
+    # ------------------------------------------------------------------
+
     @action(detail=False, methods=["post"])
     def import_csv(self, request):
-        """Import exams from CSV"""
         file = request.FILES.get("file")
         if not file or not file.name.endswith(".csv"):
             return Response(
@@ -3266,7 +1000,6 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
             missing_headers = [
                 h for h in required_headers if h not in reader.fieldnames
             ]
-
             if missing_headers:
                 return Response(
                     {
@@ -3281,18 +1014,16 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
             with transaction.atomic():
                 for row_num, row in enumerate(reader, start=2):
                     try:
-                        exam_data = self._process_csv_row(row, row_num)
+                        exam_data = self._process_csv_row(row, row_num, request)
                         if "error" in exam_data:
                             errors.append(exam_data["error"])
                             continue
-
                         serializer = ExamCreateUpdateSerializer(data=exam_data)
                         if serializer.is_valid():
                             exam = serializer.save(created_by=request.user)
                             created_exams.append(exam.id)
                         else:
                             errors.append(f"Row {row_num}: {serializer.errors}")
-
                     except Exception as e:
                         errors.append(f"Row {row_num}: {str(e)}")
 
@@ -3320,7 +1051,6 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
 
     @action(detail=False, methods=["get"])
     def export_csv(self, request):
-        """Export exams to CSV"""
         response = HttpResponse(content_type="text/csv")
         response["Content-Disposition"] = 'attachment; filename="exams.csv"'
 
@@ -3341,13 +1071,13 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
                 "total_marks",
                 "pass_marks",
                 "venue",
-                "status",
-                "exam_type",
+                "status",  # UPDATED: write status code
+                "exam_type",  # UPDATED: write exam_type name
             ]
         )
 
         for exam in self.filter_queryset(self.get_queryset()).select_related(
-            "subject", "grade_level", "section", "teacher"
+            "subject", "grade_level", "section", "teacher", "status", "exam_type"
         ):
             writer.writerow(
                 [
@@ -3365,16 +1095,25 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
                     exam.total_marks,
                     exam.pass_marks,
                     exam.venue,
-                    exam.status,
-                    exam.exam_type,
+                    exam.status.code if exam.status else "",  # UPDATED: FK → .code
+                    (
+                        exam.exam_type.name if exam.exam_type else ""
+                    ),  # UPDATED: FK → .name
                 ]
             )
 
         return response
 
-    # Helper Methods
-    def _process_csv_row(self, row, row_num):
-        """Process a single CSV row"""
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _process_csv_row(self, row, row_num, request=None):
+        """
+        Process a single CSV row.
+        exam_type and status columns are expected to hold codes that map to
+        ExamType / ExamStatus FK records.
+        """
         try:
             subject = Subject.objects.get(name=row["subject"].strip())
             grade_level = GradeLevel.objects.get(name=row["grade_level"].strip())
@@ -3391,6 +1130,26 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
             start_time = datetime.strptime(row["start_time"], "%H:%M").time()
             end_time = datetime.strptime(row["end_time"], "%H:%M").time()
 
+            # UPDATED: resolve exam_type code → FK id
+            exam_type_code = row.get("exam_type", "written").strip()
+            try:
+                exam_type_obj = ExamType.objects.get(code=exam_type_code)
+                exam_type_id = exam_type_obj.id
+            except ExamType.DoesNotExist:
+                return {
+                    "error": f"Row {row_num}: ExamType with code '{exam_type_code}' not found"
+                }
+
+            # UPDATED: resolve status code → FK id
+            status_code = row.get("status", "scheduled").strip()
+            try:
+                status_obj = ExamStatus.objects.get(code=status_code)
+                status_id = status_obj.id
+            except ExamStatus.DoesNotExist:
+                return {
+                    "error": f"Row {row_num}: ExamStatus with code '{status_code}' not found"
+                }
+
             return {
                 "title": row["title"].strip(),
                 "subject": subject.id,
@@ -3404,16 +1163,14 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
                 "total_marks": int(row.get("total_marks", 100)),
                 "pass_marks": int(row.get("pass_marks", 40)),
                 "venue": row.get("venue", "").strip(),
-                "exam_type": row.get("exam_type", "written"),
-                "status": row.get("status", "scheduled"),
+                "exam_type": exam_type_id,  # UPDATED: FK id
+                "status": status_id,  # UPDATED: FK id
             }
         except Exception as e:
             return {"error": f"Row {row_num}: {str(e)}"}
 
     def _generate_exam_statistics(self, exam):
-        """Generate statistics for an exam"""
         results = StudentResult.objects.filter(exam=exam)
-
         if not results.exists():
             return
 
@@ -3430,7 +1187,6 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
             "total_passed": results.filter(is_pass=True).count(),
             "total_failed": results.filter(is_pass=False).count(),
         }
-
         stats_data["pass_percentage"] = (
             (stats_data["total_passed"] / stats_data["total_appeared"] * 100)
             if stats_data["total_appeared"] > 0
@@ -3442,46 +1198,45 @@ class ExamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewS
         )
 
 
-class ExamScheduleViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+# ==============================================================================
+# EXAM SCHEDULE VIEWSET
+# ==============================================================================
+
+
+class ExamScheduleViewSet(
+    SectionEducationLevelMixin,
+    TenantFilterMixin,
+    viewsets.ModelViewSet,
+):
     """
     CRITICAL: TenantFilterMixin ensures tenant isolation.
-    ViewSet for exam schedules
+    ViewSet for exam schedules.
     """
 
     queryset = ExamSchedule.objects.all()
     serializer_class = ExamScheduleSerializer
     ordering = ["-created_at"]
     permission_classes = [permissions.IsAuthenticated]
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate schedules
+    pagination_class = StandardResultsPagination
 
     def get_queryset(self):
-        """Apply section filtering"""
         queryset = super().get_queryset()
         user = self.request.user
 
         if not user.is_authenticated:
             return queryset.none()
-
-        # Super admin sees everything
         if user.is_superuser:
-            logger.info(f"✅ Superuser {user.username} - Full access to all exams")
             return queryset
 
-        # Get user role
         role = (
             self.get_user_role()
             if hasattr(self, "get_user_role")
             else getattr(user, "role", None)
         )
 
-        logger.info(f"📋 User {user.username} has role: {role}")
-
-        # Admin/Principal sees everything
         if role in ["admin", "superadmin", "principal"]:
-            logger.info(f"✅ Admin {user.username} - Full access to all exams")
             return queryset
 
-        # Section admin filtering - FIXED
         if role in [
             "nursery_admin",
             "primary_admin",
@@ -3490,213 +1245,106 @@ class ExamScheduleViewSet(TenantFilterMixin, viewsets.ModelViewSet):
             "secondary_admin",
         ]:
             education_levels = self._get_section_education_levels(user)
-            logger.info(
-                f"🔒 Section admin '{role}' - restricted to: {education_levels}"
-            )
-
             if not education_levels:
-                logger.warning(f"❌ No education levels for {user.username}")
                 return queryset.none()
+            return queryset.filter(grade_level__education_level__in=education_levels)
 
-            filtered = queryset.filter(
-                grade_level__education_level__in=education_levels
-            )
-            logger.info(f"✅ Filtered Exams: {filtered.count()} of {queryset.count()}")
-            return filtered
-
-        # Teacher filtering
         if role == "teacher" or hasattr(user, "teacher"):
             try:
-                from teacher.models import Teacher
-
                 teacher = Teacher.objects.get(user=user)
-                filtered = queryset.filter(teacher_id=teacher.id)
-                logger.info(f"✅ Teacher can see {filtered.count()} exams")
-                return filtered
+                return queryset.filter(teacher_id=teacher.id)
             except Teacher.DoesNotExist:
-                logger.warning(f"❌ Teacher object not found for {user.username}")
                 return queryset.none()
 
-        # Staff access (general staff without specific role)
         if user.is_staff:
-            logger.info(f"✅ Staff {user.username} - Full access")
             return queryset
 
-        # Student/Parent filtering
         if hasattr(self, "get_user_section_access"):
             section_access = self.get_user_section_access()
             education_levels = []
             for section in section_access:
                 education_levels.extend(self._get_section_education_levels(section))
             education_levels = list(set(education_levels))
-
             if not education_levels:
-                logger.warning(f"❌ No education level access for {user.username}")
                 return queryset.none()
+            return queryset.filter(grade_level__education_level__in=education_levels)
 
-            filtered = queryset.filter(
-                grade_level__education_level__in=education_levels
-            )
-            logger.info(f"✅ Student/Parent can see {filtered.count()} exams")
-            return filtered
-
-        # Default: no access
-        logger.warning(f"❌ No access rules matched for {user.username}")
         return queryset.none()
 
     @action(detail=True, methods=["get"])
     def exams(self, request, pk=None):
-        """Get exams for a schedule"""
         schedule = self.get_object()
         exams = Exam.objects.filter(exam_schedule=schedule)
-        from .serializers import ExamListSerializer
-
-        serializer = ExamListSerializer(exams, many=True)
-        return Response(serializer.data)
+        return Response(ExamListSerializer(exams, many=True).data)
 
     @action(detail=True, methods=["get"])
     def get_exams(self, request, pk=None):
-        """Get exams for a schedule (alias for exams)"""
         return self.exams(request, pk)
 
     @action(detail=True, methods=["post"])
     def set_default(self, request, pk=None):
-        """Set a schedule as the default schedule"""
         schedule = self.get_object()
-
         ExamSchedule.objects.exclude(pk=schedule.pk).update(is_default=False)
-
         schedule.is_default = True
         schedule.save()
-
-        serializer = self.get_serializer(schedule)
         return Response(
             {
                 "message": "Default schedule updated successfully",
-                "schedule": serializer.data,
+                "schedule": self.get_serializer(schedule).data,
             }
         )
 
     @action(detail=True, methods=["post"])
     def toggle_active(self, request, pk=None):
-        """Toggle schedule active status"""
         schedule = self.get_object()
         schedule.is_active = not schedule.is_active
         schedule.save()
-
         status_text = "activated" if schedule.is_active else "deactivated"
         return Response(
             {"message": f"Schedule {status_text}", "is_active": schedule.is_active}
         )
 
 
-class ExamRegistrationViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+# ==============================================================================
+# EXAM REGISTRATION VIEWSET
+# ==============================================================================
+
+
+class ExamRegistrationViewSet(
+    SectionEducationLevelMixin,
+    TenantFilterMixin,
+    AutoSectionFilterMixin,
+    viewsets.ModelViewSet,
+):
     """
     CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
-    ViewSet for exam registrations with section filtering
+    ViewSet for exam registrations with section filtering.
     """
 
     queryset = ExamRegistration.objects.select_related("exam", "student")
     serializer_class = ExamRegistrationSerializer
     ordering = ["-registration_date"]
     permission_classes = [permissions.IsAuthenticated]
-    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate large registrations
-
-    def _get_section_education_levels(self, user_or_section):
-        """
-        Universal helper method to get education levels
-        """
-        SECTION_TO_EDUCATION_LEVEL = {
-            "nursery": ["NURSERY"],
-            "primary": ["PRIMARY"],
-            "junior_secondary": ["JUNIOR_SECONDARY"],
-            "senior_secondary": ["SENIOR_SECONDARY"],
-            "secondary": ["JUNIOR_SECONDARY", "SENIOR_SECONDARY"],
-        }
-
-        ROLE_TO_SECTION = {
-            "nursery_admin": "nursery",
-            "primary_admin": "primary",
-            "junior_secondary_admin": "junior_secondary",
-            "senior_secondary_admin": "senior_secondary",
-            "secondary_admin": "secondary",
-        }
-
-        # User object
-        if hasattr(user_or_section, "section") and hasattr(user_or_section, "role"):
-            user_section = user_or_section.section
-            if not user_section and user_or_section.role in ROLE_TO_SECTION:
-                user_section = ROLE_TO_SECTION[user_or_section.role]
-            return SECTION_TO_EDUCATION_LEVEL.get(user_section, [])
-
-        # Section model instance OR string containing section/classroom name
-        section_name = None
-        if hasattr(user_or_section, "name"):
-            section_name = str(user_or_section.name).lower()
-        else:
-            section_name = str(user_or_section).lower()
-
-        # First try the exact match in our mapping
-        if section_name in SECTION_TO_EDUCATION_LEVEL:
-            return SECTION_TO_EDUCATION_LEVEL[section_name]
-
-        # If not an exact match, parse the name to detect education level
-        # Handle names like "Primary 1 - Section A", "Nursery 2 - Section B", etc.
-        if (
-            "nursery" in section_name
-            or "pre-nursery" in section_name
-            or "pre nursery" in section_name
-        ):
-            return ["NURSERY"]
-        elif "primary" in section_name:
-            return ["PRIMARY"]
-        elif (
-            "jss" in section_name
-            or "junior secondary" in section_name
-            or "js" in section_name
-        ):
-            return ["JUNIOR_SECONDARY"]
-        elif (
-            "sss" in section_name
-            or "senior secondary" in section_name
-            or "ss" in section_name
-        ):
-            return ["SENIOR_SECONDARY"]
-
-        # Last resort: log and return empty list
-        logger.warning(
-            f"Could not determine education level for section: {section_name}"
-        )
-        return []
+    pagination_class = LargeResultsPagination
 
     def get_queryset(self):
-        """Apply section filtering"""
         queryset = super().get_queryset()
         user = self.request.user
 
         if not user.is_authenticated:
             return queryset.none()
-
-        # Super admin sees everything
         if user.is_superuser:
-            logger.info(f"✅ Superuser {user.username} - Full access to all exams")
             return queryset
 
-        # Get user role
         role = (
             self.get_user_role()
             if hasattr(self, "get_user_role")
             else getattr(user, "role", None)
         )
 
-        logger.info(f"📋 User {user.username} has role: {role}")
-
-        # Admin/Principal sees everything
         if role in ["admin", "superadmin", "principal"]:
-            logger.info(f"✅ Admin {user.username} - Full access to all exams")
             return queryset
 
-        # Section admin filtering - FIXED
         if role in [
             "nursery_admin",
             "primary_admin",
@@ -3705,66 +1353,36 @@ class ExamRegistrationViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewset
             "secondary_admin",
         ]:
             education_levels = self._get_section_education_levels(user)
-            logger.info(
-                f"🔒 Section admin '{role}' - restricted to: {education_levels}"
-            )
-
             if not education_levels:
-                logger.warning(f"❌ No education levels for {user.username}")
                 return queryset.none()
+            return queryset.filter(grade_level__education_level__in=education_levels)
 
-            filtered = queryset.filter(
-                grade_level__education_level__in=education_levels
-            )
-            logger.info(f"✅ Filtered Exams: {filtered.count()} of {queryset.count()}")
-            return filtered
-
-        # Teacher filtering
         if role == "teacher" or hasattr(user, "teacher"):
             try:
-                from teacher.models import Teacher
-
                 teacher = Teacher.objects.get(user=user)
-                filtered = queryset.filter(teacher_id=teacher.id)
-                logger.info(f"✅ Teacher can see {filtered.count()} exams")
-                return filtered
+                return queryset.filter(teacher_id=teacher.id)
             except Teacher.DoesNotExist:
-                logger.warning(f"❌ Teacher object not found for {user.username}")
                 return queryset.none()
 
-        # Staff access (general staff without specific role)
         if user.is_staff:
-            logger.info(f"✅ Staff {user.username} - Full access")
             return queryset
 
-        # Student/Parent filtering
         if hasattr(self, "get_user_section_access"):
             section_access = self.get_user_section_access()
             education_levels = []
             for section in section_access:
                 education_levels.extend(self._get_section_education_levels(section))
             education_levels = list(set(education_levels))
-
             if not education_levels:
-                logger.warning(f"❌ No education level access for {user.username}")
                 return queryset.none()
+            return queryset.filter(grade_level__education_level__in=education_levels)
 
-            filtered = queryset.filter(
-                grade_level__education_level__in=education_levels
-            )
-            logger.info(f"✅ Student/Parent can see {filtered.count()} exams")
-            return filtered
-
-        # Default: no access
-        logger.warning(f"❌ No access rules matched for {user.username}")
         return queryset.none()
 
     @action(detail=False, methods=["post"])
     def bulk_register(self, request):
-        """Bulk register students for an exam"""
         exam_id = request.data.get("exam_id")
         student_ids = request.data.get("student_ids", [])
-
         if not exam_id or not student_ids:
             return Response(
                 {"error": "Exam ID and student IDs are required"},
@@ -3785,18 +1403,15 @@ class ExamRegistrationViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewset
             for student_id in student_ids:
                 try:
                     student = Student.objects.get(id=student_id)
-
                     if ExamRegistration.objects.filter(
                         exam=exam, student=student
                     ).exists():
                         errors.append(f"Student {student_id} already registered")
                         continue
-
-                    registration = ExamRegistration.objects.create(
+                    reg = ExamRegistration.objects.create(
                         exam=exam, student=student, registration_date=timezone.now()
                     )
-                    created_registrations.append(registration.id)
-
+                    created_registrations.append(reg.id)
                 except Student.DoesNotExist:
                     errors.append(f"Student {student_id} not found")
                 except Exception as e:
@@ -3812,33 +1427,25 @@ class ExamRegistrationViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewset
 
     @action(detail=False, methods=["get"])
     def by_student(self, request, student_id=None):
-        """Get registrations by student"""
         if not student_id:
             return Response(
                 {"error": "Student ID is required"}, status=status.HTTP_400_BAD_REQUEST
             )
-
         registrations = self.get_queryset().filter(student_id=student_id)
-        serializer = self.get_serializer(registrations, many=True)
-        return Response(serializer.data)
+        return Response(self.get_serializer(registrations, many=True).data)
 
     @action(detail=False, methods=["get"])
     def by_exam(self, request, exam_id=None):
-        """Get registrations by exam"""
         if not exam_id:
             return Response(
                 {"error": "Exam ID is required"}, status=status.HTTP_400_BAD_REQUEST
             )
-
         registrations = self.get_queryset().filter(exam_id=exam_id)
-        serializer = self.get_serializer(registrations, many=True)
-        return Response(serializer.data)
+        return Response(self.get_serializer(registrations, many=True).data)
 
     @action(detail=False, methods=["post"])
     def mark_attendance(self, request):
-        """Mark attendance for exam registrations"""
         attendance_data = request.data.get("attendance", [])
-
         if not attendance_data:
             return Response(
                 {"error": "Attendance data is required"},
@@ -3852,15 +1459,13 @@ class ExamRegistrationViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewset
             for item in attendance_data:
                 registration_id = item.get("registration_id")
                 is_present = item.get("is_present", False)
-
                 if not registration_id:
                     errors.append("Registration ID is required")
                     continue
-
                 try:
-                    registration = ExamRegistration.objects.get(id=registration_id)
-                    registration.is_present = is_present
-                    registration.save()
+                    reg = ExamRegistration.objects.get(id=registration_id)
+                    reg.is_present = is_present
+                    reg.save()
                     updated_count += 1
                 except ExamRegistration.DoesNotExist:
                     errors.append(f"Registration {registration_id} not found")
@@ -3876,113 +1481,46 @@ class ExamRegistrationViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewset
         )
 
 
-class ResultViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+# ==============================================================================
+# RESULT VIEWSET
+# ==============================================================================
+
+
+class ResultViewSet(
+    SectionEducationLevelMixin,
+    TenantFilterMixin,
+    AutoSectionFilterMixin,
+    viewsets.ModelViewSet,
+):
     """
     CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
-    ViewSet for exam results with section filtering
+    ViewSet for exam results with section filtering.
     """
 
     queryset = StudentResult.objects.select_related("exam", "student", "subject")
     serializer_class = ResultSerializer
     ordering = ["-created_at"]
     permission_classes = [permissions.IsAuthenticated]
-    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate large result datasets
-
-    def _get_section_education_levels(self, user_or_section):
-        """
-        Universal helper method to get education levels
-        """
-        SECTION_TO_EDUCATION_LEVEL = {
-            "nursery": ["NURSERY"],
-            "primary": ["PRIMARY"],
-            "junior_secondary": ["JUNIOR_SECONDARY"],
-            "senior_secondary": ["SENIOR_SECONDARY"],
-            "secondary": ["JUNIOR_SECONDARY", "SENIOR_SECONDARY"],
-        }
-
-        ROLE_TO_SECTION = {
-            "nursery_admin": "nursery",
-            "primary_admin": "primary",
-            "junior_secondary_admin": "junior_secondary",
-            "senior_secondary_admin": "senior_secondary",
-            "secondary_admin": "secondary",
-        }
-
-        # User object
-        if hasattr(user_or_section, "section") and hasattr(user_or_section, "role"):
-            user_section = user_or_section.section
-            if not user_section and user_or_section.role in ROLE_TO_SECTION:
-                user_section = ROLE_TO_SECTION[user_or_section.role]
-            return SECTION_TO_EDUCATION_LEVEL.get(user_section, [])
-
-        # Section model instance OR string containing section/classroom name
-        section_name = None
-        if hasattr(user_or_section, "name"):
-            section_name = str(user_or_section.name).lower()
-        else:
-            section_name = str(user_or_section).lower()
-
-        # First try the exact match in our mapping
-        if section_name in SECTION_TO_EDUCATION_LEVEL:
-            return SECTION_TO_EDUCATION_LEVEL[section_name]
-
-        # If not an exact match, parse the name to detect education level
-        # Handle names like "Primary 1 - Section A", "Nursery 2 - Section B", etc.
-        if (
-            "nursery" in section_name
-            or "pre-nursery" in section_name
-            or "pre nursery" in section_name
-        ):
-            return ["NURSERY"]
-        elif "primary" in section_name:
-            return ["PRIMARY"]
-        elif (
-            "jss" in section_name
-            or "junior secondary" in section_name
-            or "js" in section_name
-        ):
-            return ["JUNIOR_SECONDARY"]
-        elif (
-            "sss" in section_name
-            or "senior secondary" in section_name
-            or "ss" in section_name
-        ):
-            return ["SENIOR_SECONDARY"]
-
-        # Last resort: log and return empty list
-        logger.warning(
-            f"Could not determine education level for section: {section_name}"
-        )
-        return []
+    pagination_class = LargeResultsPagination
 
     def get_queryset(self):
-        """Apply section filtering"""
         queryset = super().get_queryset()
         user = self.request.user
 
         if not user.is_authenticated:
             return queryset.none()
-
-        # Super admin sees everything
         if user.is_superuser:
-            logger.info(f"✅ Superuser {user.username} - Full access to all exams")
             return queryset
 
-        # Get user role
         role = (
             self.get_user_role()
             if hasattr(self, "get_user_role")
             else getattr(user, "role", None)
         )
 
-        logger.info(f"📋 User {user.username} has role: {role}")
-
-        # Admin/Principal sees everything
         if role in ["admin", "superadmin", "principal"]:
-            logger.info(f"✅ Admin {user.username} - Full access to all exams")
             return queryset
 
-        # Section admin filtering - FIXED
         if role in [
             "nursery_admin",
             "primary_admin",
@@ -3991,58 +1529,30 @@ class ResultViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
             "secondary_admin",
         ]:
             education_levels = self._get_section_education_levels(user)
-            logger.info(
-                f"🔒 Section admin '{role}' - restricted to: {education_levels}"
-            )
-
             if not education_levels:
-                logger.warning(f"❌ No education levels for {user.username}")
                 return queryset.none()
+            return queryset.filter(grade_level__education_level__in=education_levels)
 
-            filtered = queryset.filter(
-                grade_level__education_level__in=education_levels
-            )
-            logger.info(f"✅ Filtered Exams: {filtered.count()} of {queryset.count()}")
-            return filtered
-
-        # Teacher filtering
         if role == "teacher" or hasattr(user, "teacher"):
             try:
-                from teacher.models import Teacher
-
                 teacher = Teacher.objects.get(user=user)
-                filtered = queryset.filter(teacher_id=teacher.id)
-                logger.info(f"✅ Teacher can see {filtered.count()} exams")
-                return filtered
+                return queryset.filter(teacher_id=teacher.id)
             except Teacher.DoesNotExist:
-                logger.warning(f"❌ Teacher object not found for {user.username}")
                 return queryset.none()
 
-        # Staff access (general staff without specific role)
         if user.is_staff:
-            logger.info(f"✅ Staff {user.username} - Full access")
             return queryset
 
-        # Student/Parent filtering
         if hasattr(self, "get_user_section_access"):
             section_access = self.get_user_section_access()
             education_levels = []
             for section in section_access:
                 education_levels.extend(self._get_section_education_levels(section))
             education_levels = list(set(education_levels))
-
             if not education_levels:
-                logger.warning(f"❌ No education level access for {user.username}")
                 return queryset.none()
+            return queryset.filter(grade_level__education_level__in=education_levels)
 
-            filtered = queryset.filter(
-                grade_level__education_level__in=education_levels
-            )
-            logger.info(f"✅ Student/Parent can see {filtered.count()} exams")
-            return filtered
-
-        # Default: no access
-        logger.warning(f"❌ No access rules matched for {user.username}")
         return queryset.none()
 
     def get_serializer_class(self):
@@ -4057,113 +1567,46 @@ class ResultViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
         serializer.save(recorded_by=self.request.user)
 
 
-class ExamStatisticsViewSet(TenantFilterMixin, SectionFilterMixin, viewsets.ReadOnlyModelViewSet):
+# ==============================================================================
+# EXAM STATISTICS VIEWSET
+# ==============================================================================
+
+
+class ExamStatisticsViewSet(
+    SectionEducationLevelMixin,
+    TenantFilterMixin,
+    SectionFilterMixin,
+    viewsets.ReadOnlyModelViewSet,
+):
     """
     CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
-    ViewSet for exam statistics (read-only) with section filtering
+    ViewSet for exam statistics (read-only) with section filtering.
     """
 
     queryset = ExamStatistics.objects.select_related("exam")
     serializer_class = ExamStatisticsSerializer
     ordering = ["-calculated_at"]
     permission_classes = [permissions.IsAuthenticated]
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate statistics
-
-    def _get_section_education_levels(self, user_or_section):
-        """
-        Universal helper method to get education levels
-        """
-        SECTION_TO_EDUCATION_LEVEL = {
-            "nursery": ["NURSERY"],
-            "primary": ["PRIMARY"],
-            "junior_secondary": ["JUNIOR_SECONDARY"],
-            "senior_secondary": ["SENIOR_SECONDARY"],
-            "secondary": ["JUNIOR_SECONDARY", "SENIOR_SECONDARY"],
-        }
-
-        ROLE_TO_SECTION = {
-            "nursery_admin": "nursery",
-            "primary_admin": "primary",
-            "junior_secondary_admin": "junior_secondary",
-            "senior_secondary_admin": "senior_secondary",
-            "secondary_admin": "secondary",
-        }
-
-        # User object
-        if hasattr(user_or_section, "section") and hasattr(user_or_section, "role"):
-            user_section = user_or_section.section
-            if not user_section and user_or_section.role in ROLE_TO_SECTION:
-                user_section = ROLE_TO_SECTION[user_or_section.role]
-            return SECTION_TO_EDUCATION_LEVEL.get(user_section, [])
-
-        # Section model instance OR string containing section/classroom name
-        section_name = None
-        if hasattr(user_or_section, "name"):
-            section_name = str(user_or_section.name).lower()
-        else:
-            section_name = str(user_or_section).lower()
-
-        # First try the exact match in our mapping
-        if section_name in SECTION_TO_EDUCATION_LEVEL:
-            return SECTION_TO_EDUCATION_LEVEL[section_name]
-
-        # If not an exact match, parse the name to detect education level
-        # Handle names like "Primary 1 - Section A", "Nursery 2 - Section B", etc.
-        if (
-            "nursery" in section_name
-            or "pre-nursery" in section_name
-            or "pre nursery" in section_name
-        ):
-            return ["NURSERY"]
-        elif "primary" in section_name:
-            return ["PRIMARY"]
-        elif (
-            "jss" in section_name
-            or "junior secondary" in section_name
-            or "js" in section_name
-        ):
-            return ["JUNIOR_SECONDARY"]
-        elif (
-            "sss" in section_name
-            or "senior secondary" in section_name
-            or "ss" in section_name
-        ):
-            return ["SENIOR_SECONDARY"]
-
-        # Last resort: log and return empty list
-        logger.warning(
-            f"Could not determine education level for section: {section_name}"
-        )
-        return []
+    pagination_class = StandardResultsPagination
 
     def get_queryset(self):
-        """Apply section filtering"""
         queryset = super().get_queryset()
         user = self.request.user
 
         if not user.is_authenticated:
             return queryset.none()
-
-        # Super admin sees everything
         if user.is_superuser:
-            logger.info(f"✅ Superuser {user.username} - Full access to all exams")
             return queryset
 
-        # Get user role
         role = (
             self.get_user_role()
             if hasattr(self, "get_user_role")
             else getattr(user, "role", None)
         )
 
-        logger.info(f"📋 User {user.username} has role: {role}")
-
-        # Admin/Principal sees everything
         if role in ["admin", "superadmin", "principal"]:
-            logger.info(f"✅ Admin {user.username} - Full access to all exams")
             return queryset
 
-        # Section admin filtering - FIXED
         if role in [
             "nursery_admin",
             "primary_admin",
@@ -4172,125 +1615,84 @@ class ExamStatisticsViewSet(TenantFilterMixin, SectionFilterMixin, viewsets.Read
             "secondary_admin",
         ]:
             education_levels = self._get_section_education_levels(user)
-            logger.info(
-                f"🔒 Section admin '{role}' - restricted to: {education_levels}"
-            )
-
             if not education_levels:
-                logger.warning(f"❌ No education levels for {user.username}")
                 return queryset.none()
+            return queryset.filter(grade_level__education_level__in=education_levels)
 
-            filtered = queryset.filter(
-                grade_level__education_level__in=education_levels
-            )
-            logger.info(f"✅ Filtered Exams: {filtered.count()} of {queryset.count()}")
-            return filtered
-
-        # Teacher filtering
         if role == "teacher" or hasattr(user, "teacher"):
             try:
-                from teacher.models import Teacher
-
                 teacher = Teacher.objects.get(user=user)
-                filtered = queryset.filter(teacher_id=teacher.id)
-                logger.info(f"✅ Teacher can see {filtered.count()} exams")
-                return filtered
+                return queryset.filter(teacher_id=teacher.id)
             except Teacher.DoesNotExist:
-                logger.warning(f"❌ Teacher object not found for {user.username}")
                 return queryset.none()
 
-        # Staff access (general staff without specific role)
         if user.is_staff:
-            logger.info(f"✅ Staff {user.username} - Full access")
             return queryset
 
-        # Student/Parent filtering
         if hasattr(self, "get_user_section_access"):
             section_access = self.get_user_section_access()
             education_levels = []
             for section in section_access:
                 education_levels.extend(self._get_section_education_levels(section))
             education_levels = list(set(education_levels))
-
             if not education_levels:
-                logger.warning(f"❌ No education level access for {user.username}")
                 return queryset.none()
+            return queryset.filter(grade_level__education_level__in=education_levels)
 
-            filtered = queryset.filter(
-                grade_level__education_level__in=education_levels
-            )
-            logger.info(f"✅ Student/Parent can see {filtered.count()} exams")
-            return filtered
-
-        # Default: no access
-        logger.warning(f"❌ No access rules matched for {user.username}")
         return queryset.none()
 
     @action(detail=False, methods=["get"])
     def summary(self, request):
-        """Get statistics summary across all exams"""
         stats = self.get_queryset()
-
         if not stats.exists():
             return Response({"message": "No statistics available", "total_exams": 0})
-
-        summary_data = {
-            "total_exams": stats.count(),
-            "total_students_registered": sum(s.total_registered for s in stats),
-            "total_students_appeared": sum(s.total_appeared for s in stats),
-            "average_pass_rate": stats.aggregate(avg_pass=Avg("pass_percentage"))[
-                "avg_pass"
-            ]
-            or 0,
-            "highest_average_score": stats.aggregate(max_avg=Max("average_score"))[
-                "max_avg"
-            ]
-            or 0,
-        }
-
-        return Response(summary_data)
+        return Response(
+            {
+                "total_exams": stats.count(),
+                "total_students_registered": sum(s.total_registered for s in stats),
+                "total_students_appeared": sum(s.total_appeared for s in stats),
+                "average_pass_rate": stats.aggregate(avg_pass=Avg("pass_percentage"))[
+                    "avg_pass"
+                ]
+                or 0,
+                "highest_average_score": stats.aggregate(max_avg=Max("average_score"))[
+                    "max_avg"
+                ]
+                or 0,
+            }
+        )
 
     @action(detail=True, methods=["post"])
     def recalculate(self, request, pk=None):
-        """Recalculate statistics for a specific exam"""
         stats = self.get_object()
-        exam = stats.exam
-
-        exam_viewset = ExamViewSet()
-        exam_viewset._generate_exam_statistics(exam)
-
+        ExamViewSet()._generate_exam_statistics(stats.exam)
         stats.refresh_from_db()
-        serializer = self.get_serializer(stats)
-
         return Response(
             {
                 "message": "Statistics recalculated successfully",
-                "statistics": serializer.data,
+                "statistics": self.get_serializer(stats).data,
             }
         )
 
 
-# ============================================
-# EXAM-003: NEW EXAM FEATURES VIEWSETS
-# ============================================
+# ==============================================================================
+# QUESTION BANK VIEWSET
+# ==============================================================================
 
 
-class QuestionBankViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+class QuestionBankViewSet(
+    SectionEducationLevelMixin,
+    TenantFilterMixin,
+    AutoSectionFilterMixin,
+    viewsets.ModelViewSet,
+):
     """
     CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
-    ViewSet for managing Question Bank
-
-    Features:
-    - List questions with filtering (subject, difficulty, type, shared status)
-    - Create new questions
-    - Update existing questions
-    - Delete questions
-    - Import questions to exam
-    - Search by question text, topic, tags
+    ViewSet for managing Question Bank.
     """
 
     queryset = QuestionBank.objects.select_related(
-        "created_by", "subject", "grade_level"
+        "created_by", "subject", "grade_level", "difficulty"  # difficulty is now FK
     ).all()
 
     filter_backends = [
@@ -4299,13 +1701,13 @@ class QuestionBankViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mo
         filters.OrderingFilter,
     ]
     search_fields = ["question", "topic", "subtopic", "tags"]
-    ordering_fields = ["created_at", "usage_count", "last_used", "difficulty"]
+    # UPDATED: ordering by difficulty now uses FK traversal difficulty__name
+    ordering_fields = ["created_at", "usage_count", "last_used", "difficulty__name"]
     ordering = ["-created_at"]
     permission_classes = [permissions.IsAuthenticated]
-    pagination_class = LargeResultsPagination  # PERFORMANCE: Paginate question bank
+    pagination_class = LargeResultsPagination
 
     def get_serializer_class(self):
-        """Return appropriate serializer based on action"""
         if self.action == "list":
             return QuestionBankListSerializer
         elif self.action in ["create", "update", "partial_update"]:
@@ -4313,74 +1715,47 @@ class QuestionBankViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mo
         return QuestionBankDetailSerializer
 
     def get_queryset(self):
-        """
-        Filter questions based on user permissions
-        Teachers see own questions + shared questions
-        Admins see all questions
-        """
         queryset = super().get_queryset()
         user = self.request.user
-
-        # Apply filtering
         params = self.request.query_params
 
-        # Filter by question type
-        question_type = params.get("question_type")
-        if question_type:
+        if question_type := params.get("question_type"):
             queryset = queryset.filter(question_type=question_type)
 
-        # Filter by subject
-        subject_id = params.get("subject")
-        if subject_id:
+        if subject_id := params.get("subject"):
             queryset = queryset.filter(subject_id=subject_id)
 
-        # Filter by grade level
-        grade_level_id = params.get("grade_level")
-        if grade_level_id:
+        if grade_level_id := params.get("grade_level"):
             queryset = queryset.filter(grade_level_id=grade_level_id)
 
-        # Filter by difficulty
-        difficulty = params.get("difficulty")
-        if difficulty:
-            queryset = queryset.filter(difficulty=difficulty)
+        # UPDATED: difficulty is now a FK — filter via difficulty__code
+        if difficulty := params.get("difficulty"):
+            queryset = queryset.filter(difficulty__code=difficulty)
 
-        # Filter by topic
-        topic = params.get("topic")
-        if topic:
+        if topic := params.get("topic"):
             queryset = queryset.filter(topic__icontains=topic)
 
-        # Filter by tags
-        tags = params.get("tags")
-        if tags:
-            tag_list = tags.split(",")
-            for tag in tag_list:
+        if tags := params.get("tags"):
+            for tag in tags.split(","):
                 queryset = queryset.filter(tags__contains=[tag.strip()])
 
-        # Filter by ownership (my questions vs shared)
         show_only_mine = params.get("only_mine") == "true"
         show_shared = params.get("show_shared") == "true"
 
         if hasattr(user, "teacher"):
             teacher = user.teacher
             if show_only_mine:
-                # Only my questions
                 queryset = queryset.filter(created_by=teacher)
             elif show_shared:
-                # Only shared questions from others
                 queryset = queryset.filter(is_shared=True).exclude(created_by=teacher)
             else:
-                # My questions + shared questions
-                queryset = queryset.filter(
-                    Q(created_by=teacher) | Q(is_shared=True)
-                )
+                queryset = queryset.filter(Q(created_by=teacher) | Q(is_shared=True))
         elif not user.is_staff:
-            # Non-teachers only see shared questions
             queryset = queryset.filter(is_shared=True)
 
         return queryset
 
     def perform_create(self, serializer):
-        """Set created_by to current user's teacher"""
         user = self.request.user
         if hasattr(user, "teacher"):
             serializer.save(created_by=user.teacher)
@@ -4389,16 +1764,6 @@ class QuestionBankViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mo
 
     @action(detail=False, methods=["post"])
     def import_to_exam(self, request):
-        """
-        Import selected questions into an exam
-
-        POST data:
-        {
-            "exam_id": 123,
-            "question_ids": [1, 2, 3],
-            "section_type": "objective"  # objective, theory, or practical
-        }
-        """
         exam_id = request.data.get("exam_id")
         question_ids = request.data.get("question_ids", [])
         section_type = request.data.get("section_type")
@@ -4416,15 +1781,12 @@ class QuestionBankViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mo
                 {"error": "Exam not found"}, status=status.HTTP_404_NOT_FOUND
             )
 
-        # Get questions
         questions = QuestionBank.objects.filter(id__in=question_ids)
         if questions.count() != len(question_ids):
             return Response(
-                {"error": "Some questions not found"},
-                status=status.HTTP_404_NOT_FOUND,
+                {"error": "Some questions not found"}, status=status.HTTP_404_NOT_FOUND
             )
 
-        # Convert questions to exam format and append to exam
         imported_count = 0
         with transaction.atomic():
             for question in questions:
@@ -4461,7 +1823,6 @@ class QuestionBankViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mo
                         exam.practical_questions.append(question_data)
                         imported_count += 1
 
-                # Increment usage count
                 question.increment_usage()
 
             exam.save()
@@ -4476,76 +1837,79 @@ class QuestionBankViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mo
 
     @action(detail=True, methods=["post"])
     def duplicate(self, request, pk=None):
-        """Duplicate a question"""
         question = self.get_object()
         user = request.user
-
         if not hasattr(user, "teacher"):
             return Response(
                 {"error": "Only teachers can duplicate questions"},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Create duplicate
         question.pk = None
         question.created_by = user.teacher
         question.usage_count = 0
         question.last_used = None
         question.save()
 
-        serializer = QuestionBankDetailSerializer(question)
         return Response(
             {
                 "message": "Question duplicated successfully",
-                "question": serializer.data,
+                "question": QuestionBankDetailSerializer(question).data,
             },
             status=status.HTTP_201_CREATED,
         )
 
     @action(detail=False, methods=["get"])
     def statistics(self, request):
-        """Get question bank statistics"""
+        """
+        Get question bank statistics.
+        UPDATED: difficulty breakdown now queries via FK code (difficulty__code).
+        """
         queryset = self.get_queryset()
 
-        stats = {
-            "total_questions": queryset.count(),
-            "by_type": {
-                "objective": queryset.filter(question_type="objective").count(),
-                "theory": queryset.filter(question_type="theory").count(),
-                "practical": queryset.filter(question_type="practical").count(),
-            },
-            "by_difficulty": {
-                "easy": queryset.filter(difficulty="easy").count(),
-                "medium": queryset.filter(difficulty="medium").count(),
-                "hard": queryset.filter(difficulty="hard").count(),
-            },
-            "shared_questions": queryset.filter(is_shared=True).count(),
-            "most_used": queryset.order_by("-usage_count")[:5].values(
-                "id", "question", "usage_count"
-            ),
-        }
+        # UPDATED: group by difficulty FK code instead of raw string equality
+        difficulty_breakdown = {}
+        for diff in DifficultyLevel.objects.filter(is_active=True):
+            difficulty_breakdown[diff.code] = queryset.filter(difficulty=diff).count()
 
-        return Response(stats)
+        return Response(
+            {
+                "total_questions": queryset.count(),
+                "by_type": {
+                    "objective": queryset.filter(question_type="objective").count(),
+                    "theory": queryset.filter(question_type="theory").count(),
+                    "practical": queryset.filter(question_type="practical").count(),
+                },
+                "by_difficulty": difficulty_breakdown,  # UPDATED: dynamic from DB
+                "shared_questions": queryset.filter(is_shared=True).count(),
+                "most_used": list(
+                    queryset.order_by("-usage_count")[:5].values(
+                        "id", "question", "usage_count"
+                    )
+                ),
+            }
+        )
 
 
-class ExamTemplateViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+# ==============================================================================
+# EXAM TEMPLATE VIEWSET
+# ==============================================================================
+
+
+class ExamTemplateViewSet(
+    SectionEducationLevelMixin,
+    TenantFilterMixin,
+    AutoSectionFilterMixin,
+    viewsets.ModelViewSet,
+):
     """
     CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
-    ViewSet for managing Exam Templates
-
-    Features:
-    - List templates with filtering
-    - Create new templates
-    - Update existing templates
-    - Delete templates
-    - Apply template to create new exam
-    - Duplicate template
+    ViewSet for managing Exam Templates.
     """
 
     queryset = ExamTemplate.objects.select_related(
         "created_by", "grade_level", "subject"
     ).all()
-
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -4555,10 +1919,9 @@ class ExamTemplateViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mo
     ordering_fields = ["created_at", "usage_count", "name"]
     ordering = ["-created_at"]
     permission_classes = [permissions.IsAuthenticated]
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate templates
+    pagination_class = StandardResultsPagination
 
     def get_serializer_class(self):
-        """Return appropriate serializer based on action"""
         if self.action == "list":
             return ExamTemplateListSerializer
         elif self.action in ["create", "update", "partial_update"]:
@@ -4566,26 +1929,15 @@ class ExamTemplateViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mo
         return ExamTemplateDetailSerializer
 
     def get_queryset(self):
-        """
-        Filter templates based on user permissions
-        Teachers see own templates + shared templates
-        Admins see all templates
-        """
         queryset = super().get_queryset()
         user = self.request.user
         params = self.request.query_params
 
-        # Filter by grade level
-        grade_level_id = params.get("grade_level")
-        if grade_level_id:
+        if grade_level_id := params.get("grade_level"):
             queryset = queryset.filter(grade_level_id=grade_level_id)
-
-        # Filter by subject
-        subject_id = params.get("subject")
-        if subject_id:
+        if subject_id := params.get("subject"):
             queryset = queryset.filter(subject_id=subject_id)
 
-        # Filter by ownership
         show_only_mine = params.get("only_mine") == "true"
         show_shared = params.get("show_shared") == "true"
 
@@ -4596,18 +1948,13 @@ class ExamTemplateViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mo
             elif show_shared:
                 queryset = queryset.filter(is_shared=True).exclude(created_by=teacher)
             else:
-                # My templates + shared templates
-                queryset = queryset.filter(
-                    Q(created_by=teacher) | Q(is_shared=True)
-                )
+                queryset = queryset.filter(Q(created_by=teacher) | Q(is_shared=True))
         elif not user.is_staff:
-            # Non-teachers only see shared templates
             queryset = queryset.filter(is_shared=True)
 
         return queryset
 
     def perform_create(self, serializer):
-        """Set created_by to current user's teacher"""
         user = self.request.user
         if hasattr(user, "teacher"):
             serializer.save(created_by=user.teacher)
@@ -4616,26 +1963,9 @@ class ExamTemplateViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mo
 
     @action(detail=True, methods=["post"])
     def apply(self, request, pk=None):
-        """
-        Apply template to create a new exam
-
-        POST data:
-        {
-            "title": "Mathematics Mid-Term Exam",
-            "exam_date": "2024-03-15",
-            "start_time": "09:00",
-            "end_time": "11:00",
-            "subject": 1,
-            "exam_schedule": 1,
-            ... other exam fields
-        }
-        """
         template = self.get_object()
-
-        # Create new exam with template structure
         exam_data = request.data.copy()
 
-        # Set structure from template
         if "total_marks" not in exam_data:
             exam_data["total_marks"] = template.total_marks
         if "duration_minutes" not in exam_data:
@@ -4643,7 +1973,6 @@ class ExamTemplateViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mo
         if "grade_level" not in exam_data:
             exam_data["grade_level"] = template.grade_level.id
 
-        # Set default instructions from template
         if template.default_instructions:
             if "objective_instructions" not in exam_data:
                 exam_data["objective_instructions"] = template.default_instructions.get("objective", "")
@@ -4654,75 +1983,68 @@ class ExamTemplateViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mo
             if "instructions" not in exam_data:
                 exam_data["instructions"] = template.default_instructions.get("general", "")
 
-        # Create exam
         exam_serializer = ExamCreateUpdateSerializer(data=exam_data, context={"request": request})
         if exam_serializer.is_valid():
             exam = exam_serializer.save()
-
-            # Increment template usage
             template.increment_usage()
-
-            # Return created exam
-            detail_serializer = ExamDetailSerializer(exam)
             return Response(
                 {
                     "message": "Exam created successfully from template",
-                    "exam": detail_serializer.data,
+                    "exam": ExamDetailSerializer(exam).data,
                     "template": ExamTemplateDetailSerializer(template).data,
                 },
                 status=status.HTTP_201_CREATED,
             )
-        else:
-            return Response(
-                exam_serializer.errors, status=status.HTTP_400_BAD_REQUEST
-            )
+        return Response(exam_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=["post"])
     def duplicate(self, request, pk=None):
-        """Duplicate a template"""
         template = self.get_object()
         user = request.user
-
         if not hasattr(user, "teacher"):
             return Response(
                 {"error": "Only teachers can duplicate templates"},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Create duplicate
         template.pk = None
         template.created_by = user.teacher
         template.name = f"{template.name} (Copy)"
         template.usage_count = 0
         template.save()
 
-        serializer = ExamTemplateDetailSerializer(template)
         return Response(
             {
                 "message": "Template duplicated successfully",
-                "template": serializer.data,
+                "template": ExamTemplateDetailSerializer(template).data,
             },
             status=status.HTTP_201_CREATED,
         )
 
 
-class ExamReviewViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+# ==============================================================================
+# EXAM REVIEW VIEWSET
+# ==============================================================================
+
+
+class ExamReviewViewSet(
+    SectionEducationLevelMixin,
+    TenantFilterMixin,
+    AutoSectionFilterMixin,
+    viewsets.ModelViewSet,
+):
     """
     CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
-    ViewSet for managing Exam Reviews
-
-    Features:
-    - List reviews with filtering
-    - Get review details
-    - Submit exam for review
-    - Approve/reject/request changes
-    - Add comments
-    - Resolve comments
+    ViewSet for managing Exam Reviews.
     """
 
-    queryset = ExamReview.objects.select_related(
-        "exam", "submitted_by", "approved_by"
-    ).prefetch_related("reviewers", "comments").all()
+    queryset = (
+        ExamReview.objects.select_related(
+            "exam", "submitted_by", "approved_by", "status"  # status is FK
+        )
+        .prefetch_related("reviewers", "comments")
+        .all()
+    )
 
     filter_backends = [
         DjangoFilterBackend,
@@ -4730,13 +2052,13 @@ class ExamReviewViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
         filters.OrderingFilter,
     ]
     search_fields = ["exam__title", "exam__code", "submission_note"]
-    ordering_fields = ["created_at", "submitted_at", "status"]
+    # UPDATED: ordering by status now uses FK traversal
+    ordering_fields = ["created_at", "submitted_at", "status__name"]
     ordering = ["-created_at"]
     permission_classes = [permissions.IsAuthenticated]
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate reviews
+    pagination_class = StandardResultsPagination
 
     def get_serializer_class(self):
-        """Return appropriate serializer based on action"""
         if self.action == "list":
             return ExamReviewListSerializer
         elif self.action == "submit_for_review":
@@ -4746,24 +2068,16 @@ class ExamReviewViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
         return ExamReviewDetailSerializer
 
     def get_queryset(self):
-        """
-        Filter reviews based on user permissions
-        Teachers see reviews they submitted or are assigned to
-        Admins see all reviews
-        """
         queryset = super().get_queryset()
         user = self.request.user
         params = self.request.query_params
 
-        # Filter by status
-        review_status = params.get("status")
-        if review_status:
-            queryset = queryset.filter(status=review_status)
+        # UPDATED: filter via status FK → status__code
+        if review_status_code := params.get("status"):
+            queryset = queryset.filter(status__code=review_status_code)
 
-        # Filter by permissions
         if hasattr(user, "teacher") and not user.is_staff:
             teacher = user.teacher
-            # Show reviews submitted by teacher or where teacher is a reviewer
             queryset = queryset.filter(
                 Q(submitted_by=teacher) | Q(reviewers__reviewer=teacher)
             ).distinct()
@@ -4772,16 +2086,6 @@ class ExamReviewViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
 
     @action(detail=False, methods=["post"])
     def submit_for_review(self, request):
-        """
-        Submit an exam for review
-
-        POST data:
-        {
-            "exam_id": 123,
-            "reviewer_ids": [1, 2],
-            "submission_note": "Please review before Friday"
-        }
-        """
         serializer = ExamReviewSubmitSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -4804,22 +2108,30 @@ class ExamReviewViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Check if review already exists
         if hasattr(exam, "review"):
             return Response(
                 {"error": "This exam already has a review"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Create review
+        # UPDATED: resolve initial ReviewStatus FK for the new review
+        draft_review_status = _get_review_status("draft", exam.tenant)
+        if not draft_review_status:
+            return Response(
+                {
+                    "error": "ReviewStatus 'draft' not configured. Please create review statuses first."
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
         with transaction.atomic():
             review = ExamReview.objects.create(
                 exam=exam,
                 submitted_by=user.teacher,
                 submission_note=submission_note,
+                status=draft_review_status,  # UPDATED: FK instance
             )
 
-            # Add reviewers
             for reviewer_id in reviewer_ids:
                 try:
                     reviewer = Teacher.objects.get(id=reviewer_id)
@@ -4827,33 +2139,20 @@ class ExamReviewViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
                 except Teacher.DoesNotExist:
                     pass
 
-            # Submit the review
-            review.submit()
+            review.submit()  # model method transitions status FK internally
 
-        serializer = ExamReviewDetailSerializer(review)
         return Response(
             {
                 "message": "Exam submitted for review successfully",
-                "review": serializer.data,
+                "review": ExamReviewDetailSerializer(review).data,
             },
             status=status.HTTP_201_CREATED,
         )
 
     @action(detail=True, methods=["post"])
     def make_decision(self, request, pk=None):
-        """
-        Make a decision on the review (approve/reject/request changes)
-
-        POST data:
-        {
-            "decision": "approve",  # or "reject" or "request_changes"
-            "notes": "Looks good",
-            "reason": "Missing answer key"  # required for reject
-        }
-        """
         review = self.get_object()
         serializer = ExamReviewDecisionSerializer(data=request.data)
-
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -4864,11 +2163,6 @@ class ExamReviewViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        decision = serializer.validated_data["decision"]
-        notes = serializer.validated_data.get("notes", "")
-        reason = serializer.validated_data.get("reason", "")
-
-        # Check if user is a reviewer
         is_reviewer = review.reviewers.filter(reviewer=user.teacher).exists()
         if not is_reviewer and not user.is_staff:
             return Response(
@@ -4876,7 +2170,10 @@ class ExamReviewViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Process decision
+        decision = serializer.validated_data["decision"]
+        notes = serializer.validated_data.get("notes", "")
+        reason = serializer.validated_data.get("reason", "")
+
         with transaction.atomic():
             if decision == "approve":
                 review.approve(user.teacher, notes)
@@ -4888,35 +2185,19 @@ class ExamReviewViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
                 review.request_changes()
                 message = "Changes requested"
 
-            # Update reviewer status
             reviewer_obj = review.reviewers.filter(reviewer=user.teacher).first()
             if reviewer_obj:
                 reviewer_obj.submit_review(decision)
 
-        detail_serializer = ExamReviewDetailSerializer(review)
         return Response(
-            {
-                "message": message,
-                "review": detail_serializer.data,
-            },
+            {"message": message, "review": ExamReviewDetailSerializer(review).data},
             status=status.HTTP_200_OK,
         )
 
     @action(detail=True, methods=["post"])
     def add_comment(self, request, pk=None):
-        """
-        Add a comment to the review
-
-        POST data:
-        {
-            "comment": "Please clarify question 5",
-            "question_index": 4,
-            "section": "objective"
-        }
-        """
         review = self.get_object()
         serializer = ExamReviewCommentCreateSerializer(data=request.data)
-
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -4927,27 +2208,20 @@ class ExamReviewViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Create comment
         comment = ExamReviewComment.objects.create(
-            review=review,
-            author=user.teacher,
-            **serializer.validated_data
+            review=review, author=user.teacher, **serializer.validated_data
         )
-
-        comment_serializer = ExamReviewCommentSerializer(comment)
         return Response(
             {
                 "message": "Comment added successfully",
-                "comment": comment_serializer.data,
+                "comment": ExamReviewCommentSerializer(comment).data,
             },
             status=status.HTTP_201_CREATED,
         )
 
     @action(detail=True, methods=["post"], url_path="comments/(?P<comment_id>[^/.]+)/resolve")
     def resolve_comment(self, request, pk=None, comment_id=None):
-        """Resolve a comment"""
         review = self.get_object()
-
         try:
             comment = review.comments.get(id=comment_id)
         except ExamReviewComment.DoesNotExist:
@@ -4963,37 +2237,40 @@ class ExamReviewViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
             )
 
         comment.resolve(user.teacher)
-
-        serializer = ExamReviewCommentSerializer(comment)
         return Response(
             {
                 "message": "Comment resolved successfully",
-                "comment": serializer.data,
+                "comment": ExamReviewCommentSerializer(comment).data,
             },
             status=status.HTTP_200_OK,
         )
 
     @action(detail=False, methods=["get"])
     def queue(self, request):
-        """Get review queue (pending reviews for current user)"""
+        """
+        Get review queue (pending reviews for current user).
+        UPDATED: filter via status FK → status__code__in instead of status__in
+        """
         user = request.user
-
         if not hasattr(user, "teacher"):
             return Response(
                 {"error": "Only teachers have review queues"},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Get reviews where user is a reviewer and status is submitted or in_review
-        reviews = ExamReview.objects.filter(
-            reviewers__reviewer=user.teacher,
-            status__in=["submitted", "in_review"]
-        ).select_related("exam", "submitted_by").distinct()
+        # UPDATED: traverse FK to filter by code
+        reviews = (
+            ExamReview.objects.filter(
+                reviewers__reviewer=user.teacher,
+                status__code__in=["submitted", "in_review"],  # UPDATED: FK-safe
+            )
+            .select_related("exam", "submitted_by", "status")
+            .distinct()
+        )
 
-        serializer = ExamReviewListSerializer(reviews, many=True)
         return Response(
             {
-                "queue": serializer.data,
+                "queue": ExamReviewListSerializer(reviews, many=True).data,
                 "count": reviews.count(),
             },
             status=status.HTTP_200_OK,

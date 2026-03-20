@@ -4,6 +4,7 @@ import { createBrowserRouter, Outlet, Navigate } from 'react-router-dom';
 import ErrorBoundary from './../components/ErrorBoundary';
 import { AuthProvider } from './../hooks/useAuth';
 import { AuthLostProvider } from './../components/common/AuthLostProvider';
+import { ClassroomProvider } from '@/contexts/ClassroomContext';
 import { GlobalThemeProvider } from '@/contexts/GlobalThemeContext';
 import { TenantProvider, useTenant } from '@/contexts/TenantContext';
 import { lazy, Suspense } from 'react';
@@ -296,6 +297,9 @@ export const router = createBrowserRouter([
         ]
       },
 
+
+      
+
       // ========================================
       // SUBDOMAIN ROUTES (School Portal)
       // ========================================
@@ -428,6 +432,30 @@ export const router = createBrowserRouter([
         path: 'admin',
         element: <AdminProtectedLayout />,
         children: [
+
+          {
+            path: 'classroom-management',
+            element: (
+              <ClassroomProvider>
+                <Outlet />
+              </ClassroomProvider>
+            ),
+            children: [
+              {
+                path: 'classes',
+                element: <LazyWrapper><AdminClassroomManagement /></LazyWrapper>,
+              },
+              {
+                path: 'subjects',
+                element: <LazyWrapper><AdminSubjectManagement /></LazyWrapper>,
+              },
+              {
+                path: 'settings',
+                element: <LazyWrapper><SettingsPage /></LazyWrapper>,
+              },
+            ],
+          },
+
           {
             index: true,
             element: <LazyWrapper><AdminDashboardContentLoader /></LazyWrapper>,
@@ -468,14 +496,7 @@ export const router = createBrowserRouter([
             path: 'results/student/:studentId',
             element: <LazyWrapper><StudentResultDetail /></LazyWrapper>,
           },
-          {
-            path: 'classes',
-            element: <LazyWrapper><AdminClassroomManagement /></LazyWrapper>,
-          },
-          {
-            path: 'subjects',
-            element: <LazyWrapper><AdminSubjectManagement /></LazyWrapper>,
-          },
+          
           {
             path: 'exams',
             element: <LazyWrapper><AdminExamsManagement /></LazyWrapper>,

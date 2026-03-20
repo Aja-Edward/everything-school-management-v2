@@ -15,79 +15,274 @@ import api from './api';
 // TYPE DEFINITIONS
 // ============================================================================
 
-export interface Student {
+/**
+ * Matches EducationLevel.level_type choices from Django model
+ */
+export type EducationLevelType =
+  | 'NURSERY'
+  | 'PRIMARY'
+  | 'JUNIOR_SECONDARY'
+  | 'SENIOR_SECONDARY';
+
+/**
+ * Gender choices from Django model: ('M', 'Male') | ('F', 'Female')
+ * The model uses single-char values only.
+ */
+export type GenderType = 'M' | 'F';
+
+// ---- Nested serializer shapes ----
+
+export interface UserDetails {
   id: number;
-  user: number;
-  user_details?: {
-    id: number;
-    username: string;
-    email: string;
-    first_name: string;
-    last_name: string;
-    full_name: string;
-    is_active: boolean;
-    date_joined: string;
-  };
+  username: string;
+  email: string;
+  first_name: string;
+  last_name: string;
   full_name: string;
-  registration_number: string;
-  date_of_birth?: string;
-  gender: 'M' | 'F' | 'O';
-  gender_display?: string;
-  education_level: 'NURSERY' | 'PRIMARY' | 'JUNIOR_SECONDARY' | 'SENIOR_SECONDARY';
-  education_level_display?: string;
-  student_class: string;
-  student_class_display?: string;
-  classroom?: string;
-  admission_date?: string;
-  parent_contact?: string;
-  emergency_contact?: string;
-  address?: string;
-  medical_conditions?: string;
-  special_requirements?: string;
   is_active: boolean;
-  profile_picture_url?: string;
-  created_at: string;
-  updated_at: string;
+  date_joined: string;
 }
 
+/**
+ * Minimal representation of a related EducationLevel object
+ * (as returned by a nested serializer).
+ */
+export interface EducationLevelDetail {
+  id: number;
+  name: string;
+  code: string;
+  level_type: EducationLevelType;
+  order: number;
+  is_active: boolean;
+}
+
+/**
+ * Minimal representation of a related Class object
+ * (as returned by a nested serializer).
+ */
+export interface ClassDetail {
+  id: number;
+  name: string;
+  code: string;
+  grade_number: number;
+  order: number;
+  education_level: EducationLevelDetail;
+  default_capacity: number | null;
+  is_active: boolean;
+  description: string | null;
+}
+
+/**
+ * Minimal representation of a related Section object
+ * (as returned by a nested serializer).
+ */
+export interface SectionDetail {
+  id: number;
+  name: string;
+  full_name: string;
+  room_number: string | null;
+  capacity: number | null;
+  is_active: boolean;
+}
+
+/**
+ * Minimal representation of a Stream (used for senior secondary students).
+ */
+export interface StreamDetail {
+  id: number;
+  name: string;
+}
+
+/**
+ * Parent information attached to a student.
+ */
+export interface ParentInfo {
+  id: number;
+  full_name: string;
+  email: string;
+  phone: string;
+}
+
+// ---- Core Student interface ----
+
+/**
+ * Full Student object as returned by the API.
+ * Field names and types mirror the Django Student model exactly.
+ */
+export interface Student {
+  id: number;
+
+  /** FK to CustomUser — the user's primary key */
+  user: number;
+
+  /** Expanded user details (from nested serializer) */
+  user_details?: UserDetails;
+
+  // ---- Computed / annotated fields from serializer ----
+  /** Derived from user.full_name */
+  full_name: string;
+  /** Derived from user.username (used as registration number display) */
+  username?: string;
+
+  // ---- Model fields ----
+
+  /** Single-char gender: 'M' | 'F' */
+  gender: GenderType;
+  /** Human-readable gender label */
+  gender_display?: string;
+
+  date_of_birth: string; // ISO date string: YYYY-MM-DD
+
+  /**
+   * FK to Class — may be returned as a string name, numeric ID,
+   * or nested object depending on serializer depth.
+   * Use student_class_detail for the full object.
+   */
+  student_class: number | string | null;
+  /** Human-readable class name */
+  student_class_display?: string;
+  /** Full nested Class object (if serializer uses depth > 0) */
+  student_class_detail?: ClassDetail | null;
+
+  /**
+   * FK to Section — nullable.
+   * Use section_detail for the full object.
+   */
+  section: number | string | null;
+  /** Human-readable section name */
+  section_display?: string;
+  /** Full nested Section object */
+  section_detail?: SectionDetail | null;
+
+  /** FK to Stream — nullable, only for senior secondary students */
+  stream: number | string | null;
+  stream_detail?: StreamDetail | null;
+
+  /** auto_now_add field */
+  admission_date: string; // ISO date string: YYYY-MM-DD
+
+  /** Unique registration number (may be null until assigned) */
+  registration_number: string | null;
+
+  /** Cloudinary URL */
+  profile_picture: string | null;
+
+  parent_contact: string | null;
+  emergency_contact: string | null;
+  medical_conditions: string | null;
+  special_requirements: string | null;
+  blood_group: string | null;
+  place_of_birth: string | null;
+  address: string | null;
+  phone_number: string | null;
+  payment_method: string | null;
+
+  is_active: boolean;
+
+  // ---- Computed @property fields (serializer must expose these) ----
+
+  /**
+   * @property — derived from student_class.education_level.level_type
+   * Returns null if student_class is not assigned.
+   */
+  education_level: EducationLevelType | null;
+  /** Human-readable education level name */
+  education_level_display?: string;
+
+  /**
+   * @property — returns section.full_name if section exists,
+   * else student_class.name, else "Not Assigned"
+   */
+  classroom: string;
+
+  /** @property — calculated from date_of_birth */
+  age?: number;
+
+  // ---- Convenience boolean @property fields ----
+  is_nursery_student?: boolean;
+  is_primary_student?: boolean;
+  is_secondary_student?: boolean;
+  is_junior_secondary_student?: boolean;
+  is_senior_secondary_student?: boolean;
+
+  // ---- Related objects ----
+  parents?: ParentInfo[];
+
+  // ---- Timestamps (if returned by serializer) ----
+  created_at?: string;
+  updated_at?: string;
+}
+
+// ============================================================================
+// STUDENT FORM / MUTATION TYPES
+// ============================================================================
+
 export interface CreateStudentData {
+  // User fields
   first_name: string;
   last_name: string;
   middle_name?: string;
   email: string;
-  date_of_birth?: string;
-  gender: 'M' | 'F' | 'O';
-  education_level: 'NURSERY' | 'PRIMARY' | 'JUNIOR_SECONDARY' | 'SENIOR_SECONDARY';
-  student_class: string;
-  classroom?: string;
-  admission_date?: string;
+
+  // Student fields
+  date_of_birth: string; // YYYY-MM-DD
+  gender: GenderType;
+
+  /** FK ID to Class */
+  student_class: number;
+  /** FK ID to Section — optional */
+  section?: number | null;
+  /** FK ID to Stream — optional, for senior secondary */
+  stream?: number | null;
+
+  admission_date?: string; // YYYY-MM-DD
+  registration_number?: string;
+
   parent_contact?: string;
   parent_email?: string;
   emergency_contact?: string;
+
   address?: string;
+  place_of_birth?: string;
+  blood_group?: string;
+  phone_number?: string;
+  payment_method?: string;
   medical_conditions?: string;
   special_requirements?: string;
+  profile_picture?: string;
 }
 
 export interface UpdateStudentData extends Partial<CreateStudentData> {}
 
+// ============================================================================
+// LIST / FILTER TYPES
+// ============================================================================
+
 export interface StudentListItem {
   id: number;
   full_name: string;
-  registration_number: string;
-  education_level: string;
-  education_level_display: string;
-  student_class: string;
-  student_class_display: string;
-  classroom?: string;
+  username?: string;
+  registration_number: string | null;
+  education_level: EducationLevelType | null;
+  education_level_display?: string;
+  student_class: number | string | null;
+  student_class_display?: string;
+  classroom: string;
+  section: number | string | null;
+  section_display?: string;
+  gender: GenderType;
   is_active: boolean;
+  profile_picture: string | null;
 }
 
 export interface StudentFilters {
   user?: number;
-  education_level?: string;
-  student_class?: string;
-  gender?: string;
+  education_level?: EducationLevelType;
+  /** Filter by Class FK id */
+  student_class?: number | string;
+  /** Filter by Section FK id */
+  section?: number | string;
+  gender?: GenderType;
   is_active?: boolean;
   search?: string;
   ordering?: string;
@@ -207,24 +402,10 @@ export interface StudentDashboard {
     admission_date?: string;
   };
   statistics: {
-    performance: {
-      average_score: number;
-      label: string;
-    };
-    attendance: {
-      rate: number;
-      present: number;
-      total: number;
-      label: string;
-    };
-    subjects: {
-      count: number;
-      label: string;
-    };
-    schedule: {
-      classes_today: number;
-      label: string;
-    };
+    performance: { average_score: number; label: string };
+    attendance: { rate: number; present: number; total: number; label: string };
+    subjects: { count: number; label: string };
+    schedule: { classes_today: number; label: string };
   };
   recent_activities: Array<{
     type: 'result' | 'attendance';
@@ -282,16 +463,16 @@ export interface StudentProfile extends Student {
     class: string;
     education_level: string;
     admission_date?: string;
-    registration_number: string;
+    registration_number: string | null;
     classroom?: string;
   };
   contact_info: {
-    parent_contact?: string;
-    emergency_contact?: string;
+    parent_contact?: string | null;
+    emergency_contact?: string | null;
   };
   medical_info: {
-    medical_conditions?: string;
-    special_requirements?: string;
+    medical_conditions?: string | null;
+    special_requirements?: string | null;
   };
 }
 
@@ -327,23 +508,14 @@ export interface GenerateTokensResponse {
   expires_at: string;
   days_until_expiry: number;
   expiry_date: string;
-  errors?: Array<{
-    student_id: number;
-    username: string;
-    error: string;
-  }>;
+  errors?: Array<{ student_id: number; username: string; error: string }>;
   error_count?: number;
 }
 
 export interface TokensListResponse {
   tokens: ResultToken[];
   total: number;
-  statistics: {
-    total: number;
-    active: number;
-    expired: number;
-    used: number;
-  };
+  statistics: { total: number; active: number; expired: number; used: number };
   school_term: string;
   academic_session: string;
 }
@@ -365,13 +537,10 @@ export interface TokenVerificationResponse {
 // ============================================================================
 
 class StudentService {
-  // ============================================================================
-  // BASIC CRUD OPERATIONS
-  // ============================================================================
+  // --------------------------------------------------------------------------
+  // BASIC CRUD
+  // --------------------------------------------------------------------------
 
-  /**
-   * Get all students (filtered by params)
-   */
   async getStudents(params?: StudentFilters): Promise<Student[]> {
     try {
       const response = await api.get('/api/students/students/', params);
@@ -382,22 +551,15 @@ class StudentService {
     }
   }
 
-  /**
-   * Get a single student by ID
-   */
   async getStudent(id: number): Promise<Student> {
     try {
-      const response = await api.get(`/api/students/students/${id}/`);
-      return response;
+      return await api.get(`/api/students/students/${id}/`);
     } catch (error) {
       console.error(`Error fetching student ${id}:`, error);
       throw error;
     }
   }
 
-  /**
-   * Create a new student
-   */
   async createStudent(data: CreateStudentData): Promise<{
     student: Student;
     student_username?: string;
@@ -405,30 +567,22 @@ class StudentService {
     parent_password?: string;
   }> {
     try {
-      const response = await api.post('/api/students/students/', data);
-      return response;
+      return await api.post('/api/students/students/', data);
     } catch (error) {
       console.error('Error creating student:', error);
       throw error;
     }
   }
 
-  /**
-   * Update a student
-   */
   async updateStudent(id: number, data: UpdateStudentData): Promise<Student> {
     try {
-      const response = await api.patch(`/api/students/students/${id}/`, data);
-      return response;
+      return await api.patch(`/api/students/students/${id}/`, data);
     } catch (error) {
       console.error(`Error updating student ${id}:`, error);
       throw error;
     }
   }
 
-  /**
-   * Delete a student
-   */
   async deleteStudent(id: number): Promise<void> {
     try {
       await api.delete(`/api/students/students/${id}/`);
@@ -438,187 +592,81 @@ class StudentService {
     }
   }
 
-  // ============================================================================
-  // SCHEDULE OPERATIONS
-  // ============================================================================
+  // --------------------------------------------------------------------------
+  // SCHEDULE
+  // --------------------------------------------------------------------------
 
-  /**
-   * Get current user's schedule
-   */
   async getMySchedule(): Promise<StudentSchedule> {
-    try {
-      const response = await api.get('/api/students/students/my-schedule/');
-      return response;
-    } catch (error) {
-      console.error('Error fetching my schedule:', error);
-      throw error;
-    }
+    return api.get('/api/students/students/my-schedule/');
   }
 
-  /**
-   * Get current user's weekly schedule
-   */
   async getMyWeeklySchedule(): Promise<WeeklySchedule> {
-    try {
-      const response = await api.get('/api/students/students/my-weekly-schedule/');
-      return response;
-    } catch (error) {
-      console.error('Error fetching my weekly schedule:', error);
-      throw error;
-    }
+    return api.get('/api/students/students/my-weekly-schedule/');
   }
 
-  /**
-   * Get current user's current period
-   */
   async getMyCurrentPeriod(): Promise<CurrentPeriod> {
-    try {
-      const response = await api.get('/api/students/students/my-current-period/');
-      return response;
-    } catch (error) {
-      console.error('Error fetching my current period:', error);
-      throw error;
-    }
+    return api.get('/api/students/students/my-current-period/');
   }
 
-  /**
-   * Get schedule for a specific student (or current student if no ID provided)
-   */
-  async getStudentSchedule(studentId?: number, filters?: any): Promise<StudentSchedule> {
-    try {
-      // If no studentId provided, use the current student's schedule
-      if (!studentId) {
-        return this.getMySchedule();
-      }
-      const response = await api.get(`/api/students/students/${studentId}/schedule/`);
-      return response;
-    } catch (error) {
-      console.error(`Error fetching schedule for student ${studentId}:`, error);
-      throw error;
-    }
+  async getStudentSchedule(studentId?: number): Promise<StudentSchedule> {
+    if (!studentId) return this.getMySchedule();
+    return api.get(`/api/students/students/${studentId}/schedule/`);
   }
 
-  /**
-   * Get weekly schedule for a specific student
-   */
   async getStudentWeeklySchedule(studentId: number): Promise<WeeklySchedule> {
-    try {
-      const response = await api.get(`/api/students/students/${studentId}/weekly_schedule/`);
-      return response;
-    } catch (error) {
-      console.error(`Error fetching weekly schedule for student ${studentId}:`, error);
-      throw error;
-    }
+    return api.get(`/api/students/students/${studentId}/weekly_schedule/`);
   }
 
-  /**
-   * Get daily schedule for a specific student
-   */
   async getStudentDailySchedule(studentId: number, date?: string): Promise<DailySchedule> {
-    try {
-      const params = date ? { date } : undefined;
-      const response = await api.get(`/api/students/students/${studentId}/daily_schedule/`, params);
-      return response;
-    } catch (error) {
-      console.error(`Error fetching daily schedule for student ${studentId}:`, error);
-      throw error;
-    }
+    const params = date ? { date } : undefined;
+    return api.get(`/api/students/students/${studentId}/daily_schedule/`, params);
   }
 
-  /**
-   * Get student schedule view (legacy endpoint)
-   */
-  async getStudentScheduleView(): Promise<StudentSchedule> {
-    try {
-      const response = await api.get('/api/students/student-schedule/');
-      return response;
-    } catch (error) {
-      console.error('Error fetching student schedule view:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Alias for getMyWeeklySchedule (for compatibility)
-   */
+  /** @deprecated use getMyWeeklySchedule */
   async getWeeklySchedule(): Promise<WeeklySchedule> {
     return this.getMyWeeklySchedule();
   }
 
-  /**
-   * Alias for getMySchedule (for compatibility)
-   */
+  /** @deprecated use getMySchedule */
   async getSchedule(): Promise<StudentSchedule> {
     return this.getMySchedule();
   }
 
-  /**
-   * Get current period for logged-in student
-   */
   async getCurrentPeriod(): Promise<CurrentPeriod> {
     return this.getMyCurrentPeriod();
   }
 
-  // ============================================================================
-  // DASHBOARD & PROFILE OPERATIONS
-  // ============================================================================
+  // --------------------------------------------------------------------------
+  // DASHBOARD & PROFILE
+  // --------------------------------------------------------------------------
 
-  /**
-   * Get comprehensive dashboard data for logged-in student
-   */
   async getDashboard(): Promise<StudentDashboard> {
-    try {
-      const response = await api.get('/api/students/students/dashboard/');
-      return response;
-    } catch (error) {
-      console.error('Error fetching student dashboard:', error);
-      throw error;
-    }
+    return api.get('/api/students/students/dashboard/');
   }
 
-  /**
-   * Alias for getDashboard (for compatibility)
-   */
+  /** @deprecated use getDashboard */
   async getDashboardData(): Promise<StudentDashboard> {
     return this.getDashboard();
   }
 
-  /**
-   * Get detailed profile information for logged-in student
-   */
   async getProfile(): Promise<StudentProfile> {
-    try {
-      const response = await api.get('/api/students/students/profile/');
-      return response;
-    } catch (error) {
-      console.error('Error fetching student profile:', error);
-      throw error;
-    }
+    return api.get('/api/students/students/profile/');
   }
 
-  // ============================================================================
-  // RESULT TOKEN OPERATIONS
-  // ============================================================================
+  // --------------------------------------------------------------------------
+  // RESULT TOKENS
+  // --------------------------------------------------------------------------
 
-  /**
-   * Generate result tokens for all active students (Admin only)
-   */
-  async generateResultTokens(schoolTermId: number, daysUntilExpiry?: number): Promise<GenerateTokensResponse> {
-    try {
-      const response = await api.post('/api/students/generate-result-tokens/', {
-        school_term_id: schoolTermId,
-        days_until_expiry: daysUntilExpiry,
-      });
-      return response;
-    } catch (error) {
-      console.error('Error generating result tokens:', error);
-      throw error;
-    }
+  async generateResultTokens(
+    schoolTermId: number,
+    daysUntilExpiry?: number,
+  ): Promise<GenerateTokensResponse> {
+    return api.post('/api/students/generate-result-tokens/', {
+      school_term_id: schoolTermId,
+      days_until_expiry: daysUntilExpiry,
+    });
   }
 
-  /**
-   * Get result token for current student
-   */
   async getMyResultToken(): Promise<{
     has_token: boolean;
     token_data?: ResultToken;
@@ -626,147 +674,75 @@ class StudentService {
     current_term?: string;
     message?: string;
   }> {
-    try {
-      const response = await api.get('/api/students/get-student-result-token/');
-      return response;
-    } catch (error) {
-      console.error('Error fetching my result token:', error);
-      throw error;
-    }
+    return api.get('/api/students/get-student-result-token/');
   }
 
-  /**
-   * Verify result token
-   */
   async verifyResultToken(token: string): Promise<TokenVerificationResponse> {
-    try {
-      const response = await api.post('/api/students/verify-result-token/', {
-        token,
-      });
-      return response;
-    } catch (error) {
-      console.error('Error verifying result token:', error);
-      throw error;
-    }
+    return api.post('/api/students/verify-result-token/', { token });
   }
 
-  /**
-   * Get all result tokens for a school term (Admin only)
-   */
   async getAllResultTokens(schoolTermId: number): Promise<TokensListResponse> {
-    try {
-      const response = await api.get('/api/students/get-all-result-tokens/', {
-        params: { school_term_id: schoolTermId },
-      });
-      return response;
-    } catch (error) {
-      console.error('Error fetching all result tokens:', error);
-      throw error;
-    }
+    return api.get('/api/students/get-all-result-tokens/', {
+      params: { school_term_id: schoolTermId },
+    });
   }
 
-  /**
-   * Delete expired tokens (Admin only)
-   */
   async deleteExpiredTokens(): Promise<{
     success: boolean;
     message: string;
     deleted_count: number;
     breakdown: Array<{ school_term__name: string; count: number }>;
   }> {
-    try {
-      const response = await api.delete('/api/students/delete-expired-tokens/');
-      return response;
-    } catch (error) {
-      console.error('Error deleting expired tokens:', error);
-      throw error;
-    }
+    return api.delete('/api/students/delete-expired-tokens/');
   }
 
-  /**
-   * Delete all tokens for a specific term (Admin only)
-   */
   async deleteAllTokensForTerm(schoolTermId: number): Promise<{
     success: boolean;
     message: string;
     deleted_count: number;
     school_term: string;
   }> {
-    try {
-      const response = await api.delete('/api/students/delete-all-tokens-for-term/', {
-        data: { school_term_id: schoolTermId },
-      });
-      return response;
-    } catch (error) {
-      console.error('Error deleting tokens for term:', error);
-      throw error;
-    }
+    return api.delete('/api/students/delete-all-tokens-for-term/', {
+      data: { school_term_id: schoolTermId },
+    });
   }
 
-  // ============================================================================
-  // HELPER METHODS
-  // ============================================================================
+  // --------------------------------------------------------------------------
+  // HELPERS
+  // --------------------------------------------------------------------------
 
-  /**
-   * Check if student has valid result token
-   */
   async hasValidResultToken(): Promise<boolean> {
     try {
       const response = await this.getMyResultToken();
       return response.has_token;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
 
-  /**
-   * Get student by user ID
-   */
   async getStudentByUserId(userId: number): Promise<Student> {
-    try {
-      const response = await this.getStudents({ user: userId });
-      if (Array.isArray(response) && response.length > 0) {
-        return response[0];
-      }
-      throw new Error('Student not found');
-    } catch (error) {
-      console.error(`Error fetching student for user ${userId}:`, error);
-      throw error;
-    }
+    const response = await this.getStudents({ user: userId });
+    if (Array.isArray(response) && response.length > 0) return response[0];
+    throw new Error('Student not found');
   }
 
-  /**
-   * Get students by education level
-   */
-  async getStudentsByEducationLevel(educationLevel: string): Promise<Student[]> {
+  async getStudentsByEducationLevel(educationLevel: EducationLevelType): Promise<Student[]> {
     return this.getStudents({ education_level: educationLevel });
   }
 
-  /**
-   * Get students by class
-   */
-  async getStudentsByClass(studentClass: string): Promise<Student[]> {
+  async getStudentsByClass(studentClass: number | string): Promise<Student[]> {
     return this.getStudents({ student_class: studentClass });
   }
 
-  /**
-   * Get active students only
-   */
   async getActiveStudents(): Promise<Student[]> {
     return this.getStudents({ is_active: true });
   }
 
-  /**
-   * Search students
-   */
   async searchStudents(query: string): Promise<Student[]> {
     return this.getStudents({ search: query });
   }
 }
 
-// Export the class for those who need it
 export { StudentService };
-
-// Export the singleton instance
 export const studentService = new StudentService();
 export default studentService;

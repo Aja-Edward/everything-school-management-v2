@@ -1,100 +1,156 @@
 from rest_framework import serializers
 from django.core.exceptions import ValidationError as DjangoValidationError
+
 from .models import (
     Subject,
-    SUBJECT_CATEGORY_CHOICES,
-    EDUCATION_LEVELS,
-    NURSERY_LEVELS,
-    SS_SUBJECT_TYPES,
+    SubjectCategory,
+    SubjectType,
     SchoolStreamConfiguration,
     SchoolStreamSubjectAssignment,
 )
 
+# GradeLevel lives in classroom app
+from classroom.models import GradeLevel
+
+# EducationLevel lives in students app — used for FK validation in filters
+from students.models import EducationLevel
+
+# ---------------------------------------------------------------------------
+# Minimal nested serializers (avoid circular imports)
+# ---------------------------------------------------------------------------
+
+
+class SubjectCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SubjectCategory
+        fields = ["id", "name", "code", "description", "color_code", "is_active"]
+        read_only_fields = ["id"]
+
+
+class SubjectTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SubjectType
+        fields = ["id", "name", "code", "description", "is_active"]
+        read_only_fields = ["id"]
+
+
+class GradeLevelMinimalSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GradeLevel
+        fields = ["id", "name", "order", "education_level"]
+        read_only_fields = ["id"]
+
+
+# ---------------------------------------------------------------------------
+# Main Subject serializer
+# ---------------------------------------------------------------------------
 
 class SubjectSerializer(serializers.ModelSerializer):
-    # Read-only computed fields from model properties
+    # Read-only computed properties from model
     display_name = serializers.ReadOnlyField()
-    education_levels_display = serializers.ReadOnlyField()
     nursery_levels_display = serializers.ReadOnlyField()
     full_level_display = serializers.ReadOnlyField()
-    # total_weekly_hours field removed - doesn't exist in model
-    category_display_with_icon = serializers.CharField(
-        source="get_category_display_with_icon", read_only=True
+
+    # category → FK to SubjectCategory (replaces old CharField)
+    category = serializers.PrimaryKeyRelatedField(
+        source="category_new",
+        queryset=SubjectCategory.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+    category_detail = SubjectCategorySerializer(source="category_new", read_only=True)
+    category_name = serializers.CharField(
+        source="category_new.name", read_only=True, allow_null=True
+    )
+    category_code = serializers.CharField(
+        source="category_new.code", read_only=True, allow_null=True
     )
 
-    # Display values for choice fields
-    category_display = serializers.CharField(
-        source="get_category_display", read_only=True
+    # ss_subject_type → FK to SubjectType (replaces old CharField)
+    ss_subject_type = serializers.PrimaryKeyRelatedField(
+        source="subject_type_new",
+        queryset=SubjectType.objects.all(),
+        required=False,
+        allow_null=True,
     )
-    ss_subject_type_display = serializers.CharField(
-        source="get_ss_subject_type_display", read_only=True
+    ss_subject_type_detail = SubjectTypeSerializer(
+        source="subject_type_new", read_only=True
     )
-
-    # Boolean property fields
-    # is_nursery_subject field removed - use education_levels JSONField instead
-    # Education level fields removed - use education_levels JSONField instead
-
-    # Custom validation fields
-    code = serializers.CharField(
-        max_length=15, help_text="Unique subject code (e.g., MATH-NUR, ENG-PRI, PHY-SS)"
+    ss_subject_type_name = serializers.CharField(
+        source="subject_type_new.name", read_only=True, allow_null=True
     )
 
-    # Method fields for additional context
+    # grade_levels — M2M replacing old education_levels JSONField
+    grade_levels = serializers.PrimaryKeyRelatedField(
+        queryset=GradeLevel.objects.all(),
+        many=True,
+        required=False,
+    )
     grade_levels_info = serializers.SerializerMethodField()
-    prerequisite_subjects = serializers.SerializerMethodField()
-    dependent_subjects = serializers.SerializerMethodField()
-    # subject_summary field removed - doesn't exist in model
-    education_level_details = serializers.SerializerMethodField()
 
-    # Nested serialization for related fields
-    grade_levels = serializers.StringRelatedField(many=True, read_only=True)
+    # education_levels — old JSONField kept read-only for backward compat
+    education_levels = serializers.JSONField(read_only=True)
+    education_levels_display = serializers.ReadOnlyField()
+
+    # nursery levels (still JSONField on model for now)
+    nursery_levels = serializers.JSONField(required=False, allow_null=True)
+
+    # Prerequisites / dependents
     prerequisites = serializers.StringRelatedField(many=True, read_only=True)
     compatible_streams = serializers.StringRelatedField(many=True, read_only=True)
+    prerequisite_subjects = serializers.SerializerMethodField()
+    dependent_subjects = serializers.SerializerMethodField()
 
-    # Add new fields
-    is_cross_cutting = serializers.BooleanField(read_only=True)
+    is_cross_cutting = serializers.BooleanField(required=False)
     default_stream_role = serializers.CharField(read_only=True)
-    
-    # Stream assignments for this subject
+
     stream_assignments = serializers.SerializerMethodField()
+
+    education_level_details = serializers.SerializerMethodField()
+
+    code = serializers.CharField(
+        max_length=15,
+        help_text="Unique subject code (e.g., MATH-NUR, ENG-PRI, PHY-SS)",
+    )
 
     class Meta:
         model = Subject
         fields = [
-            # Basic fields
             "id",
             "name",
             "short_name",
             "display_name",
             "code",
             "description",
+            # Category (FK)
             "category",
-            "category_display",
-            "category_display_with_icon",
-            # Education level fields
+            "category_detail",
+            "category_name",
+            "category_code",
+            # Education level (old JSONField — read-only backward compat)
             "education_levels",
             "education_levels_display",
+            # Nursery levels (still JSONField)
             "nursery_levels",
             "nursery_levels_display",
             "full_level_display",
             "education_level_details",
-            # Senior Secondary specific
+            # Senior Secondary subject type (FK)
             "ss_subject_type",
-            "ss_subject_type_display",
+            "ss_subject_type_detail",
+            "ss_subject_type_name",
             "is_cross_cutting",
             "default_stream_role",
-            # Grade level integration
+            # Grade level M2M
             "grade_levels",
             "grade_levels_info",
-
-            # Prerequisites and dependencies
+            # Prerequisites & dependencies
             "prerequisites",
             "prerequisite_subjects",
             "dependent_subjects",
             "compatible_streams",
-            # Status fields
+            # Status
             "is_active",
-            # Metadata and organization
             "subject_order",
             # Timestamps
             "created_at",
@@ -104,167 +160,139 @@ class SubjectSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ("id", "created_at", "updated_at")
 
+    # ------------------------------------------------------------------
+    # SerializerMethodFields
+    # ------------------------------------------------------------------
+
     def get_grade_levels_info(self, obj):
-        """Return detailed information about grade levels"""
-        grade_levels = getattr(obj, 'grade_levels', None)
-        if grade_levels is None:
-            return []
-        
         try:
-            grade_levels = grade_levels.all().order_by("order")
             return [
-                {
-                    "id": grade.id,
-                    "name": grade.name,
-                    "order": grade.order,
-                }
-                for grade in grade_levels
+                {"id": gl.id, "name": gl.name, "order": gl.order}
+                for gl in obj.grade_levels.all().order_by("order")
             ]
-        except (AttributeError, Exception):
+        except Exception:
             return []
 
     def get_prerequisite_subjects(self, obj):
-        """Return list of prerequisite subjects"""
         try:
-            if hasattr(obj, 'get_prerequisite_subjects'):
-                prerequisites = obj.get_prerequisite_subjects()
-            else:
-                prerequisites = getattr(obj, 'prerequisites', []).filter(is_active=True) if hasattr(obj, 'prerequisites') else []
-            
+            prerequisites = (
+                obj.get_prerequisite_subjects()
+                if hasattr(obj, "get_prerequisite_subjects")
+                else obj.prerequisites.filter(is_active=True)
+            )
             return [
                 {
-                    "id": subject.id,
-                    "name": subject.name,
-                    "short_name": subject.short_name,
-                    "code": subject.code,
-                    "display_name": subject.display_name,
+                    "id": s.id,
+                    "name": s.name,
+                    "short_name": s.short_name,
+                    "code": s.code,
+                    "display_name": s.display_name,
                 }
-                for subject in prerequisites
+                for s in prerequisites
             ]
-        except (AttributeError, Exception):
+        except Exception:
             return []
 
     def get_dependent_subjects(self, obj):
-        """Return list of subjects that depend on this subject"""
         try:
-            if hasattr(obj, 'get_dependent_subjects'):
-                dependents = obj.get_dependent_subjects()
-            else:
-                dependents = getattr(obj, 'unlocks_subjects', []).filter(is_active=True) if hasattr(obj, 'unlocks_subjects') else []
-            
+            dependents = (
+                obj.get_dependent_subjects()
+                if hasattr(obj, "get_dependent_subjects")
+                else obj.unlocks_subjects.filter(is_active=True)
+            )
             return [
                 {
-                    "id": subject.id,
-                    "name": subject.name,
-                    "short_name": subject.short_name,
-                    "code": subject.code,
-                    "display_name": subject.display_name,
+                    "id": s.id,
+                    "name": s.name,
+                    "short_name": s.short_name,
+                    "code": s.code,
+                    "display_name": s.display_name,
                 }
-                for subject in dependents
+                for s in dependents
             ]
-        except (AttributeError, Exception):
+        except Exception:
             return []
 
     def get_education_level_details(self, obj):
-        """Return detailed education level information"""
+        """
+        Derive education level details from grade_levels M2M FK chain.
+        grade_level.education_level is still a CharField on classroom.GradeLevel.
+        Falls back to old education_levels JSONField if grade_levels is empty.
+        """
+        grade_levels = (
+            list(obj.grade_levels.all().select_related())
+            if hasattr(obj, "grade_levels")
+            else []
+        )
+        # Collect level_type values from FK chain
+        level_types = {gl.education_level for gl in grade_levels if gl.education_level}
+
+        # Fall back to old JSONField if transition is incomplete
+        if not level_types:
+            level_types = set(getattr(obj, "education_levels", []) or [])
+
         details = {
-            "applicable_levels": [],
+            "applicable_levels": [
+                {"code": lt, "name": lt.replace("_", " ").title()}
+                for lt in sorted(level_types)
+            ],
             "nursery_specific": [],
             "level_compatibility": {
-                "nursery": "NURSERY" in getattr(obj, 'education_levels', []),
-                "primary": "PRIMARY" in getattr(obj, 'education_levels', []),
-                "junior_secondary": "JUNIOR_SECONDARY" in getattr(obj, 'education_levels', []),
-                "senior_secondary": "SENIOR_SECONDARY" in getattr(obj, 'education_levels', []),
+                "nursery": "NURSERY" in level_types,
+                "primary": "PRIMARY" in level_types,
+                "junior_secondary": "JUNIOR_SECONDARY" in level_types,
+                "senior_secondary": "SENIOR_SECONDARY" in level_types,
             },
         }
 
-        # Add applicable education levels
-        education_levels = getattr(obj, 'education_levels', [])
-        if education_levels:
-            level_dict = dict(EDUCATION_LEVELS)
-            details["applicable_levels"] = [
-                {"code": level, "name": level_dict.get(level, level)}
-                for level in education_levels
-            ]
-
-        # Add nursery specific levels
-        nursery_levels = getattr(obj, 'nursery_levels', [])
+        nursery_levels = getattr(obj, "nursery_levels", []) or []
         if nursery_levels:
-            nursery_dict = dict(NURSERY_LEVELS)
             details["nursery_specific"] = [
-                {"code": level, "name": nursery_dict.get(level, level)}
-                for level in nursery_levels
+                {"code": nl, "name": nl.replace("_", " ").title()}
+                for nl in nursery_levels
             ]
 
         return details
 
-    # get_subject_summary method removed - references non-existent fields
-
-    # Helper methods removed - they reference non-existent fields
-
     def get_stream_assignments(self, obj):
-        """Return list of stream assignments for this subject"""
         return SchoolStreamSubjectAssignmentSerializer(
             obj.stream_assignments.all(), many=True
         ).data
 
+    # ------------------------------------------------------------------
+    # Validators
+    # ------------------------------------------------------------------
+
     def validate_code(self, value):
-        """Ensure subject code follows the new format"""
         if not value:
             raise serializers.ValidationError("Subject code is required.")
-
-        # Convert to uppercase
         value = value.upper()
-
-        # Enhanced format validation for new code structure
         import re
 
-        # Updated regex to support new naming convention with dots and descriptive codes
         if not re.match(r"^[A-Z][A-Z0-9\.\-]{1,14}$", value):
             raise serializers.ValidationError(
-                "Subject code must follow format: SUBJECT-LEVEL (e.g., Maths-N-NUR, Eng.S-PRI, Chem. Core-Sc-SSS)"
+                "Subject code must follow format: SUBJECT-LEVEL "
+                "(e.g., MATH-NUR, ENG-PRI, PHY-SS)"
             )
-
         return value
 
     def validate_name(self, value):
-        """Validate subject name"""
         if not value or not value.strip():
             raise serializers.ValidationError("Subject name cannot be empty.")
-
         if len(value.strip()) < 2:
             raise serializers.ValidationError(
                 "Subject name must be at least 2 characters long."
             )
-
         return value.strip().title()
 
-
-
-    # validate_practical_hours method removed - field doesn't exist in model
-
-    def validate_education_levels(self, value):
-        """Validate education levels"""
-        if not isinstance(value, list):
-            raise serializers.ValidationError("Education levels must be a list.")
-
-        valid_levels = [choice[0] for choice in EDUCATION_LEVELS]
-        for level in value:
-            if level not in valid_levels:
-                raise serializers.ValidationError(
-                    f"Invalid education level: {level}. Must be one of {valid_levels}"
-                )
-        return value
-
     def validate_nursery_levels(self, value):
-        """Validate nursery levels"""
         if not value:
             return value
-
         if not isinstance(value, list):
             raise serializers.ValidationError("Nursery levels must be a list.")
-
-        valid_levels = [choice[0] for choice in NURSERY_LEVELS]
+        # Validate against known nursery level codes (still a static list — these
+        # sub-levels haven't been migrated to a FK model yet)
+        valid_levels = ["PRE_NURSERY", "NURSERY_1", "NURSERY_2", "RECEPTION"]
         for level in value:
             if level not in valid_levels:
                 raise serializers.ValidationError(
@@ -272,55 +300,29 @@ class SubjectSerializer(serializers.ModelSerializer):
                 )
         return value
 
-    def validate_ss_subject_type(self, value):
-        """Validate Senior Secondary subject type"""
-        if not value:
-            return value
-
-        valid_types = [choice[0] for choice in SS_SUBJECT_TYPES]
-        if value not in valid_types:
-            raise serializers.ValidationError(
-                f"Invalid SS subject type: {value}. Must be one of {valid_types}"
-            )
-        return value
-
     def validate(self, data):
-        """Cross-field validation"""
-        # Practical hours validation
-        has_practical = data.get("has_practical", False)
-        practical_hours = data.get("practical_hours", 0)
+        # Derive level_types from the provided grade_levels FKs
+        grade_levels = data.get("grade_levels", [])
+        level_types = {gl.education_level for gl in grade_levels if gl.education_level}
 
-        if has_practical and practical_hours == 0:
-            raise serializers.ValidationError(
-                {
-                    "practical_hours": "Practical hours must be greater than 0 when subject has practical components."
-                }
-            )
+        # Fall back to old education_levels JSONField during transition
+        if not level_types:
+            level_types = set(getattr(self.instance, "education_levels", []) or [])
 
-        # Equipment notes validation
-        requires_special_equipment = data.get("requires_special_equipment", False)
-        equipment_notes = data.get("equipment_notes", "")
-
-        if requires_special_equipment and not equipment_notes.strip():
-            raise serializers.ValidationError(
-                {
-                    "equipment_notes": "Equipment notes are required when subject requires special equipment."
-                }
-            )
-
-        # Senior Secondary validations
-        education_levels = data.get("education_levels", [])
-        ss_subject_type = data.get("ss_subject_type")
+        subject_type = data.get(
+            "subject_type_new"
+        )  # FK field (internal key after source mapping)
         is_cross_cutting = data.get("is_cross_cutting", False)
 
-        if "SENIOR_SECONDARY" in education_levels and not ss_subject_type:
+        # SS validations
+        if "SENIOR_SECONDARY" in level_types and not subject_type:
             raise serializers.ValidationError(
                 {
                     "ss_subject_type": "Senior Secondary subjects must have a subject type."
                 }
             )
 
-        if is_cross_cutting and "SENIOR_SECONDARY" not in education_levels:
+        if is_cross_cutting and "SENIOR_SECONDARY" not in level_types:
             raise serializers.ValidationError(
                 {
                     "is_cross_cutting": "Cross-cutting subjects can only be applied to Senior Secondary level."
@@ -328,29 +330,17 @@ class SubjectSerializer(serializers.ModelSerializer):
             )
 
         # Nursery validations
-        is_activity_based = data.get("is_activity_based", False)
         nursery_levels = data.get("nursery_levels", [])
-
-        if is_activity_based and "NURSERY" not in education_levels:
-            raise serializers.ValidationError(
-                {
-                    "is_activity_based": "Activity-based subjects can only be applied to Nursery level."
-                }
-            )
-
-        if nursery_levels and "NURSERY" not in education_levels:
+        if nursery_levels and "NURSERY" not in level_types:
             raise serializers.ValidationError(
                 {
                     "nursery_levels": "Nursery levels can only be specified for nursery subjects."
                 }
             )
 
-        # Assessment validation removed - fields don't exist in model
-
         return data
 
     def create(self, validated_data):
-        """Custom create method with additional validation"""
         try:
             instance = super().create(validated_data)
             instance.full_clean()
@@ -359,7 +349,6 @@ class SubjectSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(e.message_dict)
 
     def update(self, instance, validated_data):
-        """Custom update method with additional validation"""
         try:
             instance = super().update(instance, validated_data)
             instance.full_clean()
@@ -368,66 +357,123 @@ class SubjectSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(e.message_dict)
 
     def to_representation(self, instance):
-        """Customize output representation"""
         data = super().to_representation(instance)
-
-        # Add dynamic fields based on context
         request = self.context.get("request")
         if request and hasattr(request, "user"):
             if hasattr(request.user, "is_staff") and request.user.is_staff:
                 data["admin_info"] = {
-                    "last_updated": getattr(instance, 'updated_at', None),
-                    "requires_attention": (not getattr(instance, 'is_active', True)),
-                    "has_resource_requirements": getattr(instance, 'requires_lab', False)
-                    or getattr(instance, 'requires_special_equipment', False),
-                    "curriculum_alignment": getattr(instance, 'curriculum_version', None)
+                    "last_updated": getattr(instance, "updated_at", None),
+                    "requires_attention": not getattr(instance, "is_active", True),
+                    "has_resource_requirements": (
+                        getattr(instance, "requires_lab", False)
+                        or getattr(instance, "requires_special_equipment", False)
+                    ),
+                    "curriculum_alignment": getattr(
+                        instance, "curriculum_version", None
+                    )
                     or "Not specified",
                 }
-
         return data
 
 
-class SubjectListSerializer(serializers.ModelSerializer):
-    """Simplified serializer for list views"""
+# ---------------------------------------------------------------------------
+# List serializer (simplified)
+# ---------------------------------------------------------------------------
 
+class SubjectListSerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(
+        source="category_new.name", read_only=True, allow_null=True
+    )
+    category_code = serializers.CharField(
+        source="category_new.code", read_only=True, allow_null=True
+    )
+    category_new = serializers.SerializerMethodField()
+    subject_type_new = serializers.SerializerMethodField()
+    grade_level_names = serializers.SerializerMethodField()
+    education_levels = serializers.JSONField(read_only=True)
+    education_levels_display = serializers.CharField(read_only=True)
     status_summary = serializers.SerializerMethodField()
+    display_name = serializers.CharField(read_only=True)
 
     class Meta:
         model = Subject
         fields = [
             "id",
             "name",
+            "display_name",
             "short_name",
             "code",
-            "category",
+            "category_new",
+            "category_name",
+            "category_code",
+            "subject_type_new",
+            "grade_level_names",
             "education_levels",
+            "education_levels_display",
             "is_cross_cutting",
             "is_active",
             "status_summary",
             "subject_order",
         ]
 
-    def get_status_summary(self, obj):
-        """Get concise status summary"""
-        if not getattr(obj, 'is_active', True):
-            return "Inactive"
-        else:
-            return "Active"
+    def get_category_new(self, obj):
+        if obj.category_new:
+            return {
+                "id": obj.category_new.id,
+                "name": obj.category_new.name,
+                "code": obj.category_new.code,
+                "color_code": getattr(obj.category_new, "color_code", None),
+            }
+        return None
 
+    def get_subject_type_new(self, obj):
+        if obj.subject_type_new:
+            return {
+                "id": obj.subject_type_new.id,
+                "name": obj.subject_type_new.name,
+                "code": obj.subject_type_new.code,
+            }
+        return None
+
+    def get_grade_level_names(self, obj):
+        return [gl.name for gl in obj.grade_levels.all().order_by("order")]
+
+    def get_status_summary(self, obj):
+        return "Active" if getattr(obj, "is_active", True) else "Inactive"
+
+
+# ---------------------------------------------------------------------------
+# Create / Update serializer
+# ---------------------------------------------------------------------------
 
 class SubjectCreateUpdateSerializer(serializers.ModelSerializer):
-    """Serializer focused on create/update operations"""
+    # category → FK
+    category = serializers.PrimaryKeyRelatedField(
+        source="category_new",
+        queryset=SubjectCategory.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+    # ss_subject_type → FK
+    ss_subject_type = serializers.PrimaryKeyRelatedField(
+        source="subject_type_new",
+        queryset=SubjectType.objects.all(),
+        required=False,
+        allow_null=True,
+    )
 
-    # Writable fields for many-to-many relationships
-    grade_level_ids = serializers.ListField(
-        child=serializers.IntegerField(),
-        write_only=True,
+    # Writable M2M IDs
+    grade_level_ids = serializers.PrimaryKeyRelatedField(
+        source="grade_levels",
+        queryset=GradeLevel.objects.all(),
+        many=True,
         required=False,
         help_text="List of grade level IDs",
     )
-    prerequisite_ids = serializers.ListField(
-        child=serializers.IntegerField(),
-        write_only=True,
+    prerequisite_ids = serializers.PrimaryKeyRelatedField(
+        source="prerequisites",
+        queryset=Subject.objects.all(),
+        many=True,
         required=False,
         help_text="List of prerequisite subject IDs",
     )
@@ -440,7 +486,6 @@ class SubjectCreateUpdateSerializer(serializers.ModelSerializer):
             "code",
             "description",
             "category",
-            "education_levels",
             "nursery_levels",
             "ss_subject_type",
             "is_cross_cutting",
@@ -450,110 +495,89 @@ class SubjectCreateUpdateSerializer(serializers.ModelSerializer):
         ]
 
     def validate_code(self, value):
-        """Ensure subject code is unique and properly formatted"""
         if not value:
             raise serializers.ValidationError("Subject code is required.")
-
-        # Convert to uppercase
         value = value.upper()
-
-        # Enhanced format validation for new code structure
         import re
 
-        # Updated regex to support new naming convention with dots and descriptive codes
         if not re.match(r"^[A-Z][A-Z0-9\.\-]{1,14}$", value):
             raise serializers.ValidationError(
-                "Subject code must follow format: SUBJECT-LEVEL (e.g., Maths-N-NUR, Eng.S-PRI, Chem. Core-Sc-SSS)"
+                "Subject code must follow format: SUBJECT-LEVEL "
+                "(e.g., MATH-NUR, ENG-PRI, PHY-SS)"
             )
-
-        # Check uniqueness (excluding current instance during updates)
         queryset = Subject.objects.filter(code=value)
         if self.instance:
             queryset = queryset.exclude(pk=self.instance.pk)
-
         if queryset.exists():
             raise serializers.ValidationError("Subject with this code already exists.")
-
         return value
 
-    def validate_grade_level_ids(self, value):
-        """Validate grade level IDs"""
-        from .models import GradeLevel  # Assuming GradeLevel model exists
+    def validate(self, data):
+        # Derive level_types from the provided grade_levels FKs
+        grade_levels = data.get("grade_levels", [])
+        level_types = {gl.education_level for gl in grade_levels if gl.education_level}
 
-        if not value:
-            return value
+        # Fall back to instance's existing grade_levels during partial update
+        if not level_types and self.instance:
+            level_types = {
+                gl.education_level
+                for gl in self.instance.grade_levels.all()
+                if gl.education_level
+            }
 
-        existing_ids = set(
-            GradeLevel.objects.filter(id__in=value).values_list("id", flat=True)
-        )
-        provided_ids = set(value)
+        subject_type = data.get("subject_type_new")
+        is_cross_cutting = data.get("is_cross_cutting", False)
 
-        if provided_ids != existing_ids:
-            invalid_ids = provided_ids - existing_ids
+        if "SENIOR_SECONDARY" in level_types and not subject_type:
             raise serializers.ValidationError(
-                f"Invalid grade level IDs: {list(invalid_ids)}"
+                {
+                    "ss_subject_type": "Senior Secondary subjects must have a subject type."
+                }
             )
 
-        return value
-
-    def validate_prerequisite_ids(self, value):
-        """Validate prerequisite subject IDs"""
-        if not value:
-            return value
-
-        existing_ids = set(
-            Subject.objects.filter(id__in=value).values_list("id", flat=True)
-        )
-        provided_ids = set(value)
-
-        if provided_ids != existing_ids:
-            invalid_ids = provided_ids - existing_ids
+        if is_cross_cutting and "SENIOR_SECONDARY" not in level_types:
             raise serializers.ValidationError(
-                f"Invalid prerequisite subject IDs: {list(invalid_ids)}"
+                {
+                    "is_cross_cutting": "Cross-cutting subjects can only be applied to Senior Secondary level."
+                }
             )
 
-        # Check for circular dependencies
-        if self.instance and self.instance.id in provided_ids:
+        # Circular prerequisite check
+        prerequisites = data.get("prerequisites", [])
+        if self.instance and self.instance in prerequisites:
             raise serializers.ValidationError(
-                "Subject cannot be a prerequisite of itself."
+                {"prerequisite_ids": "Subject cannot be a prerequisite of itself."}
             )
 
-        return value
+        return data
 
     def create(self, validated_data):
-        """Handle many-to-many relationships during creation"""
-        grade_level_ids = validated_data.pop("grade_level_ids", [])
-        prerequisite_ids = validated_data.pop("prerequisite_ids", [])
-
+        grade_levels = validated_data.pop("grade_levels", [])
+        prerequisites = validated_data.pop("prerequisites", [])
         instance = super().create(validated_data)
-
-        # Set many-to-many relationships
-        if grade_level_ids:
-            instance.grade_levels.set(grade_level_ids)
-        if prerequisite_ids:
-            instance.prerequisites.set(prerequisite_ids)
-
+        if grade_levels:
+            instance.grade_levels.set(grade_levels)
+        if prerequisites:
+            instance.prerequisites.set(prerequisites)
         return instance
 
     def update(self, instance, validated_data):
-        """Handle many-to-many relationships during updates"""
-        grade_level_ids = validated_data.pop("grade_level_ids", None)
-        prerequisite_ids = validated_data.pop("prerequisite_ids", None)
-
+        grade_levels = validated_data.pop("grade_levels", None)
+        prerequisites = validated_data.pop("prerequisites", None)
         instance = super().update(instance, validated_data)
-
-        # Update many-to-many relationships if provided
-        if grade_level_ids is not None:
-            instance.grade_levels.set(grade_level_ids)
-        if prerequisite_ids is not None:
-            instance.prerequisites.set(prerequisite_ids)
-
+        if grade_levels is not None:
+            instance.grade_levels.set(grade_levels)
+        if prerequisites is not None:
+            instance.prerequisites.set(prerequisites)
         return instance
 
 
-class NurserySubjectSerializer(serializers.ModelSerializer):
-    """Specialized serializer for nursery subjects"""
+# ---------------------------------------------------------------------------
+# Specialised level-specific serializers
+# ---------------------------------------------------------------------------
 
+
+class NurserySubjectSerializer(serializers.ModelSerializer):
     nursery_levels_display = serializers.ReadOnlyField()
     is_activity_based = serializers.BooleanField(default=True)
 
@@ -568,23 +592,21 @@ class NurserySubjectSerializer(serializers.ModelSerializer):
             "nursery_levels",
             "nursery_levels_display",
             "is_activity_based",
-            # "practical_hours",  # Field doesn't exist in model
             "is_active",
             "subject_order",
         ]
 
-    def validate(self, data):
-        # Ensure this is a nursery subject
-        if "NURSERY" not in data.get("education_levels", ["NURSERY"]):
-            data["education_levels"] = ["NURSERY"]
-        return super().validate(data)
-
 
 class SeniorSecondarySubjectSerializer(serializers.ModelSerializer):
-    """Specialized serializer for Senior Secondary subjects"""
-
-    ss_subject_type_display = serializers.CharField(
-        source="get_ss_subject_type_display", read_only=True
+    # ss_subject_type via FK
+    ss_subject_type = serializers.PrimaryKeyRelatedField(
+        source="subject_type_new",
+        queryset=SubjectType.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+    ss_subject_type_name = serializers.CharField(
+        source="subject_type_new.name", read_only=True, allow_null=True
     )
 
     class Meta:
@@ -596,32 +618,27 @@ class SeniorSecondarySubjectSerializer(serializers.ModelSerializer):
             "code",
             "description",
             "ss_subject_type",
-            "ss_subject_type_display",
+            "ss_subject_type_name",
             "is_cross_cutting",
-            # "practical_hours",  # Field doesn't exist in model
-            # "requires_specialist_teacher",  # Field doesn't exist in model
             "is_active",
         ]
 
     def validate(self, data):
-        # Ensure this is a Senior Secondary subject
-        if "SENIOR_SECONDARY" not in data.get("education_levels", ["SENIOR_SECONDARY"]):
-            data["education_levels"] = ["SENIOR_SECONDARY"]
-
-        # Require ss_subject_type for SS subjects
-        if not data.get("ss_subject_type"):
+        if not data.get("subject_type_new"):
             raise serializers.ValidationError(
                 {
                     "ss_subject_type": "Senior Secondary subjects must have a subject type."
                 }
             )
-
         return super().validate(data)
 
 
-class SubjectEducationLevelSerializer(serializers.ModelSerializer):
-    """Serializer for education level specific operations"""
+# ---------------------------------------------------------------------------
+# Education level detail serializer
+# ---------------------------------------------------------------------------
 
+
+class SubjectEducationLevelSerializer(serializers.ModelSerializer):
     applicable_education_levels = serializers.SerializerMethodField()
     education_level_compatibility = serializers.SerializerMethodField()
     level_specific_info = serializers.SerializerMethodField()
@@ -632,6 +649,7 @@ class SubjectEducationLevelSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "code",
+            # old JSONField kept read-only
             "education_levels",
             "nursery_levels",
             "applicable_education_levels",
@@ -639,186 +657,237 @@ class SubjectEducationLevelSerializer(serializers.ModelSerializer):
             "level_specific_info",
         ]
 
+    def _get_level_types(self, obj):
+        """Derive level_type set from grade_levels FK chain, fall back to JSONField."""
+        try:
+            level_types = {
+                gl.education_level
+                for gl in obj.grade_levels.all()
+                if gl.education_level
+            }
+        except Exception:
+            level_types = set()
+        if not level_types:
+            level_types = set(getattr(obj, "education_levels", []) or [])
+        return level_types
+
     def get_applicable_education_levels(self, obj):
-        """Get formatted education levels"""
+        level_types = self._get_level_types(obj)
         result = []
-
-        education_levels = getattr(obj, 'education_levels', [])
-        nursery_levels = getattr(obj, 'nursery_levels', [])
-        
-        if education_levels:
-            for level in education_levels:
-                level_dict = dict(EDUCATION_LEVELS)
-                level_info = {
-                    "code": level,
-                    "name": level_dict.get(level, level),
-                    "is_current": True,
-                }
-
-                # Add nursery sub-levels if applicable
-                if level == "NURSERY" and nursery_levels:
-                    nursery_dict = dict(NURSERY_LEVELS)
+        for lt in sorted(level_types):
+            level_info = {
+                "code": lt,
+                "name": lt.replace("_", " ").title(),
+                "is_current": True,
+            }
+            if lt == "NURSERY":
+                nursery_levels = getattr(obj, "nursery_levels", []) or []
+                if nursery_levels:
                     level_info["sub_levels"] = [
-                        {
-                            "code": sub_level,
-                            "name": nursery_dict.get(sub_level, sub_level),
-                        }
-                        for sub_level in nursery_levels
+                        {"code": nl, "name": nl.replace("_", " ").title()}
+                        for nl in nursery_levels
                     ]
-
-                result.append(level_info)
-        else:
-            # If no specific levels, show all as applicable
-            for level_code, level_name in EDUCATION_LEVELS:
-                result.append(
-                    {"code": level_code, "name": level_name, "is_current": False}
-                )
-
+            result.append(level_info)
         return result
 
     def get_education_level_compatibility(self, obj):
-        """Check compatibility with different education levels"""
+        level_types = self._get_level_types(obj)
         return {
-            "nursery_compatible": "NURSERY" in getattr(obj, 'education_levels', []),
-            "primary_compatible": "PRIMARY" in getattr(obj, 'education_levels', []),
-            "junior_secondary_compatible": "JUNIOR_SECONDARY" in getattr(obj, 'education_levels', []),
-            "senior_secondary_compatible": "SENIOR_SECONDARY" in getattr(obj, 'education_levels', []),
-            "all_levels": not getattr(obj, 'education_levels', []),
+            "nursery_compatible": "NURSERY" in level_types,
+            "primary_compatible": "PRIMARY" in level_types,
+            "junior_secondary_compatible": "JUNIOR_SECONDARY" in level_types,
+            "senior_secondary_compatible": "SENIOR_SECONDARY" in level_types,
+            "all_levels": not level_types,
             "cross_cutting": obj.is_cross_cutting,
-            "activity_based": False,  # Field moved to stream configuration
+            "activity_based": False,
         }
 
     def get_level_specific_info(self, obj):
-        """Get level-specific information"""
-        info = {
-            "general": {
-                # "requires_specialist": obj.requires_specialist_teacher,  # Field doesn't exist
-                # "has_practical": obj.has_practical,  # Field doesn't exist
-            }
-        }
-
-        # Add nursery-specific info
-        if "NURSERY" in getattr(obj, 'education_levels', []):
+        level_types = self._get_level_types(obj)
+        info = {"general": {}}
+        if "NURSERY" in level_types:
             info["nursery"] = {
-                "is_activity_based": False,  # Field moved to stream configuration
-                "applicable_levels": getattr(obj, 'nursery_levels_display', ''),
+                "is_activity_based": False,
+                "applicable_levels": getattr(obj, "nursery_levels_display", ""),
             }
-
-        # Add Senior Secondary specific info
-        if "SENIOR_SECONDARY" in getattr(obj, 'education_levels', []):
+        if "SENIOR_SECONDARY" in level_types:
             info["senior_secondary"] = {
+                # type name via new FK
                 "subject_type": (
-                    obj.get_ss_subject_type_display() if obj.ss_subject_type else None
+                    obj.subject_type_new.name if obj.subject_type_new else None
                 ),
                 "is_cross_cutting": obj.is_cross_cutting,
             }
-
         return info
 
 
-class SubjectFilterSerializer(serializers.Serializer):
-    """Serializer for filtering subjects by various criteria"""
+# ---------------------------------------------------------------------------
+# Filter serializer — now accepts FK ids for category / ss_subject_type
+# ---------------------------------------------------------------------------
 
+class SubjectFilterSerializer(serializers.Serializer):
+    """Serializer for filtering subjects by various criteria."""
+
+    # education_level: filter by level_type string derived from grade_levels
     education_level = serializers.ChoiceField(
-        choices=EDUCATION_LEVELS, required=False, help_text="Filter by education level"
+        choices=[
+            ("NURSERY", "Nursery"),
+            ("PRIMARY", "Primary"),
+            ("JUNIOR_SECONDARY", "Junior Secondary"),
+            ("SENIOR_SECONDARY", "Senior Secondary"),
+        ],
+        required=False,
+        help_text="Filter by education level (matches grade_levels FK chain)",
     )
 
     nursery_level = serializers.ChoiceField(
-        choices=NURSERY_LEVELS, required=False, help_text="Filter by nursery level"
-    )
-
-    category = serializers.ChoiceField(
-        choices=SUBJECT_CATEGORY_CHOICES,
+        choices=[
+            ("PRE_NURSERY", "Pre Nursery"),
+            ("NURSERY_1", "Nursery 1"),
+            ("NURSERY_2", "Nursery 2"),
+            ("RECEPTION", "Reception"),
+        ],
         required=False,
-        help_text="Filter by subject category",
+        help_text="Filter by nursery level",
     )
 
-    ss_subject_type = serializers.ChoiceField(
-        choices=SS_SUBJECT_TYPES,
+    # category: FK id (replaces old SUBJECT_CATEGORY_CHOICES CharField filter)
+    category_id = serializers.PrimaryKeyRelatedField(
+        queryset=SubjectCategory.objects.all(),
         required=False,
-        help_text="Filter by Senior Secondary subject type",
+        allow_null=True,
+        help_text="Filter by SubjectCategory id",
     )
 
-    # is_compulsory filter removed - field moved to stream configuration
+    # ss_subject_type: FK id (replaces old SS_SUBJECT_TYPES CharField filter)
+    ss_subject_type_id = serializers.PrimaryKeyRelatedField(
+        queryset=SubjectType.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text="Filter by SubjectType id",
+    )
 
     is_cross_cutting = serializers.BooleanField(
         required=False, help_text="Filter cross-cutting subjects"
     )
-
-    # is_activity_based filter removed - field moved to stream configuration
-
-    # requires_specialist filter removed - field doesn't exist in model
-
-    # has_practical filter removed - field doesn't exist in model
 
     is_active = serializers.BooleanField(
         default=True, help_text="Filter by active status"
     )
 
 
-class SchoolStreamConfigurationSerializer(serializers.ModelSerializer):
-    """Serializer for school stream configurations"""
-    
-    school_name = serializers.CharField(default='My School', read_only=True)
-    stream_name = serializers.CharField(source='stream.name', read_only=True)
-    stream_type = serializers.CharField(source='stream.stream_type', read_only=True)
-    subject_role_display = serializers.CharField(source='get_subject_role_display', read_only=True)
-    stream_id = serializers.IntegerField(source='stream.id', read_only=True)
-    subjects = serializers.SerializerMethodField()
-    
-    def get_subjects(self, obj):
-        """Get subjects assigned to this stream configuration"""
-        assignments = obj.subject_assignments.filter(is_active=True)
-        subjects = []
-        for assignment in assignments:
-            subjects.append({
-                'id': assignment.subject.id,
-                'name': assignment.subject.name,
-                'code': assignment.subject.code,
-                'is_compulsory': assignment.is_compulsory,
-                'credit_weight': assignment.credit_weight,
-            })
-        return subjects
-    
-    class Meta:
-        model = SchoolStreamConfiguration
-        fields = [
-            'id', 'school_id', 'school_name', 'stream', 'stream_id', 'stream_name', 'stream_type',
-            'subject_role', 'subject_role_display', 'min_subjects_required', 
-            'max_subjects_allowed', 'is_compulsory', 'display_order', 'is_active',
-            'subjects', 'created_at', 'updated_at'
-        ]
-        read_only_fields = ['created_at', 'updated_at']
+# ---------------------------------------------------------------------------
+# SchoolStreamConfiguration serializers
+# ---------------------------------------------------------------------------
 
 
 class SchoolStreamSubjectAssignmentSerializer(serializers.ModelSerializer):
-    """Serializer for stream subject assignments"""
-    
-    subject_name = serializers.CharField(source='subject.name', read_only=True)
-    subject_code = serializers.CharField(source='subject.code', read_only=True)
-    stream_config_info = SchoolStreamConfigurationSerializer(source='stream_config', read_only=True)
-    
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+    subject_code = serializers.CharField(source="subject.code", read_only=True)
+
     class Meta:
         model = SchoolStreamSubjectAssignment
         fields = [
-            'id', 'stream_config', 'stream_config_info', 'subject', 'subject_name', 
-            'subject_code', 'is_compulsory', 'credit_weight', 'can_be_elective_elsewhere',
-            'prerequisites', 'is_active', 'created_at', 'updated_at'
+            "id",
+            "stream_config",
+            "subject",
+            "subject_name",
+            "subject_code",
+            "is_compulsory",
+            "credit_weight",
+            "can_be_elective_elsewhere",
+            "prerequisites",
+            "is_active",
+            "created_at",
+            "updated_at",
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        read_only_fields = ["created_at", "updated_at"]
+
+
+class SchoolStreamConfigurationSerializer(serializers.ModelSerializer):
+    school_name = serializers.CharField(default="My School", read_only=True)
+    stream_name = serializers.CharField(source="stream.name", read_only=True)
+    # stream_type via new FK (replaces old CharField source="stream.stream_type")
+    stream_type = serializers.CharField(
+        source="stream.stream_type_new.name", read_only=True, allow_null=True
+    )
+    stream_type_code = serializers.CharField(
+        source="stream.stream_type_new.code", read_only=True, allow_null=True
+    )
+    subject_role_display = serializers.CharField(
+        source="get_subject_role_display", read_only=True
+    )
+    stream_id = serializers.IntegerField(source="stream.id", read_only=True)
+    subjects = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SchoolStreamConfiguration
+        fields = [
+            "id",
+            "school_id",
+            "school_name",
+            "stream",
+            "stream_id",
+            "stream_name",
+            "stream_type",
+            "stream_type_code",
+            "subject_role",
+            "subject_role_display",
+            "min_subjects_required",
+            "max_subjects_allowed",
+            "is_compulsory",
+            "display_order",
+            "is_active",
+            "subjects",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["created_at", "updated_at"]
+
+    def get_subjects(self, obj):
+        assignments = obj.subject_assignments.filter(is_active=True)
+        return [
+            {
+                "id": a.subject.id,
+                "name": a.subject.name,
+                "code": a.subject.code,
+                "is_compulsory": a.is_compulsory,
+                "credit_weight": a.credit_weight,
+            }
+            for a in assignments
+        ]
+
+
+class SchoolStreamSubjectAssignmentDetailSerializer(
+    SchoolStreamSubjectAssignmentSerializer
+):
+    """Assignment serializer that includes full stream config detail."""
+
+    stream_config_info = SchoolStreamConfigurationSerializer(
+        source="stream_config", read_only=True
+    )
+
+    class Meta(SchoolStreamSubjectAssignmentSerializer.Meta):
+        fields = SchoolStreamSubjectAssignmentSerializer.Meta.fields + [
+            "stream_config_info"
+        ]
+
+
+# ---------------------------------------------------------------------------
+# Stream configuration summary
+# ---------------------------------------------------------------------------
 
 
 class StreamConfigurationSummarySerializer(serializers.Serializer):
-    """Serializer for stream configuration summary"""
-    
     stream_id = serializers.IntegerField()
     stream_name = serializers.CharField()
-    stream_type = serializers.CharField()
-    
+    # stream_type is a display name derived from the FK — plain CharField output
+    stream_type = serializers.CharField(
+        help_text="Stream type name (from stream.stream_type_new.name)"
+    )
     cross_cutting_subjects = serializers.ListField(child=serializers.DictField())
     core_subjects = serializers.ListField(child=serializers.DictField())
     elective_subjects = serializers.ListField(child=serializers.DictField())
-    
     total_subjects = serializers.IntegerField()
     min_subjects_required = serializers.IntegerField()
     max_subjects_allowed = serializers.IntegerField()

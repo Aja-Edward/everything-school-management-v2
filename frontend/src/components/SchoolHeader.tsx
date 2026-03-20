@@ -27,13 +27,13 @@ const SchoolHeader: React.FC = () => {
           {settings.logo && (
             <img 
               src={getAbsoluteUrl(settings.logo)} 
-              alt={`${settings.tenant_name} logo`}
+              alt={`${settings.school_name} logo`}
               className="w-8 h-8 object-contain"
             />
           )}
           <div>
             <h1 className="text-lg font-semibold text-gray-900">
-              {settings.tenant_name}
+              {settings.school_name}
             </h1>
             {settings.motto && (
               <p className="text-sm text-gray-600">{settings.motto}</p>

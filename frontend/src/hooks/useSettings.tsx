@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+
+import { communicationSettingsService } from '../services/SettingsService';
 import SettingsService, { SchoolSettings } from '@/services/SettingsService';
 
 interface UseSettingsReturn {
@@ -66,7 +68,8 @@ export const useSettings = (): UseSettingsReturn => {
     setError(null);
     
     try {
-      const result = await SettingsService.testPaymentGateway(gateway, credentials);
+      const result = await communicationSettingsService.testPaymentGateway(  gateway as 'paystack' | 'stripe' | 'flutterwave',
+      credentials);
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : `Failed to test ${gateway} connection`;
@@ -80,7 +83,8 @@ export const useSettings = (): UseSettingsReturn => {
     setError(null);
     
     try {
-      const result = await SettingsService.testEmailConnection(emailConfig);
+      const result = await communicationSettingsService.testEmailConnection( emailConfig.provider,
+      emailConfig);
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to test email connection';
@@ -94,7 +98,7 @@ export const useSettings = (): UseSettingsReturn => {
     setError(null);
     
     try {
-      const result = await SettingsService.testSMSConnection(smsConfig);
+      const result = await communicationSettingsService.testSMSConnection(smsConfig);
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to test SMS connection';

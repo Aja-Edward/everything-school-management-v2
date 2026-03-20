@@ -2,7 +2,7 @@ import api, { API_BASE_URL } from './api';
 
 export interface SchoolSettings {
   site_name: string;
-  tenant_name: string;
+  school_name: string;
   
   school_code: string;
   address: string;
@@ -66,25 +66,35 @@ export interface SchoolSettings {
   chatSystem: any;
 }
 class SettingsService {
-  
+
   async getSettings(): Promise<SchoolSettings> {
-    try {
-      const cacheBuster = `${Date.now()}_${Math.random()}`;
-      const response = await api.get(`tenants/settings/?_=${cacheBuster}`);
+  try {
+    // 🔍 DETECT: Platform or Tenant?
+    const hostname = window.location.hostname;
+    const isPlatform = hostname === 'localhost' || hostname === '127.0.0.1';
+    const endpoint = isPlatform ? 'platform/info/' : 'tenants/settings/';
+    console.log(`🔍 Detected ${isPlatform ? 'PLATFORM' : 'TENANT'} - using endpoint: ${endpoint}`);
 
-      if (typeof response === 'string' && response.includes('<!DOCTYPE html>')) {
-        console.error('Received HTML instead of JSON - likely a 404 or auth error');
-        return this.getDefaultSettings();
-      }
+    // 🛡️ Cache-busting to prevent stale responses
+    const cacheBuster = `${Date.now()}_${Math.random()}`;
+    const response = await api.get(`${endpoint}?_=${cacheBuster}`);
 
-      console.log('📥 Raw backend response:', response);
-
-      return this.transformBackendToFrontend(response);
-    } catch (error) {
-      console.error('Error fetching settings:', error);
+    // 🛡️ Guard against HTML error pages returned as 200
+    if (typeof response === 'string' && response.includes('<!DOCTYPE html>')) {
+      console.error('❌ Received HTML instead of JSON — likely a 404 or auth error');
       return this.getDefaultSettings();
     }
+
+    console.log('📥 Raw backend response:', response);
+
+    // Transform response based on environment
+    return this.transformBackendToFrontend(response);
+  } catch (error) {
+    console.error('❌ Error fetching settings:', error);
+    // Graceful fallback so the app keeps running
+    return this.getDefaultSettings();
   }
+}
 
   async updateSettings(settings: Partial<SchoolSettings>): Promise<SchoolSettings> {
     try {
@@ -232,8 +242,8 @@ class SettingsService {
     
     return {
       // These come from tenant relationship - read-only from frontend perspective
-      site_name: response.tenant_name ?? response.tenant_name ?? 'School Site',
-      tenant_name: response.tenant_name ?? 'School Name',
+      site_name: response.school_name ?? response.school_name ?? 'School Site',
+      school_name: response.school_name ?? 'School Name',
       // Actual editable fields
       school_code: response.school_code ?? '',
       motto: response.school_motto ?? 'Knowledge at its springs',
@@ -320,94 +330,120 @@ class SettingsService {
     };
   }
 
-  async uploadLogo(file: File): Promise<{ logoUrl: string }> {
-    const formData = new FormData();
-    formData.append('logo', file);
-    
-    const getCsrfToken = () => {
-      const cookies = document.cookie.split(';');
-      for (const cookie of cookies) {
-        const [name, value] = cookie.trim().split('=');
-        if (name === 'csrftoken') return decodeURIComponent(value);
-      }
-      return null;
-    };
-    
-    const headers: any = {};
-    const authToken = localStorage.getItem('authToken') || localStorage.getItem('token');
-    const csrfToken = getCsrfToken();
-    
-    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-    if (csrfToken) headers['X-CSRFToken'] = csrfToken;
-    
-    // Use tenant settings upload endpoint
-    const response = await fetch(
-      `${API_BASE_URL}/tenants/settings/upload-logo/`,
-      {
-        method: 'POST',
-        headers,
-        body: formData,
-        credentials: 'include',
-      }
-    );
-    
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      const errorData = contentType?.includes('application/json') 
-        ? await response.json()
-        : { error: await response.text() };
-      throw new Error(`Failed to upload logo: ${response.status} - ${JSON.stringify(errorData)}`);
-    }
-    
-    return await response.json();
-  }
+  // SettingsService.ts
 
-  async uploadFavicon(file: File): Promise<{ faviconUrl: string }> {
-    const formData = new FormData();
-    formData.append('favicon', file);
-    
-    const getCsrfToken = () => {
-      const cookies = document.cookie.split(';');
-      for (const cookie of cookies) {
-        const [name, value] = cookie.trim().split('=');
-        if (name === 'csrftoken') return decodeURIComponent(value);
-      }
-      return null;
-    };
-    
-    const headers: any = {};
-    const authToken = localStorage.getItem('authToken') || localStorage.getItem('token');
-    const csrfToken = getCsrfToken();
-    
-    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-    if (csrfToken) headers['X-CSRFToken'] = csrfToken;
-    
-    // Use tenant settings upload endpoint
-    const response = await fetch(
-      `${API_BASE_URL}/tenants/settings/upload-favicon/`,
-      {
-        method: 'POST',
-        headers,
-        body: formData,
-        credentials: 'include',
-      }
-    );
-    
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      const errorData = contentType?.includes('application/json')
-        ? await response.json()
-        : { error: await response.text() };
-      throw new Error(`Failed to upload favicon: ${response.status} - ${JSON.stringify(errorData)}`);
+async uploadLogo(file: File): Promise<{ logoUrl: string }> {
+  const formData = new FormData();
+  formData.append('logo', file);
+  
+  const getCsrfToken = () => {
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+      const [name, value] = cookie.trim().split('=');
+      if (name === 'csrftoken') return decodeURIComponent(value);
     }
-    
-    return await response.json();
+    return null;
+  };
+  
+  // Get tenant info from localStorage or sessionStorage
+  const getTenantInfo = () => {
+    const tenantId = localStorage.getItem('tenantId') || sessionStorage.getItem('tenantId');
+    const tenantSlug = localStorage.getItem('tenantSlug') || sessionStorage.getItem('tenantSlug');
+    return { tenantId, tenantSlug };
+  };
+  
+  const { tenantId, tenantSlug } = getTenantInfo();
+  
+  const headers: any = {};
+  const authToken = localStorage.getItem('authToken') || localStorage.getItem('token');
+  const csrfToken = getCsrfToken();
+  
+  if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+  if (csrfToken) headers['X-CSRFToken'] = csrfToken;
+  
+  // Add tenant headers
+  if (tenantId) headers['X-Tenant-ID'] = tenantId;
+  if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
+  
+  const response = await fetch(
+    `${API_BASE_URL}/tenants/settings/upload-logo/`,
+    {
+      method: 'POST',
+      headers,
+      body: formData,
+      credentials: 'include',
+    }
+  );
+  
+  if (!response.ok) {
+    const contentType = response.headers.get('content-type');
+    const errorData = contentType?.includes('application/json') 
+      ? await response.json()
+      : { error: await response.text() };
+    throw new Error(`Failed to upload logo: ${response.status} - ${JSON.stringify(errorData)}`);
   }
+  
+  return await response.json();
+}
+
+async uploadFavicon(file: File): Promise<{ faviconUrl: string }> {
+  const formData = new FormData();
+  formData.append('favicon', file);
+  
+  const getCsrfToken = () => {
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+      const [name, value] = cookie.trim().split('=');
+      if (name === 'csrftoken') return decodeURIComponent(value);
+    }
+    return null;
+  };
+  
+  // Get tenant info from localStorage or sessionStorage
+  const getTenantInfo = () => {
+    const tenantId = localStorage.getItem('tenantId') || sessionStorage.getItem('tenantId');
+    const tenantSlug = localStorage.getItem('tenantSlug') || sessionStorage.getItem('tenantSlug');
+    return { tenantId, tenantSlug };
+  };
+  
+  const { tenantId, tenantSlug } = getTenantInfo();
+  
+  const headers: any = {};
+  const authToken = localStorage.getItem('authToken') || localStorage.getItem('token');
+  const csrfToken = getCsrfToken();
+  
+  if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+  if (csrfToken) headers['X-CSRFToken'] = csrfToken;
+  
+  // Add tenant headers
+  if (tenantId) headers['X-Tenant-ID'] = tenantId;
+  if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
+  
+  const response = await fetch(
+    `${API_BASE_URL}/tenants/settings/upload-favicon/`,
+    {
+      method: 'POST',
+      headers,
+      body: formData,
+      credentials: 'include',
+    }
+  );
+  
+  if (!response.ok) {
+    const contentType = response.headers.get('content-type');
+    const errorData = contentType?.includes('application/json')
+      ? await response.json()
+      : { error: await response.text() };
+    throw new Error(`Failed to upload favicon: ${response.status} - ${JSON.stringify(errorData)}`);
+  }
+  
+  return await response.json();
+}
   
   private getDefaultSettings(): SchoolSettings {
     return {
       site_name: 'School Site',
-      tenant_name: 'School Name',
+      school_name: 'School Name',
       school_code: '',
       address: '',
       phone: '',

@@ -65,7 +65,7 @@ const PaymentDetailModal: React.FC<PaymentDetailModalProps> = ({
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <div className="text-gray-500">School Name</div>
-                  <div className="font-medium">{payment.tenant_name}</div>
+                  <div className="font-medium">{payment.school_name}</div>
                 </div>
                 <div>
                   <div className="text-gray-500">Tenant ID</div>
@@ -415,7 +415,7 @@ export const PendingPayments: React.FC = () => {
                         <div className="flex items-start justify-between">
                           <div>
                             <h3 className="font-semibold text-lg text-gray-900">
-                              {payment.tenant_name}
+                              {payment.school_name}
                             </h3>
                             <p className="text-sm text-gray-600">
                               Invoice: {payment.invoice_number}

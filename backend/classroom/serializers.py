@@ -11,16 +11,20 @@ from .models import (
     StudentEnrollment,
     ClassSchedule,
     Stream,
+    StreamType,
 )
 from subject.models import Subject
-from students.models import Student
+from students.models import Student, Class as StudentClass
 from teacher.models import Teacher
 import logging
 
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
 # User Serializer
+# ---------------------------------------------------------------------------
+
 class UserSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
 
@@ -33,8 +37,13 @@ class UserSerializer(serializers.ModelSerializer):
         return obj.get_full_name() or obj.username
 
 
-# Basic Serializers
+# ---------------------------------------------------------------------------
+# GradeLevel / Section
+# ---------------------------------------------------------------------------
+
 class GradeLevelSerializer(serializers.ModelSerializer):
+    # education_level is still a CharField on GradeLevel (it's a choices field
+    # on the classroom.GradeLevel model — not replaced by FK there)
     education_level_display = serializers.CharField(
         source="get_education_level_display", read_only=True
     )
@@ -62,6 +71,7 @@ class GradeLevelSerializer(serializers.ModelSerializer):
 
 class SectionSerializer(serializers.ModelSerializer):
     grade_level_name = serializers.CharField(source="grade_level.name", read_only=True)
+    # education_level is a CharField on classroom.GradeLevel — still valid
     education_level = serializers.CharField(
         source="grade_level.education_level", read_only=True
     )
@@ -89,6 +99,10 @@ class SectionSerializer(serializers.ModelSerializer):
     def get_classroom_count(self, obj):
         return obj.classrooms.filter(is_active=True).count()
 
+
+# ---------------------------------------------------------------------------
+# Academic session / Term (pass-through, no FK changes needed)
+# ---------------------------------------------------------------------------
 
 class AcademicSessionSerializer(serializers.ModelSerializer):
     term_count = serializers.SerializerMethodField()
@@ -156,12 +170,56 @@ class TermSerializer(serializers.ModelSerializer):
         return data
 
 
-class StreamSerializer(serializers.ModelSerializer):
-    """Serializer for Stream model — used for managing streams like Science, Arts, etc."""
+# ---------------------------------------------------------------------------
+# StreamType serializer (new model)
+# ---------------------------------------------------------------------------
 
-    stream_type_display = serializers.CharField(
-        source="get_stream_type_display", read_only=True
+
+class StreamTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StreamType
+        fields = [
+            "id",
+            "name",
+            "code",
+            "description",
+            "color_code",
+            "display_order",
+            "is_active",
+        ]
+        read_only_fields = ["id"]
+
+
+# ---------------------------------------------------------------------------
+# Stream serializer — updated for FK-based stream_type
+# ---------------------------------------------------------------------------
+
+class StreamSerializer(serializers.ModelSerializer):
+    """Serializer for Stream model — Science, Arts, etc."""
+
+    # New FK field: stream_type_new → StreamType
+    stream_type_id = serializers.PrimaryKeyRelatedField(
+        source="stream_type_new",
+        queryset=StreamType.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text="FK to StreamType (replaces old stream_type CharField)",
     )
+    stream_type_name = serializers.CharField(
+        source="stream_type_new.name", read_only=True, allow_null=True
+    )
+    stream_type_code = serializers.CharField(
+        source="stream_type_new.code", read_only=True, allow_null=True
+    )
+    stream_type_detail = StreamTypeSerializer(source="stream_type_new", read_only=True)
+
+    # Keep old field as read-only for backward compat during transition
+    stream_type_legacy = serializers.CharField(
+        source="stream_type",
+        read_only=True,
+        help_text="Deprecated — use stream_type_name instead",
+    )
+
     student_count = serializers.SerializerMethodField()
 
     class Meta:
@@ -170,28 +228,32 @@ class StreamSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "code",
-            "stream_type",
-            "stream_type_display",
+            # new FK fields
+            "stream_type_id",
+            "stream_type_name",
+            "stream_type_code",
+            "stream_type_detail",
+            # backward-compat read-only
+            "stream_type_legacy",
             "description",
             "is_active",
             "student_count",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at", "stream_type_legacy"]
 
     def get_student_count(self, obj):
-        """
-        Returns the number of active students assigned to this stream.
-        This replaces the old classroom_count since streams are now
-        directly linked to students, not classrooms.
-        """
         return (
             obj.students.filter(is_active=True).count()
             if hasattr(obj, "students")
             else 0
         )
 
+
+# ---------------------------------------------------------------------------
+# Teacher serializer (unchanged — Teacher model has no FK changes)
+# ---------------------------------------------------------------------------
 
 class TeacherSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
@@ -256,21 +318,40 @@ class TeacherSerializer(serializers.ModelSerializer):
         return value
 
 
+# ---------------------------------------------------------------------------
+# Student serializer — updated for FK-based student_class & education_level
+# ---------------------------------------------------------------------------
+
+
 class StudentSerializer(serializers.ModelSerializer):
-    # User fields
     user = UserSerializer(read_only=True)
     full_name = serializers.CharField(source="user.full_name", read_only=True)
     email = serializers.EmailField(source="user.email", read_only=True)
-
-    # Computed fields
     age = serializers.SerializerMethodField()
-    student_class_display = serializers.CharField(
-        source="get_student_class_display", read_only=True
+
+    # student_class is now a FK to students.Class
+    student_class = serializers.PrimaryKeyRelatedField(
+        queryset=StudentClass.objects.all(), required=False, allow_null=True
     )
+    student_class_name = serializers.CharField(
+        source="student_class.name", read_only=True, allow_null=True
+    )
+
+    # education_level is now a @property on Student → level_type string
+    education_level = serializers.CharField(read_only=True)
     education_level_display = serializers.CharField(
-        source="get_education_level_display", read_only=True
+        source="education_level_display", read_only=True
     )
+
     stream_name = serializers.CharField(source="stream.name", read_only=True)
+    # stream_type via new FK
+    stream_type = serializers.CharField(
+        source="stream.stream_type_new.name", read_only=True, allow_null=True
+    )
+
+    # classroom is now a @property returning a string
+    classroom = serializers.CharField(read_only=True)
+
     current_classroom = serializers.SerializerMethodField()
 
     class Meta:
@@ -285,7 +366,7 @@ class StudentSerializer(serializers.ModelSerializer):
             "date_of_birth",
             "age",
             "student_class",
-            "student_class_display",
+            "student_class_name",
             "education_level",
             "education_level_display",
             "admission_date",
@@ -293,6 +374,7 @@ class StudentSerializer(serializers.ModelSerializer):
             "classroom",
             "stream",
             "stream_name",
+            "stream_type",
             "parent_contact",
             "emergency_contact",
             "medical_conditions",
@@ -305,7 +387,7 @@ class StudentSerializer(serializers.ModelSerializer):
             "is_active",
             "current_classroom",
         ]
-        read_only_fields = ["id", "admission_date"]
+        read_only_fields = ["id", "admission_date", "education_level", "classroom"]
 
     def get_age(self, obj):
         return obj.age
@@ -333,21 +415,35 @@ class StudentSerializer(serializers.ModelSerializer):
         return value
 
 
+# ---------------------------------------------------------------------------
+# Subject serializer — updated for new M2M grade_levels and no is_core field
+# ---------------------------------------------------------------------------
+
 class SubjectSerializer(serializers.ModelSerializer):
+    # grade_levels is the new M2M field (replacing old education_levels JSONField)
     grade_levels_display = serializers.SerializerMethodField()
-    is_core_display = serializers.SerializerMethodField()
+
+    # category via new FK
+    category_name = serializers.CharField(
+        source="category_new.name", read_only=True, allow_null=True
+    )
+    category_code = serializers.CharField(
+        source="category_new.code", read_only=True, allow_null=True
+    )
 
     class Meta:
         model = Subject
         fields = [
             "id",
             "name",
+            "short_name",
             "code",
             "description",
             "grade_levels",
             "grade_levels_display",
-            "is_core",
-            "is_core_display",
+            "category_name",
+            "category_code",
+            "is_cross_cutting",
             "is_active",
             "created_at",
         ]
@@ -355,12 +451,14 @@ class SubjectSerializer(serializers.ModelSerializer):
 
     def get_grade_levels_display(self, obj):
         return [
-            {"id": gl.id, "name": gl.name, "education_level": gl.education_level}
+            {
+                "id": gl.id,
+                "name": gl.name,
+                # education_level is still a CharField on classroom.GradeLevel
+                "education_level": gl.education_level,
+            }
             for gl in obj.grade_levels.all()
         ]
-
-    def get_is_core_display(self, obj):
-        return "Core Subject" if obj.is_core else "Elective Subject"
 
     def validate_code(self, value):
         if (
@@ -372,14 +470,18 @@ class SubjectSerializer(serializers.ModelSerializer):
         return value
 
 
-# Nested Serializers for Related Models
+# ---------------------------------------------------------------------------
+# ClassroomTeacherAssignment serializer
+# education_level fix: traverse section → grade_level, not classroom.grade_level
+# ---------------------------------------------------------------------------
+
 class ClassroomTeacherAssignmentSerializer(serializers.ModelSerializer):
     # Accept _id fields from frontend
     classroom_id = serializers.IntegerField(write_only=True)
     teacher_id = serializers.IntegerField(write_only=True)
     subject_id = serializers.IntegerField(write_only=True)
 
-    # Read-only fields for display
+    # Read-only FK display
     classroom = serializers.PrimaryKeyRelatedField(read_only=True)
     teacher = serializers.PrimaryKeyRelatedField(read_only=True)
     subject = serializers.PrimaryKeyRelatedField(read_only=True)
@@ -400,6 +502,9 @@ class ClassroomTeacherAssignmentSerializer(serializers.ModelSerializer):
     )
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     subject_code = serializers.CharField(source="subject.code", read_only=True)
+
+    # Correct traversal: classroom → section → grade_level → education_level
+    # (classroom.GradeLevel still uses CharField for education_level)
     education_level = serializers.SerializerMethodField()
 
     class Meta:
@@ -431,32 +536,28 @@ class ClassroomTeacherAssignmentSerializer(serializers.ModelSerializer):
 
     def get_education_level(self, obj):
         """
-        Safely get education_level from classroom -> grade_level -> education_level
-        Returns None if any part of the chain is missing
+        Traverse: classroom → section → grade_level → education_level.
+        classroom.GradeLevel.education_level is still a CharField choice.
         """
         try:
             if (
                 obj.classroom
-                and hasattr(obj.classroom, "grade_level")
-                and obj.classroom.grade_level
+                and obj.classroom.section
+                and obj.classroom.section.grade_level
             ):
-                return obj.classroom.grade_level.education_level
+                return obj.classroom.section.grade_level.education_level
             return None
         except (AttributeError, ValueError) as e:
-            # Log the error for debugging but don't fail
             logger.warning(
                 f"Could not get education_level for assignment {obj.id}: {e}"
             )
             return None
 
     def create(self, validated_data):
-        """Override create to handle field mapping"""
-        # Map _id fields to model instances
         if "classroom_id" in validated_data:
             classroom_id = validated_data.pop("classroom_id")
             try:
-                classroom = Classroom.objects.get(id=classroom_id)
-                validated_data["classroom"] = classroom
+                validated_data["classroom"] = Classroom.objects.get(id=classroom_id)
             except Classroom.DoesNotExist:
                 raise serializers.ValidationError(
                     f"Classroom with id {classroom_id} does not exist"
@@ -465,8 +566,7 @@ class ClassroomTeacherAssignmentSerializer(serializers.ModelSerializer):
         if "teacher_id" in validated_data:
             teacher_id = validated_data.pop("teacher_id")
             try:
-                teacher = Teacher.objects.get(id=teacher_id)
-                validated_data["teacher"] = teacher
+                validated_data["teacher"] = Teacher.objects.get(id=teacher_id)
             except Teacher.DoesNotExist:
                 raise serializers.ValidationError(
                     f"Teacher with id {teacher_id} does not exist"
@@ -475,8 +575,7 @@ class ClassroomTeacherAssignmentSerializer(serializers.ModelSerializer):
         if "subject_id" in validated_data:
             subject_id = validated_data.pop("subject_id")
             try:
-                subject = Subject.objects.get(id=subject_id)
-                validated_data["subject"] = subject
+                validated_data["subject"] = Subject.objects.get(id=subject_id)
             except Subject.DoesNotExist:
                 raise serializers.ValidationError(
                     f"Subject with id {subject_id} does not exist"
@@ -485,8 +584,13 @@ class ClassroomTeacherAssignmentSerializer(serializers.ModelSerializer):
         return ClassroomTeacherAssignment.objects.create(**validated_data)
 
 
+# ---------------------------------------------------------------------------
+# StudentEnrollment serializer
+# student_class is now a FK — expose name instead of raw value
+# ---------------------------------------------------------------------------
+
+
 class StudentEnrollmentSerializer(serializers.ModelSerializer):
-    # Student details
     student_id = serializers.IntegerField(source="student.id", read_only=True)
     full_name = serializers.CharField(source="student.user.full_name", read_only=True)
     student_stream = serializers.CharField(
@@ -499,12 +603,16 @@ class StudentEnrollmentSerializer(serializers.ModelSerializer):
         source="student.profile_picture", read_only=True
     )
     gender = serializers.CharField(source="student.gender", read_only=True)
-    student_class = serializers.CharField(
-        source="student.student_class", read_only=True
-    )
-    age = serializers.SerializerMethodField()
 
-    # Enrollment details
+    # student_class is now a FK — expose name for display
+    student_class = serializers.CharField(
+        source="student.student_class.name", read_only=True, allow_null=True
+    )
+    student_class_id = serializers.IntegerField(
+        source="student.student_class.id", read_only=True, allow_null=True
+    )
+
+    age = serializers.SerializerMethodField()
     enrollment_id = serializers.IntegerField(source="id", read_only=True)
     enrollment_date = serializers.DateField(read_only=True)
     is_active = serializers.BooleanField(read_only=True)
@@ -519,6 +627,7 @@ class StudentEnrollmentSerializer(serializers.ModelSerializer):
             "profile_picture",
             "gender",
             "student_class",
+            "student_class_id",
             "student_stream",
             "age",
             "enrollment_date",
@@ -528,9 +637,12 @@ class StudentEnrollmentSerializer(serializers.ModelSerializer):
         read_only_fields = ["enrollment_id", "created_at"]
 
     def get_age(self, obj):
-        """Calculate student age from date of birth"""
         return obj.student.age if obj.student else None
 
+
+# ---------------------------------------------------------------------------
+# ClassSchedule serializer (no FK changes needed)
+# ---------------------------------------------------------------------------
 
 class ClassScheduleSerializer(serializers.ModelSerializer):
     day_display = serializers.CharField(
@@ -574,12 +686,16 @@ class ClassScheduleSerializer(serializers.ModelSerializer):
         return data
 
 
-# Main Classroom Serializer
+# ---------------------------------------------------------------------------
+# Classroom serializer (no changes to FK chain — still section → grade_level)
+# ---------------------------------------------------------------------------
+
 class ClassroomSerializer(serializers.ModelSerializer):
     section_name = serializers.CharField(source="section.name", read_only=True)
     grade_level_name = serializers.CharField(
         source="section.grade_level.name", read_only=True
     )
+    # education_level on classroom.GradeLevel is still a CharField
     education_level = serializers.CharField(
         source="section.grade_level.education_level", read_only=True
     )
@@ -596,11 +712,8 @@ class ClassroomSerializer(serializers.ModelSerializer):
     class_teacher_employee_id = serializers.CharField(
         source="class_teacher.employee_id", read_only=True
     )
-    # ✅ Direct ManyToMany relation — subjects taught in this class
     subjects = SubjectSerializer(many=True, read_only=True)
 
-    # Enrollment statistics
-    # current_enrollment = serializers.SerializerMethodField()
     current_enrollment = serializers.IntegerField(
         source="current_enrollment_count", read_only=True
     )
@@ -638,9 +751,6 @@ class ClassroomSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
-    def get_current_enrollment(self, obj):
-        return obj.current_enrollment
-
     def get_available_spots(self, obj):
         return obj.available_spots
 
@@ -660,7 +770,6 @@ class ClassroomSerializer(serializers.ModelSerializer):
         return value
 
 
-# Detailed Classroom Serializer with nested data
 class ClassroomDetailSerializer(ClassroomSerializer):
     subjects = SubjectSerializer(many=True, read_only=True)
     teacher_assignments = serializers.SerializerMethodField()
@@ -682,20 +791,19 @@ class ClassroomDetailSerializer(ClassroomSerializer):
         ]
 
     def get_current_enrollment(self, obj):
-        """Calculate current enrollment from StudentEnrollment"""
         return obj.studentenrollment_set.filter(
             is_active=True, student__is_active=True
         ).count()
 
     def get_teacher_assignments(self, obj):
-        """Return prefetched active teacher assignments"""
         assignments = getattr(obj, "active_assignments", [])
-        return ClassroomTeacherAssignmentSerializer(
-            assignments, many=True
-        ).data  # this is okay now because related objects are preloaded
+        return ClassroomTeacherAssignmentSerializer(assignments, many=True).data
 
 
-# Simplified serializers for dropdowns/lists
+# ---------------------------------------------------------------------------
+# Simple / dropdown serializers
+# ---------------------------------------------------------------------------
+
 class GradeLevelSimpleSerializer(serializers.ModelSerializer):
     class Meta:
         model = GradeLevel
@@ -720,6 +828,10 @@ class TeacherSimpleSerializer(serializers.ModelSerializer):
 
 class StudentSimpleSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(source="user.full_name", read_only=True)
+    # student_class is now a FK — expose name for display
+    student_class_name = serializers.CharField(
+        source="student_class.name", read_only=True, allow_null=True
+    )
 
     class Meta:
         model = Student
@@ -728,14 +840,20 @@ class StudentSimpleSerializer(serializers.ModelSerializer):
             "registration_number",
             "full_name",
             "student_class",
+            "student_class_name",
             "profile_picture",
         ]
 
 
 class SubjectSimpleSerializer(serializers.ModelSerializer):
+    # is_core removed — replaced by category_new FK or is_cross_cutting bool
+    category_name = serializers.CharField(
+        source="category_new.name", read_only=True, allow_null=True
+    )
+
     class Meta:
         model = Subject
-        fields = ["id", "name", "code", "is_core"]
+        fields = ["id", "name", "code", "category_name", "is_cross_cutting"]
 
 
 class ClassroomSimpleSerializer(serializers.ModelSerializer):
@@ -749,7 +867,10 @@ class ClassroomSimpleSerializer(serializers.ModelSerializer):
         return str(obj)
 
 
+# ---------------------------------------------------------------------------
 # Bulk operation serializers
+# ---------------------------------------------------------------------------
+
 class BulkStudentEnrollmentSerializer(serializers.Serializer):
     classroom_id = serializers.IntegerField()
     student_ids = serializers.ListField(

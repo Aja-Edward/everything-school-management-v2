@@ -12,10 +12,10 @@ from django.core.exceptions import ValidationError
 from utils.section_filtering import SectionFilterMixin
 from .models import (
     Subject,
-    SUBJECT_CATEGORY_CHOICES,
-    EDUCATION_LEVELS,
-    NURSERY_LEVELS,
-    SS_SUBJECT_TYPES,
+    SubjectCategory,
+    SubjectType,
+    SchoolStreamConfiguration,
+    SchoolStreamSubjectAssignment,
 )
 import logging
 from .serializers import (
@@ -23,7 +23,18 @@ from .serializers import (
     SubjectListSerializer,
     SubjectCreateUpdateSerializer,
     SubjectEducationLevelSerializer,
+    SubjectCategorySerializer,
+    SubjectTypeSerializer,
+    SchoolStreamConfigurationSerializer,
+    SchoolStreamSubjectAssignmentSerializer,
 )
+
+from tenants.mixins import TenantFilterMixin
+from utils.section_filtering import AutoSectionFilterMixin
+from utils.pagination import StandardResultsPagination, LargeResultsPagination
+
+from classroom.models import GradeLevel
+from students.models import EducationLevel
 from .utils import clear_subject_caches
 
 from classroom.models import GradeLevel  # Commented out to avoid circular import
@@ -70,36 +81,26 @@ def filter_subjects_by_nursery_level(queryset, nursery_level):
     return queryset.filter(id__in=subject_ids)
 
 
-class SubjectViewSet(SectionFilterMixin, viewsets.ModelViewSet):
+class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """
-    Enhanced ViewSet for Subject CRUD operations aligned with Nigerian educational structure.
-
-    Responsibilities:
-    - Standard CRUD operations with Nigerian education system support
-    - Education level and nursery level filtering
-    - Senior Secondary subject type filtering
-    - Cross-cutting subject management
-    - Activity-based subject support
-    - Enhanced search and filtering
-    - Prerequisite management
-    - Resource requirement tracking
-
-    URL Pattern: /api/subjects/
+    Enhanced ViewSet for Subject CRUD operations
+    UPDATED: Uses FK-based category_new, subject_type_new, and grade_levels M2M
     """
 
     queryset = Subject.objects.all()
     permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsPagination
 
-    # Enhanced filtering and searching
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
         filters.OrderingFilter,
     ]
 
+    # UPDATED: Filter by FK IDs
     filterset_fields = {
-        "category": ["exact", "in"],
-        "ss_subject_type": ["exact", "in"],
+        "category_new": ["exact", "in"],  # FK to SubjectCategory
+        "subject_type_new": ["exact", "in"],  # FK to SubjectType
         "is_active": ["exact"],
         "is_cross_cutting": ["exact"],
         "subject_order": ["exact", "gte", "lte"],
@@ -116,12 +117,11 @@ class SubjectViewSet(SectionFilterMixin, viewsets.ModelViewSet):
         "name",
         "short_name",
         "code",
-        "category",
         "subject_order",
         "created_at",
     ]
 
-    ordering = ["education_levels", "category", "subject_order", "name"]
+    ordering = ["subject_order", "name"]
 
     def get_serializer_class(self):
         """Return appropriate serializer based on action"""
@@ -130,11 +130,63 @@ class SubjectViewSet(SectionFilterMixin, viewsets.ModelViewSet):
             "create": SubjectCreateUpdateSerializer,
             "update": SubjectCreateUpdateSerializer,
             "partial_update": SubjectCreateUpdateSerializer,
-            "check_availability": SubjectSerializer,  # Using main serializer as fallback
-            "prerequisites": SubjectSerializer,  # Using main serializer as fallback
-            "education_levels": SubjectEducationLevelSerializer,
         }
         return serializer_map.get(self.action, SubjectSerializer)
+
+    def get_queryset(self):
+        """
+        Enhanced queryset with FK optimizations
+        UPDATED: Prefetch category_new, subject_type_new, and grade_levels
+        """
+        queryset = super().get_queryset()
+
+        queryset = queryset.select_related(
+            "category_new",  # FK to SubjectCategory
+            "subject_type_new",  # FK to SubjectType
+        ).prefetch_related(
+            "grade_levels",  # M2M to GradeLevel
+            "grade_levels__education_level",  # Nested FK to EducationLevel
+            Prefetch(
+                "prerequisites",
+                queryset=Subject.objects.filter(is_active=True).only(
+                    "id", "name", "short_name", "code"
+                ),
+            ),
+        )
+
+        # Filter by education level (via grade_levels M2M FK chain)
+        education_level_id = self.request.query_params.get("education_level_id")
+        if education_level_id:
+            queryset = queryset.filter(
+                grade_levels__education_level_id=education_level_id
+            ).distinct()
+
+        # Filter by grade level directly
+        grade_level_id = self.request.query_params.get("grade_level_id")
+        if grade_level_id:
+            queryset = queryset.filter(grade_levels__id=grade_level_id).distinct()
+
+        # Filter by category (FK)
+        category_id = self.request.query_params.get("category_id")
+        if category_id:
+            queryset = queryset.filter(category_new_id=category_id)
+
+        # Filter by subject type (FK)
+        subject_type_id = self.request.query_params.get("subject_type_id")
+        if subject_type_id:
+            queryset = queryset.filter(subject_type_new_id=subject_type_id)
+
+        # Active only filtering
+        available_only = self.request.query_params.get("available_only", "true").lower()
+        if available_only == "true":
+            queryset = queryset.filter(is_active=True)
+
+        # Cross-cutting subjects filtering
+        cross_cutting_only = self.request.query_params.get("cross_cutting_only")
+        if cross_cutting_only == "true":
+            queryset = queryset.filter(is_cross_cutting=True)
+
+        return queryset
 
     def get_permissions(self):
         """Set permissions based on action"""
@@ -204,7 +256,7 @@ class SubjectViewSet(SectionFilterMixin, viewsets.ModelViewSet):
                 return queryset.filter(id__in=subject_ids)
         # Check for role assignments from permissions system
         try:
-            from school_settings.models import UserRole
+            from schoolSettings.models import UserRole
 
             user_roles = UserRole.objects.filter(
                 user=user, is_active=True
@@ -250,204 +302,19 @@ class SubjectViewSet(SectionFilterMixin, viewsets.ModelViewSet):
         # For other users, return all active subjects
         return queryset.filter(is_active=True)
 
-    def get_queryset(self):
-        """Enhanced queryset with smart prefetching and filtering"""
-        queryset = Subject.objects.select_related().prefetch_related(
-            "grade_levels",
-            Prefetch(
-                "prerequisites",
-                queryset=Subject.objects.only("id", "name", "short_name", "code"),
-            ),
-        )
-
-        # Apply section-based filtering for authenticated users
-        if self.request.user.is_authenticated:
-            queryset = self.filter_subjects_by_section_access(queryset)
-
-        # Education level filtering
-        education_level = self.request.query_params.get("education_level")
-        if education_level:
-            queryset = filter_by_json_field(
-                queryset, "education_levels", education_level
-            )
-
-        # Nursery level filtering
-        nursery_level = self.request.query_params.get("nursery_level")
-        if nursery_level:
-            queryset = filter_by_json_field(queryset, "nursery_levels", nursery_level)
-
-        # Grade level filtering (integration with GradeLevel model)
-        grade_level = self.request.query_params.get("grade_level")
-        if grade_level:
-            try:
-                grade_id = int(grade_level)
-                queryset = queryset.filter(grade_levels__id=grade_id)
-            except ValueError:
-                pass
-
-        # Active only filtering (default behavior)
-        available_only = self.request.query_params.get("available_only", "true").lower()
-        if available_only == "true":
-            queryset = queryset.filter(is_active=True)
-
-        # Cross-cutting subjects filtering
-        cross_cutting_only = self.request.query_params.get("cross_cutting_only")
-        if cross_cutting_only == "true":
-            queryset = queryset.filter(is_cross_cutting=True)
-
-        # Activity-based filtering (for nursery)
-        activity_based = self.request.query_params.get("activity_based")
-        if activity_based == "true":
-            queryset = queryset.filter(is_activity_based=True)
-
-        # Specialist teacher requirement filtering
-        requires_specialist = self.request.query_params.get("requires_specialist")
-        if requires_specialist == "true":
-            queryset = queryset.filter(requires_specialist_teacher=True)
-
-        # Teacher filtering - filter subjects by assigned teacher
-        teacher_id = self.request.query_params.get("teacher_id")
-        if teacher_id:
-            try:
-                from teacher.models import TeacherAssignment
-
-                teacher_assignments = TeacherAssignment.objects.filter(
-                    teacher_id=teacher_id
-                ).values_list("subject_id", flat=True)
-                queryset = queryset.filter(id__in=teacher_assignments)
-            except (ValueError, ImportError):
-                pass
-
-        # Teacher specialization filtering
-        teacher_specialization = self.request.query_params.get("teacher_specialization")
-        if teacher_specialization:
-            try:
-                from teacher.models import Teacher
-
-                teachers_with_specialization = Teacher.objects.filter(
-                    specialization__icontains=teacher_specialization, is_active=True
-                ).values_list("id", flat=True)
-
-                from teacher.models import TeacherAssignment
-
-                teacher_assignments = TeacherAssignment.objects.filter(
-                    teacher_id__in=teachers_with_specialization
-                ).values_list("subject_id", flat=True)
-                queryset = queryset.filter(id__in=teacher_assignments)
-            except (ValueError, ImportError):
-                pass
-
-        return queryset
-
-    # def get_queryset(self):
-    #     """Enhanced queryset with smart prefetching and filtering"""
-    #     queryset = Subject.objects.select_related().prefetch_related(
-    #         "grade_levels",
-    #         Prefetch(
-    #             "prerequisites",
-    #             queryset=Subject.objects.only("id", "name", "short_name", "code"),
-    #         ),
-    #     )
-
-    #     # Apply section-based filtering for authenticated users
-    #     if self.request.user.is_authenticated:
-    #         queryset = self.filter_subjects_by_section_access(queryset)
-
-    #     # Education level filtering
-    #     education_level = self.request.query_params.get("education_level")
-    #     if education_level:
-    #         queryset = filter_by_json_field(
-    #             queryset, "education_levels", education_level
-    #         )
-
-    #     # Nursery level filtering
-    #     nursery_level = self.request.query_params.get("nursery_level")
-    #     if nursery_level:
-    #         queryset = filter_by_json_field(queryset, "nursery_levels", nursery_level)
-
-    #     # Grade level filtering (integration with GradeLevel model)
-    #     grade_level = self.request.query_params.get("grade_level")
-    #     if grade_level:
-    #         try:
-    #             grade_id = int(grade_level)
-    #             queryset = queryset.filter(grade_levels__id=grade_id)
-    #         except ValueError:
-    #             pass
-
-    #     # Active only filtering (default behavior)
-    #     available_only = self.request.query_params.get("available_only", "true").lower()
-    #     if available_only == "true":
-    #         queryset = queryset.filter(is_active=True)
-
-    #     # Cross-cutting subjects filtering
-    #     cross_cutting_only = self.request.query_params.get("cross_cutting_only")
-    #     if cross_cutting_only == "true":
-    #         queryset = queryset.filter(is_cross_cutting=True)
-
-    #     # Activity-based filtering (for nursery)
-    #     activity_based = self.request.query_params.get("activity_based")
-    #     if activity_based == "true":
-    #         queryset = queryset.filter(is_activity_based=True)
-
-    #     # Specialist teacher requirement filtering
-    #     requires_specialist = self.request.query_params.get("requires_specialist")
-    #     if requires_specialist == "true":
-    #         queryset = queryset.filter(requires_specialist_teacher=True)
-
-    #     # Teacher filtering - filter subjects by assigned teacher
-    #     teacher_id = self.request.query_params.get("teacher_id")
-    #     if teacher_id:
-    #         try:
-    #             from teacher.models import TeacherAssignment
-
-    #             teacher_assignments = TeacherAssignment.objects.filter(
-    #                 teacher_id=teacher_id
-    #             ).values_list("subject_id", flat=True)
-    #             queryset = queryset.filter(id__in=teacher_assignments)
-    #         except (ValueError, ImportError):
-    #             pass
-
-    #     # Teacher specialization filtering
-    #     teacher_specialization = self.request.query_params.get("teacher_specialization")
-    #     if teacher_specialization:
-    #         try:
-    #             from teacher.models import Teacher
-
-    #             teachers_with_specialization = Teacher.objects.filter(
-    #                 specialization__icontains=teacher_specialization, is_active=True
-    #             ).values_list("id", flat=True)
-
-    #             from teacher.models import TeacherAssignment
-
-    #             teacher_assignments = TeacherAssignment.objects.filter(
-    #                 teacher_id__in=teachers_with_specialization
-    #             ).values_list("subject_id", flat=True)
-    #             queryset = queryset.filter(id__in=teacher_assignments)
-    #         except (ValueError, ImportError):
-    #             pass
-
-    #     return queryset
     def list(self, request, *args, **kwargs):
         """Enhanced list with comprehensive metadata"""
         response = super().list(request, *args, **kwargs)
         if hasattr(response, "data") and isinstance(response.data, dict):
             if "results" in response.data:
-                # Add comprehensive metadata
                 queryset = self.filter_queryset(self.get_queryset())
                 response.data["metadata"] = {
-                    "total_categories": len(SUBJECT_CATEGORY_CHOICES),
-                    "total_education_levels": len(EDUCATION_LEVELS),
-                    "total_nursery_levels": len(NURSERY_LEVELS),
-                    "total_ss_subject_types": len(SS_SUBJECT_TYPES),
                     "filters_applied": bool(request.query_params),
                     "summary": {
                         "total_subjects": queryset.count(),
                         "active_subjects": queryset.filter(is_active=True).count(),
                         "cross_cutting_subjects": queryset.filter(
                             is_cross_cutting=True
-                        ).count(),
-                        "activity_based_subjects": queryset.filter(
-                            is_activity_based=True
                         ).count(),
                     },
                 }
@@ -459,20 +326,17 @@ class SubjectViewSet(SectionFilterMixin, viewsets.ModelViewSet):
             subject = serializer.save()
             clear_subject_caches()
             logger.info(
-                f"Subject '{subject.name}' ({subject.code}) created by {self.request.user} "
-                f"for levels: {subject.education_levels_display}"
+                f"Subject '{subject.name}' ({subject.code}) created by {self.request.user}"
             )
 
     def perform_update(self, serializer):
         """Update with enhanced logging and cache invalidation"""
         with transaction.atomic():
             old_name = serializer.instance.name
-            old_levels = serializer.instance.education_levels_display
             subject = serializer.save()
             clear_subject_caches()
             logger.info(
-                f"Subject '{old_name}' updated to '{subject.name}' by {self.request.user} "
-                f"(Levels: {old_levels} -> {subject.education_levels_display})"
+                f"Subject '{old_name}' updated to '{subject.name}' by {self.request.user}"
             )
 
     def destroy(self, request, *args, **kwargs):
@@ -480,7 +344,6 @@ class SubjectViewSet(SectionFilterMixin, viewsets.ModelViewSet):
         instance = self.get_object()
 
         try:
-            # Store instance info before potential deletion
             subject_info = {
                 "id": instance.id,
                 "name": instance.name,
@@ -489,12 +352,7 @@ class SubjectViewSet(SectionFilterMixin, viewsets.ModelViewSet):
 
             # Check for dependencies
             has_dependencies = (
-                (
-                    hasattr(instance, "student_subjects")
-                    and instance.student_subjects.exists()
-                )
-                or instance.unlocks_subjects.exists()
-                or instance.grade_levels.exists()
+                instance.unlocks_subjects.exists() or instance.grade_levels.exists()
             )
 
             if has_dependencies:
@@ -511,10 +369,8 @@ class SubjectViewSet(SectionFilterMixin, viewsets.ModelViewSet):
                     f"Subject '{subject_info['name']}' has been permanently deleted"
                 )
 
-            # Clear caches
             clear_subject_caches()
 
-            # Return explicit JSON response
             return Response(
                 {
                     "success": True,
@@ -551,26 +407,33 @@ class SubjectViewSet(SectionFilterMixin, viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"])
     def by_category(self, request):
-        """Get subjects grouped by category with enhanced metadata"""
-        cache_key = "subjects_by_category_v3"
+        """
+        Get subjects grouped by category
+        UPDATED: Uses FK-based SubjectCategory
+        """
+        cache_key = "subjects_by_category_v4"
         result = cache.get(cache_key)
 
         if not result:
             result = {}
-            for category, display in SUBJECT_CATEGORY_CHOICES:
+            categories = SubjectCategory.objects.filter(is_active=True).order_by(
+                "display_order"
+            )
+
+            for category in categories:
                 subjects = (
                     self.get_queryset()
-                    .filter(category=category, is_active=True)
+                    .filter(category_new=category, is_active=True)
                     .order_by("subject_order", "name")
                 )
 
-                result[category] = {
-                    "display_name": display,
-                    "icon": self._get_category_icon(category),
+                result[category.code] = {
+                    "id": category.id,
+                    "display_name": category.name,
+                    "code": category.code,
+                    "color_code": category.color_code,
+                    "icon": self._get_category_icon(category.code),
                     "count": subjects.count(),
-                    "summary": {
-                        "cross_cutting": subjects.filter(is_cross_cutting=True).count(),
-                    },
                     "subjects": SubjectListSerializer(subjects, many=True).data,
                 }
             cache.set(cache_key, result, 60 * 30)
@@ -579,68 +442,37 @@ class SubjectViewSet(SectionFilterMixin, viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"])
     def by_education_level(self, request):
-        """Get subjects grouped by education level"""
-        cache_key = "subjects_by_education_level_v2"
+        """
+        Get subjects grouped by education level
+        UPDATED: Uses grade_levels M2M with EducationLevel FK
+        """
+        cache_key = "subjects_by_education_level_v3"
         result = cache.get(cache_key)
 
         if not result:
             result = {}
-            for level_code, level_name in EDUCATION_LEVELS:
-                subjects_queryset = (
-                    filter_subjects_by_education_level(self.get_queryset(), level_code)
-                    .filter(is_active=True)
-                    .order_by("category", "subject_order", "name")
+            education_levels = EducationLevel.objects.filter(is_active=True).order_by(
+                "order"
+            )
+
+            for edu_level in education_levels:
+                subjects = (
+                    self.get_queryset()
+                    .filter(grade_levels__education_level=edu_level, is_active=True)
+                    .distinct()
+                    .order_by("subject_order", "name")
                 )
 
-                # Special handling for nursery subjects
-                nursery_breakdown = {}
-                if level_code == "NURSERY":
-                    for nursery_code, nursery_name in NURSERY_LEVELS:
-                        nursery_subjects = filter_subjects_by_nursery_level(
-                            subjects_queryset, nursery_code
-                        )
-                        if nursery_subjects.exists():
-                            nursery_breakdown[nursery_code] = {
-                                "name": nursery_name,
-                                "count": nursery_subjects.count(),
-                                "subjects": SubjectListSerializer(
-                                    nursery_subjects, many=True
-                                ).data,
-                            }
-
-                # Special handling for Senior Secondary subjects
-                ss_breakdown = {}
-                if level_code == "SENIOR_SECONDARY":
-                    for ss_type_code, ss_type_name in SS_SUBJECT_TYPES:
-                        ss_subjects = subjects_queryset.filter(
-                            ss_subject_type=ss_type_code
-                        )
-                        if ss_subjects.exists():
-                            ss_breakdown[ss_type_code] = {
-                                "name": ss_type_name,
-                                "count": ss_subjects.count(),
-                                "subjects": SubjectListSerializer(
-                                    ss_subjects, many=True
-                                ).data,
-                            }
-
-                result[level_code] = {
-                    "name": level_name,
-                    "count": subjects_queryset.count(),
+                result[edu_level.code] = {
+                    "id": edu_level.id,
+                    "name": edu_level.name,
+                    "code": edu_level.code,
+                    "level_type": edu_level.level_type,
+                    "count": subjects.count(),
                     "summary": {
-                        "cross_cutting": subjects_queryset.filter(
-                            is_cross_cutting=True
-                        ).count(),
+                        "cross_cutting": subjects.filter(is_cross_cutting=True).count(),
                     },
-                    "subjects": SubjectListSerializer(
-                        subjects_queryset, many=True
-                    ).data,
-                    "nursery_breakdown": (
-                        nursery_breakdown if level_code == "NURSERY" else None
-                    ),
-                    "ss_breakdown": (
-                        ss_breakdown if level_code == "SENIOR_SECONDARY" else None
-                    ),
+                    "subjects": SubjectListSerializer(subjects, many=True).data,
                 }
 
             cache.set(cache_key, result, 60 * 30)
@@ -648,230 +480,280 @@ class SubjectViewSet(SectionFilterMixin, viewsets.ModelViewSet):
         return Response(result)
 
     @action(detail=False, methods=["get"])
-    def nursery_subjects(self, request):
-        """Get nursery subjects with detailed breakdown"""
-        cache_key = "nursery_subjects_v1"
-        result = cache.get(cache_key)
+    def by_grade_level(self, request):
+        """
+        Get subjects by specific grade level
+        Query params: grade_level_id
+        """
+        grade_level_id = request.query_params.get("grade_level_id")
 
-        if not result:
-            nursery_level = request.query_params.get("level")
-            base_query = Subject.get_nursery_subjects()
+        if not grade_level_id:
+            return Response(
+                {"error": "grade_level_id parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-            if nursery_level:
-                base_query = filter_subjects_by_nursery_level(base_query, nursery_level)
+        try:
+            grade_level = GradeLevel.objects.select_related("education_level").get(
+                id=grade_level_id
+            )
+        except GradeLevel.DoesNotExist:
+            return Response(
+                {"error": "Grade level not found"}, status=status.HTTP_404_NOT_FOUND
+            )
 
-            result = {
-                "total_count": base_query.count(),
-                "activity_based_count": base_query.filter(
-                    is_activity_based=True
-                ).count(),
-                "by_nursery_level": {},
-                "subjects": SubjectListSerializer(base_query, many=True).data,
-            }
+        subjects = (
+            self.get_queryset()
+            .filter(grade_levels=grade_level, is_active=True)
+            .distinct()
+            .order_by("subject_order", "name")
+        )
 
-            # Breakdown by nursery levels
-            for level_code, level_name in NURSERY_LEVELS:
-                level_subjects = filter_subjects_by_nursery_level(
-                    base_query, level_code
-                )
-                result["by_nursery_level"][level_code] = {
-                    "name": level_name,
-                    "count": level_subjects.count(),
-                    "subjects": SubjectListSerializer(level_subjects, many=True).data,
+        # Categorize subjects
+        by_category = {}
+        categories = SubjectCategory.objects.filter(is_active=True)
+
+        for category in categories:
+            category_subjects = subjects.filter(category_new=category)
+            if category_subjects.exists():
+                by_category[category.code] = {
+                    "id": category.id,
+                    "name": category.name,
+                    "count": category_subjects.count(),
+                    "subjects": SubjectListSerializer(
+                        category_subjects, many=True
+                    ).data,
                 }
 
-            cache.set(cache_key, result, 60 * 20)
-
-        return Response(result)
+        return Response(
+            {
+                "grade_level": {
+                    "id": grade_level.id,
+                    "name": grade_level.name,
+                    "order": grade_level.order,
+                    "education_level": (
+                        grade_level.education_level.name
+                        if grade_level.education_level
+                        else None
+                    ),
+                },
+                "summary": {
+                    "total_subjects": subjects.count(),
+                    "cross_cutting": subjects.filter(is_cross_cutting=True).count(),
+                },
+                "by_category": by_category,
+            }
+        )
 
     @action(detail=False, methods=["get"])
     def senior_secondary_subjects(self, request):
-        """Get Senior Secondary subjects with classification breakdown"""
-        cache_key = "ss_subjects_by_type_v1"
-        result = cache.get(cache_key)
+        """
+        Get Senior Secondary subjects with classification breakdown
+        UPDATED: Uses subject_type_new FK
+        """
+        # Get SS education level
+        try:
+            ss_level = EducationLevel.objects.get(
+                level_type="SENIOR_SECONDARY", is_active=True
+            )
+        except EducationLevel.DoesNotExist:
+            return Response(
+                {"error": "Senior Secondary education level not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
-        if not result:
-            ss_subjects = Subject.get_senior_secondary_subjects()
-            subject_type = request.query_params.get("type")
+        ss_subjects = (
+            self.get_queryset()
+            .filter(grade_levels__education_level=ss_level, is_active=True)
+            .distinct()
+        )
 
-            if subject_type:
-                ss_subjects = ss_subjects.filter(ss_subject_type=subject_type)
+        # Filter by subject type if provided
+        subject_type_id = request.query_params.get("subject_type_id")
+        if subject_type_id:
+            ss_subjects = ss_subjects.filter(subject_type_new_id=subject_type_id)
 
-            result = {
-                "total_count": ss_subjects.count(),
-                "cross_cutting_count": ss_subjects.filter(
-                    is_cross_cutting=True
-                ).count(),
-                "by_subject_type": {},
-                "cross_cutting_subjects": SubjectListSerializer(
-                    Subject.get_cross_cutting_subjects(), many=True
-                ).data,
-                "all_subjects": SubjectListSerializer(ss_subjects, many=True).data,
-            }
+        # Group by subject type
+        by_subject_type = {}
+        subject_types = SubjectType.objects.filter(is_active=True)
 
-            # Breakdown by subject types
-            for type_code, type_name in SS_SUBJECT_TYPES:
-                type_subjects = ss_subjects.filter(ss_subject_type=type_code)
-                result["by_subject_type"][type_code] = {
-                    "name": type_name,
+        for subject_type in subject_types:
+            type_subjects = ss_subjects.filter(subject_type_new=subject_type)
+            if type_subjects.exists():
+                by_subject_type[subject_type.code] = {
+                    "id": subject_type.id,
+                    "name": subject_type.name,
+                    "code": subject_type.code,
                     "count": type_subjects.count(),
                     "subjects": SubjectListSerializer(type_subjects, many=True).data,
                 }
 
-            cache.set(cache_key, result, 60 * 20)
-
-        return Response(result)
+        return Response(
+            {
+                "total_count": ss_subjects.count(),
+                "cross_cutting_count": ss_subjects.filter(
+                    is_cross_cutting=True
+                ).count(),
+                "by_subject_type": by_subject_type,
+                "cross_cutting_subjects": SubjectListSerializer(
+                    ss_subjects.filter(is_cross_cutting=True), many=True
+                ).data,
+            }
+        )
 
     @action(detail=False, methods=["get"])
     def cross_cutting_subjects(self, request):
         """Get cross-cutting subjects for Senior Secondary"""
-        cache_key = "cross_cutting_subjects_v1"
-        result = cache.get(cache_key)
+        cross_cutting = (
+            self.get_queryset()
+            .filter(is_cross_cutting=True, is_active=True)
+            .order_by("subject_order", "name")
+        )
 
-        if not result:
-            cross_cutting = Subject.get_cross_cutting_subjects()
-            result = {
+        return Response(
+            {
                 "count": cross_cutting.count(),
                 "description": "Cross-cutting subjects required for all Senior Secondary students",
                 "subjects": SubjectListSerializer(cross_cutting, many=True).data,
             }
-            cache.set(cache_key, result, 60 * 30)
+        )
 
-        return Response(result)
+    @action(detail=True, methods=["get"])
+    def prerequisites(self, request, pk=None):
+        """Enhanced prerequisites with dependency tree"""
+        subject = self.get_object()
 
-    @action(detail=False, methods=["get"])
-    def for_grade(self, request):
-        """Enhanced grade-specific subject retrieval"""
-        grade_level = request.query_params.get("grade")
-        if not grade_level:
-            return Response({"error": "grade parameter required"}, status=400)
+        # Get prerequisites
+        prerequisites = subject.prerequisites.filter(is_active=True)
 
-        try:
-            grade = int(grade_level)
-            grade_obj = GradeLevel.objects.get(order=grade)
-            subjects = (
-                self.get_queryset()
-                .filter(grade_levels=grade_obj, is_active=True)
-                .order_by("category", "subject_order", "name")
-            )
-        except (ValueError, GradeLevel.DoesNotExist):
-            return Response({"error": "Invalid grade level"}, status=400)
-
-        # Categorize subjects
-        compulsory = subjects.filter(is_compulsory=True)
-        elective = subjects.filter(is_compulsory=False)
-        cross_cutting = subjects.filter(is_cross_cutting=True)
-        activity_based = subjects.filter(is_activity_based=True)
-        with_practicals = subjects.filter(has_practical=True)
+        # Get dependent subjects (subjects that require this one)
+        dependent_subjects = subject.unlocks_subjects.filter(is_active=True)
 
         return Response(
             {
-                "grade_level": grade,
-                "grade_name": grade_obj.name,
-                "summary": {
-                    "total_subjects": subjects.count(),
+                "subject": {
+                    "id": subject.id,
+                    "name": subject.name,
+                    "code": subject.code,
                 },
-                "categories": {
-                    "cross_cutting": {
-                        "count": cross_cutting.count(),
-                        "subjects": SubjectListSerializer(
-                            cross_cutting, many=True
-                        ).data,
-                    },
+                "prerequisites": {
+                    "count": prerequisites.count(),
+                    "subjects": SubjectListSerializer(prerequisites, many=True).data,
+                },
+                "unlocks_subjects": {
+                    "count": dependent_subjects.count(),
+                    "subjects": SubjectListSerializer(
+                        dependent_subjects, many=True
+                    ).data,
                 },
             }
         )
 
-    @action(detail=True, methods=["post"])
-    def check_availability(self, request, pk=None):
-        """Enhanced availability check with comprehensive information"""
-        subject = self.get_object()
-        serializer = SubjectGradeCheckSerializer(data=request.data)
+    @action(detail=False, methods=["get"])
+    def statistics(self, request):
+        """
+        Get comprehensive subject statistics
+        UPDATED: Uses FK-based relationships
+        """
+        cache_key = "subject_statistics_v2"
+        result = cache.get(cache_key)
 
-        if serializer.is_valid():
-            grade_level_id = serializer.validated_data["grade_level_id"]
-            try:
-                grade_level = GradeLevel.objects.get(id=grade_level_id)
-                is_available = subject.grade_levels.filter(id=grade_level_id).exists()
-                final_availability = is_available and subject.is_active
+        if not result:
+            queryset = self.get_queryset()
 
-                return Response(
-                    {
-                        "subject": {
-                            "id": subject.id,
-                            "name": subject.name,
-                            "short_name": subject.short_name,
-                            "code": subject.code,
-                            "display_name": subject.display_name,
-                        },
-                        "grade_level": {"id": grade_level.id, "name": grade_level.name},
-                        "availability": {
-                            "is_available": final_availability,
-                            "reasons": self._get_availability_reasons(
-                                subject, is_available
-                            ),
-                        },
-                        "subject_details": {
-                            "is_cross_cutting": subject.is_cross_cutting,
-                            "education_levels": subject.education_levels,
-                            "category": subject.category,
-                        },
-                    }
-                )
-            except GradeLevel.DoesNotExist:
-                return Response({"error": "Grade level not found"}, status=404)
+            result = {
+                "overview": {
+                    "total_subjects": queryset.count(),
+                    "active_subjects": queryset.filter(is_active=True).count(),
+                    "cross_cutting": queryset.filter(is_cross_cutting=True).count(),
+                },
+                "by_education_level": {},
+                "by_category": {},
+                "by_subject_type": {},
+            }
 
-        return Response(serializer.errors, status=400)
+            # Statistics by education level
+            education_levels = EducationLevel.objects.filter(is_active=True)
+            for edu_level in education_levels:
+                level_subjects = queryset.filter(
+                    grade_levels__education_level=edu_level
+                ).distinct()
+
+                result["by_education_level"][edu_level.code] = {
+                    "id": edu_level.id,
+                    "name": edu_level.name,
+                    "count": level_subjects.count(),
+                }
+
+            # Statistics by category
+            categories = SubjectCategory.objects.filter(is_active=True)
+            for category in categories:
+                category_subjects = queryset.filter(category_new=category)
+                result["by_category"][category.code] = {
+                    "id": category.id,
+                    "name": category.name,
+                    "count": category_subjects.count(),
+                }
+
+            # Statistics by subject type (SS)
+            subject_types = SubjectType.objects.filter(is_active=True)
+            for subject_type in subject_types:
+                type_subjects = queryset.filter(subject_type_new=subject_type)
+                result["by_subject_type"][subject_type.code] = {
+                    "id": subject_type.id,
+                    "name": subject_type.name,
+                    "count": type_subjects.count(),
+                }
+
+            cache.set(cache_key, result, 60 * 10)
+
+        return Response(result)
 
     @action(detail=False, methods=["get"])
     def search_suggestions(self, request):
-        """Enhanced search suggestions with better categorization"""
+        """Enhanced search suggestions"""
         query = request.query_params.get("q", "").strip()
         if len(query) < 2:
             return Response({"suggestions": []})
 
-        subjects = Subject.objects.filter(
-            Q(name__icontains=query)
-            | Q(short_name__icontains=query)
-            | Q(code__icontains=query),
-            is_active=True,
-        ).values(
-            "id",
-            "name",
-            "short_name",
-            "code",
-            "category",
-            "education_levels",
-            "is_cross_cutting",
-            "is_activity_based",
-        )[
-            :15
-        ]
+        subjects = (
+            self.get_queryset()
+            .filter(
+                Q(name__icontains=query)
+                | Q(short_name__icontains=query)
+                | Q(code__icontains=query),
+                is_active=True,
+            )
+            .select_related("category_new", "subject_type_new")
+            .prefetch_related("grade_levels", "grade_levels__education_level")[:15]
+        )
 
         suggestions = []
         for s in subjects:
-            display_name = s["short_name"] or s["name"]
-            category_display = dict(SUBJECT_CATEGORY_CHOICES).get(s["category"])
+            display_name = s.short_name or s.name
 
-            # Build education level display
-            education_display = []
-            if s["education_levels"]:
-                for level in s["education_levels"]:
-                    level_dict = dict(EDUCATION_LEVELS)
-                    education_display.append(level_dict.get(level, level))
+            # Get education levels from grade_levels M2M
+            education_levels = list(
+                s.grade_levels.values_list(
+                    "education_level__name", flat=True
+                ).distinct()
+            )
 
             suggestions.append(
                 {
-                    "id": s["id"],
-                    "label": f"{display_name} ({s['code']})",
-                    "name": s["name"],
-                    "short_name": s["short_name"],
+                    "id": s.id,
+                    "label": f"{display_name} ({s.code})",
+                    "name": s.name,
+                    "short_name": s.short_name,
                     "display_name": display_name,
-                    "code": s["code"],
-                    "category": category_display,
+                    "code": s.code,
+                    "category": s.category_new.name if s.category_new else None,
+                    "subject_type": (
+                        s.subject_type_new.name if s.subject_type_new else None
+                    ),
                     "education_levels": (
-                        ", ".join(education_display)
-                        if education_display
+                        ", ".join(education_levels)
+                        if education_levels
                         else "All levels"
                     ),
                     "badges": self._get_subject_badges(s),
@@ -882,216 +764,30 @@ class SubjectViewSet(SectionFilterMixin, viewsets.ModelViewSet):
             {"query": query, "count": len(suggestions), "suggestions": suggestions}
         )
 
-    @action(detail=True, methods=["get"])
-    def prerequisites(self, request, pk=None):
-        """Enhanced prerequisites with dependency tree"""
-        subject = self.get_object()
-        serializer = SubjectPrerequisiteSerializer(
-            subject, context={"request": request}
-        )
-
-        # Add dependency information
-        dependent_subjects = subject.get_dependent_subjects()
-
-        response_data = serializer.data
-        response_data["unlocks_subjects"] = {
-            "count": dependent_subjects.count(),
-            "subjects": SubjectListSerializer(dependent_subjects, many=True).data,
-        }
-
-        return Response(response_data)
-
-    @action(detail=True, methods=["get"])
-    def education_levels(self, request, pk=None):
-        """Enhanced education level compatibility information"""
-        subject = self.get_object()
-        serializer = SubjectEducationLevelSerializer(
-            subject, context={"request": request}
-        )
-
-        response_data = serializer.data
-
-        # Add level-specific information
-        response_data["level_specific_info"] = {}
-
-        if subject.is_nursery_subject:
-            response_data["level_specific_info"]["nursery"] = {
-                "nursery_levels": subject.nursery_levels_display,
-                "is_activity_based": subject.is_activity_based,
-            }
-
-        if subject.is_senior_secondary_subject:
-            response_data["level_specific_info"]["senior_secondary"] = {
-                "subject_type": (
-                    subject.get_ss_subject_type_display()
-                    if subject.ss_subject_type
-                    else None
-                ),
-                "is_cross_cutting": subject.is_cross_cutting,
-            }
-
-        return Response(response_data)
-
-    @action(detail=False, methods=["get"])
-    def statistics(self, request):
-        """Get comprehensive subject statistics"""
-        cache_key = "subject_statistics_v1"
-        result = cache.get(cache_key)
-
-        if not result:
-            # Use the base queryset without filtering to avoid query_params issues
-            queryset = Subject.objects.all()
-
-            result = {
-                "overview": {
-                    "total_subjects": queryset.count(),
-                    "active_subjects": queryset.filter(is_active=True).count(),
-                },
-                "by_education_level": {},
-                "by_category": {},
-                "by_requirements": {
-                    "cross_cutting": queryset.filter(is_cross_cutting=True).count(),
-                },
-            }
-
-            # Statistics by education level
-            for level_code, level_name in EDUCATION_LEVELS:
-                level_subjects = filter_by_json_field(
-                    queryset, "education_levels", level_code
-                )
-                result["by_education_level"][level_code] = {
-                    "name": level_name,
-                    "count": level_subjects.count(),
-                }
-
-            # Statistics by category
-            for category_code, category_name in SUBJECT_CATEGORY_CHOICES:
-                category_subjects = queryset.filter(category=category_code)
-                result["by_category"][category_code] = {
-                    "name": category_name,
-                    "count": category_subjects.count(),
-                }
-
-            cache.set(cache_key, result, 60 * 10)
-
-        return Response(result)
-
-    @action(detail=False, methods=["get"])
-    def by_teacher(self, request):
-        """Get subjects assigned to a specific teacher"""
-        teacher_id = request.query_params.get("teacher_id")
-        teacher_specialization = request.query_params.get("teacher_specialization")
-
-        if not teacher_id and not teacher_specialization:
-            return Response(
-                {
-                    "error": "Either teacher_id or teacher_specialization parameter is required"
-                },
-                status=400,
-            )
-
-        try:
-            from teacher.models import Teacher, TeacherAssignment
-
-            if teacher_id:
-                # Get subjects assigned to specific teacher
-                teacher_assignments = TeacherAssignment.objects.filter(
-                    teacher_id=teacher_id
-                ).select_related("subject", "teacher", "grade_level", "section")
-
-                subjects = [assignment.subject for assignment in teacher_assignments]
-
-                # Get teacher info
-                teacher = Teacher.objects.get(id=teacher_id)
-                teacher_info = {
-                    "id": teacher.id,
-                    "name": teacher.user.full_name,
-                    "employee_id": teacher.employee_id,
-                    "specialization": teacher.specialization,
-                    "level": teacher.level,
-                }
-
-            else:
-                # Get subjects by teacher specialization
-                teachers_with_specialization = Teacher.objects.filter(
-                    specialization__icontains=teacher_specialization, is_active=True
-                )
-
-                teacher_assignments = TeacherAssignment.objects.filter(
-                    teacher__in=teachers_with_specialization
-                ).select_related("subject", "teacher", "grade_level", "section")
-
-                subjects = [assignment.subject for assignment in teacher_assignments]
-                teacher_info = {
-                    "specialization": teacher_specialization,
-                    "teacher_count": teachers_with_specialization.count(),
-                }
-
-            # Remove duplicates while preserving order
-            seen_subjects = set()
-            unique_subjects = []
-            for subject in subjects:
-                if subject.id not in seen_subjects:
-                    seen_subjects.add(subject.id)
-                    unique_subjects.append(subject)
-
-            serializer = SubjectListSerializer(unique_subjects, many=True)
-
-            response_data = {
-                "teacher_info": teacher_info,
-                "subjects": serializer.data,
-                "total_subjects": len(unique_subjects),
-                "assignments": [],
-            }
-
-            # Add assignment details if requested
-            include_assignments = (
-                request.query_params.get("include_assignments", "false").lower()
-                == "true"
-            )
-            if include_assignments:
-                for assignment in teacher_assignments:
-                    response_data["assignments"].append(
-                        {
-                            "id": assignment.id,
-                            "subject": assignment.subject.name,
-                            "grade_level": (
-                                assignment.grade_level.name
-                                if assignment.grade_level
-                                else None
-                            ),
-                            "section": (
-                                assignment.section.name if assignment.section else None
-                            ),
-                            "teacher": assignment.teacher.user.full_name,
-                        }
-                    )
-
-            return Response(response_data)
-
-        except (ValueError, Teacher.DoesNotExist, ImportError) as e:
-            return Response(
-                {"error": f"Invalid teacher information: {str(e)}"}, status=400
-            )
-
-    def _get_category_icon(self, category):
+    def _get_category_icon(self, category_code):
         """Get icon for category display"""
         icons = {
             "core": "📚",
             "elective": "🎯",
-            "cross_cutting": "🌐",
-            "core_science": "🔬",
-            "core_art": "🎨",
-            "core_humanities": "📖",
+            "science": "🔬",
+            "arts": "🎨",
+            "humanities": "📖",
             "vocational": "🔧",
-            "creative_arts": "🎭",
+            "creative": "🎭",
             "religious": "🙏",
             "physical": "⚽",
             "language": "🗣️",
-            "practical": "✋",
-            "nursery_activities": "🎈",
         }
-        return icons.get(category, "📖")
+        return icons.get(category_code, "📖")
+
+    def _get_subject_badges(self, subject):
+        """Get display badges for subjects"""
+        badges = []
+
+        if subject.is_cross_cutting:
+            badges.append({"text": "Cross-cutting", "type": "info"})
+
+        return badges
 
     def _get_availability_reasons(self, subject, is_grade_available):
         """Get reasons for availability status"""
@@ -1105,14 +801,3 @@ class SubjectViewSet(SectionFilterMixin, viewsets.ModelViewSet):
             reasons.append("Subject is available")
 
         return reasons
-
-    def _get_subject_badges(self, subject_data):
-        """Get display badges for subjects"""
-        badges = []
-
-        if subject_data.get("is_cross_cutting"):
-            badges.append({"text": "Cross-cutting", "type": "info"})
-        if subject_data.get("is_activity_based"):
-            badges.append({"text": "Activity-based", "type": "success"})
-
-        return badges

@@ -1,18 +1,22 @@
 import django_filters
 from django import forms
 from django.utils import timezone
+
 from .models import (
     Exam,
-    EXAM_TYPE_CHOICES,
-    EXAM_STATUS_CHOICES,
-    DIFFICULTY_CHOICES,
+    ExamType,  # UPDATED: FK model replaces EXAM_TYPE_CHOICES
+    ExamStatus,  # UPDATED: FK model replaces EXAM_STATUS_CHOICES
+    DifficultyLevel,  # UPDATED: FK model replaces DIFFICULTY_CHOICES
 )
-from academics.models import Term
+from academics.models import TermType  # UPDATED: FK model replaces Term.TERM_CHOICES
 from classroom.models import Stream
 
 
 class ExamFilter(django_filters.FilterSet):
-    # Date range filters
+
+    # ------------------------------------------------------------------
+    # Date range filters — unchanged
+    # ------------------------------------------------------------------
     start_date = django_filters.DateFilter(
         field_name="exam_date",
         lookup_expr="gte",
@@ -25,15 +29,15 @@ class ExamFilter(django_filters.FilterSet):
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
         label="To Date",
     )
-
-    # Exact date filter
     exam_date = django_filters.DateFilter(
         field_name="exam_date",
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
         label="Exact Date",
     )
 
-    # Text search filters
+    # ------------------------------------------------------------------
+    # Text search filters — unchanged
+    # ------------------------------------------------------------------
     title = django_filters.CharFilter(
         lookup_expr="icontains",
         widget=forms.TextInput(
@@ -41,7 +45,6 @@ class ExamFilter(django_filters.FilterSet):
         ),
         label="Exam Title",
     )
-
     code = django_filters.CharFilter(
         lookup_expr="icontains",
         widget=forms.TextInput(
@@ -50,36 +53,75 @@ class ExamFilter(django_filters.FilterSet):
         label="Exam Code",
     )
 
-    # Choice field filters
-    exam_type = django_filters.ChoiceFilter(
-        choices=EXAM_TYPE_CHOICES,
+    # ------------------------------------------------------------------
+    # UPDATED: FK-based filters replace ChoiceFilters
+    # ------------------------------------------------------------------
+
+    # Filter by ExamType FK object (dropdown of all ExamType records)
+    exam_type = django_filters.ModelChoiceFilter(
+        queryset=ExamType.objects.all(),
         empty_label="All Types",
         widget=forms.Select(attrs={"class": "form-control"}),
         label="Exam Type",
     )
 
-    status = django_filters.ChoiceFilter(
-        choices=EXAM_STATUS_CHOICES,
-        empty_label="All Status",
+    # Filter by ExamType code string — lets API callers pass ?exam_type_code=quiz
+    exam_type_code = django_filters.CharFilter(
+        field_name="exam_type__code",
+        lookup_expr="exact",
+        label="Exam Type Code",
+    )
+
+    # Filter by ExamStatus FK object
+    status = django_filters.ModelChoiceFilter(
+        queryset=ExamStatus.objects.all(),
+        empty_label="All Statuses",
         widget=forms.Select(attrs={"class": "form-control"}),
         label="Status",
     )
 
-    term = django_filters.ChoiceFilter(
-        choices=Term.TERM_CHOICES,
-        empty_label="All Terms",
-        widget=forms.Select(attrs={"class": "form-control"}),
-        label="Term",
+    # Filter by ExamStatus code string — lets API callers pass ?status_code=scheduled
+    status_code = django_filters.CharFilter(
+        field_name="status__code",
+        lookup_expr="exact",
+        label="Status Code",
     )
 
-    difficulty_level = django_filters.ChoiceFilter(
-        choices=DIFFICULTY_CHOICES,
+    # Filter by DifficultyLevel FK object
+    difficulty_level = django_filters.ModelChoiceFilter(
+        queryset=DifficultyLevel.objects.all(),
         empty_label="All Difficulties",
         widget=forms.Select(attrs={"class": "form-control"}),
         label="Difficulty",
     )
 
-    # Stream filter for Senior Secondary
+    # Filter by DifficultyLevel code string — lets API callers pass ?difficulty_code=hard
+    difficulty_code = django_filters.CharFilter(
+        field_name="difficulty_level__code",
+        lookup_expr="exact",
+        label="Difficulty Code",
+    )
+
+    # UPDATED: Term is now a FK to TermType — filter via exam_schedule term's term_type
+    # exam.term resolves through exam_schedule → term → term_type
+    term_type = django_filters.ModelChoiceFilter(
+        queryset=TermType.objects.all(),
+        field_name="exam_schedule__term__term_type",
+        empty_label="All Terms",
+        widget=forms.Select(attrs={"class": "form-control"}),
+        label="Term",
+    )
+
+    # Filter by term type code string — lets API callers pass ?term_code=first
+    term_code = django_filters.CharFilter(
+        field_name="exam_schedule__term__term_type__code",
+        lookup_expr="exact",
+        label="Term Code",
+    )
+
+    # ------------------------------------------------------------------
+    # Stream filter — unchanged (Stream is already a ModelChoiceFilter)
+    # ------------------------------------------------------------------
     stream = django_filters.ModelChoiceFilter(
         queryset=Stream.objects.all(),
         empty_label="All Streams",
@@ -87,7 +129,9 @@ class ExamFilter(django_filters.FilterSet):
         label="Stream",
     )
 
-    # Academic session filter
+    # ------------------------------------------------------------------
+    # Academic session filter — unchanged
+    # ------------------------------------------------------------------
     session_year = django_filters.CharFilter(
         lookup_expr="icontains",
         widget=forms.TextInput(
@@ -96,23 +140,25 @@ class ExamFilter(django_filters.FilterSet):
         label="Session Year",
     )
 
-    # Boolean filters
+    # ------------------------------------------------------------------
+    # Boolean filters — unchanged
+    # ------------------------------------------------------------------
     is_practical = django_filters.BooleanFilter(
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
         label="Practical Exam",
     )
-
     requires_computer = django_filters.BooleanFilter(
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
         label="Requires Computer",
     )
-
     is_online = django_filters.BooleanFilter(
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
         label="Online Exam",
     )
 
-    # Venue filter
+    # ------------------------------------------------------------------
+    # Venue filter — unchanged
+    # ------------------------------------------------------------------
     venue = django_filters.CharFilter(
         lookup_expr="icontains",
         widget=forms.TextInput(
@@ -121,14 +167,15 @@ class ExamFilter(django_filters.FilterSet):
         label="Venue",
     )
 
-    # Time range filters
+    # ------------------------------------------------------------------
+    # Time range filters — unchanged
+    # ------------------------------------------------------------------
     start_time = django_filters.TimeFilter(
         field_name="start_time",
         lookup_expr="gte",
         widget=forms.TimeInput(attrs={"type": "time", "class": "form-control"}),
         label="Start Time From",
     )
-
     end_time = django_filters.TimeFilter(
         field_name="end_time",
         lookup_expr="lte",
@@ -136,7 +183,9 @@ class ExamFilter(django_filters.FilterSet):
         label="End Time To",
     )
 
-    # Marks range filters
+    # ------------------------------------------------------------------
+    # Marks / duration range filters — unchanged
+    # ------------------------------------------------------------------
     total_marks_min = django_filters.NumberFilter(
         field_name="total_marks",
         lookup_expr="gte",
@@ -145,7 +194,6 @@ class ExamFilter(django_filters.FilterSet):
         ),
         label="Min Total Marks",
     )
-
     total_marks_max = django_filters.NumberFilter(
         field_name="total_marks",
         lookup_expr="lte",
@@ -154,8 +202,6 @@ class ExamFilter(django_filters.FilterSet):
         ),
         label="Max Total Marks",
     )
-
-    # Duration filter
     duration_minutes_min = django_filters.NumberFilter(
         field_name="duration_minutes",
         lookup_expr="gte",
@@ -164,7 +210,6 @@ class ExamFilter(django_filters.FilterSet):
         ),
         label="Min Duration (minutes)",
     )
-
     duration_minutes_max = django_filters.NumberFilter(
         field_name="duration_minutes",
         lookup_expr="lte",
@@ -177,7 +222,7 @@ class ExamFilter(django_filters.FilterSet):
     class Meta:
         model = Exam
         fields = [
-            # Basic relationships
+            # Basic FK relationships
             "subject",
             "grade_level",
             "section",
@@ -193,11 +238,15 @@ class ExamFilter(django_filters.FilterSet):
             "title",
             "code",
             "venue",
-            # Choice fields
+            # UPDATED: FK filters (id-based) + code-based aliases
             "exam_type",
+            "exam_type_code",
             "status",
-            "term",
+            "status_code",
             "difficulty_level",
+            "difficulty_code",
+            "term_type",
+            "term_code",
             "session_year",
             # Boolean filters
             "is_practical",
@@ -227,19 +276,22 @@ class ExamFilter(django_filters.FilterSet):
                 )
 
         # Set empty labels for foreign key fields
-        if "subject" in self.form.fields:
-            self.form.fields["subject"].empty_label = "All Subjects"
-        if "grade_level" in self.form.fields:
-            self.form.fields["grade_level"].empty_label = "All Grade Levels"
-        if "section" in self.form.fields:
-            self.form.fields["section"].empty_label = "All Sections"
-        if "teacher" in self.form.fields:
-            self.form.fields["teacher"].empty_label = "All Teachers"
-        if "exam_schedule" in self.form.fields:
-            self.form.fields["exam_schedule"].empty_label = "All Schedules"
+        empty_labels = {
+            "subject": "All Subjects",
+            "grade_level": "All Grade Levels",
+            "section": "All Sections",
+            "teacher": "All Teachers",
+            "exam_schedule": "All Schedules",
+        }
+        for field_name, label in empty_labels.items():
+            if field_name in self.form.fields:
+                self.form.fields[field_name].empty_label = label
 
 
-# Additional specialized filters for specific use cases
+# ==============================================================================
+# SPECIALIZED FILTERS
+# ==============================================================================
+
 class UpcomingExamFilter(ExamFilter):
     """Filter for upcoming exams only"""
 
@@ -249,9 +301,9 @@ class UpcomingExamFilter(ExamFilter):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Pre-filter to show only scheduled and future exams
+        # UPDATED: filter via status FK traversal (status__code) instead of raw string
         self.queryset = self.queryset.filter(
-            status__in=["scheduled", "in_progress"],
+            status__code__in=["scheduled", "in_progress"],
             exam_date__gte=timezone.now().date(),
         )
 
@@ -265,8 +317,8 @@ class CompletedExamFilter(ExamFilter):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Pre-filter to show only completed exams
-        self.queryset = self.queryset.filter(status="completed")
+        # UPDATED: filter via status FK traversal (status__code) instead of raw string
+        self.queryset = self.queryset.filter(status__code="completed")
 
 
 class TodayExamFilter(ExamFilter):
@@ -279,8 +331,10 @@ class TodayExamFilter(ExamFilter):
             "grade_level",
             "section",
             "teacher",
-            "exam_type",
-            "status",
+            "exam_type",  # ModelChoiceFilter (FK)
+            "exam_type_code",  # code string alias
+            "status",  # ModelChoiceFilter (FK)
+            "status_code",  # code string alias
             "venue",
             "start_time",
             "end_time",
@@ -288,7 +342,5 @@ class TodayExamFilter(ExamFilter):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        from django.utils import timezone
-
-        # Pre-filter to show only today's exams
+        # UPDATED: no FK changes needed here — just pre-filtering by date
         self.queryset = self.queryset.filter(exam_date=timezone.now().date())

@@ -7,6 +7,7 @@ from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
 from django.core.validators import RegexValidator, MinValueValidator
+from cloudinary.models import CloudinaryField
 
 
 class TenantMixin(models.Model):
@@ -469,6 +470,20 @@ class TenantSettings(models.Model):
     # School Information
     school_code = models.CharField(max_length=20, blank=True)
     school_motto = models.CharField(max_length=500, blank=True)
+    logo = CloudinaryField(
+        "logo",
+        folder="school_logos",
+        blank=True,
+        null=True,
+        help_text="School logo stored in Cloudinary",
+    )
+    favicon = CloudinaryField(
+        "favicon",
+        folder="school_favicons",
+        blank=True,
+        null=True,
+        help_text="School favicon stored in Cloudinary",
+    )
     address = models.TextField(blank=True)
     city = models.CharField(max_length=100, blank=True)
     state = models.CharField(max_length=100, blank=True)
@@ -554,6 +569,20 @@ class TenantSettings(models.Model):
 
     def __str__(self):
         return f"Settings for {self.tenant.name}"
+
+    @property
+    def logo_url(self):
+        """Return full Cloudinary URL for logo"""
+        if self.logo:
+            return self.logo.url
+        return None
+
+    @property
+    def favicon_url(self):
+        """Return full Cloudinary URL for favicon"""
+        if self.favicon:
+            return self.favicon.url
+        return None
 
     def save(self, *args, **kwargs):
         if not self.school_code:

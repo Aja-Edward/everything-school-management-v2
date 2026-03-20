@@ -1,9 +1,8 @@
 from rest_framework import serializers
-from .models import Student, ResultCheckToken
+from .models import Student, ResultCheckToken, Class, Section, EducationLevel
 from users.models import CustomUser
 from parent.models import ParentProfile
-from django.contrib.auth.models import BaseUserManager, User
-from django.contrib.auth.base_user import AbstractBaseUser
+from django.contrib.auth.models import BaseUserManager
 from utils import generate_unique_username
 from classroom.models import Stream
 from classroom.models import ClassSchedule, ClassroomTeacherAssignment
@@ -34,25 +33,27 @@ class StudentScheduleSerializer(serializers.ModelSerializer):
         source="classroom.section.name", read_only=True
     )
     section_id = serializers.IntegerField(source="classroom.section.id", read_only=True)
+
     grade_level_name = serializers.CharField(
-        source="classroom.section.grade_level.name", read_only=True
+        source="classroom.section.class_grade.name", read_only=True
     )
     grade_level_id = serializers.IntegerField(
-        source="classroom.section.grade_level.id", read_only=True
+        source="classroom.section.class_grade.id", read_only=True
     )
     education_level = serializers.CharField(
-        source="classroom.section.grade_level.education_level", read_only=True
+        source="classroom.section.class_grade.education_level.level_type",
+        read_only=True,
     )
 
-    # Stream information (for Senior Secondary students)
+    # Stream information — uses new FK field
     stream_name = serializers.CharField(source="classroom.stream.name", read_only=True)
     stream_type = serializers.CharField(
-        source="classroom.stream.stream_type", read_only=True
+        source="classroom.stream.stream_type_new.name", read_only=True
     )
 
     # Academic period information
     academic_year = serializers.CharField(
-        source="classroom.academic_year.name", read_only=True
+        source="classroom.academic_session.name", read_only=True
     )
     term = serializers.CharField(
         source="classroom.term.get_name_display", read_only=True
@@ -111,17 +112,10 @@ class StudentScheduleSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "is_active"]
 
-    def get_start_time_display(self, obj):
-        """Format start time for display"""
-        if obj.start_time:
-            return obj.start_time.strftime("%I:%M %p")
-        return None
-
     def get_teacher_name(self, obj):
         user = getattr(getattr(obj, "teacher", None), "user", None)
         if not user:
             return ""
-        # Try common attributes safely
         full = getattr(user, "full_name", None)
         if full:
             return full
@@ -130,64 +124,50 @@ class StudentScheduleSerializer(serializers.ModelSerializer):
         name = f"{first} {last}".strip()
         return name or getattr(user, "username", "")
 
+    def get_start_time_display(self, obj):
+        if obj.start_time:
+            return obj.start_time.strftime("%I:%M %p")
+        return None
+
     def get_end_time_display(self, obj):
-        """Format end time for display"""
         if obj.end_time:
             return obj.end_time.strftime("%I:%M %p")
         return None
 
     def get_duration(self, obj):
-        """Calculate class duration in minutes"""
         if obj.start_time and obj.end_time:
-            from datetime import datetime, timedelta
+            from datetime import datetime
 
             start = datetime.combine(datetime.today(), obj.start_time)
             end = datetime.combine(datetime.today(), obj.end_time)
-            duration = end - start
-            return int(duration.total_seconds() / 60)
+            return int((end - start).total_seconds() / 60)
         return None
 
     def get_day_display(self, obj):
-        """Get full day name"""
         day_mapping = {
-            "MON": "Monday",
-            "TUE": "Tuesday",
-            "WED": "Wednesday",
-            "THU": "Thursday",
-            "FRI": "Friday",
-            "SAT": "Saturday",
-            "SUN": "Sunday",
+            "MONDAY": "Monday",
+            "TUESDAY": "Tuesday",
+            "WEDNESDAY": "Wednesday",
+            "THURSDAY": "Thursday",
+            "FRIDAY": "Friday",
+            "SATURDAY": "Saturday",
+            "SUNDAY": "Sunday",
         }
         return day_mapping.get(obj.day_of_week, obj.day_of_week)
 
     def get_is_current_period(self, obj):
-        """Check if this is the current period"""
-        from datetime import datetime, time
+        from datetime import datetime
 
         now = datetime.now()
-        current_day = now.strftime("%a").upper()
+        # ClassSchedule.DAYS_OF_WEEK uses full names e.g. "MONDAY"
+        current_day = now.strftime("%A").upper()
         current_time = now.time()
-
-        # Map day abbreviations
-        day_map = {
-            "MON": "MONDAY",
-            "TUE": "TUESDAY",
-            "WED": "WEDNESDAY",
-            "THU": "THURSDAY",
-            "FRI": "FRIDAY",
-            "SAT": "SATURDAY",
-            "SUN": "SUNDAY",
-        }
-
-        schedule_day = day_map.get(current_day[:3])
-
         return (
-            obj.day_of_week == schedule_day
+            obj.day_of_week == current_day
             and obj.start_time <= current_time <= obj.end_time
         )
 
     def get_periods_per_week(self, obj):
-        """Get number of periods per week for this subject"""
         if (
             hasattr(obj, "teacher")
             and hasattr(obj, "classroom")
@@ -212,11 +192,11 @@ class StudentWeeklyScheduleSerializer(serializers.Serializer):
     student_id = serializers.IntegerField()
     student_name = serializers.CharField()
     classroom_name = serializers.CharField()
+    # education_level comes from Student.education_level property (level_type string)
     education_level = serializers.CharField()
     academic_year = serializers.CharField()
     term = serializers.CharField()
 
-    # Weekly schedule grouped by days
     monday = StudentScheduleSerializer(many=True)
     tuesday = StudentScheduleSerializer(many=True)
     wednesday = StudentScheduleSerializer(many=True)
@@ -225,7 +205,6 @@ class StudentWeeklyScheduleSerializer(serializers.Serializer):
     saturday = StudentScheduleSerializer(many=True, required=False)
     sunday = StudentScheduleSerializer(many=True, required=False)
 
-    # Summary statistics
     total_periods_per_week = serializers.IntegerField()
     total_subjects = serializers.IntegerField()
     total_teachers = serializers.IntegerField()
@@ -241,15 +220,11 @@ class StudentDailyScheduleSerializer(serializers.Serializer):
     date = serializers.DateField()
     day_of_week = serializers.CharField()
 
-    # Daily periods
     periods = StudentScheduleSerializer(many=True)
 
-    # Daily statistics
     total_periods = serializers.IntegerField()
     current_period = StudentScheduleSerializer(required=False, allow_null=True)
     next_period = StudentScheduleSerializer(required=False, allow_null=True)
-
-    # Break times (if applicable)
     break_times = serializers.ListField(child=serializers.DictField(), required=False)
 
 
@@ -262,21 +237,71 @@ class StudentSubjectScheduleSerializer(serializers.Serializer):
     subject_name = serializers.CharField()
     subject_code = serializers.CharField()
 
-    # Teacher information
     teacher_id = serializers.IntegerField()
     teacher_name = serializers.CharField()
     teacher_qualification = serializers.CharField()
 
-    # Schedule periods for this subject
     weekly_periods = StudentScheduleSerializer(many=True)
 
-    # Subject statistics
     periods_per_week = serializers.IntegerField()
     total_duration_per_week = serializers.IntegerField()  # in minutes
-
-    # Next class information
     next_class = StudentScheduleSerializer(required=False, allow_null=True)
 
+
+# ---------------------------------------------------------------------------
+# Nested helper serializers for FK representations
+# ---------------------------------------------------------------------------
+
+
+class EducationLevelSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EducationLevel
+        fields = ["id", "name", "code", "level_type"]
+
+
+class ClassSerializer(serializers.ModelSerializer):
+    education_level_detail = EducationLevelSerializer(
+        source="education_level", read_only=True
+    )
+
+    class Meta:
+        model = Class
+        fields = [
+            "id",
+            "name",
+            "code",
+            "education_level",
+            "education_level_detail",
+            "grade_number",
+        ]
+
+
+class SectionSerializer(serializers.ModelSerializer):
+    class_grade_name = serializers.CharField(source="class_grade.name", read_only=True)
+
+    class Meta:
+        model = Section
+        fields = ["id", "name", "class_grade", "class_grade_name"]
+
+
+class StreamSerializer(serializers.ModelSerializer):
+    """Minimal stream representation for student serializers"""
+
+    stream_type_name = serializers.CharField(
+        source="stream_type_new.name", read_only=True
+    )
+    stream_type_code = serializers.CharField(
+        source="stream_type_new.code", read_only=True
+    )
+
+    class Meta:
+        model = Stream
+        fields = ["id", "name", "code", "stream_type_name", "stream_type_code"]
+
+
+# ---------------------------------------------------------------------------
+# StudentDetailSerializer
+# ---------------------------------------------------------------------------
 
 class StudentDetailSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
@@ -284,34 +309,53 @@ class StudentDetailSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source="user.email", read_only=True)
     username = serializers.CharField(source="user.username", read_only=True)
     age = serializers.SerializerMethodField()
+
+    # education_level is a @property on Student — read-only, returns level_type string
     education_level = serializers.CharField(read_only=True)
     education_level_display = serializers.CharField(
-        source="get_education_level_display", read_only=True
+        source="education_level_display", read_only=True
     )
-    student_class_display = serializers.CharField(
-        source="get_student_class_display", read_only=True
+
+    # student_class is now a FK to Class
+    student_class = serializers.PrimaryKeyRelatedField(
+        queryset=Class.objects.all(), required=False, allow_null=True
     )
-    # Add 'name' field for frontend compatibility
+    student_class_detail = ClassSerializer(source="student_class", read_only=True)
+    student_class_display = serializers.SerializerMethodField()
+
+    # section is a FK to Section
+    section = serializers.PrimaryKeyRelatedField(
+        queryset=Section.objects.all(), required=False, allow_null=True
+    )
+    section_detail = SectionSerializer(source="section", read_only=True)
+
+    # Frontend compat alias
     name = serializers.SerializerMethodField()
+
     is_nursery_student = serializers.BooleanField(read_only=True)
     is_primary_student = serializers.BooleanField(read_only=True)
     is_secondary_student = serializers.BooleanField(read_only=True)
     is_active = serializers.BooleanField(required=False)
+
     parents = serializers.SerializerMethodField()
     emergency_contacts = serializers.SerializerMethodField()
     profile_picture = serializers.URLField(
         required=False, allow_blank=True, allow_null=True
     )
-    classroom = serializers.CharField(allow_blank=True, allow_null=True, required=False)
-    section_id = serializers.SerializerMethodField()
+
+    # classroom is now a computed @property string — read-only
+    classroom = serializers.CharField(read_only=True)
+
+    # stream FK
     stream = serializers.PrimaryKeyRelatedField(
-        queryset=Stream.objects.all(),
-        required=False,
-        allow_null=True,
-        help_text="Stream for Senior Secondary students",
+        queryset=Stream.objects.all(), required=False, allow_null=True
     )
+    stream_detail = StreamSerializer(source="stream", read_only=True)
+    # Keep flat fields for backward-compat with frontend
     stream_name = serializers.CharField(source="stream.name", read_only=True)
-    stream_type = serializers.CharField(source="stream.stream_type", read_only=True)
+    stream_type = serializers.CharField(
+        source="stream.stream_type_new.name", read_only=True
+    )
 
     class Meta:
         model = Student
@@ -328,7 +372,10 @@ class StudentDetailSerializer(serializers.ModelSerializer):
             "education_level",
             "education_level_display",
             "student_class",
+            "student_class_detail",
             "student_class_display",
+            "section",
+            "section_detail",
             "is_nursery_student",
             "is_primary_student",
             "is_secondary_student",
@@ -347,59 +394,54 @@ class StudentDetailSerializer(serializers.ModelSerializer):
             "parents",
             "profile_picture",
             "classroom",
-            "section_id",
             "stream",
+            "stream_detail",
             "stream_name",
             "stream_type",
         ]
-        read_only_fields = ["id", "admission_date", "education_level"]
+        read_only_fields = ["id", "admission_date", "education_level", "classroom"]
 
     def get_full_name(self, obj):
-        """Returns the full name including middle name if present."""
         return obj.user.full_name
 
     def get_name(self, obj):
-        """Returns the full name for frontend compatibility."""
         return obj.user.full_name
 
     def get_short_name(self, obj):
-        """Returns the short name (first and last name only)."""
         return obj.user.short_name
 
     def get_age(self, obj):
-        """Returns the student's current age."""
         return obj.age
 
-    def get_parents(self, obj):
-        """Returns detailed parent information including contact details and relationship."""
-        parent_data = []
-        from parent.models import ParentStudentRelationship
+    def get_student_class_display(self, obj):
+        return obj.student_class.name if obj.student_class else "Not Assigned"
 
-        relationships = ParentStudentRelationship.objects.filter(student=obj)
-        for rel in relationships.select_related("parent__user"):
+    def get_parents(self, obj):
+        from parent.models import ParentStudentRelationship
+        parent_data = []
+        relationships = ParentStudentRelationship.objects.filter(
+            student=obj
+        ).select_related("parent__user")
+        for rel in relationships:
             parent_profile = rel.parent
-            parent_info = {
-                "id": parent_profile.id,
-                "full_name": parent_profile.user.full_name,
-                "email": parent_profile.user.email,
-                "phone": getattr(parent_profile, "phone", None),
-                "relationship": rel.relationship,  # <-- This is now correct
-                "is_primary_contact": rel.is_primary_contact,
-            }
-            parent_data.append(parent_info)
+            parent_data.append(
+                {
+                    "id": parent_profile.id,
+                    "full_name": parent_profile.user.full_name,
+                    "email": parent_profile.user.email,
+                    "phone": getattr(parent_profile, "phone", None),
+                    "relationship": rel.relationship,
+                    "is_primary_contact": rel.is_primary_contact,
+                }
+            )
         return parent_data
 
     def get_emergency_contacts(self, obj):
-        """Returns formatted emergency contact information."""
         contacts = []
-
-        # Add parent contact if available
         if obj.parent_contact:
             contacts.append(
                 {"type": "Parent", "number": obj.parent_contact, "is_primary": True}
             )
-
-        # Add emergency contact if different from parent contact
         if obj.emergency_contact and obj.emergency_contact != obj.parent_contact:
             contacts.append(
                 {
@@ -408,188 +450,100 @@ class StudentDetailSerializer(serializers.ModelSerializer):
                     "is_primary": False,
                 }
             )
-
         return contacts
 
-    def get_section_id(self, obj):
-        # Try to get the section PK based on student's class and classroom section
-        if obj.classroom:
-            from classroom.models import Section, GradeLevel
-
-            # Extract section letter from classroom (e.g., "Nursery 1 A" -> "A")
-            classroom_parts = obj.classroom.split()
-            if len(classroom_parts) >= 2:
-                section_letter = classroom_parts[-1]  # Last part should be the section
-
-                # Map student class to grade level
-                class_to_grade = {
-                    "NURSERY_1": "Nursery 1",
-                    "NURSERY_2": "Nursery 2",
-                    "PRE_K": "Pre-K",
-                    "KINDERGARTEN": "Kindergarten",
-                    "GRADE_1": "Primary 1",
-                    "GRADE_2": "Primary 2",
-                    "GRADE_3": "Primary 3",
-                    "GRADE_4": "Primary 4",
-                    "GRADE_5": "Primary 5",
-                    "GRADE_6": "Primary 6",
-                    "GRADE_7": "JSS 1",
-                    "GRADE_8": "JSS 2",
-                    "GRADE_9": "JSS 3",
-                    "GRADE_10": "SS 1",
-                    "GRADE_11": "SS 2",
-                    "GRADE_12": "SS 3",
-                    # Add direct mappings for the actual class names used in database
-                    "SS1": "SS 1",
-                    "SS2": "SS 2",
-                    "SS3": "SS 3",
-                    "SS_1": "SS 1",
-                    "SS_2": "SS 2",
-                    "SS_3": "SS 3",
-                    "JSS1": "JSS 1",
-                    "JSS2": "JSS 2",
-                    "JSS3": "JSS 3",
-                    "JSS_1": "JSS 1",
-                    "JSS_2": "JSS 2",
-                    "JSS_3": "JSS 3",
-                    # Add mappings for the actual classroom names used
-                    "PRIMARY_1": "Primary 1",
-                    "PRIMARY_2": "Primary 2",
-                    "PRIMARY_3": "Primary 3",
-                    "PRIMARY_4": "Primary 4",
-                    "PRIMARY_5": "Primary 5",
-                    "PRIMARY_6": "Primary 6",
-                }
-
-                grade_name = class_to_grade.get(obj.student_class)
-                if grade_name:
-                    try:
-                        grade_level = GradeLevel.objects.get(name=grade_name)
-                        section = Section.objects.get(
-                            name=section_letter, grade_level=grade_level
-                        )
-                        return section.id
-                    except (GradeLevel.DoesNotExist, Section.DoesNotExist):
-                        return None
-        return None
-
-    def validate_student_class(self, value):
-        """Validate that the student class is appropriate for the education level."""
-        if self.instance:  # Only validate on updates
-            education_level = self.instance.education_level
-
-            nursery_classes = ["PRE_NURSERY", "NURSERY_1", "NURSERY_2"]
-            primary_classes = [
-                "PRIMARY_1",
-                "PRIMARY_2",
-                "PRIMARY_3",
-                "PRIMARY_4",
-                "PRIMARY_5",
-                "PRIMARY_6",
-            ]
-            secondary_classes = [
-                "JSS_1",
-                "JSS_2",
-                "JSS_3",
-                "SS_1",
-                "SS_2",
-                "SS_3",
-            ]
-
-            if education_level == "NURSERY" and value not in nursery_classes:
+    def validate_section(self, value):
+        """Ensure section belongs to the selected student_class."""
+        student_class = self.initial_data.get("student_class") or (
+            self.instance.student_class_id if self.instance else None
+        )
+        if value and student_class:
+            if value.class_grade_id != int(student_class):
                 raise serializers.ValidationError(
-                    "Selected class is not valid for nursery level students."
+                    "Section does not belong to the selected class."
                 )
-            elif education_level == "PRIMARY" and value not in primary_classes:
-                raise serializers.ValidationError(
-                    "Selected class is not valid for primary level students."
-                )
-            elif (
-                education_level in ["JUNIOR_SECONDARY", "SENIOR_SECONDARY"]
-                and value not in secondary_classes
-            ):
-                raise serializers.ValidationError(
-                    "Selected class is not valid for secondary level students."
-                )
-
-        return value
-
-    def validate_date_of_birth(self, value):
-        """Validate date of birth is reasonable."""
-        from datetime import date, timedelta
-
-        today = date.today()
-        min_age_date = today - timedelta(days=365 * 25)  # Max 25 years old
-        max_age_date = today - timedelta(days=365 * 2)  # Min 2 years old
-
-        if value < min_age_date:
-            raise serializers.ValidationError("Student cannot be older than 25 years.")
-        if value > max_age_date:
-            raise serializers.ValidationError("Student must be at least 2 years old.")
-
         return value
 
     def validate(self, data):
-        """Cross-field validation."""
-        # Ensure nursery students have parent contact
-        if data.get("education_level") == "NURSERY" or (
-            self.instance and self.instance.education_level == "NURSERY"
-        ):
-            if not data.get("parent_contact") and not (
-                self.instance and self.instance.parent_contact
-            ):
-                raise serializers.ValidationError(
-                    "Parent contact is required for nursery students."
-                )
-        # Enforce stream for senior secondary students
-        education_level = data.get("education_level") or getattr(
-            self.instance, "education_level", None
+        # Stream required for Senior Secondary
+        student_class = data.get("student_class") or (
+            self.instance.student_class if self.instance else None
         )
-        if education_level == "SENIOR_SECONDARY" and not data.get("stream"):
-            raise serializers.ValidationError(
-                {"stream": "Stream is required for Senior Secondary students."}
-            )
-
+        if student_class:
+            level_type = student_class.education_level.level_type
+            if level_type == "SENIOR_SECONDARY" and not data.get("stream"):
+                if not (self.instance and self.instance.stream):
+                    raise serializers.ValidationError(
+                        {"stream": "Stream is required for Senior Secondary students."}
+                    )
+        # Nursery students need parent contact
+        if student_class:
+            level_type = student_class.education_level.level_type
+            if level_type == "NURSERY":
+                has_contact = data.get("parent_contact") or (
+                    self.instance and self.instance.parent_contact
+                )
+                if not has_contact:
+                    raise serializers.ValidationError(
+                        "Parent contact is required for nursery students."
+                    )
         return data
 
     def to_representation(self, instance):
-        """Add frontend-compatible fields dynamically"""
         data = super().to_representation(instance)
-        # Add 'class' field for frontend compatibility (can't use 'class' as field name due to Python keyword)
-        data["class"] = instance.student_class
+        # Keep backward-compat 'class' key for frontend
+        data["class"] = instance.student_class.name if instance.student_class else None
         return data
 
+
+# ---------------------------------------------------------------------------
+# StudentListSerializer
+# ---------------------------------------------------------------------------
 
 class StudentListSerializer(serializers.ModelSerializer):
     """Simplified serializer for list views."""
 
     full_name = serializers.SerializerMethodField()
-    # Add 'name' field for frontend compatibility
     name = serializers.SerializerMethodField()
     username = serializers.CharField(source="user.username", read_only=True)
     age = serializers.SerializerMethodField()
+
+    # education_level — @property, read-only
+    education_level = serializers.CharField(read_only=True)
     education_level_display = serializers.CharField(
-        source="get_education_level_display", read_only=True
+        source="education_level_display", read_only=True
     )
-    student_class_display = serializers.CharField(
-        source="get_student_class_display", read_only=True
+
+    # student_class FK
+    student_class = serializers.PrimaryKeyRelatedField(
+        queryset=Class.objects.all(), required=False, allow_null=True
     )
+    student_class_display = serializers.SerializerMethodField()
+
     is_active = serializers.BooleanField()
     parent_count = serializers.SerializerMethodField()
     profile_picture = serializers.URLField(
         required=False, allow_blank=True, allow_null=True
     )
-    classroom = serializers.CharField(allow_blank=True, allow_null=True, required=False)
-    section_id = serializers.SerializerMethodField()
+
+    # classroom is a @property — read-only
+    classroom = serializers.CharField(read_only=True)
+
+    # section FK — expose id for list view
+    section_id = serializers.IntegerField(
+        source="section.id", read_only=True, allow_null=True
+    )
+
     user = serializers.SerializerMethodField()
+
+    # stream FK
     stream = serializers.PrimaryKeyRelatedField(
-        queryset=Stream.objects.all(),
-        required=False,
-        allow_null=True,
-        help_text="Stream for Senior Secondary students",
+        queryset=Stream.objects.all(), required=False, allow_null=True
     )
     stream_name = serializers.CharField(source="stream.name", read_only=True)
-    stream_type = serializers.CharField(source="stream.stream_type", read_only=True)
+    stream_type = serializers.CharField(
+        source="stream.stream_type_new.name", read_only=True
+    )
 
     class Meta:
         model = Student
@@ -621,14 +575,15 @@ class StudentListSerializer(serializers.ModelSerializer):
         return obj.user.full_name
 
     def get_name(self, obj):
-        """Returns the full name for frontend compatibility."""
         return obj.user.full_name
 
     def get_age(self, obj):
         return obj.age
 
+    def get_student_class_display(self, obj):
+        return obj.student_class.name if obj.student_class else "Not Assigned"
+
     def get_user(self, obj):
-        """Returns user data including date_joined for sorting."""
         return {
             "id": obj.user.id,
             "username": obj.user.username,
@@ -640,80 +595,19 @@ class StudentListSerializer(serializers.ModelSerializer):
         }
 
     def get_parent_count(self, obj):
-        """Returns the number of registered parents."""
         from parent.models import ParentStudentRelationship
 
         return ParentStudentRelationship.objects.filter(student=obj).count()
 
-    def get_section_id(self, obj):
-        # Try to get the section PK based on student's class and classroom section
-        if obj.classroom:
-            from classroom.models import Section, GradeLevel
-
-            # Extract section letter from classroom (e.g., "Nursery 1 A" -> "A")
-            classroom_parts = obj.classroom.split()
-            if len(classroom_parts) >= 2:
-                section_letter = classroom_parts[-1]  # Last part should be the section
-
-                # Map student class to grade level
-                class_to_grade = {
-                    "NURSERY_1": "Nursery 1",
-                    "NURSERY_2": "Nursery 2",
-                    "PRE_K": "Pre-K",
-                    "KINDERGARTEN": "Kindergarten",
-                    "GRADE_1": "Primary 1",
-                    "GRADE_2": "Primary 2",
-                    "GRADE_3": "Primary 3",
-                    "GRADE_4": "Primary 4",
-                    "GRADE_5": "Primary 5",
-                    "GRADE_6": "Primary 6",
-                    "GRADE_7": "JSS 1",
-                    "GRADE_8": "JSS 2",
-                    "GRADE_9": "JSS 3",
-                    "GRADE_10": "SS 1",
-                    "GRADE_11": "SS 2",
-                    "GRADE_12": "SS 3",
-                    # Add direct mappings for the actual class names used in database
-                    "SS1": "SS 1",
-                    "SS2": "SS 2",
-                    "SS3": "SS 3",
-                    "SS_1": "SS 1",
-                    "SS_2": "SS 2",
-                    "SS_3": "SS 3",
-                    "JSS1": "JSS 1",
-                    "JSS2": "JSS 2",
-                    "JSS3": "JSS 3",
-                    "JSS_1": "JSS 1",
-                    "JSS_2": "JSS 2",
-                    "JSS_3": "JSS 3",
-                    # Add mappings for the actual classroom names used
-                    "PRIMARY_1": "Primary 1",
-                    "PRIMARY_2": "Primary 2",
-                    "PRIMARY_3": "Primary 3",
-                    "PRIMARY_4": "Primary 4",
-                    "PRIMARY_5": "Primary 5",
-                    "PRIMARY_6": "Primary 6",
-                }
-
-                grade_name = class_to_grade.get(obj.student_class)
-                if grade_name:
-                    try:
-                        grade_level = GradeLevel.objects.get(name=grade_name)
-                        section = Section.objects.get(
-                            name=section_letter, grade_level=grade_level
-                        )
-                        return section.id
-                    except (GradeLevel.DoesNotExist, Section.DoesNotExist):
-                        return None
-        return None
-
     def to_representation(self, instance):
-        """Add frontend-compatible fields dynamically"""
         data = super().to_representation(instance)
-        # Add 'class' field for frontend compatibility (can't use 'class' as field name due to Python keyword)
-        data["class"] = instance.student_class
+        data["class"] = instance.student_class.name if instance.student_class else None
         return data
 
+
+# ---------------------------------------------------------------------------
+# StudentCreateSerializer
+# ---------------------------------------------------------------------------
 
 class StudentCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating new students with automatic parent creation."""
@@ -725,15 +619,27 @@ class StudentCreateSerializer(serializers.ModelSerializer):
         write_only=True, max_length=30, required=False, allow_blank=True
     )
 
-    # Registration number field
     registration_number = serializers.CharField(
         max_length=20, required=False, allow_blank=True, allow_null=True
     )
-
-    # ADD THIS: Profile picture support for creation
     profile_picture = serializers.URLField(required=False, allow_null=True)
 
-    # Parent fields (optional when linking to existing parent)
+    # student_class is now a FK to Class
+    student_class = serializers.PrimaryKeyRelatedField(
+        queryset=Class.objects.all(), required=False, allow_null=True
+    )
+
+    # section is now a FK to Section
+    section = serializers.PrimaryKeyRelatedField(
+        queryset=Section.objects.all(), required=False, allow_null=True
+    )
+
+    # stream FK
+    stream = serializers.PrimaryKeyRelatedField(
+        queryset=Stream.objects.all(), required=False, allow_null=True
+    )
+
+    # Parent fields
     existing_parent_id = serializers.IntegerField(write_only=True, required=False)
     parent_first_name = serializers.CharField(
         write_only=True, max_length=30, required=False
@@ -754,14 +660,6 @@ class StudentCreateSerializer(serializers.ModelSerializer):
         required=False,
     )
     is_primary_contact = serializers.BooleanField(write_only=True, required=False)
-    classroom = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-
-    stream = serializers.PrimaryKeyRelatedField(
-        queryset=Stream.objects.all(),
-        required=False,
-        allow_null=True,
-        help_text="Stream for Senior Secondary students",
-    )
 
     class Meta:
         model = Student
@@ -772,11 +670,10 @@ class StudentCreateSerializer(serializers.ModelSerializer):
             "user_last_name",
             "gender",
             "date_of_birth",
-            "education_level",
             "student_class",
+            "section",
             "registration_number",
             "profile_picture",
-            "classroom",
             "stream",
             "existing_parent_id",
             "parent_first_name",
@@ -791,14 +688,63 @@ class StudentCreateSerializer(serializers.ModelSerializer):
             "is_primary_contact",
         ]
 
+    def validate_section(self, value):
+        """Ensure section belongs to the selected student_class."""
+        student_class_id = self.initial_data.get("student_class")
+        if value and student_class_id:
+            if str(value.class_grade_id) != str(student_class_id):
+                raise serializers.ValidationError(
+                    "Section does not belong to the selected class."
+                )
+        return value
+
+    def validate(self, data):
+        existing_parent_id = data.get("existing_parent_id")
+        parent_fields = [
+            "parent_first_name",
+            "parent_last_name",
+            "parent_email",
+            "parent_contact",
+        ]
+
+        if existing_parent_id:
+            for field in parent_fields:
+                if data.get(field):
+                    raise serializers.ValidationError(
+                        f"Cannot provide {field} when linking to existing parent."
+                    )
+        else:
+            for field in parent_fields:
+                if not data.get(field):
+                    raise serializers.ValidationError(
+                        f"{field.replace('_', ' ').title()} is required when creating a new parent."
+                    )
+
+        # Validate registration number uniqueness
+        registration_number = data.get("registration_number")
+        if registration_number:
+            base_username = generate_unique_username("student", registration_number)
+            if CustomUser.objects.filter(username=base_username).exists():
+                raise serializers.ValidationError(
+                    f"Student with registration number '{registration_number}' already exists."
+                )
+
+        # Stream required for Senior Secondary
+        student_class = data.get("student_class")
+        if student_class:
+            level_type = student_class.education_level.level_type
+            if level_type == "SENIOR_SECONDARY" and not data.get("stream"):
+                raise serializers.ValidationError(
+                    {"stream": "Stream is required for Senior Secondary students."}
+                )
+
+        return data
+
     def create(self, validated_data):
-        print("DEBUG validated_data:", validated_data)
-        print("DEBUG profile_picture:", validated_data.get("profile_picture", None))
-        # Extract profile_picture and registration_number before creating student
+        from parent.models import ParentProfile, ParentStudentRelationship
+
         profile_picture = validated_data.pop("profile_picture", None)
         registration_number = validated_data.pop("registration_number", None)
-
-        from parent.models import ParentProfile, ParentStudentRelationship
 
         first_name = validated_data.pop("user_first_name")
         last_name = validated_data.pop("user_last_name")
@@ -806,8 +752,7 @@ class StudentCreateSerializer(serializers.ModelSerializer):
         email = validated_data.pop("user_email")
         relationship = validated_data.pop("relationship", None)
         is_primary_contact = validated_data.pop("is_primary_contact", False)
-        role = "student"
-        # Check if linking to existing parent
+
         existing_parent_id = validated_data.pop("existing_parent_id", None)
         if existing_parent_id:
             try:
@@ -825,12 +770,13 @@ class StudentCreateSerializer(serializers.ModelSerializer):
             parent_email = validated_data.pop("parent_email")
             parent_contact = validated_data.pop("parent_contact")
             parent_address = validated_data.pop("parent_address", "")
+
             if CustomUser.objects.filter(email=parent_email).exists():
                 raise serializers.ValidationError(
                     "A parent with this email already exists."
                 )
-            import secrets
-            import string
+
+            import secrets, string
 
             parent_password = "".join(
                 secrets.choice(string.ascii_letters + string.digits) for _ in range(10)
@@ -847,24 +793,21 @@ class StudentCreateSerializer(serializers.ModelSerializer):
             )
             parent_profile, created = ParentProfile.objects.get_or_create(
                 user=parent_user,
-                defaults={
-                    "phone": parent_contact,
-                    "address": parent_address,
-                },
+                defaults={"phone": parent_contact, "address": parent_address},
             )
             if not created:
                 parent_profile.phone = parent_contact
                 parent_profile.address = parent_address
                 parent_profile.save()
+
             self._generated_parent_password = parent_password
             self._generated_parent_username = parent_username
-        import secrets
-        import string
+
+        import secrets, string
 
         student_password = "".join(
             secrets.choice(string.ascii_letters + string.digits) for _ in range(10)
         )
-        # Use registration number for username generation
         student_username = generate_unique_username("student", registration_number)
         student_user = CustomUser.objects.create_user(
             email=email,
@@ -872,7 +815,7 @@ class StudentCreateSerializer(serializers.ModelSerializer):
             first_name=first_name,
             last_name=last_name,
             middle_name=middle_name,
-            role=role,
+            role="student",
             password=student_password,
             is_active=True,
         )
@@ -883,30 +826,28 @@ class StudentCreateSerializer(serializers.ModelSerializer):
             **validated_data,
         )
 
-        print(
-            f"🖼️ Created student {student.full_name} with profile_picture: {student.profile_picture}"
-        )
-        # Link parent and student with relationship and is_primary_contact
         ParentStudentRelationship.objects.create(
             parent=parent_profile,
             student=student,
             relationship=relationship or "Guardian",
             is_primary_contact=is_primary_contact,
         )
-        # Set parent_contact from parent_profile.phone if using existing parent
+
         if existing_parent_id and parent_profile.phone:
             student.parent_contact = parent_profile.phone
             student.save()
+
         self._generated_student_password = student_password
         self._generated_student_username = student_username
+
         try:
             from utils.email import send_email_via_brevo
 
             if self._generated_parent_password:
                 parent_subject = "Welcome to SchoolMS - Your Parent Account Details"
                 parent_html_content = f"""
-                <div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;\">
-                    <h2 style=\"color: #333; text-align: center;\">Welcome to SchoolMS!</h2>
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color: #333; text-align: center;">Welcome to SchoolMS!</h2>
                     <p>Hello {parent_user.first_name} {parent_user.last_name},</p>
                     <p>Your parent account has been created successfully by the school administrator.</p>
                     <p>You are now linked to your child: {first_name} {last_name}</p>
@@ -917,10 +858,6 @@ class StudentCreateSerializer(serializers.ModelSerializer):
                     </ul>
                     <p>Please change your password after your first login for security.</p>
                     <p>Best regards,<br>SchoolMS Team</p>
-                    <hr style=\"margin: 30px 0; border: none; border-top: 1px solid #eee;\">
-                    <p style=\"color: #666; font-size: 12px; text-align: center;\">
-                        This is an automated message from SchoolMS. Please do not reply to this email.
-                    </p>
                 </div>
                 """
                 send_email_via_brevo(
@@ -929,19 +866,11 @@ class StudentCreateSerializer(serializers.ModelSerializer):
             else:
                 parent_subject = "New Student Added to Your Account - SchoolMS"
                 parent_html_content = f"""
-                <div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;\">
-                    <h2 style=\"color: #333; text-align: center;\">New Student Added</h2>
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color: #333; text-align: center;">New Student Added</h2>
                     <p>Hello {parent_user.first_name} {parent_user.last_name},</p>
-                    <p>A new student has been added to your parent account:</p>
-                    <div style=\"background-color: #f5f5f5; padding: 15px; margin: 20px 0; border-radius: 8px;\">
-                        <p><strong>Student Name:</strong> {first_name} {last_name}</p>
-                    </div>
-                    <p>You can now view and manage this student's information through your parent dashboard.</p>
+                    <p>A new student has been linked to your account: {first_name} {last_name}</p>
                     <p>Best regards,<br>SchoolMS Team</p>
-                    <hr style=\"margin: 30px 0; border: none; border-top: 1px solid #eee;\">
-                    <p style=\"color: #666; font-size: 12px; text-align: center;\">
-                        This is an automated message from SchoolMS. Please do not reply to this email.
-                    </p>
                 </div>
                 """
                 send_email_via_brevo(
@@ -949,93 +878,14 @@ class StudentCreateSerializer(serializers.ModelSerializer):
                 )
         except Exception as e:
             import logging
+            logging.getLogger(__name__).error(f"Failed to send welcome emails: {e}")
 
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to send welcome emails: {e}")
         return student
 
-    def validate(self, data):
-        existing_parent_id = data.get("existing_parent_id")
-        parent_fields = [
-            "parent_first_name",
-            "parent_last_name",
-            "parent_email",
-            "parent_contact",
-        ]
-        if existing_parent_id:
-            for field in parent_fields:
-                if data.get(field):
-                    raise serializers.ValidationError(
-                        f"Cannot provide {field} when linking to existing parent."
-                    )
-        else:
-            for field in parent_fields:
-                if not data.get(field):
-                    raise serializers.ValidationError(
-                        f"{field.replace('_', ' ').title()} is required when creating a new parent."
-                    )
 
-        # Validate registration number uniqueness
-        registration_number = data.get("registration_number")
-        if registration_number:
-            from utils import generate_unique_username
-            from users.models import CustomUser
-
-            base_username = generate_unique_username("student", registration_number)
-            if CustomUser.objects.filter(username=base_username).exists():
-                raise serializers.ValidationError(
-                    f"Student with registration number '{registration_number}' already exists."
-                )
-        # Enforce stream for senior secondary students
-        education_level = data.get("education_level")
-        if education_level == "SENIOR_SECONDARY" and not data.get("stream"):
-            raise serializers.ValidationError(
-                {"stream": "Stream is required for Senior Secondary students."}
-            )
-
-        return data
-
-    def validate_student_class(self, value):
-        """Validate student class matches education level."""
-        education_level = self.initial_data.get("education_level")  # type: ignore
-
-        # Use consistent class mappings that match the frontend and update serializer
-        nursery_classes = ["PRE_NURSERY", "NURSERY_1", "NURSERY_2"]
-        primary_classes = [
-            "PRIMARY_1",
-            "PRIMARY_2",
-            "PRIMARY_3",
-            "PRIMARY_4",
-            "PRIMARY_5",
-            "PRIMARY_6",
-        ]
-        secondary_classes = [
-            "JSS_1",
-            "JSS_2",
-            "JSS_3",
-            "SS_1",
-            "SS_2",
-            "SS_3",
-        ]
-
-        if education_level == "NURSERY" and value not in nursery_classes:
-            raise serializers.ValidationError(
-                "Selected class is not valid for nursery level."
-            )
-        elif education_level == "PRIMARY" and value not in primary_classes:
-            raise serializers.ValidationError(
-                "Selected class is not valid for primary level."
-            )
-        elif (
-            education_level in ["JUNIOR_SECONDARY", "SENIOR_SECONDARY"]
-            and value not in secondary_classes
-        ):
-            raise serializers.ValidationError(
-                "Selected class is not valid for secondary level."
-            )
-
-        return value
-
+# ---------------------------------------------------------------------------
+# ResultCheckToken serializers (unchanged logic, minor cleanup)
+# ---------------------------------------------------------------------------
 
 class ResultTokenSerializer(serializers.ModelSerializer):
     """Enhanced serializer with more token information"""
@@ -1071,33 +921,24 @@ class ResultTokenSerializer(serializers.ModelSerializer):
         read_only_fields = ["token", "created_at", "is_used", "used_at"]
 
     def get_is_valid(self, obj):
-        """Check if token is still valid"""
         return obj.is_valid()
 
     def get_student_name(self, obj):
-        """Get formatted student name"""
         user = obj.student
         if hasattr(user, "full_name"):
             return user.full_name
-        parts = []
-        if user.first_name:
-            parts.append(user.first_name)
-        if user.last_name:
-            parts.append(user.last_name)
+        parts = [p for p in [user.first_name, user.last_name] if p]
         return " ".join(parts) if parts else user.username
 
     def get_time_until_expiry(self, obj):
-        """Get human-readable time until expiry"""
         return obj.time_until_expiry()
 
     def get_status(self, obj):
-        """Get token status"""
         if obj.is_used:
             return "Used"
         elif not obj.is_valid():
             return "Expired"
-        else:
-            return "Active"
+        return "Active"
 
 
 class ResultTokenListSerializer(serializers.ModelSerializer):
@@ -1126,21 +967,18 @@ class ResultTokenListSerializer(serializers.ModelSerializer):
         user = obj.student
         if hasattr(user, "full_name"):
             return user.full_name
-        parts = []
-        if user.first_name:
-            parts.append(user.first_name)
-        if user.last_name:
-            parts.append(user.last_name)
+        parts = [p for p in [user.first_name, user.last_name] if p]
         return " ".join(parts) if parts else user.username
 
     def get_student_class(self, obj):
-        """Get student's class/classroom"""
+        """Get student's current class name via FK."""
         try:
             from students.models import Student
-
-            student = Student.objects.get(user=obj.student)
-            return student.classroom or student.get_student_class_display()
-        except:
+            student = Student.objects.select_related("student_class").get(
+                user=obj.student
+            )
+            return student.student_class.name if student.student_class else "N/A"
+        except Exception:
             return "N/A"
 
     def get_is_valid(self, obj):
@@ -1151,5 +989,4 @@ class ResultTokenListSerializer(serializers.ModelSerializer):
             return "Used"
         elif not obj.is_valid():
             return "Expired"
-        else:
-            return "Active"
+        return "Active"
