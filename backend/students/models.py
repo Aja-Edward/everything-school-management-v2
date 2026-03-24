@@ -14,172 +14,6 @@ from .constants import GENDER_CHOICES, EDUCATION_LEVEL_CHOICES, CLASS_CHOICES
 # ========================================
 
 
-class EducationLevel(TenantMixin, models.Model):
-    """Education level categories"""
-
-    LEVEL_CHOICES = (
-        ("NURSERY", "Nursery"),
-        ("PRIMARY", "Primary"),
-        ("JUNIOR_SECONDARY", "Junior Secondary"),
-        ("SENIOR_SECONDARY", "Senior Secondary"),
-    )
-
-    name = models.CharField(max_length=50)
-    code = models.CharField(max_length=20)
-    level_type = models.CharField(max_length=20, choices=LEVEL_CHOICES)
-    order = models.IntegerField(help_text="Order for sorting (0=earliest)")
-    is_active = models.BooleanField(default=True)
-
-    class Meta:
-        ordering = ["order"]
-        verbose_name = "Education Level"
-        verbose_name_plural = "Education Levels"
-        unique_together = ["tenant", "code"]
-        indexes = [
-            models.Index(fields=["tenant", "code"]),
-            models.Index(fields=["tenant", "is_active"]),
-        ]
-
-    def __str__(self):
-        return self.name
-
-
-class Class(TenantMixin, models.Model):
-    """Represents a grade/class (e.g., Primary 1, SS 3)"""
-
-    name = models.CharField(
-        max_length=50, help_text="Display name (e.g., 'Primary 1', 'SS 3')"
-    )
-    code = models.CharField(
-        max_length=20, help_text="Unique code (e.g., 'PRIMARY_1', 'SS_3')"
-    )
-
-    education_level = models.ForeignKey(
-        EducationLevel,
-        on_delete=models.PROTECT,
-        related_name="classes",
-        help_text="Education level this class belongs to",
-    )
-
-    grade_number = models.IntegerField(help_text="Grade number (1, 2, 3, etc.)")
-
-    order = models.IntegerField(
-        help_text="Overall order for sorting (0=earliest)", unique=False
-    )
-
-    default_capacity = models.IntegerField(
-        default=30,
-        null=True,
-        blank=True,
-        help_text="Default capacity for sections of this class",
-    )
-    is_active = models.BooleanField(default=True)
-
-    description = models.TextField(
-        blank=True, null=True, help_text="Additional information about this class"
-    )
-
-    class Meta:
-        ordering = ["order"]
-        verbose_name = "Class"
-        verbose_name_plural = "Classes"
-        unique_together = ["tenant", "code"]
-        indexes = [
-            models.Index(fields=["tenant", "education_level", "order"]),
-            models.Index(fields=["tenant", "is_active"]),
-            models.Index(fields=["tenant", "code"]),
-        ]
-
-    def __str__(self):
-        return self.name
-
-    @property
-    def full_name(self):
-        return f"{self.education_level.name} - {self.name}"
-
-    def get_student_count(self):
-        return self.students.filter(is_active=True).count()
-
-    def get_sections(self):
-        return self.sections.filter(is_active=True)
-
-
-class Section(TenantMixin, models.Model):
-    """Represents a section within a class (e.g., 'A', 'B', 'C')"""
-
-    class_grade = models.ForeignKey(
-        Class,
-        on_delete=models.CASCADE,
-        related_name="sections",
-        help_text="The class this section belongs to",
-    )
-
-    name = models.CharField(
-        max_length=10,
-        help_text="Section name (e.g., 'A', 'B', 'C', 'Gold', 'Diamond')",
-    )
-
-    room_number = models.CharField(
-        max_length=20, blank=True, null=True, help_text="Room/classroom number"
-    )
-
-    capacity = models.IntegerField(
-        null=True, blank=True, help_text="Maximum number of students in this section"
-    )
-
-    # ✅ FIXED: was 'teachers.Teacher' — use correct app label
-    class_teacher = models.ForeignKey(
-        "teacher.Teacher",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="assigned_sections",
-        help_text="Primary teacher for this section",
-    )
-
-    # ✅ FIXED: was 'academics.AcademicYear' — use the correct model name
-    academic_year = models.ForeignKey(
-        "academics.AcademicSession",
-        on_delete=models.CASCADE,
-        related_name="sections",
-        null=True,
-        blank=True,
-        help_text="Academic session for this section",
-    )
-
-    is_active = models.BooleanField(default=True)
-
-    class Meta:
-        ordering = ["class_grade__order", "name"]
-        verbose_name = "Section"
-        verbose_name_plural = "Sections"
-        unique_together = ["tenant", "class_grade", "name", "academic_year"]
-        indexes = [
-            models.Index(fields=["tenant", "class_grade", "is_active"]),
-            models.Index(fields=["tenant", "is_active"]),
-        ]
-
-    def __str__(self):
-        return f"{self.class_grade.name} - {self.name}"
-
-    @property
-    def full_name(self):
-        return f"{self.class_grade.name} {self.name}"
-
-    def get_student_count(self):
-        return self.students.filter(is_active=True).count()
-
-    def is_full(self):
-        if not self.capacity:
-            return False
-        return self.get_student_count() >= self.capacity
-
-    def get_available_slots(self):
-        if not self.capacity:
-            return None
-        return max(0, self.capacity - self.get_student_count())
-
-
 # ========================================
 # STUDENT MODEL
 # ========================================
@@ -192,7 +26,7 @@ class Student(TenantMixin, models.Model):
     date_of_birth = models.DateField()
 
     student_class = models.ForeignKey(
-        "Class",
+        "classroom.Class",
         on_delete=models.PROTECT,
         related_name="students",
         help_text="Student's current class/grade",
@@ -201,7 +35,7 @@ class Student(TenantMixin, models.Model):
     )
 
     section = models.ForeignKey(
-        "Section",
+        "classroom.Section",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -473,3 +307,69 @@ class ResultCheckToken(TenantMixin, models.Model):
 
     def __str__(self):
         return f"Result Token - {self.student.username} - {self.school_term}"
+
+# ========================================
+# BULK UPLOAD RECORD MODEL
+# ========================================
+# Add this import at the top of models.py if not present:
+#   from django.db import models
+
+
+class BulkUploadRecord(TenantMixin, models.Model):
+    """
+    Tracks state and results of a single bulk student upload job.
+    Created immediately when the file is accepted; updated by the Celery task.
+    """
+
+    STATUS_CHOICES = (
+        ("pending", "Pending"),
+        ("processing", "Processing"),
+        ("completed", "Completed"),
+        ("failed", "Failed"),
+    )
+
+    uploaded_by = models.ForeignKey(
+        "users.CustomUser",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="bulk_uploads",
+    )
+    original_filename = models.CharField(max_length=255)
+    file_path = models.CharField(max_length=500)  # absolute path on server
+    file_ext = models.CharField(max_length=10)  # '.csv' | '.xlsx'
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+
+    total_rows = models.IntegerField(default=0)
+    processed_rows = models.IntegerField(default=0)
+    imported_rows = models.IntegerField(default=0)
+    failed_rows = models.IntegerField(default=0)
+
+    # Full result JSON: { imported: [...], errors: [...], summary: {...} }
+    result_data = models.JSONField(default=dict, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Bulk Upload Record"
+        verbose_name_plural = "Bulk Upload Records"
+        indexes = [
+            models.Index(fields=["tenant", "status"]),
+            models.Index(fields=["tenant", "uploaded_by"]),
+        ]
+
+    def __str__(self):
+        return f"Bulk Upload {self.id} — {self.status} ({self.imported_rows}/{self.total_rows})"
+
+    @property
+    def progress_percent(self):
+        if not self.total_rows:
+            return 0
+        return round((self.processed_rows / self.total_rows) * 100)
+
+    @property
+    def is_done(self):
+        return self.status in ("completed", "failed")

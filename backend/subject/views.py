@@ -28,7 +28,7 @@ from .models import (
 
 # from classroom.models import GradeLevel  # Commented out to avoid circular import
 from classroom.models import GradeLevel
-from students.models import EducationLevel
+from academics.models import EducationLevel
 
 from .serializers import (
     SubjectSerializer,

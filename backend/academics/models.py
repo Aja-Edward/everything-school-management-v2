@@ -6,6 +6,7 @@ from datetime import date
 
 from subject.models import Subject
 from tenants.models import TenantMixin
+from .constant import DEFAULT_EDUCATION_LEVELS
 
 
 # ==============================================================================
@@ -96,25 +97,49 @@ class CalendarEventType(TenantMixin, models.Model):
     def __str__(self):
         return self.name
 
-
 class EducationLevel(TenantMixin, models.Model):
     """
-    Education Level model — REPLACES education_level CharField on
-    SubjectAllocation and Curriculum.
-    Examples: Nursery, Primary, Junior Secondary, Senior Secondary
+    Configurable Education Level per tenant.
+
+    Default levels (e.g. Nursery, Primary, JSS, SSS) are seeded,
+    but tenants are free to modify or create theirs.
     """
+
+    # Optional soft classification (NOT enforced by choices)
+    level_type = models.CharField(
+        max_length=30,
+        blank=True,
+        help_text="Optional category (e.g. NURSERY, PRIMARY, JSS, SSS)",
+    )
 
     name = models.CharField(
         max_length=100,
         help_text="Display name (e.g. 'Primary', 'Junior Secondary')",
     )
+
     code = models.CharField(
         max_length=50,
-        help_text="Unique code (e.g. 'nursery', 'primary', 'junior_secondary')",
+        help_text="Unique identifier per tenant (e.g. 'primary', 'jss')",
     )
-    description = models.TextField(blank=True)
-    display_order = models.PositiveIntegerField(default=0)
+
+    description = models.TextField(
+        blank=True,
+        help_text="Optional description of this education level",
+    )
+
+    display_order = models.PositiveIntegerField(
+        default=0,
+        help_text="Controls ordering (lower comes first)",
+    )
+
     is_active = models.BooleanField(default=True)
+
+    # Track whether this came from system defaults
+    is_system_default = models.BooleanField(
+        default=False,
+        help_text="Indicates if this was auto-created as a default",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -102,9 +102,9 @@ from .serializers import (
     ReportGenerationSerializer,
 )
 
-from students.models import Student, Class as StudentClass, EducationLevel
-from academics.models import AcademicSession, Term
-from classroom.models import Stream
+from students.models import Student
+from academics.models import AcademicSession, Term, EducationLevel
+from classroom.models import Stream, Class as StudentClass
 from subject.models import Subject
 
 logger = logging.getLogger(__name__)
@@ -3838,7 +3838,7 @@ class ResultSheetViewSet(
             )
 
         try:
-            from students.models import Class as StudentClass
+            from classroom.models import Class as StudentClass
 
             exam_session = ExamSession.objects.get(id=exam_session_id)
             # UPDATED: resolve StudentClass FK object

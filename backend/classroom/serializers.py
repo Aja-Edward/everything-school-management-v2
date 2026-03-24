@@ -12,9 +12,10 @@ from .models import (
     ClassSchedule,
     Stream,
     StreamType,
+    Class as StudentClass,
 )
 from subject.models import Subject
-from students.models import Student, Class as StudentClass
+from students.models import Student
 from teacher.models import Teacher
 import logging
 

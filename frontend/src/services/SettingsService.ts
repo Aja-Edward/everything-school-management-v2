@@ -65,6 +65,26 @@ export interface SchoolSettings {
   messageTemplates: any;
   chatSystem: any;
 }
+
+
+export interface Classroom {
+  id: number;
+  name: string;
+  max_capacity: number;
+  room_number?: string;
+  current_enrollment?: number;
+  enrollment_count?: number;
+  student_count?: number;
+  is_full?: boolean;
+  available_spots?: number;
+  [key: string]: any;
+}
+
+export interface ClassroomCapacityResult {
+  classrooms: Classroom[];
+  loading: boolean;
+  error: string | null;
+}
 class SettingsService {
 
   async getSettings(): Promise<SchoolSettings> {
@@ -95,6 +115,8 @@ class SettingsService {
     return this.getDefaultSettings();
   }
 }
+
+
 
   async updateSettings(settings: Partial<SchoolSettings>): Promise<SchoolSettings> {
     try {
@@ -234,7 +256,109 @@ class SettingsService {
       throw new Error(errorMessage);
     }
   }
+getClassroomEnrollment(c: Classroom): number {
+    return c.current_enrollment ?? c.enrollment_count ?? c.student_count ?? 0;
+  }
+ 
+  getClassroomIsFull(c: Classroom): boolean {
+    return c.is_full ?? this.getClassroomEnrollment(c) >= c.max_capacity;
+  }
+ 
+  getClassroomAvailableSpots(c: Classroom): number {
+    return c.available_spots ?? Math.max(0, c.max_capacity - this.getClassroomEnrollment(c));
+  }
 
+  async getClassrooms(): Promise<Classroom[]> {
+    try {
+      const token = localStorage.getItem('authToken');
+      const res = await fetch(`${API_BASE_URL}/api/classrooms/classrooms/`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (!res.ok) throw new Error(`Failed to load classrooms (${res.status})`);
+      const data = await res.json();
+      return Array.isArray(data) ? data : Array.isArray(data.results) ? data.results : [];
+    } catch (err: any) {
+      console.error('SettingsService.getClassrooms error:', err);
+      throw err;
+    }
+  }
+ 
+  // ── Update a single classroom's capacity ───────────────────────────────────
+ 
+  async setClassroomCapacity(classroomId: number, maxCapacity: number): Promise<Classroom> {
+    try {
+      const token = localStorage.getItem('authToken');
+      const res = await fetch(
+        `${API_BASE_URL}/api/classrooms/classrooms/${classroomId}/set-capacity/`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ max_capacity: maxCapacity }),
+        }
+      );
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        const msg =
+          errData?.error ||
+          (Array.isArray(errData?.max_capacity) ? errData.max_capacity[0] : null) ||
+          errData?.detail ||
+          `Server error ${res.status}`;
+        throw new Error(msg);
+      }
+      return await res.json();
+    } catch (err: any) {
+      console.error('SettingsService.setClassroomCapacity error:', err);
+      throw err;
+    }
+  }
+ 
+  // ── Bulk-update all classrooms to the same capacity ───────────────────────
+ 
+  async bulkSetClassroomCapacity(
+    classrooms: Classroom[],
+    maxCapacity: number
+  ): Promise<{ succeeded: number; failed: Array<{ name: string; error: string }> }> {
+    const token = localStorage.getItem('authToken');
+ 
+    const results = await Promise.allSettled(
+      classrooms.map(c =>
+        fetch(`${API_BASE_URL}/api/classrooms/classrooms/${c.id}/set-capacity/`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ max_capacity: maxCapacity }),
+        }).then(async res => {
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            const msg =
+              errData?.error ||
+              (Array.isArray(errData?.max_capacity) ? errData.max_capacity[0] : null) ||
+              errData?.detail ||
+              `Error ${res.status}`;
+            throw new Error(`${c.name}: ${msg}`);
+          }
+          return res.json();
+        })
+      )
+    );
+ 
+    const failed = results
+      .filter(r => r.status === 'rejected')
+      .map(r => ({
+        name: '',
+        error: (r as PromiseRejectedResult).reason?.message ?? 'Unknown error',
+      }));
+ 
+    return { succeeded: results.length - failed.length, failed };
+  }
   private transformBackendToFrontend(response: any): SchoolSettings {
     console.log('🔄 Transforming backend response to frontend');
     
@@ -344,6 +468,8 @@ async uploadLogo(file: File): Promise<{ logoUrl: string }> {
     }
     return null;
   };
+  
+
   
   // Get tenant info from localStorage or sessionStorage
   const getTenantInfo = () => {

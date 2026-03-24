@@ -6,39 +6,8 @@ import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { useNavigate } from 'react-router-dom';
 import { triggerDashboardRefresh } from '@/hooks/useDashboardRefresh';
+import {StudentFormData} from '@/types/students'
 
-// --- Student Form Types ---
-type StudentFormData = {
-  photo: string | null;
-  firstName: string;
-  middleName: string;
-  lastName: string;
-  email: string;
-  gender: string;
-  bloodGroup: string;
-  dateOfBirth: string;
-  placeOfBirth: string;
-  academicYear: string;
-  education_level: string;
-  student_class: string;  // This will now hold the Class/GradeLevel ID
-  section: string;         // This will hold the Section ID
-  stream: string;          // This will hold the Stream ID
-  registration_number: string;
-  existing_parent_id: string;
-  parentFirstName: string;
-  parentLastName: string;
-  parentEmail: string;
-  parentPhoneNumber: string;
-  parentAddress: string;
-  address: string;
-  phoneNumber: string;
-  paymentMethod: string;
-  medicalConditions: string;
-  specialRequirements: string;
-  relationship: string;
-  isPrimaryContact: boolean;
-  classroom: string;  // Optional - can be removed if backend doesn't need it
-};
 
 const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
@@ -542,33 +511,7 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
                 <option value="F">Female</option>
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Blood Group</label>
-              <select
-                name="bloodGroup"
-                value={formData.bloodGroup}
-                onChange={handleInputChange}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-              >
-                <option value="">Select Blood Group</option>
-                {bloodGroups.map(group => (
-                  <option key={group} value={group}>{group}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Place of Birth*</label>
-              <input
-                type="text"
-                name="placeOfBirth"
-                value={formData.placeOfBirth}
-                onChange={handleInputChange}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                placeholder="Lagos, Nigeria"
-              />
-            </div>
           </div>
-
           {/* Mobile-Friendly Date of Birth */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">

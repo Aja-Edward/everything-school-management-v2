@@ -28,6 +28,7 @@ import classroomService, {
   Teacher,
   Subject,
   EducationLevelType,
+  BulkCapacityResult,
 } from '@/services/ClassroomService';
 
 // ============================================================================
@@ -44,8 +45,11 @@ interface LoadingState {
   teachers: boolean;
   subjects: boolean;
   streams: boolean;
-  students: boolean; // per-classroom student fetches
+  students: boolean;
   transferring: boolean;
+  // Capacity bulk-save has its own loading key so ClassSettingsSection
+  // can show a spinner without blocking unrelated loading indicators.
+  capacity: boolean;
 }
 
 interface ClassroomContextValue {
@@ -114,9 +118,19 @@ interface ClassroomContextValue {
   ) => Promise<TransferStudentResponse>;
 
   // ── CAPACITY ──────────────────────────────────────────────────────────────
-  setCapacity: (classroomId: number, maxCapacity: number) => Promise<void>;
+  /**
+   * Update a single classroom's capacity via the set-capacity endpoint.
+   * Optimistically patches the local list immediately; rolls back on failure.
+   */
+  setClassroomCapacity: (classroomId: number, maxCapacity: number) => Promise<void>;
 
-  // ── CLASSROOM DETAIL DATA ─────────────────────────────────────────────────
+  /**
+   * Bulk-update all classrooms to the same capacity concurrently.
+   * Re-fetches the full list afterwards to stay authoritative.
+   */
+  bulkSetClassroomCapacity: (maxCapacity: number) => Promise<BulkCapacityResult>;
+
+  // ── CLASSROOM DETAIL DATA (fetched on-demand, not stored globally) ─────────
   getClassroomStudents: (classroomId: number) => Promise<any[]>;
   getClassroomTeachers: (classroomId: number) => Promise<ClassroomTeacherAssignment[]>;
   getClassroomSchedule: (classroomId: number) => Promise<any[]>;
@@ -156,6 +170,7 @@ const initialLoading: LoadingState = {
   streams: false,
   students: false,
   transferring: false,
+  capacity: false,
 };
 
 // ============================================================================
@@ -163,6 +178,7 @@ const initialLoading: LoadingState = {
 // ============================================================================
 
 export const ClassroomProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+
   // ── Core data ──────────────────────────────────────────────────────────────
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
   const [filteredClassrooms, setFilteredClassrooms] = useState<Classroom[]>([]);
@@ -189,7 +205,7 @@ export const ClassroomProvider: React.FC<{ children: ReactNode }> = ({ children 
   const [levelFilter, setLevelFilter] = useState<EducationLevelType | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
 
-  // Prevent double-loading on mount
+  // Prevent double-loading on mount (React StrictMode fires effects twice in dev)
   const initialLoadDone = useRef(false);
 
   // ── Filter effect ──────────────────────────────────────────────────────────
@@ -222,7 +238,7 @@ export const ClassroomProvider: React.FC<{ children: ReactNode }> = ({ children 
   const setLoadingKey = (key: keyof LoadingState, value: boolean) =>
     setLoading(prev => ({ ...prev, [key]: value }));
 
-  const handleError = (err: any, fallback: string) => {
+  const handleError = (err: any, fallback: string): string => {
     const msg =
       err?.response?.data?.detail ||
       err?.response?.data?.error ||
@@ -240,8 +256,8 @@ export const ClassroomProvider: React.FC<{ children: ReactNode }> = ({ children 
     setLoadingKey('classrooms', true);
     setError(null);
     try {
-      const res = await classroomService.getClassrooms();
-      setClassrooms(toArray<Classroom>(res));
+      const data = await classroomService.getClassrooms();
+      setClassrooms(data);
     } catch (err: any) {
       handleError(err, 'Failed to load classrooms');
     } finally {
@@ -251,8 +267,7 @@ export const ClassroomProvider: React.FC<{ children: ReactNode }> = ({ children 
 
   const createClassroom = useCallback(async (data: CreateClassroomData): Promise<Classroom> => {
     try {
-      const res = await classroomService.createClassroom(data);
-      const created = res as Classroom;
+      const created = await classroomService.createClassroom(data);
       setClassrooms(prev => [...prev, created]);
       toast.success(`Classroom "${created.name}" created successfully`);
       return created;
@@ -266,11 +281,10 @@ export const ClassroomProvider: React.FC<{ children: ReactNode }> = ({ children 
   const updateClassroom = useCallback(
     async (id: number, data: UpdateClassroomData): Promise<Classroom> => {
       try {
-        const res = await classroomService.updateClassroom(id, data);
-        const updated = res as Classroom;
+        const updated = await classroomService.updateClassroom(id, data);
         setClassrooms(prev => prev.map(c => (c.id === id ? updated : c)));
         if (selectedClassroom?.id === id) setSelectedClassroom(updated);
-        toast.success(`Classroom updated successfully`);
+        toast.success('Classroom updated successfully');
         return updated;
       } catch (err: any) {
         const msg = handleError(err, 'Failed to update classroom');
@@ -281,29 +295,38 @@ export const ClassroomProvider: React.FC<{ children: ReactNode }> = ({ children 
     [selectedClassroom]
   );
 
-  const deleteClassroom = useCallback(async (id: number) => {
-    try {
-      await classroomService.deleteClassroom(id);
-      setClassrooms(prev => prev.filter(c => c.id !== id));
-      if (selectedClassroom?.id === id) setSelectedClassroom(null);
-      toast.success('Classroom deleted successfully');
-    } catch (err: any) {
-      const msg = handleError(err, 'Failed to delete classroom');
-      toast.error(msg);
-      throw err;
-    }
-  }, [selectedClassroom]);
+  const deleteClassroom = useCallback(
+    async (id: number) => {
+      try {
+        await classroomService.deleteClassroom(id);
+        setClassrooms(prev => prev.filter(c => c.id !== id));
+        if (selectedClassroom?.id === id) setSelectedClassroom(null);
+        toast.success('Classroom deleted successfully');
+      } catch (err: any) {
+        const msg = handleError(err, 'Failed to delete classroom');
+        toast.error(msg);
+        throw err;
+      }
+    },
+    [selectedClassroom]
+  );
 
-  const refreshClassroom = useCallback(async (id: number) => {
-    try {
-      const res = await classroomService.getClassroom(id);
-      const updated = res as Classroom;
-      setClassrooms(prev => prev.map(c => (c.id === id ? updated : c)));
-      if (selectedClassroom?.id === id) setSelectedClassroom(updated);
-    } catch (err: any) {
-      handleError(err, 'Failed to refresh classroom');
-    }
-  }, [selectedClassroom]);
+  const refreshClassroom = useCallback(
+    async (id: number) => {
+      try {
+        // Re-fetch the full list and pluck the updated classroom out of it
+        // (avoids needing a dedicated single-classroom GET endpoint).
+        const all = await classroomService.getClassrooms();
+        const updated = all.find(c => c.id === id);
+        if (!updated) return;
+        setClassrooms(prev => prev.map(c => (c.id === id ? updated : c)));
+        if (selectedClassroom?.id === id) setSelectedClassroom(updated);
+      } catch (err: any) {
+        handleError(err, 'Failed to refresh classroom');
+      }
+    },
+    [selectedClassroom]
+  );
 
   // ============================================================================
   // STATS
@@ -313,7 +336,7 @@ export const ClassroomProvider: React.FC<{ children: ReactNode }> = ({ children 
     setLoadingKey('stats', true);
     try {
       const res = await classroomService.getClassroomStats();
-      setStats(res as ClassroomStats);
+      setStats(res);
     } catch (err: any) {
       handleError(err, 'Failed to load classroom statistics');
     } finally {
@@ -449,17 +472,20 @@ export const ClassroomProvider: React.FC<{ children: ReactNode }> = ({ children 
     [refreshClassroom]
   );
 
-  const createTeacherAssignment = useCallback(async (data: CreateTeacherAssignmentData) => {
-    try {
-      await classroomService.createTeacherAssignment(data);
-      toast.success('Teacher assignment created');
-      await refreshClassroom(data.classroom_id);
-    } catch (err: any) {
-      const msg = handleError(err, 'Failed to create teacher assignment');
-      toast.error(msg);
-      throw err;
-    }
-  }, [refreshClassroom]);
+  const createTeacherAssignment = useCallback(
+    async (data: CreateTeacherAssignmentData) => {
+      try {
+        await classroomService.createTeacherAssignment(data);
+        toast.success('Teacher assignment created');
+        await refreshClassroom(data.classroom_id);
+      } catch (err: any) {
+        const msg = handleError(err, 'Failed to create teacher assignment');
+        toast.error(msg);
+        throw err;
+      }
+    },
+    [refreshClassroom]
+  );
 
   const updateTeacherAssignment = useCallback(
     async (id: number, data: UpdateTeacherAssignmentData) => {
@@ -475,54 +501,62 @@ export const ClassroomProvider: React.FC<{ children: ReactNode }> = ({ children 
     []
   );
 
-  const deleteTeacherAssignment = useCallback(async (id: number) => {
-    try {
-      await classroomService.deleteTeacherAssignment(id);
-      toast.success('Assignment removed');
-      // Refresh all classrooms to sync assignment counts
-      await loadClassrooms();
-    } catch (err: any) {
-      const msg = handleError(err, 'Failed to delete assignment');
-      toast.error(msg);
-      throw err;
-    }
-  }, [loadClassrooms]);
+  const deleteTeacherAssignment = useCallback(
+    async (id: number) => {
+      try {
+        await classroomService.deleteTeacherAssignment(id);
+        toast.success('Assignment removed');
+        await loadClassrooms();
+      } catch (err: any) {
+        const msg = handleError(err, 'Failed to delete assignment');
+        toast.error(msg);
+        throw err;
+      }
+    },
+    [loadClassrooms]
+  );
 
   // ============================================================================
   // STUDENT ENROLLMENT
   // ============================================================================
 
-  const enrollStudent = useCallback(async (classroomId: number, studentId: number) => {
-    try {
-      await classroomService.enrollStudent(classroomId, { student_id: studentId });
-      toast.success('Student enrolled successfully');
-      await refreshClassroom(classroomId);
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.error ||
-        err?.response?.data?.detail ||
-        err?.message ||
-        'Failed to enroll student';
-      toast.error(msg);
-      throw err;
-    }
-  }, [refreshClassroom]);
+  const enrollStudent = useCallback(
+    async (classroomId: number, studentId: number) => {
+      try {
+        await classroomService.enrollStudent(classroomId, { student_id: studentId });
+        toast.success('Student enrolled successfully');
+        await refreshClassroom(classroomId);
+      } catch (err: any) {
+        const msg =
+          err?.response?.data?.error ||
+          err?.response?.data?.detail ||
+          err?.message ||
+          'Failed to enroll student';
+        toast.error(msg);
+        throw err;
+      }
+    },
+    [refreshClassroom]
+  );
 
-  const unenrollStudent = useCallback(async (classroomId: number, studentId: number) => {
-    try {
-      await classroomService.unenrollStudent(classroomId, { student_id: studentId });
-      toast.success('Student unenrolled successfully');
-      await refreshClassroom(classroomId);
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.error ||
-        err?.response?.data?.detail ||
-        err?.message ||
-        'Failed to unenroll student';
-      toast.error(msg);
-      throw err;
-    }
-  }, [refreshClassroom]);
+  const unenrollStudent = useCallback(
+    async (classroomId: number, studentId: number) => {
+      try {
+        await classroomService.unenrollStudent(classroomId, { student_id: studentId });
+        toast.success('Student unenrolled successfully');
+        await refreshClassroom(classroomId);
+      } catch (err: any) {
+        const msg =
+          err?.response?.data?.error ||
+          err?.response?.data?.detail ||
+          err?.message ||
+          'Failed to unenroll student';
+        toast.error(msg);
+        throw err;
+      }
+    },
+    [refreshClassroom]
+  );
 
   const transferStudent = useCallback(
     async (
@@ -533,7 +567,6 @@ export const ClassroomProvider: React.FC<{ children: ReactNode }> = ({ children 
       try {
         const result = await classroomService.transferStudent(sourceClassroomId, data);
         toast.success(result.message || 'Student transferred successfully');
-        // Refresh both source and target classrooms
         await Promise.all([
           refreshClassroom(sourceClassroomId),
           refreshClassroom(data.target_classroom_id),
@@ -556,27 +589,53 @@ export const ClassroomProvider: React.FC<{ children: ReactNode }> = ({ children 
 
   // ============================================================================
   // CAPACITY
+  // Used by ClassSettingsSection — separate from the general updateClassroom
+  // so the backend can enforce capacity-specific rules via set-capacity endpoint.
   // ============================================================================
 
-  const setCapacity = useCallback(async (classroomId: number, maxCapacity: number) => {
-    try {
-      await classroomService.updateClassroom(classroomId, { max_capacity: maxCapacity });
+  const setClassroomCapacity = useCallback(
+    async (classroomId: number, maxCapacity: number) => {
+      // Optimistic update — row reflects the new value instantly
       setClassrooms(prev =>
         prev.map(c => (c.id === classroomId ? { ...c, max_capacity: maxCapacity } : c))
       );
       if (selectedClassroom?.id === classroomId) {
-        setSelectedClassroom(prev => prev ? { ...prev, max_capacity: maxCapacity } : prev);
+        setSelectedClassroom(prev => (prev ? { ...prev, max_capacity: maxCapacity } : prev));
       }
-      toast.success('Capacity updated successfully');
-    } catch (err: any) {
-      const msg = handleError(err, 'Failed to update capacity');
-      toast.error(msg);
-      throw err;
-    }
-  }, [selectedClassroom]);
+
+      try {
+        const updated = await classroomService.setClassroomCapacity(classroomId, maxCapacity);
+        // Sync with the authoritative value returned by the server
+        setClassrooms(prev =>
+          prev.map(c => (c.id === classroomId ? { ...c, ...updated } : c))
+        );
+        if (selectedClassroom?.id === classroomId) setSelectedClassroom(updated);
+      } catch (err: any) {
+        // Roll back the optimistic update on failure
+        await loadClassrooms();
+        throw err;
+      }
+    },
+    [selectedClassroom, loadClassrooms]
+  );
+
+  const bulkSetClassroomCapacity = useCallback(
+    async (maxCapacity: number): Promise<BulkCapacityResult> => {
+      setLoadingKey('capacity', true);
+      try {
+        const result = await classroomService.bulkSetClassroomCapacity(classrooms, maxCapacity);
+        // Always re-fetch after bulk ops to stay fully in sync
+        await loadClassrooms();
+        return result;
+      } finally {
+        setLoadingKey('capacity', false);
+      }
+    },
+    [classrooms, loadClassrooms]
+  );
 
   // ============================================================================
-  // CLASSROOM DETAIL DATA (fetched on demand, not stored globally)
+  // CLASSROOM DETAIL DATA (fetched on-demand, not stored globally)
   // ============================================================================
 
   const getClassroomStudents = useCallback(async (classroomId: number): Promise<any[]> => {
@@ -718,8 +777,9 @@ export const ClassroomProvider: React.FC<{ children: ReactNode }> = ({ children 
     unenrollStudent,
     transferStudent,
 
-    // Capacity
-    setCapacity,
+    // Capacity (used by ClassSettingsSection)
+    setClassroomCapacity,
+    bulkSetClassroomCapacity,
 
     // Classroom detail data
     getClassroomStudents,
@@ -745,9 +805,7 @@ export const ClassroomProvider: React.FC<{ children: ReactNode }> = ({ children 
 
 export const useClassroom = (): ClassroomContextValue => {
   const ctx = useContext(ClassroomContext);
-  if (!ctx) {
-    throw new Error('useClassroom must be used inside <ClassroomProvider>');
-  }
+  if (!ctx) throw new Error('useClassroom must be used inside <ClassroomProvider>');
   return ctx;
 };
 
@@ -755,7 +813,7 @@ export const useClassroom = (): ClassroomContextValue => {
 // FOCUSED SELECTOR HOOKS  (prevent unnecessary re-renders)
 // ============================================================================
 
-/** Only re-renders when the classroom list changes */
+/** Only re-renders when the classroom list or list-level loading changes */
 export const useClassroomList = () => {
   const { classrooms, filteredClassrooms, loading, error } = useClassroom();
   return { classrooms, filteredClassrooms, loading: loading.classrooms, error };
@@ -811,11 +869,8 @@ export const usePeopleData = () => {
 /** Student enrollment operations */
 export const useStudentEnrollment = () => {
   const {
-    enrollStudent,
-    unenrollStudent,
-    transferStudent,
-    getClassroomStudents,
-    loading,
+    enrollStudent, unenrollStudent, transferStudent,
+    getClassroomStudents, loading,
   } = useClassroom();
   return {
     enrollStudent,
@@ -831,6 +886,31 @@ export const useStudentEnrollment = () => {
 export const useClassroomStats = () => {
   const { stats, loadStats, loading } = useClassroom();
   return { stats, loadStats, loading: loading.stats };
+};
+
+/**
+ * Capacity slice — consumed by ClassSettingsSection.
+ * Gives a flat, minimal surface so the settings page doesn't subscribe
+ * to unrelated classroom data changes.
+ */
+export const useClassroomCapacity = () => {
+  const {
+    classrooms,
+    loading,
+    error,
+    loadClassrooms,
+    setClassroomCapacity,
+    bulkSetClassroomCapacity,
+  } = useClassroom();
+  return {
+    classrooms,
+    loading: loading.classrooms,
+    capacitySaving: loading.capacity,
+    error,
+    fetchClassrooms: loadClassrooms,
+    setClassroomCapacity,
+    bulkSetClassroomCapacity,
+  };
 };
 
 export default ClassroomContext;

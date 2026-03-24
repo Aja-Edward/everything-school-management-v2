@@ -187,24 +187,29 @@ urlpatterns = [
         name="classroom-statistics",
     ),
     path(
-        "classrooms/<int:classroom_id>/students/",
+        "classrooms/<int:pk>/students/",
         ClassroomViewSet.as_view({"get": "students"}),
         name="classroom-students",
     ),
     path(
-        "classrooms/<int:classroom_id>/teachers/",
+        "classrooms/<int:pk>/teachers/",
         ClassroomViewSet.as_view({"get": "teachers"}),
         name="classroom-teachers",
     ),
     path(
-        "classrooms/<int:classroom_id>/subjects/",
+        "classrooms/<int:pk>/subjects/",
         ClassroomViewSet.as_view({"get": "subjects"}),
         name="classroom-subjects",
     ),
     path(
-        "classrooms/<int:classroom_id>/schedule/",
+        "classrooms/<int:pk>/schedule/",
         ClassroomViewSet.as_view({"get": "schedule"}),
         name="classroom-schedule",
+    ),
+    path(
+        "classrooms/<int:pk>/set-capacity/",
+        ClassroomViewSet.as_view({"patch": "set_capacity"}),
+        name="classroom-set-capacity",
     ),
     # ========================================================================
     # STUDENT MANAGEMENT ENDPOINTS

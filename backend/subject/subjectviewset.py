@@ -34,7 +34,7 @@ from utils.section_filtering import AutoSectionFilterMixin
 from utils.pagination import StandardResultsPagination, LargeResultsPagination
 
 from classroom.models import GradeLevel
-from students.models import EducationLevel
+from academics.models import EducationLevel
 from .utils import clear_subject_caches
 
 from classroom.models import GradeLevel  # Commented out to avoid circular import

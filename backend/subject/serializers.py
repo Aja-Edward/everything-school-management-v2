@@ -13,7 +13,7 @@ from .models import (
 from classroom.models import GradeLevel
 
 # EducationLevel lives in students app — used for FK validation in filters
-from students.models import EducationLevel
+from academics.models import EducationLevel
 
 # ---------------------------------------------------------------------------
 # Minimal nested serializers (avoid circular imports)

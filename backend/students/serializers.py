@@ -1,11 +1,12 @@
 from rest_framework import serializers
-from .models import Student, ResultCheckToken, Class, Section, EducationLevel
+from .models import Student, ResultCheckToken
+from academics.models import EducationLevel
 from users.models import CustomUser
 from parent.models import ParentProfile
 from django.contrib.auth.models import BaseUserManager
 from utils import generate_unique_username
-from classroom.models import Stream
-from classroom.models import ClassSchedule, ClassroomTeacherAssignment
+from classroom.models import Stream, Class
+from classroom.models import ClassSchedule, ClassroomTeacherAssignment, Section
 
 
 class StudentScheduleSerializer(serializers.ModelSerializer):

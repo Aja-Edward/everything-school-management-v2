@@ -26,6 +26,7 @@ import StudentService, {
 } from '@/services/StudentService';
 import { useNavigate } from 'react-router-dom';
 import ResultSheetView from './ResultSheetView';
+import UploadGuide from '@/components/dashboards/admin/Uploadguide';
 
 // ============================================================================
 // HELPERS
@@ -80,14 +81,15 @@ const resolveEducationLevelDisplay = (student: Student): string => {
 // COMPONENT
 // ============================================================================
 
-const StudentListEnhanced: React.FC = () => {
+  const StudentListEnhanced: React.FC = () => {
   const [students, setStudents] = useState<Student[]>([]);
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
+  const [showBulkMenu, setShowBulkMenu] = useState(false);
+  const [showUploadGuide, setShowUploadGuide] = useState(false);
   // The dropdown menu open state: stores the student id whose menu is open
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
 
@@ -193,6 +195,25 @@ const StudentListEnhanced: React.FC = () => {
     setShowDeleteModal(true);
   };
 
+
+  const handleDownloadTemplate = () => {
+  const headers = [
+    'first_name', 'last_name', 'gender', 'date_of_birth',
+    'education_level', 'student_class', 'registration_number', 'email',
+  ];
+  const example = [
+    'John', 'Doe', 'M', '2010-01-15',
+    'PRIMARY', 'Primary 3', 'REG-001', 'john.doe@example.com',
+  ];
+  const csv = [headers.join(','), example.join(',')].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'student_bulk_upload_template.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+};
   const confirmDeleteStudent = async () => {
     if (!deleteStudentId) return;
     try {
@@ -258,13 +279,14 @@ const StudentListEnhanced: React.FC = () => {
   // ============================================================================
 
   return (
-    <div className="space-y-6" onClick={() => setOpenMenuId(null)}>
+    <div className="space-y-6" onClick={() => { setOpenMenuId(null); setShowBulkMenu(false); }}>
       {/* ---- Header ---- */}
-      <div
-        className={`transition-all duration-500 ${
+      <div>
+        <div  className={`transition-all duration-500 ${
           mounted ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'
-        }`}
-      >
+        }`}>
+
+   
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Students</h1>
@@ -280,6 +302,67 @@ const StudentListEnhanced: React.FC = () => {
               <FileText className="w-4 h-4" />
               Result Sheet
             </button>
+
+            {/* Bulk Upload dropdown */}
+            <div className="relative">
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowBulkMenu((v) => !v); }}
+                className="flex items-center gap-2 px-4 py-2 border border-gray-200 bg-white text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <Users className="w-4 h-4" />
+                Bulk Upload
+                <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+              </button>
+
+              {showBulkMenu && (
+                <div
+                  className="absolute right-0 top-full mt-1.5 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1.5 min-w-[210px]"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    onClick={() => { navigate('/admin/student_bulk_upload'); setShowBulkMenu(false); }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="w-7 h-7 bg-gray-900 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <Plus className="w-3.5 h-3.5 text-white" />
+                    </div>
+                    <div className="text-left">
+                      <p className="font-medium text-gray-900">Upload Students</p>
+                      <p className="text-xs text-gray-500">Import via spreadsheet</p>
+                    </div>
+                  </button>
+
+                  <div className="h-px bg-gray-100 mx-3 my-1" />
+
+                  <button
+                    onClick={() => { handleDownloadTemplate(); setShowBulkMenu(false); }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="w-7 h-7 bg-emerald-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                    </div>
+                    <div className="text-left">
+                      <p className="font-medium text-gray-900">Download Template</p>
+                      <p className="text-xs text-gray-500">Get the CSV/Excel file</p>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => { setShowUploadGuide(true); setShowBulkMenu(false); }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="w-7 h-7 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <BookOpen className="w-3.5 h-3.5 text-blue-600" />
+                    </div>
+                    <div className="text-left">
+                      <p className="font-medium text-gray-900">Upload Guide</p>
+                      <p className="text-xs text-gray-500">How to format your file</p>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
+
             <button
               onClick={() => navigate('/admin/students/add')}
               className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
@@ -287,7 +370,13 @@ const StudentListEnhanced: React.FC = () => {
               <Plus className="w-4 h-4" />
               Add Student
             </button>
+            <UploadGuide
+              isOpen={showUploadGuide}
+              onClose={() => setShowUploadGuide(false)}
+              onDownloadTemplate={handleDownloadTemplate}
+            />
           </div>
+        </div>
         </div>
       </div>
 

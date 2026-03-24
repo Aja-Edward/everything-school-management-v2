@@ -1,104 +1,150 @@
+// ============================================================================
+// REPLACE YOUR EXISTING SettingsContext.tsx WITH THIS FILE
+// ============================================================================
+// Changes vs your original:
+//   • Adds Classroom[], classroomsLoading, classroomsError to context state
+//   • Adds fetchClassrooms, setClassroomCapacity, bulkSetClassroomCapacity actions
+//   • Everything else (settings, updateSettings, refreshSettings) is unchanged
+// ============================================================================
 
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import SettingsService, { SchoolSettings, Classroom } from '@/services/SettingsService';
 
-
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import SettingsService, { SchoolSettings } from '@/services/SettingsService';
+// ── Context shape ─────────────────────────────────────────────────────────────
 
 interface SettingsContextType {
+  // ── existing settings ──────────────────────────────────────────────────────
   settings: SchoolSettings | null;
   loading: boolean;
   error: string | null;
   setError: (error: string | null) => void;
   refreshSettings: () => Promise<void>;
   updateSettings: (newSettings: Partial<SchoolSettings>) => Promise<void>;
+
+  // ── classroom capacity ─────────────────────────────────────────────────────
+  classrooms: Classroom[];
+  classroomsLoading: boolean;
+  classroomsError: string | null;
+  fetchClassrooms: () => Promise<void>;
+  setClassroomCapacity: (classroomId: number, maxCapacity: number) => Promise<void>;
+  bulkSetClassroomCapacity: (maxCapacity: number) => Promise<{
+    succeeded: number;
+    failed: Array<{ name: string; error: string }>;
+  }>;
 }
+
+// ── Context + hook ────────────────────────────────────────────────────────────
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
-interface SettingsProviderProps {
-  children: ReactNode;
-}
+export const useSettings = (): SettingsContextType => {
+  const ctx = useContext(SettingsContext);
+  if (!ctx) throw new Error('useSettings must be used within a SettingsProvider');
+  return ctx;
+};
 
-export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) => {
+// ── Provider ──────────────────────────────────────────────────────────────────
+
+export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+
+  // ── School settings state ─────────────────────────────────────────────────
   const [settings, setSettings] = useState<SchoolSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchSettings = async () => {
+  // ── Classroom state ───────────────────────────────────────────────────────
+  const [classrooms, setClassrooms] = useState<Classroom[]>([]);
+  const [classroomsLoading, setClassroomsLoading] = useState(false);
+  const [classroomsError, setClassroomsError] = useState<string | null>(null);
+
+  // ── Fetch school settings ─────────────────────────────────────────────────
+  const fetchSettings = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      
-      console.log('Context: Fetching settings via SettingsService...');
       const data = await SettingsService.getSettings();
-      console.log('Context: Settings fetched:', data);
-      
       setSettings(data);
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to fetch settings';
-      console.error('Context: Fetch error:', errorMsg);
-      setError(errorMsg);
+      setError(err instanceof Error ? err.message : 'Failed to fetch settings');
     } finally {
       setLoading(false);
     }
-  };
-
-  const updateSettings = async (newSettings: Partial<SchoolSettings>) => {
-    if (!settings) {
-      console.warn('Context: Cannot update - no settings loaded');
-      return;
-    }
-
-    try {
-      setError(null);
-      
-      const updatedData = { ...settings, ...newSettings };
-      console.log('Context: Updating settings:', updatedData);
-      
-      const responseData = await SettingsService.updateSettings(updatedData);
-      console.log('Context: Update response:', responseData);
-      
-      setSettings(responseData);
-      
-      // Broadcast update to other components
-      window.dispatchEvent(new CustomEvent('settings-updated', { detail: responseData }));
-      
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to update settings';
-      console.error('Context: Update error:', errorMsg);
-      setError(errorMsg);
-      throw err;
-    }
-  };
-
-  const refreshSettings = async () => {
-    console.log('Context: Refreshing settings...');
-    await fetchSettings();
-  };
-
-  useEffect(() => {
-    fetchSettings();
-
-    // Listen for settings updates from any component
-    const handleSettingsUpdate = (event: CustomEvent) => {
-      console.log('Context: Settings updated via event:', event.detail);
-      setSettings(event.detail);
-    };
-
-    window.addEventListener('settings-updated' as any, handleSettingsUpdate);
-    
-    return () => {
-      window.removeEventListener('settings-updated' as any, handleSettingsUpdate);
-    };
   }, []);
 
+  // ── Update school settings ────────────────────────────────────────────────
+  const updateSettings = useCallback(async (newSettings: Partial<SchoolSettings>) => {
+    if (!settings) return;
+    try {
+      setError(null);
+      const updated = await SettingsService.updateSettings({ ...settings, ...newSettings });
+      setSettings(updated);
+      window.dispatchEvent(new CustomEvent('settings-updated', { detail: updated }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to update settings';
+      setError(msg);
+      throw err;
+    }
+  }, [settings]);
+
+  const refreshSettings = useCallback(() => fetchSettings(), [fetchSettings]);
+
+  // ── Fetch classrooms ──────────────────────────────────────────────────────
+  const fetchClassrooms = useCallback(async () => {
+    setClassroomsLoading(true);
+    setClassroomsError(null);
+    try {
+      const data = await SettingsService.getClassrooms();
+      setClassrooms(data);
+    } catch (err: any) {
+      setClassroomsError(err.message || 'Failed to load classrooms');
+    } finally {
+      setClassroomsLoading(false);
+    }
+  }, []);
+
+  // ── Update a single classroom's capacity ──────────────────────────────────
+  const setClassroomCapacity = useCallback(async (classroomId: number, maxCapacity: number) => {
+    const updated = await SettingsService.setClassroomCapacity(classroomId, maxCapacity);
+    // Optimistically update local list so UI reflects immediately
+    setClassrooms(prev =>
+      prev.map(c => (c.id === classroomId ? { ...c, max_capacity: updated.max_capacity } : c))
+    );
+  }, []);
+
+  // ── Bulk-update all classrooms ────────────────────────────────────────────
+  const bulkSetClassroomCapacity = useCallback(async (maxCapacity: number) => {
+    const result = await SettingsService.bulkSetClassroomCapacity(classrooms, maxCapacity);
+    // Re-fetch to sync authoritative state from server
+    await fetchClassrooms();
+    return result;
+  }, [classrooms, fetchClassrooms]);
+
+  // ── Bootstrap ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    fetchSettings();
+    fetchClassrooms();
+
+    const handleExternalUpdate = (e: CustomEvent) => setSettings(e.detail);
+    window.addEventListener('settings-updated' as any, handleExternalUpdate);
+    return () => window.removeEventListener('settings-updated' as any, handleExternalUpdate);
+  }, [fetchSettings, fetchClassrooms]);
+
+  // ── Context value ─────────────────────────────────────────────────────────
   const value: SettingsContextType = {
+    // school settings
     settings,
     loading,
     error,
     setError,
     refreshSettings,
     updateSettings,
+    // classrooms
+    classrooms,
+    classroomsLoading,
+    classroomsError,
+    fetchClassrooms,
+    setClassroomCapacity,
+    bulkSetClassroomCapacity,
   };
 
   return (
@@ -108,10 +154,4 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
   );
 };
 
-export const useSettings = (): SettingsContextType => {
-  const context = useContext(SettingsContext);
-  if (context === undefined) {
-    throw new Error('useSettings must be used within a SettingsProvider');
-  }
-  return context;
-};
+export default SettingsContext;

@@ -6,18 +6,14 @@ from django.core.cache import cache
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 from subject.models import Subject
-from academics.models import AcademicSession
+from academics.models import AcademicSession, EducationLevel
 from django.utils import timezone
 from decimal import Decimal
 import uuid
 from datetime import timedelta
 
 from students.models import Student
-from students.models import (
-    Class as StudentClass,
-    EducationLevel,
-)
-from classroom.models import Stream
+from classroom.models import Stream, Class as StudentClass
 from tenants.models import TenantMixin
 
 from students.constants import (
@@ -251,7 +247,7 @@ class ScoringConfiguration(TenantMixin, models.Model):
     class Meta:
         db_table = "results_scoring_configuration"
         unique_together = ["tenant", "education_level", "result_type", "name"]
-        ordering = ["education_level__order", "result_type", "name"]
+        ordering = ["result_type", "name"]
         indexes = [
             models.Index(fields=["tenant", "education_level", "result_type"]),
             models.Index(fields=["tenant", "is_active"]),

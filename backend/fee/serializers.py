@@ -17,7 +17,9 @@ from .models import (
     PaymentReminder,
 )
 from academics.models import Term, AcademicSession
-from students.models import Student, Class as StudentClass, EducationLevel
+from students.models import Student
+from academics.models import EducationLevel
+from classroom.models import Class as StudentClass
 
 
 # ---------------------------------------------------------------------------

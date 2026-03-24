@@ -60,6 +60,7 @@ const TeacherBio = lazy(() => import('./../components/dashboards/teacher/PublicT
 const AdminLayout = lazy(() => import('./../components/layouts/AdminLayout'));
 const AdminDashboardContentLoader = lazy(() => import('./../pages/admin/AdminDashboardContentLoader'));
 const StudentList = lazy(() => import('./../pages/admin/AdminStudentList'));
+const BulkUploadPage = lazy(() => import('./../pages/admin/BulkUploadPage'));
 const StudentDetailView = lazy(() => import('./../components/dashboards/admin/StudentDetailView'));
 const AddStudentForm = lazy(() => import('./../pages/admin/AddStudentForm'));
 const EditStudentForm = lazy(() => import('./../components/dashboards/admin/EditStudentForm'));
@@ -463,6 +464,10 @@ export const router = createBrowserRouter([
           {
             path: 'dashboard',
             element: <LazyWrapper><AdminDashboardContentLoader /></LazyWrapper>,
+          },
+          {
+            path: 'student_bulk_upload',
+            element: <LazyWrapper><BulkUploadPage/></LazyWrapper>
           },
           {
             path: 'token-generator',

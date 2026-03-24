@@ -13,6 +13,8 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 from academics.models import AcademicSession, Term
 from tenants.models import TenantMixin
+from academics.models import EducationLevel
+from .constant import DEFAULT_GRADE_LEVELS
 
 
 def get_current_date():
@@ -34,63 +36,202 @@ STREAM_CHOICES = [
 # ========================================
 # EXISTING: GRADE LEVEL MODEL (No changes)
 # ========================================
+
 class GradeLevel(TenantMixin, models.Model):
-    """Educational grade levels (Nursery, Primary, Secondary)"""
+    """
+    Grade levels within an Education Level.
+    Examples:
+        - Nursery 1, Nursery 2 → under Nursery
+        - Primary 1–6 → under Primary
+        - JSS 1–3 → under Junior Secondary
+    """
 
-    EDUCATION_LEVELS = [
-        ("NURSERY", "Nursery"),
-        ("PRIMARY", "Primary"),
-        ("JUNIOR_SECONDARY", "Junior Secondary"),
-        ("SENIOR_SECONDARY", "Senior Secondary"),
-    ]
+    name = models.CharField(max_length=100)
 
-    name = models.CharField(max_length=50)
     description = models.TextField(blank=True)
-    education_level = models.CharField(max_length=20, choices=EDUCATION_LEVELS)
-    order = models.PositiveIntegerField(
-        help_text="Order of grade level (e.g., 1 for Grade 1)"
+
+    education_level = models.ForeignKey(
+        EducationLevel,
+        on_delete=models.CASCADE,
+        related_name="grade_levels",
     )
+
+    order = models.PositiveIntegerField(
+        help_text="Order within the education level (e.g., 1 for first grade)"
+    )
+
     is_active = models.BooleanField(default=True)
+
+    is_system_default = models.BooleanField(
+        default=False,
+        help_text="Indicates if this was auto-created as a default",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    def clean(self):
+        if self.education_level.tenant != self.tenant:
+            raise ValidationError("EducationLevel must belong to the same tenant")
 
     class Meta:
-        db_table = "classroom_gradelevely"
-        ordering = ["education_level", "order"]
-        unique_together = ["tenant", "education_level", "order"]
+        db_table = "classroom_gradelevel"
+        ordering = ["education_level", "order", "name"]
+        unique_together = [
+            ("tenant", "education_level", "order"),
+            ("tenant", "education_level", "name"),
+        ]
+        verbose_name = "Grade Level"
+        verbose_name_plural = "Grade Levels"
         indexes = [
             models.Index(fields=["tenant", "education_level"]),
             models.Index(fields=["tenant", "is_active"]),
         ]
 
     def __str__(self):
+        return f"{self.name} ({self.education_level.name})"
+
+
+class Class(TenantMixin, models.Model):
+    """Represents a grade/class (e.g., Primary 1, SS 3)"""
+
+    name = models.CharField(
+        max_length=50, help_text="Display name (e.g., 'Primary 1', 'SS 3')"
+    )
+    code = models.CharField(
+        max_length=20, help_text="Unique code (e.g., 'PRIMARY_1', 'SS_3')"
+    )
+
+    education_level = models.ForeignKey(
+        EducationLevel,
+        on_delete=models.PROTECT,
+        related_name="classes",
+        help_text="Education level this class belongs to",
+    )
+
+    grade_number = models.IntegerField(help_text="Grade number (1, 2, 3, etc.)")
+
+    order = models.IntegerField(
+        help_text="Overall order for sorting (0=earliest)", unique=False
+    )
+
+    default_capacity = models.IntegerField(
+        default=30,
+        null=True,
+        blank=True,
+        help_text="Default capacity for sections of this class",
+    )
+    is_active = models.BooleanField(default=True)
+
+    description = models.TextField(
+        blank=True, null=True, help_text="Additional information about this class"
+    )
+
+    class Meta:
+        db_table = "student_class"
+        ordering = ["order"]
+        verbose_name = "Class"
+        verbose_name_plural = "Classes"
+        unique_together = ["tenant", "code"]
+        indexes = [
+            models.Index(fields=["tenant", "education_level", "order"]),
+            models.Index(fields=["tenant", "is_active"]),
+            models.Index(fields=["tenant", "code"]),
+        ]
+
+    def __str__(self):
         return self.name
+
+    @property
+    def full_name(self):
+        return f"{self.education_level.name} - {self.name}"
+
+    def get_student_count(self):
+        return self.students.filter(is_active=True).count()
+
+    def get_sections(self):
+        return self.sections.filter(is_active=True)
 
 
 # ========================================
 # EXISTING: SECTION MODEL (No changes)
 # ========================================
 class Section(TenantMixin, models.Model):
-    """Class sections within a grade level"""
+    """Represents a section within a class (e.g., 'A', 'B', 'C')"""
 
-    name = models.CharField(max_length=50)
-    grade_level = models.ForeignKey(
-        GradeLevel, on_delete=models.CASCADE, related_name="sections"
+    class_grade = models.ForeignKey(
+        Class,
+        on_delete=models.CASCADE,
+        related_name="sections",
+        help_text="The class this section belongs to",
+        null=True,  # ✅ ADD THIS
+        blank=True,  # ✅ ADD THIS
     )
+
+    name = models.CharField(
+        max_length=10,
+        help_text="Section name (e.g., 'A', 'B', 'C', 'Gold', 'Diamond')",
+    )
+
+    room_number = models.CharField(
+        max_length=20, blank=True, null=True, help_text="Room/classroom number"
+    )
+
+    capacity = models.IntegerField(
+        null=True, blank=True, help_text="Maximum number of students in this section"
+    )
+
+    # ✅ FIXED: was 'teachers.Teacher' — use correct app label
+    class_teacher = models.ForeignKey(
+        "teacher.Teacher",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_sections",
+        help_text="Primary teacher for this section",
+    )
+
+    # ✅ FIXED: was 'academics.AcademicYear' — use the correct model name
+    academic_year = models.ForeignKey(
+        "academics.AcademicSession",
+        on_delete=models.CASCADE,
+        related_name="sections",
+        null=True,
+        blank=True,
+        help_text="Academic session for this section",
+    )
+
     is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ["tenant", "grade_level", "name"]
-        ordering = ["grade_level", "name"]
+        db_table = "student_section"
+        ordering = ["class_grade__order", "name"]
+        verbose_name = "Section"
+        verbose_name_plural = "Sections"
+        unique_together = ["tenant", "class_grade", "name", "academic_year"]
         indexes = [
-            models.Index(fields=["tenant", "grade_level"]),
+            models.Index(fields=["tenant", "class_grade", "is_active"]),
             models.Index(fields=["tenant", "is_active"]),
         ]
 
     def __str__(self):
-        return f"{self.grade_level.name} - Section {self.name}"
+        return f"{self.class_grade.name} - {self.name}"
+
+    @property
+    def full_name(self):
+        return f"{self.class_grade.name} {self.name}"
+
+    def get_student_count(self):
+        return self.students.filter(is_active=True).count()
+
+    def is_full(self):
+        if not self.capacity:
+            return False
+        return self.get_student_count() >= self.capacity
+
+    def get_available_slots(self):
+        if not self.capacity:
+            return None
+        return max(0, self.capacity - self.get_student_count())
 
 
 # ========================================
@@ -361,7 +502,7 @@ class Classroom(TenantMixin, models.Model):
 
     class Meta:
         unique_together = [("tenant", "section", "academic_session", "term", "name")]
-        ordering = ["section__grade_level", "section__name", "academic_session"]
+        ordering = ["section__class_grade", "section__name", "academic_session"]
         indexes = [
             models.Index(fields=["tenant", "section"]),
             models.Index(fields=["tenant", "academic_session", "term"]),

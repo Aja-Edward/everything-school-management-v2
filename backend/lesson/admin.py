@@ -12,13 +12,20 @@ class LessonAdmin(admin.ModelAdmin):
         'status_display', 'duration_display', 'completion_percentage_display'
     ]
     list_filter = [
-        'status', 'lesson_type', 'difficulty_level', 'date', 'classroom__section__grade_level__education_level',
-        'subject__category', 'is_recurring', 'requires_special_equipment', 'is_online_lesson'
+        "status",
+        "lesson_type",
+        "difficulty_level",
+        "date",
+        "classroom__section__class_grade__education_level",
+        "subject__category",
+        "is_recurring",
+        "requires_special_equipment",
+        "is_online_lesson",
     ]
     search_fields = ['title', 'description', 'teacher__user__first_name', 'teacher__user__last_name', 'subject__name']
     date_hierarchy = 'date'
     ordering = ['-date', 'start_time']
-    
+
     fieldsets = (
         ('Basic Information', {
             'fields': ('title', 'description', 'lesson_type', 'difficulty_level')
@@ -58,13 +65,13 @@ class LessonAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
-    
+
     readonly_fields = ['created_at', 'updated_at', 'completion_percentage_display']
-    
+
     def time_slot_display(self, obj):
         return obj.time_slot
     time_slot_display.short_description = 'Time Slot'
-    
+
     def status_display(self, obj):
         status_colors = {
             'scheduled': 'blue',
@@ -79,11 +86,11 @@ class LessonAdmin(admin.ModelAdmin):
             color, obj.get_status_display()
         )
     status_display.short_description = 'Status'
-    
+
     def duration_display(self, obj):
         return obj.duration_formatted
     duration_display.short_description = 'Duration'
-    
+
     def completion_percentage_display(self, obj):
         if obj.completion_percentage == 100:
             color = 'green'
@@ -96,12 +103,12 @@ class LessonAdmin(admin.ModelAdmin):
             color, obj.completion_percentage
         )
     completion_percentage_display.short_description = 'Completion'
-    
+
     def get_queryset(self, request):
         return super().get_queryset(request).select_related(
             'classroom', 'teacher__user', 'subject', 'created_by', 'last_modified_by'
         )
-    
+
     def save_model(self, request, obj, form, change):
         if not change:  # Creating new lesson
             obj.created_by = request.user

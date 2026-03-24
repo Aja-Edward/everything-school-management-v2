@@ -1674,26 +1674,36 @@ def admin_dashboard_optimized(request):
         # 🏫 CLASSROOMS
         # ==================================================================
 
-        classrooms = Classroom.objects.select_related(
-            'section', 'section__grade_level'
-        ).only(
-            'id', 'name', 'max_capacity', 'is_active',
-            'section__id', 'section__name',
-            'section__grade_level__id', 'section__grade_level__name'
-        ).order_by('section__grade_level__order', 'section__name')[:100]
+        classrooms = (
+            Classroom.objects.select_related("section", "section__class_grade")
+            .only(
+                "id",
+                "name",
+                "max_capacity",
+                "is_active",
+                "section__id",
+                "section__name",
+                "section__class_grade__id",
+                "section__class_grade__name",
+            )
+            .order_by("section__class_grade__order", "section__name")[:100]
+        )
 
         classrooms_data = [
             {
-                'id': c.id,
-                'name': c.name,
-                'grade_level': c.section.grade_level.name if c.section and c.section.grade_level else None,
-                'section': c.section.name if c.section else None,
-                'capacity': c.max_capacity,
-                'is_active': c.is_active,
+                "id": c.id,
+                "name": c.name,
+                "grade_level": (
+                    c.section.class_grade.name
+                    if c.section and c.section.class_grade
+                    else None
+                ),
+                "section": c.section.name if c.section else None,
+                "capacity": c.max_capacity,
+                "is_active": c.is_active,
             }
             for c in classrooms
         ]
-
         # ==================================================================
         # 💬 MESSAGES (Recent)
         # ==================================================================

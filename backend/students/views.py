@@ -12,14 +12,22 @@ from utils.section_filtering import SectionFilterMixin, AutoSectionFilterMixin
 from tenants.mixins import TenantFilterMixin
 from utils.pagination import LargeResultsPagination
 from django.db.models import Avg, Count, Q
-from classroom.models import ClassSchedule, Classroom, Section, GradeLevel, Stream
+from classroom.models import (
+    ClassSchedule,
+    Classroom,
+    Section,
+    GradeLevel,
+    Stream,
+    Class,
+)
 from django.shortcuts import get_object_or_404
 from django.http import HttpResponse
 from django_filters.rest_framework import DjangoFilterBackend
 import csv
 from datetime import date, timedelta, datetime, time
 from django.utils import timezone
-from .models import Student, ResultCheckToken, Class, EducationLevel
+from .models import Student, ResultCheckToken
+from academics.models import EducationLevel
 from .serializers import (
     StudentScheduleSerializer,
     StudentWeeklyScheduleSerializer,
@@ -1404,8 +1412,12 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    def get_permissions(self):
+        if self.action == "create":
+            return [AllowAny()]
+        return super().get_permissions()
+
     def create(self, request, *args, **kwargs):
-        self.permission_classes = [AllowAny]
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         student = serializer.save()

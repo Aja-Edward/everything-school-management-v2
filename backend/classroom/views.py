@@ -792,6 +792,15 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=False, methods=["get"])
+    def by_section(self, request, section_id=None):
+        """Get all classrooms for a specific section"""
+        section_id = self.kwargs.get("section_id")
+        classrooms = Classroom.objects.filter(section_id=section_id)
+        classrooms = self.apply_section_filters(classrooms)
+        serializer = self.get_serializer(classrooms, many=True)
+        return Response(serializer.data)
+
     @action(detail=True, methods=["post"])
     def remove_teacher(self, request, pk=None):
         """Remove a teacher assignment from a classroom"""
@@ -850,6 +859,7 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
         try:
             student = Student.objects.get(id=student_id)
 
+            # Check existing enrollment
             existing = StudentEnrollment.objects.filter(
                 student=student, classroom=classroom, is_active=True
             ).first()
@@ -858,6 +868,18 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                 return Response(
                     {
                         "error": f"Student {student.user.get_full_name()} is already enrolled in this classroom"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # ✅ Check capacity before enrolling
+            if classroom.is_full:
+                return Response(
+                    {
+                        "error": f"Classroom '{classroom.name}' is full.",
+                        "max_capacity": classroom.max_capacity,
+                        "current_enrollment": classroom.current_enrollment,
+                        "available_spots": 0,
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
@@ -979,6 +1001,47 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
             return Response(
                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    @action(detail=True, methods=["patch"], permission_classes=[IsAdminUser])
+    def set_capacity(self, request, pk=None):
+        """Admin can raise or lower the classroom capacity cap"""
+        classroom = self.get_object()
+        max_capacity = request.data.get("max_capacity")
+
+        if max_capacity is None:
+            return Response(
+                {"error": "max_capacity is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            max_capacity = int(max_capacity)
+            if not (1 <= max_capacity <= 100):
+                raise ValueError
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "max_capacity must be an integer between 1 and 100"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        current_enrollment = classroom.current_enrollment
+        classroom.max_capacity = max_capacity
+        classroom.save(update_fields=["max_capacity"])  # ✅ only writes this one column
+
+        return Response(
+            {
+                "message": f"Capacity updated successfully.",
+                "max_capacity": classroom.max_capacity,
+                "current_enrollment": current_enrollment,
+                "available_spots": classroom.available_spots,
+                "warning": (
+                    f"Current enrollment ({current_enrollment}) exceeds new capacity "
+                    f"({max_capacity}). No new enrollments allowed until space opens."
+                    if current_enrollment > max_capacity
+                    else None
+                ),
+            }
+        )
 
 
 class ClassroomTeacherAssignmentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):

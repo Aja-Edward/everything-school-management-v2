@@ -1,9 +1,10 @@
 from rest_framework import serializers
 from decimal import Decimal
 from django.utils import timezone
-from students.models import Student, Class as StudentClass, EducationLevel
+from students.models import Student
+from classroom.models import Class as StudentClass
 from subject.models import Subject
-from academics.models import AcademicSession
+from academics.models import AcademicSession, EducationLevel
 from students.serializers import StudentDetailSerializer
 from subject.serializers import SubjectSerializer
 from academics.serializers import AcademicSessionSerializer

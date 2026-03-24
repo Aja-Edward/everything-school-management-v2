@@ -23,8 +23,8 @@ class GradeLevelAdmin(admin.ModelAdmin):
 
 @admin.register(Section)
 class SectionAdmin(admin.ModelAdmin):
-    list_display = ("name", "grade_level", "is_active")
-    list_filter = ("grade_level", "is_active")
+    list_display = ("name", "class_grade", "is_active")
+    list_filter = ("class_grade", "class_grade", "is_active")
     search_fields = ("name",)
 
 

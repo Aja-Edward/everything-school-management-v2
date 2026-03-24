@@ -2,10 +2,10 @@
 from django.db import models
 from django.contrib.auth import get_user_model
 from students.models import Student
-from students.models import (
-    Class as StudentClass,
+from academics.models import (
     EducationLevel,
 )
+from classroom.models import Class as StudentClass
 from decimal import Decimal
 import uuid
 from academics.models import AcademicSession

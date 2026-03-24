@@ -17,6 +17,7 @@ import { StreamConfigurationProvider } from '@/contexts/StreamConfigurationConte
 import StreamManagement from '@/components/admin/StreamManagement';
 import StreamConfigurationManager from '@/components/admin/StreamConfigurationManager';
 import SubjectCombinationsManager from '@/components/admin/SubjectCombinationsManager';
+import ClassSettingsSection from './ClassSettingsSection';
 
 const AcademicTabContent: React.FC = () => {
   const [activeSection, setActiveSection] = useState('stream-management');
@@ -73,56 +74,56 @@ const AcademicTabContent: React.FC = () => {
       label: 'Stream Management', 
       icon: Layers, 
       description: 'Create and manage streams',
-      color: 'from-cyan-500 to-blue-600'
+      color: 'black'
     },
     { 
       id: 'stream-config', 
       label: 'Stream Configuration', 
       icon: Target, 
       description: 'Configure streams and subjects',
-      color: 'from-blue-500 to-indigo-600'
+      color: 'black'
     },
     { 
       id: 'subject-combinations', 
       label: 'Subject Combinations', 
       icon: GitBranch, 
       description: 'Define valid combinations',
-      color: 'from-emerald-500 to-teal-600'
+      color: 'black'
     },
     { 
       id: 'academic-settings', 
       label: 'Academic Year', 
       icon: Calendar, 
       description: 'Calendar and terms',
-      color: 'from-amber-500 to-orange-600'
+      color: 'black'
     },
     { 
       id: 'class-settings', 
       label: 'Class Management', 
       icon: School, 
       description: 'Class sizes and options',
-      color: 'from-green-500 to-emerald-600'
+      color: 'black'
     },
     { 
       id: 'grading-settings', 
       label: 'Grading System', 
       icon: GraduationCap, 
       description: 'Scales and assessments',
-      color: 'from-purple-500 to-pink-600'
+      color: 'black'
     },
     { 
       id: 'attendance-settings', 
       label: 'Attendance', 
       icon: Users, 
       description: 'Tracking and policies',
-      color: 'from-orange-500 to-red-600'
+      color: 'black'
     },
     { 
       id: 'curriculum-settings', 
       label: 'Curriculum', 
       icon: BookOpen, 
       description: 'Prerequisites and credits',
-      color: 'from-indigo-500 to-purple-600'
+      color: 'black'
     }
   ];
 
@@ -240,63 +241,12 @@ const AcademicTabContent: React.FC = () => {
       
       case 'class-settings':
         return (
-          <div className="space-y-6">
-            <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center">
-                    <School className="w-5 h-5 text-white" />
-                  </div>
-                  Class Management Settings
-                </h3>
-              </div>
-              
-              <div className="space-y-8">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="block text-sm font-semibold text-slate-700">
-                      Maximum Class Size
-                    </label>
-                    <input
-                      type="number"
-                      min="10"
-                      max="100"
-                      value={academicSettings.maxClassSize}
-                      onChange={(e) => updateAcademicSetting('maxClassSize', parseInt(e.target.value))}
-                      className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all bg-white font-medium text-center"
-                    />
-                    <p className="text-xs text-slate-500 mt-1">Recommended: 20-35 students per class</p>
-                  </div>
-                </div>
-                
-                <div className="space-y-4">
-                  <ToggleSwitch
-                    id="allow-class-overflow"
-                    checked={academicSettings.allowClassOverflow}
-                    onChange={(checked) => updateAcademicSetting('allowClassOverflow', checked)}
-                    label="Allow Class Overflow"
-                    description="Allow classes to exceed maximum size"
-                  />
-                  
-                  <ToggleSwitch
-                    id="enable-streaming"
-                    checked={academicSettings.enableStreaming}
-                    onChange={(checked) => updateAcademicSetting('enableStreaming', checked)}
-                    label="Enable Stream-based Classes"
-                    description="Organize classes by academic streams"
-                  />
-                  
-                  <ToggleSwitch
-                    id="enable-subject-electives"
-                    checked={academicSettings.enableSubjectElectives}
-                    onChange={(checked) => updateAcademicSetting('enableSubjectElectives', checked)}
-                    label="Enable Subject Electives"
-                    description="Allow students to choose optional subjects"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
+          <ClassSettingsSection
+      allowClassOverflow={academicSettings.allowClassOverflow}
+      enableStreaming={academicSettings.enableStreaming}
+      enableSubjectElectives={academicSettings.enableSubjectElectives}
+      onSettingChange={updateAcademicSetting}
+    />
         );
 
       case 'grading-settings':
@@ -305,7 +255,7 @@ const AcademicTabContent: React.FC = () => {
             <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-2xl flex items-center justify-center">
+                  <div className="w-10 h-10 bg-black rounded-2xl flex items-center justify-center">
                     <GraduationCap className="w-5 h-5 text-white" />
                   </div>
                   Grading System Settings
@@ -489,7 +439,7 @@ const AcademicTabContent: React.FC = () => {
       <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg">
+            <div className="w-14 h-14 bg-black rounded-2xl flex items-center justify-center shadow-lg">
               <GraduationCap className="w-7 h-7 text-white" />
             </div>
             <div>
@@ -505,7 +455,7 @@ const AcademicTabContent: React.FC = () => {
               className={`flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all shadow-lg ${
                 isSaving
                   ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                  : 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-600 hover:to-blue-700 hover:shadow-xl transform hover:-translate-y-0.5'
+                  : 'bg-black text-white hover:to-blue-700 hover:shadow-xl transform hover:-translate-y-0.5'
               }`}
             >
               {isSaving ? (
@@ -546,24 +496,24 @@ const AcademicTabContent: React.FC = () => {
             <button
               key={section.id}
               onClick={() => setActiveSection(section.id)}
-              className={`group text-left p-4 rounded-2xl transition-all ${
+              className={`group text-left p-2 rounded-2xl transition-all ${
                 activeSection === section.id
-                  ? 'bg-gradient-to-r ' + section.color + ' text-white shadow-lg scale-105'
-                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100 hover:scale-102'
+                  ? 'bg' + section.color + ' text-black shadow-lg scale-105'
+                  : 'black text-slate-600 hover:bg-slate-100 hover:scale-102'
               }`}
             >
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 transition-all ${
+              <div className={`w-4 h-4 rounded-xl flex items-center justify-center mb-3 transition-all ${
                 activeSection === section.id
-                  ? 'bg-white/20'
-                  : 'bg-gradient-to-br ' + section.color
+                  ? 'bg-black'
+                  : 'bg-black ' + section.color
               }`}>
-                <section.icon className={`w-5 h-5 ${
+                <section.icon className={`w-3 h-4 ${
                   activeSection === section.id ? 'text-white' : 'text-white'
                 }`} />
               </div>
               <div className="font-semibold text-sm mb-1">{section.label}</div>
               <div className={`text-xs ${
-                activeSection === section.id ? 'text-white/80' : 'text-slate-500'
+                activeSection === section.id ? 'text-black/80' : 'text-slate-500'
               }`}>
                 {section.description}
               </div>
