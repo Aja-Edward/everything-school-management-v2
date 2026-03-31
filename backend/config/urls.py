@@ -3,7 +3,7 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-from rest_framework.routers import DefaultRouter
+
 from .views import api_root, debug_login_function
 from authentication.views import GoogleLogin
 from .health import health_check
@@ -13,15 +13,12 @@ from authentication.views import create_first_superuser
 from academics.views import AcademicSessionViewSet, TermViewSet
 
 # Create router for backward compatibility aliases
-alias_router = DefaultRouter()
-alias_router.register(r"sessions", AcademicSessionViewSet, basename="session-alias")
-alias_router.register(r"terms", TermViewSet, basename="term-alias")
+
 
 urlpatterns = [
+    # ===== API ROOT =====
     path("health/", health_check, name="health"),
     path("admin/", admin.site.urls),
-    # ===== API ROOT =====
-    path("api/", api_root, name="api_root"),
     # ===== AUTHENTICATION ROUTES =====
     # Django Rest Auth routes (MAIN AUTHENTICATION)
     path("api/dj-rest-auth/", include("dj_rest_auth.urls")),
@@ -51,7 +48,6 @@ urlpatterns = [
     # ===== ACADEMIC OPERATIONS =====
     path("api/academics/", include("academics.urls")),
     # Backward compatibility aliases for /api/sessions/ and /api/terms/
-    path("api/", include(alias_router.urls)),
     path("api/attendance/", include("attendance.urls")),
     path("api/exams/", include("exam.urls")),
     path(

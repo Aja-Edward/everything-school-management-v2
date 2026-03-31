@@ -168,11 +168,20 @@ class TenantRequiredMiddleware:
         '/api/fee/',
     ]
 
+    TENANT_EXEMPT_PATHS = [  # ← this was missing
+        "/api/students/bulk-upload/template/",
+    ]
+
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        if self._requires_tenant(request.path) and not getattr(request, 'tenant', None):
+        if (
+            self._requires_tenant(request.path)
+            and not getattr(request, "tenant", None)
+            and not self._is_exempt(request.path)
+        ):
+
             return JsonResponse({
                 'error': 'Tenant not found',
                 'message': 'Please access this resource through your school subdomain or custom domain.'
@@ -182,3 +191,6 @@ class TenantRequiredMiddleware:
 
     def _requires_tenant(self, path):
         return any(path.startswith(p) for p in self.TENANT_REQUIRED_PATHS)
+
+    def _is_exempt(self, path):  # ← add this method
+        return any(path.startswith(p) for p in self.TENANT_EXEMPT_PATHS)

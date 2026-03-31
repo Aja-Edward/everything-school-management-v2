@@ -6,29 +6,14 @@ import UploadProgressModal from "@/components/dashboards/admin/UploadProgressMod
 import CredentialExportPanel from "@/components/dashboards/admin/CredentialExportPanel";
 import { API_BASE_URL } from "@/services/api";
 import type { UploadRowError, ExportFormat, TemplateFormat } from "@/types/bulkUpload";
+import { bulkUploadService } from "@/services/bulkUploadService";
+
 
 // ---------------------------------------------------------------------------
 // Template download
 // ---------------------------------------------------------------------------
 
-async function downloadTemplate(format: TemplateFormat): Promise<void> {
-  const token = localStorage.getItem("access_token") ?? "";
-  const res = await fetch(
-    `${API_BASE_URL}/students/bulk-upload/template/?format=${format}`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-  if (!res.ok) { alert("Could not download template."); return; }
-  const blob = await res.blob();
-  const ext  = format === "excel" ? "xlsx" : "csv";
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href     = url;
-  a.download = `student_upload_template.${ext}`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
+
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -211,10 +196,10 @@ export default function BulkUploadPage() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => downloadTemplate("excel")} style={btnOutlineStyle}>
+          <button onClick={() => bulkUploadService.downloadTemplate("excel")} style={btnOutlineStyle}>
             <IconDownload /> Excel template
           </button>
-          <button onClick={() => downloadTemplate("csv")} style={btnOutlineStyle}>
+          <button onClick={() => bulkUploadService.downloadTemplate("csv")} style={btnOutlineStyle}>
             <IconDownload /> CSV template
           </button>
         </div>
@@ -303,7 +288,8 @@ export default function BulkUploadPage() {
             <button
               onClick={handleUpload}
               disabled={!selectedFile || phase === "uploading" || phase === "processing"}
-              style={{ ...btnPrimaryStyle, opacity: !selectedFile ? 0.5 : 1 }}
+              style={{ ...btnPrimaryStyle, opacity: !selectedFile ? 0.5 : 1, color: (phase === "uploading" || phase === "processing") ? "var(--color-text-secondary)" : btnPrimaryStyle.color }}
+
             >
               {phase === "uploading"
                 ? "Uploading…"

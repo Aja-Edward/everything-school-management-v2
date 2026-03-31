@@ -948,53 +948,387 @@ class SeniorSecondaryResultViewSet(
     @action(detail=False, methods=["post"])
     def bulk_create(self, request):
         results_data = request.data.get("results", [])
-        created_results = []
         errors = []
+        validated_objects = []
+        seen_keys = set()
 
-        try:
-            with transaction.atomic():
-                for i, raw_item in enumerate(results_data):
-                    if isinstance(raw_item, dict):
-                        item = raw_item.copy()
-                    else:
-                        item = dict(raw_item)
+        ModelClass = self.get_queryset().model
 
-                    item["entered_by"] = request.user.id
-                    serializer = self.get_serializer(data=item)
+        # Detect which level this viewset handles
+        education_level = self._get_education_level(ModelClass)
 
-                    try:
-                        serializer.is_valid(raise_exception=True)
-                        result = serializer.save()
-                        created_results.append(
-                            SeniorSecondaryResultSerializer(result).data
-                        )
-                    except Exception as e:
-                        logger.warning(f"Error saving item index {i}: {e}")
-                        errors.append({"index": i, "error": str(e), "data": item})
+        # STEP 0: Preload existing keys to avoid per-row DB hits
+        existing_keys = set(
+            ModelClass.objects.values_list(
+                "student_id", "subject_id", "exam_session_id"
+            )
+        )
 
-                if not created_results and errors:
-                    return Response(
-                        {"error": "Failed to create any results", "errors": errors},
-                        status=status.HTTP_400_BAD_REQUEST,
+        # STEP 1: Validate all records first — fail fast before any DB write
+        for i, raw_item in enumerate(results_data):
+            result_data = (
+                dict(raw_item) if not isinstance(raw_item, dict) else raw_item.copy()
+            )
+            result_data["entered_by"] = request.user.id
+
+            serializer = self.get_serializer(data=result_data)
+
+            if serializer.is_valid():
+                data = serializer.validated_data
+                key = (
+                    data["student"].id,
+                    data["subject"].id,
+                    data["exam_session"].id,
+                )
+
+                if key in seen_keys:
+                    errors.append(
+                        {
+                            "index": i,
+                            "errors": "Duplicate entry in uploaded data",
+                            "data": result_data,
+                        }
                     )
+                    continue
 
-                response_data = {
-                    "message": f"Successfully created {len(created_results)} results",
-                    "results": created_results,
-                }
+                if key in existing_keys:
+                    errors.append(
+                        {
+                            "index": i,
+                            "errors": "Result already exists in database",
+                            "data": result_data,
+                        }
+                    )
+                    continue
 
-                if errors:
-                    response_data["partial_success"] = True
-                    response_data["errors"] = errors
+                seen_keys.add(key)
 
-                return Response(response_data, status=status.HTTP_201_CREATED)
+                # ✅ CRITICAL: Calculate scores NOW because bulk_create
+                # bypasses save(), so calculate_scores() and determine_grade()
+                # will never be called automatically
+                instance = ModelClass(**data)
+                self._calculate_instance_scores(instance, ModelClass)
+                validated_objects.append(instance)
 
-        except Exception as e:
-            logger.error(f"Failed to bulk create results: {str(e)}", exc_info=True)
+            else:
+                errors.append(
+                    {
+                        "index": i,
+                        "errors": serializer.errors,
+                        "data": result_data,
+                    }
+                )
+
+        # Stop everything if any validation failed — true atomic behavior
+        if errors:
             return Response(
-                {"error": f"Failed to bulk create results: {str(e)}"},
+                {
+                    "error": "Validation failed. No results were saved.",
+                    "errors": errors,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # STEP 2: Bulk insert + all post-processing inside ONE transaction
+        try:
+            with transaction.atomic():
+                # Insert all records
+                created_results = ModelClass.objects.bulk_create(
+                    validated_objects, batch_size=500
+                )
+
+                # Collect affected groups for post-processing
+                # Group by (exam_session, subject, student_class, education_level)
+                # for subject statistics, and by (exam_session, student_class,
+                # education_level) for term report positions
+                subject_groups = set()
+                class_groups = set()
+                student_session_pairs = []  # For term report creation
+
+                for obj in created_results:
+                    student_class = obj.student.student_class
+                    edu_level = obj.student.education_level
+
+                    subject_groups.add(
+                        (
+                            obj.exam_session_id,
+                            obj.subject_id,
+                            student_class,
+                            edu_level,
+                        )
+                    )
+                    class_groups.add(
+                        (
+                            obj.exam_session_id,
+                            student_class,
+                            edu_level,
+                        )
+                    )
+                    student_session_pairs.append((obj.student_id, obj.exam_session_id))
+
+                # STEP 3: Create/update TermReports for each affected student
+                # This is what the signal does that your old code missed entirely
+                self._ensure_term_reports_exist(
+                    created_results, ModelClass, education_level
+                )
+
+                # STEP 4: Recalculate subject-level statistics
+                # (class_average, highest, lowest, subject_position)
+                # This replaces the broken _recalculate_positions()
+                for (
+                    exam_session_id,
+                    subject_id,
+                    student_class,
+                    edu_level,
+                ) in subject_groups:
+                    self._recalculate_subject_stats(
+                        ModelClass,
+                        exam_session_id,
+                        subject_id,
+                        student_class,
+                        edu_level,
+                    )
+
+                # STEP 5: Recalculate class positions on TermReports
+                TermReportModel = self._get_term_report_model(ModelClass)
+                if TermReportModel:
+                    for exam_session_id, student_class, edu_level in class_groups:
+                        TermReportModel.bulk_recalculate_positions(
+                            exam_session=self._get_exam_session(exam_session_id),
+                            student_class=student_class,
+                            education_level=edu_level,
+                        )
+
+            return Response(
+                {
+                    "message": f"Successfully created {len(created_results)} results",
+                    "results": self.get_serializer(created_results, many=True).data,
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        except Exception as e:
+            logger.error(f"Bulk create failed: {str(e)}", exc_info=True)
+            return Response(
+                {
+                    "error": "Bulk upload failed. No results were saved.",
+                    "details": str(e),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    # ── Helper methods ──────────────────────────────────────────────────────────
+
+    def _get_education_level(self, ModelClass):
+        """Map model class to education level string."""
+        from result.models import (
+            JuniorSecondaryResult,
+            SeniorSecondaryResult,
+            PrimaryResult,
+            NurseryResult,
+        )
+
+        mapping = {
+            JuniorSecondaryResult: "JUNIOR_SECONDARY",
+            SeniorSecondaryResult: "SENIOR_SECONDARY",
+            PrimaryResult: "PRIMARY",
+            NurseryResult: "NURSERY",
+        }
+        return mapping.get(ModelClass, "UNKNOWN")
+
+    def _get_term_report_model(self, ModelClass):
+        """Return the matching TermReport model for a given Result model."""
+        from result.models import (
+            JuniorSecondaryResult,
+            JuniorSecondaryTermReport,
+            SeniorSecondaryResult,
+            SeniorSecondaryTermReport,
+            PrimaryResult,
+            PrimaryTermReport,
+            NurseryResult,
+            NurseryTermReport,
+        )
+
+        mapping = {
+            JuniorSecondaryResult: JuniorSecondaryTermReport,
+            SeniorSecondaryResult: SeniorSecondaryTermReport,
+            PrimaryResult: PrimaryTermReport,
+            NurseryResult: NurseryTermReport,
+        }
+        return mapping.get(ModelClass)
+
+    def _get_exam_session(self, exam_session_id):
+        """Fetch ExamSession by ID (cached per request if called multiple times)."""
+        from result.models import ExamSession
+
+        if not hasattr(self, "_exam_session_cache"):
+            self._exam_session_cache = {}
+        if exam_session_id not in self._exam_session_cache:
+            self._exam_session_cache[exam_session_id] = ExamSession.objects.get(
+                id=exam_session_id
+            )
+        return self._exam_session_cache[exam_session_id]
+
+    def _calculate_instance_scores(self, instance, ModelClass):
+        """
+        Replicate what each model's save() does score-wise.
+        bulk_create bypasses save(), so we must do this manually.
+        """
+        from result.models import (
+            JuniorSecondaryResult,
+            SeniorSecondaryResult,
+            PrimaryResult,
+            NurseryResult,
+        )
+
+        # All result models have these two methods defined
+        if hasattr(instance, "calculate_scores"):
+            instance.calculate_scores()
+        if hasattr(instance, "determine_grade"):
+            instance.determine_grade()
+
+        # NurseryResult uses a different pattern — percentage from mark_obtained
+        if ModelClass == NurseryResult:
+            if instance.max_marks_obtainable and instance.max_marks_obtainable > 0:
+                instance.percentage = (
+                    instance.mark_obtained / instance.max_marks_obtainable
+                ) * 100
+            else:
+                instance.percentage = 0
+
+            if instance.grading_system:
+                calculated_grade = instance.grading_system.get_grade(
+                    instance.percentage
+                )
+                instance.grade = calculated_grade or instance._get_default_grade(
+                    instance.percentage
+                )
+                instance.is_passed = instance.percentage >= float(
+                    instance.grading_system.pass_mark or 40
+                )
+
+    def _ensure_term_reports_exist(self, created_results, ModelClass, education_level):
+        """
+        This is the step your old bulk_create was completely missing.
+
+        For every student+exam_session in the batch, get_or_create their
+        TermReport and recalculate its metrics — exactly what the post_save
+        signal does for individual saves.
+        """
+        TermReportModel = self._get_term_report_model(ModelClass)
+        if not TermReportModel:
+            return
+
+        # Deduplicate: one term report per student+session
+        seen_pairs = set()
+        for obj in created_results:
+            pair = (obj.student_id, obj.exam_session_id)
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+
+            defaults = {"status": "DRAFT", "is_published": False}
+
+            # Senior Secondary needs the stream linked
+            from result.models import SeniorSecondaryResult
+
+            if ModelClass == SeniorSecondaryResult and hasattr(obj, "stream"):
+                defaults["stream"] = obj.stream
+
+            term_report, created = TermReportModel.objects.get_or_create(
+                student_id=obj.student_id,
+                exam_session_id=obj.exam_session_id,
+                defaults=defaults,
+            )
+
+            # Link the result to its term report if not already linked
+            if not obj.term_report_id:
+                ModelClass.objects.filter(
+                    student_id=obj.student_id,
+                    exam_session_id=obj.exam_session_id,
+                ).update(term_report=term_report)
+
+            # Recalculate metrics — this is what the signal calls
+            term_report.calculate_metrics()
+
+            # Don't call calculate_class_position() per student here —
+            # bulk_recalculate_positions() in STEP 5 handles all students
+            # at once more efficiently
+
+    def _recalculate_subject_stats(
+        self, ModelClass, exam_session_id, subject_id, student_class, edu_level
+    ):
+        """
+        Bulk recalculate subject-level stats for a class in one DB query.
+        Replaces the broken _recalculate_positions() which used wrong field names.
+        """
+        from django.db.models import Avg, Max, Min
+
+        # Determine the correct score field per level
+        from result.models import NurseryResult
+
+        score_field = (
+            "mark_obtained"
+            if ModelClass == NurseryResult
+            else (
+                "total_percentage"
+                if hasattr(ModelClass, "total_percentage")
+                else "total_score"
+            )
+        )
+
+        results = (
+            ModelClass.objects.filter(
+                exam_session_id=exam_session_id,
+                subject_id=subject_id,
+                student__student_class=student_class,
+                student__education_level=edu_level,
+                status__in=["APPROVED", "PUBLISHED"],
+            )
+            .select_for_update()
+            .order_by(f"-{score_field}", "created_at")
+        )
+
+        if not results.exists():
+            return
+
+        stats = results.aggregate(
+            avg=Avg(score_field),
+            highest=Max(score_field),
+            lowest=Min(score_field),
+        )
+
+        # Assign positions with correct tie handling
+        updates = []
+        current_position = 1
+        prev_score = None
+        count_at_position = 0
+
+        for result in results:
+            score = getattr(result, score_field)
+            if score != prev_score:
+                current_position += count_at_position
+                count_at_position = 1
+                prev_score = score
+            else:
+                count_at_position += 1
+
+            result.subject_position = current_position
+            result.class_average = stats["avg"] or 0
+            result.highest_in_class = stats["highest"] or 0
+            result.lowest_in_class = stats["lowest"] or 0
+            updates.append(result)
+
+        ModelClass.objects.bulk_update(
+            updates,
+            [
+                "subject_position",
+                "class_average",
+                "highest_in_class",
+                "lowest_in_class",
+            ],
+            batch_size=100,
+        )
 
     def destroy(self, request, *args, **kwargs):
         """

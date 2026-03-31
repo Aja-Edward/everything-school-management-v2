@@ -30,7 +30,7 @@ try:
     PDF_AVAILABLE = True
 except ImportError:
     PDF_AVAILABLE = False
-    print("⚠️ PDF parsing libraries not available. Install: pip install PyPDF2 pdfplumber")
+    print("PDF parsing libraries not available. Install: pip install PyPDF2 pdfplumber")
 
 # Word parsing
 try:
@@ -40,7 +40,7 @@ try:
     DOCX_AVAILABLE = True
 except ImportError:
     DOCX_AVAILABLE = False
-    print("⚠️ Word parsing library not available. Install: pip install python-docx")
+    print("Word parsing library not available. Install: pip install python-docx")
 
 
 class ExamDocumentParser:

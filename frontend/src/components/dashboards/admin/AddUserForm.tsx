@@ -485,7 +485,7 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Last Name*</label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Surame*</label>
               <input
                 type="text"
                 name="lastName"
@@ -961,32 +961,6 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
         {/* Student Contact & Additional Info - Keep existing code */}
         <div className="space-y-6">
           <h3 className="text-lg font-semibold text-slate-900 border-b border-slate-200 pb-2">Contact & Additional Information</h3>
-          
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">Student Email*</label>
-            <div className="flex items-center gap-3 mb-2">
-              <input
-                type="checkbox"
-                checked={useParentEmail}
-                onChange={(e) => setUseParentEmail(e.target.checked)}
-                id="use-parent-email"
-                className="w-5 h-5 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
-                disabled={!selectedParent && !parentDetails && !formData.parentEmail}
-              />
-              <label htmlFor="use-parent-email" className="text-sm text-slate-600">
-                Use parent's email for student
-              </label>
-            </div>
-            <input
-              type="email"
-              name="email"
-              value={formData.email}
-              onChange={handleInputChange}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-              placeholder="student@example.com"
-              disabled={useParentEmail && (selectedParent || parentDetails)}
-            />
-          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -1027,37 +1001,13 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Medical Conditions</label>
-              <textarea
-                name="medicalConditions"
-                value={formData.medicalConditions}
-                onChange={handleInputChange}
-                rows={3}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all resize-none"
-                placeholder="Any medical conditions or allergies..."
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Special Requirements</label>
-              <textarea
-                name="specialRequirements"
-                value={formData.specialRequirements}
-                onChange={handleInputChange}
-                rows={3}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all resize-none"
-                placeholder="Any special requirements or accommodations..."
-              />
-            </div>
-          </div>
         </div>
 
         {/* Error/Success Messages */}
         {error && (
           <div className="p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl flex items-center gap-3">
             <X className="w-5 h-5 flex-shrink-0" />
-            <span>{error}</span>
+            <span>{error}</span>  
           </div>
         )}
         {success && (

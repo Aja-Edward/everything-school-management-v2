@@ -27,6 +27,7 @@ import StudentService, {
 import { useNavigate } from 'react-router-dom';
 import ResultSheetView from './ResultSheetView';
 import UploadGuide from '@/components/dashboards/admin/Uploadguide';
+import BulkUploadMenu from '@/components/dashboards/admin/BulkUploadMenu';
 
 // ============================================================================
 // HELPERS
@@ -57,14 +58,7 @@ const EDUCATION_LEVEL_LABEL: Record<EducationLevelType, string> = {
 
 const GENDER_LABEL: Record<GenderType, string> = { M: 'Male', F: 'Female' };
 
-/**
- * Resolve a display name for student_class.
- * The field can be a DB ID (number), a name string, or null.
- * Prefer the pre-resolved display field from the serializer when available.
- */
-const resolveClassDisplay = (
-  student: Student,
-): string => {
+const resolveClassDisplay = (student: Student): string => {
   if (student.student_class_display) return student.student_class_display;
   if (student.student_class_detail) return student.student_class_detail.name;
   if (student.student_class != null) return String(student.student_class);
@@ -81,21 +75,18 @@ const resolveEducationLevelDisplay = (student: Student): string => {
 // COMPONENT
 // ============================================================================
 
-  const StudentListEnhanced: React.FC = () => {
+const StudentListEnhanced: React.FC = () => {
   const [students, setStudents] = useState<Student[]>([]);
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showBulkMenu, setShowBulkMenu] = useState(false);
   const [showUploadGuide, setShowUploadGuide] = useState(false);
-  // The dropdown menu open state: stores the student id whose menu is open
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
 
   const [showFilters, setShowFilters] = useState(false);
   const [educationLevelFilter, setEducationLevelFilter] = useState<EducationLevelType | ''>('');
-  // classFilter stores the raw student_class value (string or numeric string)
   const [classFilter, setClassFilter] = useState('');
   const [genderFilter, setGenderFilter] = useState<GenderType | ''>('');
 
@@ -145,7 +136,6 @@ const resolveEducationLevelDisplay = (student: Student): string => {
         (s) =>
           s.full_name?.toLowerCase().includes(q) ||
           s.username?.toLowerCase().includes(q) ||
-          // email lives under user_details
           s.user_details?.email?.toLowerCase().includes(q) ||
           s.registration_number?.toLowerCase().includes(q),
       );
@@ -156,7 +146,6 @@ const resolveEducationLevelDisplay = (student: Student): string => {
     }
 
     if (classFilter) {
-      // Match against the raw FK value (could be number or string)
       filtered = filtered.filter(
         (s) => s.student_class != null && String(s.student_class) === classFilter,
       );
@@ -169,20 +158,13 @@ const resolveEducationLevelDisplay = (student: Student): string => {
     setFilteredStudents(filtered);
   }, [students, debouncedSearch, educationLevelFilter, classFilter, genderFilter]);
 
-  /**
-   * Build a unique list of classes from the loaded students for the filter
-   * dropdown — avoids relying on a hardcoded CLASS_CHOICES list.
-   */
   const availableClasses = React.useMemo(() => {
     const seen = new Map<string, string>();
     for (const s of students) {
       if (s.student_class == null) continue;
-      // Skip if an education level filter is active and doesn't match
       if (educationLevelFilter && s.education_level !== educationLevelFilter) continue;
       const key = String(s.student_class);
-      if (!seen.has(key)) {
-        seen.set(key, resolveClassDisplay(s));
-      }
+      if (!seen.has(key)) seen.set(key, resolveClassDisplay(s));
     }
     return Array.from(seen.entries())
       .map(([value, label]) => ({ value, label }))
@@ -195,25 +177,6 @@ const resolveEducationLevelDisplay = (student: Student): string => {
     setShowDeleteModal(true);
   };
 
-
-  const handleDownloadTemplate = () => {
-  const headers = [
-    'first_name', 'last_name', 'gender', 'date_of_birth',
-    'education_level', 'student_class', 'registration_number', 'email',
-  ];
-  const example = [
-    'John', 'Doe', 'M', '2010-01-15',
-    'PRIMARY', 'Primary 3', 'REG-001', 'john.doe@example.com',
-  ];
-  const csv = [headers.join(','), example.join(',')].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'student_bulk_upload_template.csv';
-  a.click();
-  URL.revokeObjectURL(url);
-};
   const confirmDeleteStudent = async () => {
     if (!deleteStudentId) return;
     try {
@@ -279,14 +242,13 @@ const resolveEducationLevelDisplay = (student: Student): string => {
   // ============================================================================
 
   return (
-    <div className="space-y-6" onClick={() => { setOpenMenuId(null); setShowBulkMenu(false); }}>
+    <div className="space-y-6" onClick={() => setOpenMenuId(null)}>
       {/* ---- Header ---- */}
-      <div>
-        <div  className={`transition-all duration-500 ${
-          mounted ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'
-        }`}>
-
-   
+      <div
+        className={`transition-all duration-500 ${
+          mounted ? 'opacity-100' : 'opacity-0 -translate-y-4'
+        }`}
+      >
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Students</h1>
@@ -294,6 +256,7 @@ const resolveEducationLevelDisplay = (student: Student): string => {
               {filteredStudents.length} of {students.length} students
             </p>
           </div>
+
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowResultSheet(true)}
@@ -303,65 +266,8 @@ const resolveEducationLevelDisplay = (student: Student): string => {
               Result Sheet
             </button>
 
-            {/* Bulk Upload dropdown */}
-            <div className="relative">
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowBulkMenu((v) => !v); }}
-                className="flex items-center gap-2 px-4 py-2 border border-gray-200 bg-white text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                <Users className="w-4 h-4" />
-                Bulk Upload
-                <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
-              </button>
-
-              {showBulkMenu && (
-                <div
-                  className="absolute right-0 top-full mt-1.5 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1.5 min-w-[210px]"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <button
-                    onClick={() => { navigate('/admin/student_bulk_upload'); setShowBulkMenu(false); }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                  >
-                    <div className="w-7 h-7 bg-gray-900 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <Plus className="w-3.5 h-3.5 text-white" />
-                    </div>
-                    <div className="text-left">
-                      <p className="font-medium text-gray-900">Upload Students</p>
-                      <p className="text-xs text-gray-500">Import via spreadsheet</p>
-                    </div>
-                  </button>
-
-                  <div className="h-px bg-gray-100 mx-3 my-1" />
-
-                  <button
-                    onClick={() => { handleDownloadTemplate(); setShowBulkMenu(false); }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                  >
-                    <div className="w-7 h-7 bg-emerald-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <FileText className="w-3.5 h-3.5 text-emerald-600" />
-                    </div>
-                    <div className="text-left">
-                      <p className="font-medium text-gray-900">Download Template</p>
-                      <p className="text-xs text-gray-500">Get the CSV/Excel file</p>
-                    </div>
-                  </button>
-
-                  <button
-                    onClick={() => { setShowUploadGuide(true); setShowBulkMenu(false); }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                  >
-                    <div className="w-7 h-7 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <BookOpen className="w-3.5 h-3.5 text-blue-600" />
-                    </div>
-                    <div className="text-left">
-                      <p className="font-medium text-gray-900">Upload Guide</p>
-                      <p className="text-xs text-gray-500">How to format your file</p>
-                    </div>
-                  </button>
-                </div>
-              )}
-            </div>
+            {/* ── BulkUploadMenu replaces the old inline dropdown ── */}
+            <BulkUploadMenu onOpenGuide={() => setShowUploadGuide(true)} />
 
             <button
               onClick={() => navigate('/admin/students/add')}
@@ -370,15 +276,22 @@ const resolveEducationLevelDisplay = (student: Student): string => {
               <Plus className="w-4 h-4" />
               Add Student
             </button>
-            <UploadGuide
-              isOpen={showUploadGuide}
-              onClose={() => setShowUploadGuide(false)}
-              onDownloadTemplate={handleDownloadTemplate}
-            />
           </div>
         </div>
-        </div>
       </div>
+
+      {/* UploadGuide is still driven by the same state flag */}
+      <UploadGuide
+        isOpen={showUploadGuide}
+        onClose={() => setShowUploadGuide(false)}
+        onDownloadTemplate={() => {
+          // Download student template CSV/Excel file
+          const link = document.createElement('a');
+          link.href = '/templates/students_template.csv';
+          link.download = 'students_template.csv';
+          link.click();
+        }}
+      />
 
       {/* ---- Search & Filters ---- */}
       <div
@@ -459,22 +372,20 @@ const resolveEducationLevelDisplay = (student: Student): string => {
                       value={educationLevelFilter}
                       onChange={(e) => {
                         setEducationLevelFilter(e.target.value as EducationLevelType | '');
-                        setClassFilter(''); // reset class when level changes
+                        setClassFilter('');
                       }}
                       className="w-full h-10 px-3 pr-8 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent appearance-none"
                     >
                       <option value="">All Levels</option>
                       {EDUCATION_LEVEL_CHOICES.map((l) => (
-                        <option key={l.value} value={l.value}>
-                          {l.label}
-                        </option>
+                        <option key={l.value} value={l.value}>{l.label}</option>
                       ))}
                     </select>
                     <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                   </div>
                 </div>
 
-                {/* Class — populated dynamically from loaded students */}
+                {/* Class */}
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1.5">Class</label>
                   <div className="relative">
@@ -485,16 +396,14 @@ const resolveEducationLevelDisplay = (student: Student): string => {
                     >
                       <option value="">All Classes</option>
                       {availableClasses.map((cls) => (
-                        <option key={cls.value} value={cls.value}>
-                          {cls.label}
-                        </option>
+                        <option key={cls.value} value={cls.value}>{cls.label}</option>
                       ))}
                     </select>
                     <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                   </div>
                 </div>
 
-                {/* Gender — values match GenderType: 'M' | 'F' */}
+                {/* Gender */}
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1.5">Gender</label>
                   <div className="relative">
@@ -534,9 +443,9 @@ const resolveEducationLevelDisplay = (student: Student): string => {
         }`}
       >
         {viewMode === 'list' ? (
-          // ==================================================================
+          // ================================================================
           // LIST VIEW
-          // ==================================================================
+          // ================================================================
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -555,7 +464,6 @@ const resolveEducationLevelDisplay = (student: Student): string => {
                 <tbody className="divide-y divide-gray-100">
                   {filteredStudents.map((student) => (
                     <tr key={student.id} className="hover:bg-gray-50 transition-colors">
-                      {/* Student */}
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           {student.profile_picture ? (
@@ -580,46 +488,30 @@ const resolveEducationLevelDisplay = (student: Student): string => {
                           </div>
                         </div>
                       </td>
-
-                      {/* Class */}
                       <td className="px-6 py-4">
                         <span className="text-sm text-gray-900">{resolveClassDisplay(student)}</span>
                       </td>
-
-                      {/* Education Level */}
                       <td className="px-6 py-4">
-                        <span className="text-sm text-gray-900">
-                          {resolveEducationLevelDisplay(student)}
-                        </span>
+                        <span className="text-sm text-gray-900">{resolveEducationLevelDisplay(student)}</span>
                       </td>
-
-                      {/* Gender */}
                       <td className="px-6 py-4">
                         <span
                           className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                            student.gender === 'M'
-                              ? 'bg-blue-50 text-blue-700'
-                              : 'bg-pink-50 text-pink-700'
+                            student.gender === 'M' ? 'bg-blue-50 text-blue-700' : 'bg-pink-50 text-pink-700'
                           }`}
                         >
                           {GENDER_LABEL[student.gender] ?? student.gender}
                         </span>
                       </td>
-
-                      {/* Status */}
                       <td className="px-6 py-4">
                         <span
                           className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                            student.is_active
-                              ? 'bg-emerald-50 text-emerald-700'
-                              : 'bg-gray-100 text-gray-600'
+                            student.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'
                           }`}
                         >
                           {student.is_active ? 'Active' : 'Inactive'}
                         </span>
                       </td>
-
-                      {/* Actions */}
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-1">
                           <button
@@ -659,9 +551,9 @@ const resolveEducationLevelDisplay = (student: Student): string => {
             </div>
           </div>
         ) : (
-          // ==================================================================
+          // ================================================================
           // GRID VIEW
-          // ==================================================================
+          // ================================================================
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {filteredStudents.map((student) => (
               <div
@@ -682,9 +574,7 @@ const resolveEducationLevelDisplay = (student: Student): string => {
                       </div>
                     )}
                     <div className="min-w-0">
-                      <h3 className="text-sm font-semibold text-gray-900 truncate">
-                        {student.full_name}
-                      </h3>
+                      <h3 className="text-sm font-semibold text-gray-900 truncate">{student.full_name}</h3>
                       <p className="text-xs text-gray-500 truncate">
                         {student.registration_number ?? student.username ?? `#${student.id}`}
                       </p>
@@ -737,7 +627,6 @@ const resolveEducationLevelDisplay = (student: Student): string => {
                   </div>
                 </div>
 
-                {/* Card details */}
                 <div className="space-y-2.5">
                   <div className="flex items-center gap-2 text-sm">
                     <GraduationCap className="w-4 h-4 text-gray-400 flex-shrink-0" />
@@ -758,9 +647,7 @@ const resolveEducationLevelDisplay = (student: Student): string => {
                       <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0" />
                       <span className="text-gray-600">
                         {new Date(student.date_of_birth).toLocaleDateString('en-GB', {
-                          day: 'numeric',
-                          month: 'short',
-                          year: 'numeric',
+                          day: 'numeric', month: 'short', year: 'numeric',
                         })}
                       </span>
                     </div>
@@ -770,18 +657,14 @@ const resolveEducationLevelDisplay = (student: Student): string => {
                 <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
                   <span
                     className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                      student.gender === 'M'
-                        ? 'bg-blue-50 text-blue-700'
-                        : 'bg-pink-50 text-pink-700'
+                      student.gender === 'M' ? 'bg-blue-50 text-blue-700' : 'bg-pink-50 text-pink-700'
                     }`}
                   >
                     {GENDER_LABEL[student.gender] ?? student.gender}
                   </span>
                   <span
                     className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                      student.is_active
-                        ? 'bg-emerald-50 text-emerald-700'
-                        : 'bg-gray-100 text-gray-600'
+                      student.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'
                     }`}
                   >
                     {student.is_active ? 'Active' : 'Inactive'}

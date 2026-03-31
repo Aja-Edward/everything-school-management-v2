@@ -25,7 +25,7 @@ if ENV == "prod":
     # Production: Use PROD_DATABASE_URL for Neon
     DATABASE_URL = os.getenv("PROD_DATABASE_URL")
     if not DATABASE_URL:
-        raise ValueError("⚠️ Missing PROD_DATABASE_URL for production environment")
+        raise ValueError("Missing PROD_DATABASE_URL for production environment")
 
     DATABASES = {
         "default": dj_database_url.parse(
@@ -34,20 +34,20 @@ if ENV == "prod":
     }
     # Ensure SSL is required for production
     DATABASES["default"]["OPTIONS"] = {"sslmode": "require"}
-    print(f"✅ Using PRODUCTION database: {DATABASE_URL[:30]}...")
+    print(f"Using PRODUCTION database: {DATABASE_URL[:30]}...")
 
 else:
     # Local Development: Use LOCAL_DATABASE_URL
     LOCAL_DATABASE_URL = os.getenv("LOCAL_DATABASE_URL")
     if not LOCAL_DATABASE_URL:
-        raise ValueError("⚠️ Missing LOCAL_DATABASE_URL for local development")
+        raise ValueError("Missing LOCAL_DATABASE_URL for local development")
 
     DATABASES = {
         "default": dj_database_url.parse(
             LOCAL_DATABASE_URL, conn_max_age=60, ssl_require=False
         )
     }
-    print(f"✅ Using LOCAL database: {LOCAL_DATABASE_URL[:30]}...")
+    print(f"Using LOCAL database: {LOCAL_DATABASE_URL[:30]}...")
 
 
 # ============================================
@@ -69,11 +69,11 @@ if not SECRET_KEY:
     is_render_build = os.getenv("RENDER") is not None
 
     if is_collectstatic or is_render_build:
-        print("⚠️  Using temporary SECRET_KEY for build/collectstatic")
+        print("Using temporary SECRET_KEY for build/collectstatic")
         SECRET_KEY = "django-insecure-temporary-key-for-build-only-not-for-production"
     elif _is_debug:
         # Use consistent development key for local development
-        print("⚠️  Using development SECRET_KEY - DO NOT use in production!")
+        print("Using development SECRET_KEY - DO NOT use in production!")
         SECRET_KEY = _dev_secret_key
     else:
         raise ValueError(
@@ -282,8 +282,8 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://[\w-]+\.schoolplatform\.com$",
 ]
 
-print("✅ CORS Allowed Origins:", CORS_ALLOWED_ORIGINS)
-print("✅ CORS Allowed Origin Regexes:", CORS_ALLOWED_ORIGIN_REGEXES)
+print(" CORS Allowed Origins:", CORS_ALLOWED_ORIGINS)
+print(" CORS Allowed Origin Regexes:", CORS_ALLOWED_ORIGIN_REGEXES)
 
 # Celery + Redis
 CELERY_BROKER_URL = "redis://127.0.0.1:6379/0"
@@ -365,7 +365,7 @@ CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
 
 # Validate Cloudinary credentials
 if not all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
-    print("⚠️  WARNING: Cloudinary credentials not fully configured")
+    print("WARNING: Cloudinary credentials not fully configured")
     print(f"   Cloud Name: {'✓' if CLOUDINARY_CLOUD_NAME else '✗'}")
     print(f"   API Key: {'✓' if CLOUDINARY_API_KEY else '✗'}")
     print(f"   API Secret: {'✓' if CLOUDINARY_API_SECRET else '✗'}")

@@ -24,6 +24,7 @@ from rest_framework.decorators import api_view, permission_classes, parser_class
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
+from tenants.mixins import TenantFilterMixin
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +179,9 @@ def download_upload_template(request):
     Query params:
       format — 'csv' (default) | 'excel'
     """
+    print("🔥 VIEW REACHED 🔥", flush=True)
+    print(">>> download_upload_template VIEW WAS CALLED <<<")  # add this
+
     fmt = request.query_params.get("format", "csv").lower()
 
     # Column definitions: (header, required, example, description)
@@ -230,84 +234,134 @@ def _template_csv(headers, example):
 
 
 def _template_excel(headers, example, column_defs):
+    print("HEADERS:", len(headers))
+    print("COLUMN_DEFS:", len(column_defs))
     try:
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         from openpyxl.utils import get_column_letter
     except ImportError:
-        # Fallback to CSV if openpyxl not installed
         return _template_csv(headers, example)
 
-    wb = openpyxl.Workbook()
+    import io
+    from django.http import HttpResponse
 
-    # ---- Sheet 1: Template ----
+    wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Student Upload Template"
 
-    REQUIRED_COLOR = "FFF2CC"   # yellow for required
+    # ---------------- STYLES ----------------
+    REQUIRED_COLOR = "FFF2CC"
     OPTIONAL_COLOR = "FFFFFF"
-    HEADER_COLOR  = "1F4E79"    # dark blue header
-    HEADER_FONT   = Font(bold=True, color="FFFFFF", size=11)
-    EXAMPLE_FONT  = Font(italic=True, color="595959", size=10)
-    thin_border   = Border(
-        left=Side(style="thin"), right=Side(style="thin"),
-        top=Side(style="thin"), bottom=Side(style="thin"),
+    HEADER_COLOR = "305496"
+
+    HEADER_FONT = Font(bold=True, color="FFFFFF", size=11)
+    EXAMPLE_FONT = Font(italic=True, color="595959", size=10)
+
+    thin_border = Border(
+        left=Side(style="thin"),
+        right=Side(style="thin"),
+        top=Side(style="thin"),
+        bottom=Side(style="thin"),
     )
 
-    # Header row
+    # ---------------- TITLE ----------------
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
+    title = ws.cell(row=1, column=1, value="STUDENT BULK UPLOAD TEMPLATE")
+    title.font = Font(size=14, bold=True, color="1F4E79")
+    title.alignment = Alignment(horizontal="center")
+
+    # ---------------- INSTRUCTIONS ----------------
+    instructions = [
+        "INSTRUCTIONS:",
+        "• Do NOT delete the header row",
+        "• Required fields are highlighted in yellow",
+        "• Dates must be YYYY-MM-DD format",
+        "• Gender must be M or F",
+        "• Stream is only required for Senior Secondary",
+        "• Parent phone must already exist",
+    ]
+
+    for i, text in enumerate(instructions, start=2):
+        ws.merge_cells(start_row=i, start_column=1, end_row=i, end_column=len(headers))
+        cell = ws.cell(row=i, column=1, value=text)
+        cell.font = Font(size=10, color="444444")
+
+    start_row = len(instructions) + 3
+
+    # ---------------- LEGEND ----------------
+    ws.cell(row=start_row - 1, column=1, value="Legend:").font = Font(bold=True)
+    ws.cell(row=start_row - 1, column=2, value="Required").fill = PatternFill(
+        "solid", fgColor=REQUIRED_COLOR
+    )
+    ws.cell(row=start_row - 1, column=3, value="Optional").fill = PatternFill(
+        "solid", fgColor=OPTIONAL_COLOR
+    )
+
+    # ---------------- HEADER ----------------
     for col_idx, header in enumerate(headers, 1):
-        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell = ws.cell(row=start_row, column=col_idx, value=header)
         cell.font = HEADER_FONT
         cell.fill = PatternFill("solid", fgColor=HEADER_COLOR)
         cell.alignment = Alignment(horizontal="center", wrap_text=True)
         cell.border = thin_border
 
-    # Example row
+    # ---------------- EXAMPLE ROW ----------------
+
+    # DEBUG HERE 👇
+    print("HEADERS:", len(headers))
+    print("COLUMN_DEFS:", len(column_defs))
     for col_idx, val in enumerate(example, 1):
-        required = column_defs[col_idx - 1][1]
-        cell = ws.cell(row=2, column=col_idx, value=val)
+        col_def = column_defs[col_idx - 1] if col_idx - 1 < len(column_defs) else None
+        required = col_def[1] if col_def else False
+        cell = ws.cell(row=start_row + 1, column=col_idx, value=val)
         cell.font = EXAMPLE_FONT
-        cell.fill = PatternFill("solid", fgColor=REQUIRED_COLOR if required else OPTIONAL_COLOR)
-        cell.alignment = Alignment(wrap_text=True)
+        cell.fill = PatternFill(
+            "solid", fgColor=REQUIRED_COLOR if required else OPTIONAL_COLOR
+        )
         cell.border = thin_border
 
-    # Column widths
-    col_widths = [20, 18, 18, 16, 10, 16, 16, 12, 16, 16, 12, 14, 14, 16, 12,
-                  30, 18, 18, 18, 24, 22, 20, 24, 30, 28]
-    for i, width in enumerate(col_widths, 1):
-        ws.column_dimensions[get_column_letter(i)].width = width
+    # ---------------- COLUMN WIDTH ----------------
+    for i in range(1, len(headers) + 1):
+        ws.column_dimensions[get_column_letter(i)].width = 20
 
-    ws.row_dimensions[1].height = 30
-    ws.freeze_panes = "A2"
+    ws.row_dimensions[start_row].height = 30
 
-    # ---- Sheet 2: Field Guide ----
+    # Freeze header
+    ws.freeze_panes = f"A{start_row + 1}"
+
+    # Add filter
+    ws.auto_filter.ref = f"A{start_row}:{get_column_letter(len(headers))}{start_row}"
+
+    # ---------------- FIELD GUIDE ----------------
     guide = wb.create_sheet("Field Guide")
-    guide.column_dimensions["A"].width = 30
-    guide.column_dimensions["B"].width = 12
-    guide.column_dimensions["C"].width = 20
-    guide.column_dimensions["D"].width = 50
 
     guide_headers = ["Column", "Required", "Example", "Description"]
+
     for col_idx, h in enumerate(guide_headers, 1):
         cell = guide.cell(row=1, column=col_idx, value=h)
         cell.font = HEADER_FONT
         cell.fill = PatternFill("solid", fgColor=HEADER_COLOR)
         cell.border = thin_border
-        cell.alignment = Alignment(horizontal="center")
 
     for row_idx, (header, required, ex, desc) in enumerate(column_defs, 2):
         guide.cell(row=row_idx, column=1, value=header).border = thin_border
-        req_cell = guide.cell(row=row_idx, column=2, value="Yes" if required else "No")
-        req_cell.border = thin_border
-        req_cell.font = Font(color="C00000" if required else "595959", bold=required)
-        guide.cell(row=row_idx, column=3, value=ex).border = thin_border
-        desc_cell = guide.cell(row=row_idx, column=4, value=desc)
-        desc_cell.border = thin_border
-        desc_cell.alignment = Alignment(wrap_text=True)
 
+        req_cell = guide.cell(row=row_idx, column=2, value="Yes" if required else "No")
+        req_cell.font = Font(color="C00000" if required else "595959", bold=required)
+        req_cell.border = thin_border
+
+        guide.cell(row=row_idx, column=3, value=ex).border = thin_border
+
+        desc_cell = guide.cell(row=row_idx, column=4, value=desc)
+        desc_cell.alignment = Alignment(wrap_text=True)
+        desc_cell.border = thin_border
+
+    # ---------------- RESPONSE ----------------
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
+
     response = HttpResponse(
         buf.read(),
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

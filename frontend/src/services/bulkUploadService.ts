@@ -1,6 +1,84 @@
+// // services/bulkUploadService.ts
+
+// import { API_BASE_URL } from "@/services/api";
+// import type {
+//   BulkUploadInitResponse,
+//   BulkUploadStatusResponse,
+//   ExportFormat,
+//   TemplateFormat,
+// } from "@/types/bulkUpload";
+
+// const getToken = (): string => localStorage.getItem("access_token") ?? "";
+
+// const authHeaders = (): Record<string, string> => ({
+//   Authorization: `Bearer ${getToken()}`,
+// });
+
+// export const bulkUploadService = {
+//   uploadFile: async (
+//     file: File,
+//     sessionId?: number | null
+//   ): Promise<BulkUploadInitResponse> => {
+//     const form = new FormData();
+//     form.append("file", file);
+//     if (sessionId) form.append("academic_session", String(sessionId));
+
+//     const res = await fetch(`${API_BASE_URL}/students/bulk-upload/`, {
+//       method: "POST",
+//       headers: authHeaders(),
+//       body: form,
+//     });
+//     if (!res.ok) throw await res.json();
+//     return res.json();
+//   },
+
+//   getStatus: async (uploadId: number): Promise<BulkUploadStatusResponse> => {
+//     const res = await fetch(
+//       `${API_BASE_URL}/students/bulk-upload/${uploadId}/status/`,
+//       { headers: authHeaders() }
+//     );
+//     if (!res.ok) throw new Error("Status fetch failed");
+//     return res.json();
+//   },
+
+//   exportCredentials: async (
+//     uploadId: number,
+//     format: ExportFormat = "excel"
+//   ): Promise<Blob> => {
+//     const res = await fetch(
+//       `${API_BASE_URL}/students/bulk-upload/${uploadId}/export-credentials/`,
+//       {
+//         method: "POST",
+//         headers: { ...authHeaders(), "Content-Type": "application/json" },
+//         body: JSON.stringify({ format }),
+//       }
+//     );
+//     if (!res.ok) throw new Error("Export failed");
+//     return res.blob();
+//   },
+
+//   downloadErrorReport: async (uploadId: number): Promise<Blob> => {
+//     const res = await fetch(
+//       `${API_BASE_URL}/students/bulk-upload/${uploadId}/error-report/`,
+//       { headers: authHeaders() }
+//     );
+//     if (!res.ok) throw new Error("Download failed");
+//     return res.blob();
+//   },
+
+//   downloadTemplate: (format: TemplateFormat = "excel"): void => {
+//     window.open(
+//       `${API_BASE_URL}/students/bulk-upload/template/?format=${format}`,
+//       "_blank"
+//     );
+//   },
+// };
+
+
+
 // services/bulkUploadService.ts
 
-import { API_BASE_URL } from "@/services/api";
+import api, { API_BASE_URL } from "@/services/api";
 import type {
   BulkUploadInitResponse,
   BulkUploadStatusResponse,
@@ -8,11 +86,22 @@ import type {
   TemplateFormat,
 } from "@/types/bulkUpload";
 
-const getToken = (): string => localStorage.getItem("access_token") ?? "";
+const STUDENTS_BASE = `${API_BASE_URL}/students`;
 
-const authHeaders = (): Record<string, string> => ({
-  Authorization: `Bearer ${getToken()}`,
-});
+
+
+// Reuse the same auth + tenant headers api.ts already builds
+const getHeaders = async (): Promise<Record<string, string>> => {
+  const headers: Record<string, string> = {};
+
+  const token = localStorage.getItem("authToken"); // ← matches api.ts
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const tenantSlug = localStorage.getItem("tenantSlug");
+  if (tenantSlug) headers["X-Tenant-Slug"] = tenantSlug;
+
+  return headers;
+};
 
 export const bulkUploadService = {
   uploadFile: async (
@@ -23,9 +112,12 @@ export const bulkUploadService = {
     form.append("file", file);
     if (sessionId) form.append("academic_session", String(sessionId));
 
-    const res = await fetch(`${API_BASE_URL}/students/bulk-upload/`, {
+    const headers = await getHeaders();
+    // Don't set Content-Type — browser sets it with boundary for multipart
+    const res = await fetch(`${STUDENTS_BASE}/bulk-upload/`, {
       method: "POST",
-      headers: authHeaders(),
+      headers,
+      credentials: "include",
       body: form,
     });
     if (!res.ok) throw await res.json();
@@ -33,43 +125,65 @@ export const bulkUploadService = {
   },
 
   getStatus: async (uploadId: number): Promise<BulkUploadStatusResponse> => {
-    const res = await fetch(
-      `${API_BASE_URL}/students/bulk-upload/${uploadId}/status/`,
-      { headers: authHeaders() }
-    );
-    if (!res.ok) throw new Error("Status fetch failed");
-    return res.json();
+    return api.get(`${STUDENTS_BASE}/bulk-upload/${uploadId}/status/`);
   },
 
   exportCredentials: async (
     uploadId: number,
     format: ExportFormat = "excel"
-  ): Promise<Blob> => {
+  ): Promise<void> => {
+    const headers = await getHeaders();
     const res = await fetch(
-      `${API_BASE_URL}/students/bulk-upload/${uploadId}/export-credentials/`,
+      `${STUDENTS_BASE}/bulk-upload/${uploadId}/export-credentials/`,
       {
         method: "POST",
-        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        headers: { ...headers, "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ format }),
       }
     );
     if (!res.ok) throw new Error("Export failed");
-    return res.blob();
+    await triggerBlobDownload(res, `credentials.${format === "excel" ? "xlsx" : format}`);
   },
 
-  downloadErrorReport: async (uploadId: number): Promise<Blob> => {
+  downloadErrorReport: async (uploadId: number): Promise<void> => {
+    const headers = await getHeaders();
     const res = await fetch(
-      `${API_BASE_URL}/students/bulk-upload/${uploadId}/error-report/`,
-      { headers: authHeaders() }
+      `${STUDENTS_BASE}/bulk-upload/${uploadId}/errors/`,
+      { headers, credentials: "include" }
     );
     if (!res.ok) throw new Error("Download failed");
-    return res.blob();
+    await triggerBlobDownload(res, "upload_errors.csv");
   },
 
-  downloadTemplate: (format: TemplateFormat = "excel"): void => {
-    window.open(
-      `${API_BASE_URL}/students/bulk-upload/template/?format=${format}`,
-      "_blank"
+  downloadTemplate: async (format: TemplateFormat = "excel"): Promise<void> => {
+    const headers = await getHeaders();
+    const res = await fetch(
+      `${STUDENTS_BASE}/bulk-upload/template/?format=${format}`,
+      { headers, credentials: "include" }
     );
+    if (!res.ok) throw new Error(`Template download failed: ${res.status}`);
+    const ext = format === "excel" ? "xlsx" : "csv";
+    await triggerBlobDownload(res, `student_upload_template.${ext}`);
   },
 };
+
+// ---------------------------------------------------------------------------
+// Helper
+// ---------------------------------------------------------------------------
+async function triggerBlobDownload(res: Response, fallbackName: string) {
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+
+  // Use filename from Content-Disposition if available
+  const disposition = res.headers.get("Content-Disposition");
+  const match = disposition?.match(/filename="?([^"]+)"?/);
+  a.download = match?.[1] ?? fallbackName;
+
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
