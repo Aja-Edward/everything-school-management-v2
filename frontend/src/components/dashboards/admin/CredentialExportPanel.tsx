@@ -1,7 +1,7 @@
 // components/students/CredentialExportPanel.tsx
 
 import { useState } from "react";
-import type { ExportFormat } from "@/types/bulkUpload";
+import type { ExportFormat } from "@/types/studentBulkUpload";
 
 // ---------------------------------------------------------------------------
 // Types

@@ -1,6 +1,6 @@
 // components/students/UploadProgressModal.tsx
 
-import type { UploadPhase, UploadStats } from "@/types/bulkUpload";
+import type { UploadPhase, UploadStats } from "@/types/studentBulkUpload";
 
 // ---------------------------------------------------------------------------
 // Types

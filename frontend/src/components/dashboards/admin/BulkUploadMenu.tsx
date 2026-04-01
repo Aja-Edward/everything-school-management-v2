@@ -14,7 +14,7 @@ import {
   FileSpreadsheet,
   FileText,
 } from 'lucide-react';
-import { bulkUploadService } from "@/services/bulkUploadService";
+import { bulkUploadService } from "@/services/studentBulkUploadService";
 
 // ---------------------------------------------------------------------------
 // Types

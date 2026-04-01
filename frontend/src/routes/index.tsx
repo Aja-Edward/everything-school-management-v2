@@ -61,6 +61,7 @@ const AdminLayout = lazy(() => import('./../components/layouts/AdminLayout'));
 const AdminDashboardContentLoader = lazy(() => import('./../pages/admin/AdminDashboardContentLoader'));
 const StudentList = lazy(() => import('./../pages/admin/AdminStudentList'));
 const BulkUploadPage = lazy(() => import('./../pages/admin/BulkUploadPage'));
+const ParentBulkUploadPage = lazy(() => import('./../pages/admin/ParentBulkUploadPage'))
 const StudentDetailView = lazy(() => import('./../components/dashboards/admin/StudentDetailView'));
 const AddStudentForm = lazy(() => import('./../pages/admin/AddStudentForm'));
 const EditStudentForm = lazy(() => import('./../components/dashboards/admin/EditStudentForm'));
@@ -533,6 +534,10 @@ export const router = createBrowserRouter([
           {
             path: 'parents/add',
             element: <LazyWrapper><AddParentForm /></LazyWrapper>,
+          },
+          {
+            path: 'parent_bulk_upload',
+            element: <LazyWrapper><ParentBulkUploadPage/></LazyWrapper>
           },
           {
             path: 'admins',

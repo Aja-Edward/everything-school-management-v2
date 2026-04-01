@@ -311,9 +311,6 @@ class ResultCheckToken(TenantMixin, models.Model):
 # ========================================
 # BULK UPLOAD RECORD MODEL
 # ========================================
-# Add this import at the top of models.py if not present:
-#   from django.db import models
-
 
 class BulkUploadRecord(TenantMixin, models.Model):
     """

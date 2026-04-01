@@ -22,9 +22,13 @@ from django.http import HttpResponse, FileResponse
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.permissions import IsAdminUser
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from tenants.mixins import TenantFilterMixin
+from django.http import HttpResponse, JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
 logger = logging.getLogger(__name__)
 
@@ -168,49 +172,94 @@ def bulk_upload_status(request, upload_id):
 # 3. Template download
 # ---------------------------------------------------------------------------
 
-@api_view(["GET"])
-@permission_classes([IsAdminUser])
+
+def _jwt_auth(request):
+    """Returns (user, None) or raises JsonResponse."""
+    auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+
+    # Try Bearer token from header
+    if auth_header.startswith("Bearer "):
+        try:
+            jwt_auth = JWTAuthentication()
+            validated_token = jwt_auth.get_validated_token(auth_header[7:])
+            return jwt_auth.get_user(validated_token)
+        except (InvalidToken, TokenError):
+            pass
+
+    # Try cookie fallback
+    from django.conf import settings as django_settings
+
+    raw_token = request.COOKIES.get(getattr(django_settings, "AUTH_COOKIE_ACCESS", ""))
+    if raw_token:
+        try:
+            jwt_auth = JWTAuthentication()
+            validated_token = jwt_auth.get_validated_token(raw_token)
+            return jwt_auth.get_user(validated_token)
+        except (InvalidToken, TokenError):
+            pass
+
+    return None
+
+
+@csrf_exempt
 def download_upload_template(request):
-    """
-    Download a blank CSV or Excel template with all required columns.
-    Includes example rows, column descriptions in a second sheet (Excel only),
-    and marks required fields with *.
+    if request.method == "OPTIONS":
+        response = HttpResponse()
+        response["Allow"] = "GET, OPTIONS"
+        return response
 
-    Query params:
-      format — 'csv' (default) | 'excel'
-    """
-    print("🔥 VIEW REACHED 🔥", flush=True)
-    print(">>> download_upload_template VIEW WAS CALLED <<<")  # add this
+    if request.method != "GET":
+        return JsonResponse({"error": "Method not allowed."}, status=405)
 
-    fmt = request.query_params.get("format", "csv").lower()
+    user = _jwt_auth(request)
+    if not user:
+        return JsonResponse({"error": "Authentication required."}, status=401)
+    if not user.is_staff:
+        return JsonResponse({"error": "Admin access required."}, status=403)
 
-    # Column definitions: (header, required, example, description)
+    fmt = request.GET.get("format", "csv").lower()
+
     COLUMNS = [
-        ("Registration Number",  False, "STU/2024/001",  "School-assigned reg number (optional, auto-generated if blank)"),
-        ("Surname*",             True,  "Adeyemi",       "Student's surname / last name"),
-        ("First Name*",          True,  "Fatima",        "Student's first name"),
-        ("Middle Name",          False, "Grace",         "Optional middle name"),
-        ("Gender*",              True,  "F",             "M or F"),
-        ("Date of Birth*",       True,  "2010-03-15",    "Format: YYYY-MM-DD"),
-        ("LGA*",                 True,  "Ikeja",         "Local Government Area of origin"),
-        ("Blood Group",          False, "O+",            "e.g. A+, B-, O+, AB+"),
-        ("Place of Birth*",      True,  "Lagos",         "City / town of birth"),
-        ("Class Code*",          True,  "JSS_1",         "Exact class code from the system (e.g. JSS_1, SS_3, PRIMARY_4)"),
-        ("Section*",             True,  "A",             "Section name (e.g. A, B, Gold)"),
-        ("Stream",               False, "SCIENCE",       "Required only for Senior Secondary. Leave blank otherwise."),
-        ("Year Admitted*",       True,  "2024",          "4-digit year (e.g. 2024)"),
-        ("Admission Date*",      True,  "2024-09-02",    "Format: YYYY-MM-DD"),
-        ("Is Active",            False, "TRUE",          "TRUE or FALSE. Defaults to TRUE."),
-        ("Address*",             True,  "12 Broad St, Lagos", "Home address"),
-        ("Phone Number",         False, "08012345678",   "Student's phone (optional for younger students)"),
-        ("Parent Contact*",      True,  "08098765432",   "Parent/guardian phone — MUST match an existing parent account"),
-        ("Emergency Contact*",   True,  "08011112222",   "Emergency contact number"),
-        ("Parent/Guardian Name*",True,  "Mr. Adeyemi Bola", "Full name of parent/guardian"),
-        ("Parent/Guardian Role*",True,  "Father",        "Father / Mother / Guardian / Sponsor"),
-        ("Medical Conditions",   False, "Asthma",        "Comma-separated list of conditions, or leave blank"),
-        ("Special Requirements", False, "Wheelchair access", "Any special educational or care needs"),
-        ("Profile Picture URL",  False, "https://res.cloudinary.com/...", "Cloudinary URL (optional)"),
-        ("Email",                False, "fatima@example.com", "Student email (optional)"),
+        ("Registration Number", True, "0001", "School-assigned reg number"),
+        ("Surname*", True, "Adeyemi", "Student's surname / last name"),
+        ("First Name*", True, "Fatima", "Student's first name"),
+        ("Middle Name", False, "Grace", "Optional middle name"),
+        ("Gender*", True, "F", "M or F"),
+        ("Date of Birth*", True, "2010-03-15", "Format: YYYY-MM-DD"),
+        ("LGA*", True, "Ikeja", "Local Government Area of origin"),
+        ("Blood Group", False, "O+", "e.g. A+, B-, O+, AB+"),
+        ("Place of Birth*", True, "Lagos", "City / town of birth"),
+        ("Class Code*", True, "JSS_1", "Exact class code from the system"),
+        ("Section*", True, "A", "Section name (e.g. A, B, Gold)"),
+        ("Stream", False, "SCIENCE", "Required only for Senior Secondary."),
+        ("Year Admitted*", True, "2024", "4-digit year (e.g. 2024)"),
+        ("Admission Date*", True, "2024-09-02", "Format: YYYY-MM-DD"),
+        ("Is Active", False, "TRUE", "TRUE or FALSE. Defaults to TRUE."),
+        ("Address*", True, "12 Broad St, Lagos", "Home address"),
+        ("Phone Number", False, "08012345678", "Student's phone"),
+        ("Parent Contact*", True, "08098765432", "Parent/guardian phone"),
+        ("Emergency Contact*", True, "08011112222", "Emergency contact number"),
+        (
+            "Parent/Guardian Name*",
+            True,
+            "Mr. Adeyemi Bola",
+            "Full name of parent/guardian",
+        ),
+        (
+            "Parent/Guardian Role*",
+            True,
+            "Father",
+            "Father / Mother / Guardian / Sponsor",
+        ),
+        ("Medical Conditions", False, "Asthma", "Comma-separated list"),
+        ("Special Requirements", False, "Wheelchair access", "Any special needs"),
+        (
+            "Profile Picture URL",
+            False,
+            "https://res.cloudinary.com/...",
+            "Cloudinary URL",
+        ),
+        ("Email", False, "fatima@example.com", "Student email (optional)"),
     ]
 
     headers = [col[0] for col in COLUMNS]
@@ -218,8 +267,7 @@ def download_upload_template(request):
 
     if fmt == "excel":
         return _template_excel(headers, example, COLUMNS)
-    else:
-        return _template_csv(headers, example)
+    return _template_csv(headers, example)
 
 
 def _template_csv(headers, example):
@@ -374,8 +422,8 @@ def _template_excel(headers, example, column_defs):
 # 4. Credential export
 # ---------------------------------------------------------------------------
 
-@api_view(["POST"])
-@permission_classes([IsAdminUser])
+
+@csrf_exempt
 def export_credentials(request, upload_id):
     """
     Export login credentials for all successfully imported students
@@ -383,31 +431,53 @@ def export_credentials(request, upload_id):
 
     Body:
       format — 'csv' | 'excel' | 'pdf'
-
-    The credential data is stored in BulkUploadRecord.result_data['imported'].
-    Each entry has: full_name, username, password, registration_number, classroom.
     """
-    from students.models import BulkUploadRecord
+    if request.method == "OPTIONS":
+        response = HttpResponse()
+        response["Allow"] = "POST, OPTIONS"
+        return response
+
+    if request.method != "POST":
+        # Bug 1: used DRF Response instead of JsonResponse
+        return JsonResponse({"error": "Method not allowed."}, status=405)
+
+    user = _jwt_auth(request)
+    if not user:
+        return JsonResponse({"error": "Authentication required."}, status=401)
+    if not user.is_staff:
+        return JsonResponse({"error": "Admin access required."}, status=403)
 
     tenant = _get_tenant(request)
+
+    from students.models import BulkUploadRecord
+
     try:
         record = BulkUploadRecord.objects.get(pk=upload_id, tenant=tenant)
     except BulkUploadRecord.DoesNotExist:
-        return Response({"error": "Upload record not found."}, status=404)
+        return JsonResponse({"error": "Upload record not found."}, status=404)
 
     if record.status != "completed":
-        return Response(
+        return JsonResponse(
             {"error": "Upload is not yet complete. Cannot export credentials."},
             status=400,
         )
 
     imported = record.result_data.get("imported", [])
     if not imported:
-        return Response({"error": "No successfully imported students found."}, status=404)
+        return JsonResponse(
+            {"error": "No successfully imported students found."}, status=404
+        )
 
-    fmt = request.data.get("format", "csv").lower()
+    import json
+
+    try:
+        body = json.loads(request.body)
+        fmt = body.get("format", "csv").lower()
+    except (json.JSONDecodeError, AttributeError):
+        fmt = request.POST.get("format", "csv").lower()
+
     if fmt not in ("csv", "excel", "pdf"):
-        return Response({"error": "format must be csv, excel, or pdf."}, status=400)
+        return JsonResponse({"error": "format must be csv, excel, or pdf."}, status=400)
 
     if fmt == "csv":
         return _export_csv(imported, record)
@@ -634,24 +704,42 @@ def _export_pdf(imported, record):
 # 5. Error report download
 # ---------------------------------------------------------------------------
 
-@api_view(["GET"])
-@permission_classes([IsAdminUser])
+
+@csrf_exempt
 def download_error_report(request, upload_id):
     """
     Download a CSV of all rows that failed validation for a completed upload.
-    Schools use this to fix their data and re-upload.
     """
+    if request.method == "OPTIONS":
+        response = HttpResponse()
+        response["Allow"] = "GET, OPTIONS"
+        return response
+
+    if request.method != "GET":
+        return JsonResponse({"error": "Method not allowed."}, status=405)
+
+    # Bug 1: _jwt_auth returns a USER not a tenant — variable was misnamed
+    user = _jwt_auth(request)
+    if not user:
+        return JsonResponse({"error": "Authentication required."}, status=401)
+    if not user.is_staff:
+        return JsonResponse({"error": "Admin access required."}, status=403)
+
+    # Bug 2: tenant must come from request, not from _jwt_auth
+    tenant = _get_tenant(request)
+
     from students.models import BulkUploadRecord
 
-    tenant = _get_tenant(request)
     try:
         record = BulkUploadRecord.objects.get(pk=upload_id, tenant=tenant)
     except BulkUploadRecord.DoesNotExist:
-        return Response({"error": "Upload record not found."}, status=404)
+        # Bug 3: can't use DRF Response in a plain Django view — use JsonResponse
+        return JsonResponse({"error": "Upload record not found."}, status=404)
 
     errors = record.result_data.get("errors", [])
     if not errors:
-        return Response({"message": "No errors to report."}, status=200)
+        # Bug 3: same — use JsonResponse not Response
+        return JsonResponse({"message": "No errors to report."}, status=200)
 
     buf = io.StringIO()
     writer = csv.writer(buf)

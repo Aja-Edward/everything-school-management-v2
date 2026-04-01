@@ -4,9 +4,8 @@ import { useState, useRef, useCallback, CSSProperties } from "react";
 import { useBulkUpload } from "@/hooks/useBulkUpload";
 import UploadProgressModal from "@/components/dashboards/admin/UploadProgressModal";
 import CredentialExportPanel from "@/components/dashboards/admin/CredentialExportPanel";
-import { API_BASE_URL } from "@/services/api";
-import type { UploadRowError, ExportFormat, TemplateFormat } from "@/types/bulkUpload";
-import { bulkUploadService } from "@/services/bulkUploadService";
+import type { UploadRowError, ExportFormat, TemplateFormat } from "@/types/studentBulkUpload";
+import { bulkUploadService } from "@/services/studentBulkUploadService";
 
 
 // ---------------------------------------------------------------------------
@@ -288,8 +287,7 @@ export default function BulkUploadPage() {
             <button
               onClick={handleUpload}
               disabled={!selectedFile || phase === "uploading" || phase === "processing"}
-              style={{ ...btnPrimaryStyle, opacity: !selectedFile ? 0.5 : 1, color: (phase === "uploading" || phase === "processing") ? "var(--color-text-secondary)" : btnPrimaryStyle.color }}
-
+              className="bg-slate-700 text-white p-3 cursor-pointer rounded-lg font-medium"
             >
               {phase === "uploading"
                 ? "Uploading…"

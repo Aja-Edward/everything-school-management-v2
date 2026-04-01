@@ -1,14 +1,14 @@
 // hooks/useBulkUpload.ts
 
 import { useState, useRef, useCallback } from "react";
-import { bulkUploadService } from "@/services/bulkUploadService";
+import { bulkUploadService } from "@/services/studentBulkUploadService";
 import type {
   UploadPhase,
   UploadStats,
   UploadResult,
   ExportFormat,
   UseBulkUploadReturn,
-} from "@/types/bulkUpload";
+} from "@/types/studentBulkUpload";
 
 const POLL_INTERVAL = 2_000;
 
