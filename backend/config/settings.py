@@ -159,7 +159,7 @@ INSTALLED_APPS = [
     "classroom",
     "schoolSettings",
     "subject",
-    "academics",
+    "academics.apps.AcademicsConfig",
     "teacher",
     "timetable",
     "attendance",
@@ -174,6 +174,7 @@ INSTALLED_APPS = [
     "events",
     "lesson",
     "tenants",
+    "student_promotions",
 ]
 
 SITE_ID = 1
@@ -292,6 +293,9 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = "Africa/Lagos"
+CELERY_WORKER_POOL = "solo"  # for dev on Windows
+# CELERY_WORKER_POOL = "threads"     # for production
+CELERY_WORKER_CONCURRENCY = 1  # solo only supports 1
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -511,9 +515,9 @@ REST_USE_JWT = True
 ACCOUNT_USER_MODEL_USERNAME_FIELD = "username"
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
 ACCOUNT_CONFIRM_EMAIL_ON_GET = True
-ACCOUNT_LOGIN_METHOD = "username"
-ACCOUNT_SIGNUP_FIELDS = ["email*"]
-ACCOUNT_LOGIN_METHODS = ["username"]
+ACCOUNT_LOGIN_METHOD = {"username"}
+ACCOUNT_SIGNUP_FIELDS = ["username*", "email*"]
+# ACCOUNT_LOGIN_METHODS = ["username"]
 ACCOUNT_EMAIL_CONFIRMATION_EXPIRE_DAYS = 3
 ACCOUNT_LOGOUT_REDIRECT_URL = "/"
 ACCOUNT_LOGOUT_ON_GET = False
@@ -532,6 +536,7 @@ SOCIALACCOUNT_EMAIL_VERIFICATION = "none"
 SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_QUERY_EMAIL = True
 SOCIALACCOUNT_ADAPTER = "authentication.adapters.CustomSocialAccountAdapter"
+
 
 # ============================================
 # SOCIAL AUTH PROVIDERS

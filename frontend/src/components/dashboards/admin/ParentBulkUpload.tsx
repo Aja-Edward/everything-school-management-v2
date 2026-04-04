@@ -148,7 +148,7 @@ export default function ParentBulkUploadPage() {
         <h1 className="text-2xl font-medium m-0">Bulk Parent Upload</h1>
         <p className="text-sm text-gray-500 mt-1.5">
           Upload a CSV or Excel file to register multiple parents at once.{" "}
-          Upload parents <strong>before</strong> uploading students — phone numbers
+          Upload parents <strong>before</strong> uploading parents — phone numbers
           are used to auto-link parents to their children.
         </p>
       </div>

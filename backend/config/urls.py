@@ -40,6 +40,7 @@ urlpatterns = [
     path("api/subjects/", include("subject.urls")),
     path("api/lessons/", include("lesson.urls")),
     path("api/timetable/", include("timetable.urls")),
+    path("api/student_promotions/", include("student_promotions.urls")),
     # ===== PEOPLE MANAGEMENT =====
     path("api/profiles/", include("userprofile.urls")),
     path("api/teachers/", include("teacher.urls")),

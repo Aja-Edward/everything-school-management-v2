@@ -494,6 +494,8 @@ export class AuthService {
     try {
       console.log('Sending login request with:', credentials.username);
       const response = await fetch(`${this.baseUrl}/auth/login/`, {
+        
+
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -507,7 +509,7 @@ export class AuthService {
       });
 
       const data = await response.json();
-      console.log('Login response:', data);
+      console.log('This is the Login response:', data);
 
       if (!response.ok) {
         return {
@@ -516,7 +518,11 @@ export class AuthService {
           errors: data.errors || data,
         };
       }
-
+          console.log('Login request payload:', {
+          username: credentials.username,
+          password: credentials.password
+        }),
+        console.log('Login successful, response data:', data);
       // Tokens are set in httpOnly cookies by the backend
       this.handleAuthSuccess(data);
 

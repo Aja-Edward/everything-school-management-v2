@@ -32,7 +32,8 @@ interface AcademicSession {
 
 interface Term {
   id: string;
-  name: string;
+  term_type_id: number;  // ✅ add this
+  name: string;          // still works via backend @property
   academic_session: string;
   start_date: string;
   end_date: string;
@@ -52,14 +53,23 @@ interface CreateSessionData {
 }
 
 interface CreateTermData {
-  name: string;
+  term_type_id: number | string;
   academic_session: string;
   start_date: string;
   end_date: string;
   is_current: boolean;
-  next_term_begins?: string;
+  next_term_begins?: string;  
   holidays_start?: string;
   holidays_end?: string;
+}
+
+
+interface TermType {
+  id: number;
+  name: string;
+  code: string;
+  display_order: number;
+  is_active: boolean;
 }
 
 const AcademicCalendarTab: React.FC = () => {
@@ -72,6 +82,7 @@ const AcademicCalendarTab: React.FC = () => {
   const [terms, setTerms] = useState<Term[]>([]);
   const [currentSession, setCurrentSession] = useState<AcademicSession | null>(null);
   const [currentTerm, setCurrentTerm] = useState<Term | null>(null);
+  const [termTypes, setTermTypes] = useState<{id: number, name: string}[]>([]);
 
   // Form states
   const [showSessionForm, setShowSessionForm] = useState(false);
@@ -88,23 +99,24 @@ const AcademicCalendarTab: React.FC = () => {
   });
 
   const [termForm, setTermForm] = useState<CreateTermData>({
-    name: '',
+    term_type_id: '',
     academic_session: '',
     start_date: '',
     end_date: '',
-    is_current: false
+    is_current: false,
+
   });
 
   const getTenantId = (): string | null => {
     try {
-      const userStr = localStorage.getItem('user');
+      const userStr = localStorage.getItem('userData');
       if (!userStr) {
         console.warn('No user data found in localStorage');
         return null;
       }
       
       const user = JSON.parse(userStr);
-      const tenantId = user?.tenant?.id;
+      const tenantId = user?.tenant_id;
       
       if (!tenantId) {
         console.warn('No tenant ID found in user data:', user);
@@ -139,64 +151,49 @@ const AcademicCalendarTab: React.FC = () => {
 
     return headers;
   };
-  // Load data
+  
+
+
+  const fetchTermTypes = async (): Promise<TermType[]> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/academics/term-types/`, {
+      headers: getHeaders()
+    });
+    if (response.ok) return await response.json();
+    console.error('Failed to fetch term types:', response.status);
+    return [];
+  } catch (error) {
+    console.error('Error fetching term types:', error);
+    return [];
+  }
+};
+
+const loadData = async () => {
+  try {
+    setLoading(true);
+    const [sessionsData, termsData, termTypesData] = await Promise.all([
+      fetchSessions(),
+      fetchTerms(),
+      fetchTermTypes(),  // ✅ add this
+    ]);
+    setSessions(sessionsData);
+    setTerms(termsData);
+    setTermTypes(termTypesData);  // ✅ add this
+    setCurrentSession(sessionsData.find(s => s.is_current) || null);
+    setCurrentTerm(termsData.find(t => t.is_current) || null);
+  } catch (error) {
+    console.error('Error loading academic calendar data:', error);
+    toast.error('Failed to load academic calendar data');
+  } finally {
+    setLoading(false);
+  }
+};
+      
+// Load data
   useEffect(() => {
     loadData();
   }, []);
-console.log('Loading academic calendar data...');
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      
-      // Load sessions and terms in parallel
-      const [sessionsData, termsData] = await Promise.all([
-        fetchSessions(),
-        fetchTerms()
-      ]);
 
-      setSessions(sessionsData);
-      setTerms(termsData);
-
-      // Set current session and term
-      const currentSessionData = sessionsData.find(s => s.is_current);
-      const currentTermData = termsData.find(t => t.is_current);
-      
-      setCurrentSession(currentSessionData || null);
-      setCurrentTerm(currentTermData || null);
-
-    } catch (error) {
-      console.error('Error loading academic calendar data:', error);
-      toast.error('Failed to load academic calendar data');
-    } finally {const loadData = async () => {
-    try {
-      setLoading(true);
-      
-      // Load sessions and terms in parallel
-      const [sessionsData, termsData] = await Promise.all([
-        fetchSessions(),
-        fetchTerms()
-      ]);
-
-      setSessions(sessionsData);
-      setTerms(termsData);
-
-      // Set current session and term
-      const currentSessionData = sessionsData.find(s => s.is_current);
-      const currentTermData = termsData.find(t => t.is_current);
-      
-      setCurrentSession(currentSessionData || null);
-      setCurrentTerm(currentTermData || null);
-
-    } catch (error) {
-      console.error('Error loading academic calendar data:', error);
-      toast.error('Failed to load academic calendar data');
-    } finally {
-      setLoading(false);
-    }
-  };
-      setLoading(false);
-    }
-  };
 
 const API_BASE_URL = import.meta.env.VITE_API_URL 
 
@@ -237,8 +234,6 @@ const API_BASE_URL = import.meta.env.VITE_API_URL
       return [];
     }
   };
-
-console.log('Fetching academic sessions and terms from API...');
   // Session management
   const handleCreateSession = async () => {
     try {
@@ -394,7 +389,7 @@ console.log('Fetching academic sessions and terms from API...');
       setSaving(true);
       
       // Validate form data
-      if (!termForm.name || !termForm.academic_session || !termForm.start_date || !termForm.end_date) {
+      if (!termForm.term_type_id || !termForm.academic_session || !termForm.start_date || !termForm.end_date) {
         toast.error('Please fill in all required fields');
         return;
       }
@@ -430,9 +425,15 @@ console.log('Fetching academic sessions and terms from API...');
 
       // Ensure academic_session is sent as a number
       const payload = {
-        ...termForm,
-        academic_session: Number(termForm.academic_session),
-      };
+          term_type_id: Number(termForm.term_type_id),  // ✅ replaces 'name'
+          academic_session: Number(termForm.academic_session),
+          start_date: termForm.start_date,
+          end_date: termForm.end_date,
+          is_current: termForm.is_current,
+          ...(termForm.next_term_begins && { next_term_begins: termForm.next_term_begins }),
+          ...(termForm.holidays_start && { holidays_start: termForm.holidays_start }),
+          ...(termForm.holidays_end && { holidays_end: termForm.holidays_end }),
+        };
       
       console.log('Sending term data:', payload);
       
@@ -445,7 +446,7 @@ console.log('Fetching academic sessions and terms from API...');
       if (response.ok) {
         toast.success('Term created successfully');
         setShowTermForm(false);
-        setTermForm({ name: '', academic_session: '', start_date: '', end_date: '', is_current: false });
+        setTermForm({ term_type_id: '', academic_session: '', start_date: '', end_date: '', is_current: false });
         await loadData();
       } else {
         const errorData = await response.json();
@@ -467,65 +468,70 @@ console.log('Fetching academic sessions and terms from API...');
   };
 
   const handleUpdateTerm = async (termId: string) => {
-    try {
-      setSaving(true);
-      
-      // Validate form data
-      if (!termForm.name || !termForm.academic_session || !termForm.start_date || !termForm.end_date) {
-        toast.error('Please fill in all required fields');
-        return;
-      }
+  try {
+    setSaving(true);
 
-      // Validate dates
-      const startDate = new Date(termForm.start_date);
-      const endDate = new Date(termForm.end_date);
-      
-      if (startDate >= endDate) {
-        toast.error('Start date must be before end date');
-        return;
-      }
-
-      // Get the selected academic session to validate dates
-      const selectedSession = sessions.find(s => s.id === termForm.academic_session);
-      if (selectedSession) {
-        const sessionStart = new Date(selectedSession.start_date);
-        const sessionEnd = new Date(selectedSession.end_date);
-        
-        if (startDate < sessionStart || endDate > sessionEnd) {
-          toast.error('Term dates must be within the academic session dates');
-          return;
-        }
-      }
-
-      const response = await fetch(`${API_BASE_URL}/academics/terms/${termId}/`, {
-        method: 'PUT',
-        headers: getHeaders(true), // **FIX: Using new helper with tenant header**
-        body: JSON.stringify(termForm)
-      });
-
-      if (response.ok) {
-        toast.success('Term updated successfully');
-        setShowTermForm(false);
-        setEditingTerm(null);
-        setTermForm({ name: '', academic_session: '', start_date: '', end_date: '', is_current: false });
-        await loadData();
-      } else {
-        const errorData = await response.json();
-        if (errorData.non_field_errors) {
-          toast.error(errorData.non_field_errors[0]);
-        } else if (errorData.message) {
-          toast.error(errorData.message);
-        } else {
-          toast.error('Failed to update term. Please check your input.');
-        }
-      }
-    } catch (error) {
-      console.error('Error updating term:', error);
-      toast.error('Failed to update term');
-    } finally {
-      setSaving(false);
+    if (!termForm.term_type_id || !termForm.academic_session || !termForm.start_date || !termForm.end_date) {
+      toast.error('Please fill in all required fields');
+      return;
     }
-  };
+
+    const startDate = new Date(termForm.start_date);
+    const endDate = new Date(termForm.end_date);
+
+    if (startDate >= endDate) {
+      toast.error('Start date must be before end date');
+      return;
+    }
+
+    const selectedSession = sessions.find(s => s.id === termForm.academic_session);
+    if (selectedSession) {
+      const sessionStart = new Date(selectedSession.start_date);
+      const sessionEnd = new Date(selectedSession.end_date);
+      if (startDate < sessionStart || endDate > sessionEnd) {
+        toast.error('Term dates must be within the academic session dates');
+        return;
+      }
+    }
+
+    // Fix: cast academic_session to number, strip undefined optional fields
+    const payload = {
+  term_type_id: Number(termForm.term_type_id),  // ✅ replaces 'name'
+  academic_session: Number(termForm.academic_session),
+  start_date: termForm.start_date,
+  end_date: termForm.end_date,
+  is_current: termForm.is_current,
+  ...(termForm.next_term_begins && { next_term_begins: termForm.next_term_begins }),
+  ...(termForm.holidays_start && { holidays_start: termForm.holidays_start }),
+  ...(termForm.holidays_end && { holidays_end: termForm.holidays_end }),
+};
+
+    const response = await fetch(`${API_BASE_URL}/academics/terms/${termId}/`, {
+      method: 'PATCH',
+      headers: getHeaders(true),
+      body: JSON.stringify(payload)
+    });
+
+    if (response.ok) {
+      toast.success('Term updated successfully');
+      setShowTermForm(false);
+      setEditingTerm(null);
+      setTermForm({ term_type_id: '', academic_session: '', start_date: '', end_date: '', is_current: false });
+      await loadData();
+    } else {
+      const errorData = await response.json();
+      console.error('Term update error:', errorData);
+      console.error('Term update error FULL:', JSON.stringify(errorData, null, 2));
+      const msg = errorData.non_field_errors?.[0] || errorData.message || JSON.stringify(errorData);
+      toast.error(`Failed to update term: ${msg}`);
+    }
+  } catch (error) {
+    console.error('Error updating term:', error);
+    toast.error('Failed to update term');
+  } finally {
+    setSaving(false);
+  }
+};
 
   const handleDeleteTerm = async (termId: string) => {
     if (!confirm('Are you sure you want to delete this term?')) {
@@ -972,19 +978,20 @@ console.log('Fetching academic sessions and terms from API...');
                         )}
                         <button
                           onClick={() => {
-                            setEditingTerm(term.id);
-                            setTermForm({
-                              name: term.name,
-                              academic_session: term.academic_session,
-                              start_date: term.start_date,
-                              end_date: term.end_date,
-                              is_current: term.is_current,
-                              next_term_begins: term.next_term_begins,
-                              holidays_start: term.holidays_start,
-                              holidays_end: term.holidays_end
-                            });
-                            setShowTermForm(true);
-                          }}
+                          setEditingTerm(term.id);
+                          setTermForm({
+                            term_type_id: term.term_type_id || '',  // ✅ replaces term.name
+                            academic_session: term.academic_session,
+                            start_date: term.start_date,
+                            end_date: term.end_date,
+                            is_current: term.is_current,
+                            next_term_begins: term.next_term_begins,
+                            holidays_start: term.holidays_start,
+                            holidays_end: term.holidays_end,
+                          });
+                          setShowTermForm(true);
+                        }}
+                                                  
                           className="p-3 text-gray-600 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
                         >
                           <Edit3 className="w-5 h-5" />
@@ -1126,7 +1133,7 @@ console.log('Fetching academic sessions and terms from API...');
                   onClick={() => {
                     setShowTermForm(false);
                     setEditingTerm(null);
-                    setTermForm({ name: '', academic_session: '', start_date: '', end_date: '', is_current: false });
+                    setTermForm({ term_type_id: '', academic_session: '', start_date: '', end_date: '', is_current: false });
                   }}
                   className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
                 >
@@ -1135,56 +1142,23 @@ console.log('Fetching academic sessions and terms from API...');
               </div>
 
               <div className="space-y-6">
-                                 <div>
-                   <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                     Term Name
-                   </label>
-                   <select
-                     value={termForm.name}
-                     onChange={(e) => setTermForm({ ...termForm, name: e.target.value })}
-                     className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-all duration-200"
-                   >
-                     <option value="">Select Term</option>
-                     <option value="FIRST">First Term</option>
-                     <option value="SECOND">Second Term</option>
-                     <option value="THIRD">Third Term</option>
-                   </select>
-                                       {termForm.name && termForm.academic_session && (
-                      <div className="mt-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-700">
-                        <p className="text-sm font-medium text-green-800 dark:text-green-200 mb-2">
-                          📅 Suggested dates for {getTermDisplayName(termForm.name)}:
-                        </p>
-                        {(() => {
-                          const suggested = getSuggestedTermDates(termForm.academic_session, termForm.name);
-                          return (
-                            <div className="space-y-2">
-                              <p className="text-sm text-green-700 dark:text-green-300">
-                                <strong>Start:</strong> {formatDate(suggested.start_date)} | <strong>End:</strong> {formatDate(suggested.end_date)}
-                              </p>
-                              <div className="flex gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setTermForm({
-                                      ...termForm,
-                                      start_date: suggested.start_date,
-                                      end_date: suggested.end_date
-                                    });
-                                    toast.success('Suggested dates applied!');
-                                  }}
-                                  className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors font-medium"
-                                >
-                                  ✅ Use Suggested Dates
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    )}
-                 </div>
+                 <div>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                        Term Type
+                      </label>
+                      <select
+                        value={termForm.term_type_id || ''}
+                        onChange={(e) => setTermForm({ ...termForm, term_type_id: e.target.value })}
+                        className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                      >
+                        <option value="">Select Term Type</option>
+                        {termTypes.map((tt) => (
+                          <option key={tt.id} value={tt.id}>{tt.name}</option>
+                        ))}
+                      </select>
+                    </div>
 
-                                 <div>
+                      <div>
                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                      Academic Session
                    </label>
@@ -1276,7 +1250,7 @@ console.log('Fetching academic sessions and terms from API...');
                   onClick={() => {
                     setShowTermForm(false);
                     setEditingTerm(null);
-                    setTermForm({ name: '', academic_session: '', start_date: '', end_date: '', is_current: false });
+                    setTermForm({ term_type_id: '', academic_session: '', start_date: '', end_date: '', is_current: false });
                   }}
                   className="px-6 py-3 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors font-medium"
                 >

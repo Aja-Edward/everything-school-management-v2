@@ -171,7 +171,7 @@ def admin_dashboard_summary(request):
 
         # Check for pending results
         pending_exams = (
-            Exam.objects.filter(exam_date__lt=today, status="completed")
+            Exam.objects.filter(exam_date__lt=today, status__code="completed")
             .exclude(
                 id__in=StudentResult.objects.values_list("exam_session_id", flat=True)
             )
@@ -342,6 +342,32 @@ def teacher_dashboard_summary(request, teacher_id=None):
         # ============================================
         # 📦 RESPONSE
         # ============================================
+        todays_lessons_list = list(
+            Lesson.objects.filter(teacher_id=teacher_id, date=today, status="scheduled")
+            .select_related("classroom", "subject")
+            .order_by("start_time")
+            .values(
+                "id",
+                "subject__name",
+                "classroom__name",
+                "start_time",
+                "end_time",
+                "lesson_type",
+            )[:10]
+        )
+
+        # Use prefetched data for counts
+        classroom_assignments_data = [
+            {
+                "id": a.id,
+                "classroom_id": a.classroom.id,
+                "classroom_name": a.classroom.name,
+                "subject_id": a.subject.id,
+                "subject_name": a.subject.name,
+                "student_count": len(a.classroom.students.all()),  # ✅ no extra query
+            }
+            for a in assignments
+        ]
 
         response_data = {
             "role": "teacher",
@@ -353,29 +379,17 @@ def teacher_dashboard_summary(request, teacher_id=None):
                 "is_active": teacher.is_active,
             },
             "stats": stats,
-            "today_schedule": list(todays_lessons),
+            "today_schedule": todays_lessons_list,
             "quick_info": {
                 "pending_attendance": pending_attendance,
-                "has_classes_today": len(list(todays_lessons)) > 0,
+                "has_classes_today": len(todays_lessons_list) > 0,  # ✅ reuse
             },
-            "classroom_assignments": [
-                {
-                    "id": assignment.id,
-                    "classroom_id": assignment.classroom.id,
-                    "classroom_name": assignment.classroom.name,
-                    "subject_id": assignment.subject.id,
-                    "subject_name": assignment.subject.name,
-                    "student_count": assignment.classroom.students.count(),
-                }
-                for assignment in assignments
-            ],
-            "loaded_at": timezone.now().isoformat(),
-            "data_scope": "initial_load",
+            "classroom_assignments": classroom_assignments_data,
         }
 
         logger.info(
             f"✅ Teacher dashboard loaded for {teacher_id}: "
-            f"{stats['total_students']} students, {len(list(todays_lessons))} lessons today"
+            f"{stats['total_students']} students, {len(todays_lessons_list)} lessons today"
         )
 
         return Response(response_data)
@@ -634,19 +648,20 @@ def student_dashboard_summary(request, student_id=None):
             .order_by("-exam_session__exam_date")
             .values(
                 "id",
-                "exam_session__subject__name",
-                "exam_session__exam_date",
+                "subject__name",
+                "exam_session__id",
+                "percentage",
                 "total_score",
                 "grade",
-                "exam_session__total_marks",
+                "is_passed",
             )[:5]
         )
 
         # Calculate average
         avg_score = (
-            StudentResult.objects.filter(student=student).aggregate(avg=Avg("score"))[
-                "avg"
-            ]
+            StudentResult.objects.filter(student=student).aggregate(
+                avg=Avg("total_score")
+            )["avg"]
             or 0
         )
 
@@ -662,7 +677,7 @@ def student_dashboard_summary(request, student_id=None):
                     classroom=student.classroom,
                     exam_date__gte=today,
                     exam_date__lte=next_two_weeks,
-                    status="scheduled",
+                    status__code="scheduled",
                 )
                 .select_related("subject")
                 .order_by("exam_date")
@@ -905,7 +920,6 @@ def student_dashboard_extended(request, student_id=None):
 
         # Full attendance history (last 60 days)
         sixty_days_ago = timezone.now().date() - timedelta(days=60)
-
         attendance_history = (
             Attendance.objects.filter(student_id=student_id, date__gte=sixty_days_ago)
             .values("date", "status")
@@ -915,15 +929,16 @@ def student_dashboard_extended(request, student_id=None):
         # All results this term
         all_results = (
             StudentResult.objects.filter(student_id=student_id)
-            .select_related("exam__subject")
-            .order_by("-exam__date")
+            .select_related("subject", "exam_session")
+            .order_by("-created_at")
             .values(
                 "id",
-                "exam__subject__name",
-                "exam__date",
-                "score",
+                "subject__name",
+                "total_score",
+                "percentage",
                 "grade",
-                "exam__total_marks",
+                "is_passed",
+                "created_at",
             )[:20]
         )
 
@@ -1208,17 +1223,23 @@ def admin_dashboard_enhanced_stats(request):
         # Recent student enrollments - with classroom ForeignKey
         recent_students = (
             Student.objects.filter(admission_date__gte=last_7_days)
-            .select_related("user", "classroom")
+            .select_related("user", "student_class", "section")
             .order_by("-admission_date")[:5]
         )
 
         for student in recent_students:
+            classroom_name = (
+                student.student_class.name if student.student_class else "No classroom"
+            )
+            if student.section:
+                classroom_name += f" - {student.section.name}"
+
             activities.append(
                 {
                     "type": "enrollment",
                     "icon": "👨‍🎓",
                     "title": "New Student Enrollment",
-                    "description": f"{student.user.first_name} {student.user.last_name} enrolled in {student.classroom.name if student.classroom else 'No classroom'}",
+                    "description": f"{student.user.first_name} {student.user.last_name} enrolled in {classroom_name}",
                     "timestamp": student.admission_date.isoformat(),
                     "priority": "normal",
                 }
@@ -1226,12 +1247,9 @@ def admin_dashboard_enhanced_stats(request):
 
         # Recent exam completions
         recent_exams = (
-            Exam.objects.filter(
-                exam_date__gte=last_7_days,
-                status='completed'
-            )
-            .select_related('subject', 'grade_level', 'section')
-            .order_by('-exam_date')[:5]
+            Exam.objects.filter(exam_date__gte=last_7_days, status__code="completed")
+            .select_related("subject", "grade_level", "section")
+            .order_by("-exam_date")[:5]
         )
 
         for exam in recent_exams:
@@ -1303,12 +1321,9 @@ def admin_dashboard_enhanced_stats(request):
             })
 
         pending_results_count = (
-            Exam.objects.filter(
-                exam_date__lt=today,
-                status='completed'
-            )
+            Exam.objects.filter(exam_date__lt=today, status__code="completed")
             .exclude(
-                id__in=StudentResult.objects.values_list('exam_session_id', flat=True)
+                id__in=StudentResult.objects.values_list("exam_session_id", flat=True)
             )
             .count()
         )

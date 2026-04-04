@@ -255,9 +255,22 @@ class SimpleLoginView(APIView):
                     "is_superuser": user.is_superuser,
                     "is_staff": user.is_staff,
                     "is_active": user.is_active,
+                    # ✅ ADD THESE TWO LINES:
+                    "tenant_id": (
+                        str(user.tenant.id)
+                        if hasattr(user, "tenant") and user.tenant
+                        else None
+                    ),
+                    "tenant_slug": (
+                        user.tenant.slug
+                        if hasattr(user, "tenant") and user.tenant
+                        else None
+                    ),
                 },
             }
-
+            logger.info(
+                f"DEBUG: user={user.email}, tenant={getattr(user, 'tenant', 'NO_ATTR')}"
+            )
             # In development, also include tokens in body for cross-origin HTTP support
             if getattr(settings, 'AUTH_RETURN_TOKENS_IN_BODY', False):
                 response_data["tokens"] = {
@@ -382,7 +395,7 @@ def simple_login_view(request):
                 f"⚠️ User {user.email} has no tenant attribute or tenant is None"
             )
 
-        # Build response data
+        # In SimpleLoginView.post() — update the user dict in response_data
         response_data = {
             "message": "Login successful",
             "user": {
@@ -390,10 +403,21 @@ def simple_login_view(request):
                 "email": user.email,
                 "first_name": user.first_name,
                 "last_name": user.last_name,
-                "role": user.role,
+                "role": getattr(user, "role", "user"),
                 "is_superuser": user.is_superuser,
                 "is_staff": user.is_staff,
                 "is_active": user.is_active,
+                # ✅ Add these
+                "tenant_id": (
+                    str(user.tenant.id)
+                    if hasattr(user, "tenant") and user.tenant
+                    else None
+                ),
+                "tenant_slug": (
+                    user.tenant.slug
+                    if hasattr(user, "tenant") and user.tenant
+                    else None
+                ),
             },
         }
 
@@ -460,11 +484,6 @@ def csrf_token_view(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def auth_status_view(request):
-    """
-    Check if the user is authenticated (via cookie).
-
-    Returns user info if authenticated, 401 if not.
-    """
     user = request.user
     return Response(
         {
@@ -478,6 +497,17 @@ def auth_status_view(request):
                 "is_superuser": user.is_superuser,
                 "is_staff": user.is_staff,
                 "is_active": user.is_active,
+                # ✅ Add these
+                "tenant_id": (
+                    str(user.tenant.id)
+                    if hasattr(user, "tenant") and user.tenant
+                    else None
+                ),
+                "tenant_slug": (
+                    user.tenant.slug
+                    if hasattr(user, "tenant") and user.tenant
+                    else None
+                ),
             },
         },
         status=status.HTTP_200_OK,

@@ -28,7 +28,7 @@ const TeacherResults: React.FC = () => {
   const [filterEducationLevel, setFilterEducationLevel] = useState<EducationLevel | 'all'>('all');
   const [showFilters, setShowFilters] = useState(false);
   const [activeTab, setActiveTab] = useState<'results' | 'record'>('results');
-  const [viewMode, setViewMode] = useState<ViewMode>('card');
+  const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [debugInfo, setDebugInfo] = useState<string>('');
   const [isMobile, setIsMobile] = useState(false);
 
@@ -61,12 +61,6 @@ const TeacherResults: React.FC = () => {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Replace your loadTeacherData function in TeacherResults.tsx with this simplified version
-// that trusts the backend data instead of doing complex derivations
-
-// Replace your loadTeacherData function with this fixed version
-
-// Replace your loadTeacherData function with this fixed version
 
 async function loadTeacherData() {
   try {
@@ -500,6 +494,8 @@ async function loadTeacherData() {
     [results]
   );
 
+  console.log("Education Levels:", availableEducationLevels);
+
   const availableSubjects = useMemo(
     () =>
       teacherAssignments.map((assignment) => ({
@@ -769,10 +765,12 @@ async function loadTeacherData() {
                     className="px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
                   >
                     <option value="all">All Levels</option>
-                    {availableEducationLevels.map((level) => (
-                      <option key={String(level)} value={String(level)}>
-                        {String(level).replace(/_/g, ' ').toUpperCase()}
-                      </option>
+                    {availableEducationLevels
+                      .filter((level) => level) // removes undefined/null
+                      .map((level) => (
+                        <option key={String(level)} value={String(level)}>
+                          {String(level).replace(/_/g, ' ').toUpperCase()}
+                        </option>
                     ))}
                   </select>
 

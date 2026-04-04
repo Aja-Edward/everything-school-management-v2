@@ -46,9 +46,14 @@ export const bulkUploadService = {
   },
 
   getStatus: async (uploadId: number): Promise<BulkUploadStatusResponse> => {
-    return api.get(`${PARENTS_BASE}/bulk-upload/${uploadId}/status/`);
-  },
-
+  const headers = await getHeaders();
+  const res = await fetch(`${PARENTS_BASE}/bulk-upload/${uploadId}/status/`, {
+    headers,
+    credentials: "include",
+  });
+  if (!res.ok) throw await res.json();
+  return res.json();
+},
   exportCredentials: async (
     uploadId: number,
     format: ExportFormat = "excel"

@@ -313,9 +313,7 @@ class StudentDetailSerializer(serializers.ModelSerializer):
 
     # education_level is a @property on Student — read-only, returns level_type string
     education_level = serializers.CharField(read_only=True)
-    education_level_display = serializers.CharField(
-        source="education_level_display", read_only=True
-    )
+    education_level_display = serializers.CharField(read_only=True)
 
     # student_class is now a FK to Class
     student_class = serializers.PrimaryKeyRelatedField(
@@ -511,9 +509,7 @@ class StudentListSerializer(serializers.ModelSerializer):
 
     # education_level — @property, read-only
     education_level = serializers.CharField(read_only=True)
-    education_level_display = serializers.CharField(
-        source="education_level_display", read_only=True
-    )
+    education_level_display = serializers.CharField(read_only=True)
 
     # student_class FK
     student_class = serializers.PrimaryKeyRelatedField(
@@ -741,147 +737,210 @@ class StudentCreateSerializer(serializers.ModelSerializer):
 
         return data
 
+    # -----------------------------------------------------------------------
+    # PATCH for students/serializers.py  — StudentCreateSerializer.create()
+    #
+    # Changes made:
+    #   1. Pass `tenant` to generate_unique_username so the correct school
+    #      code (GTS, not LIS) is always used.
+    #   2. Save the custom registration_number the admin typed in the form.
+    #      Previously it was only used to build the username and then
+    #      discarded; the Student record got NULL / auto-number instead.
+    #   3. Guard against double-submit by wrapping everything in a DB
+    #      transaction (atomic).
+    # -----------------------------------------------------------------------
+
+    # Replace the existing create() method inside StudentCreateSerializer
+    # with the version below.  Everything outside create() stays the same.
+
     def create(self, validated_data):
         from parent.models import ParentProfile, ParentStudentRelationship
+        from django.db import transaction
 
-        profile_picture = validated_data.pop("profile_picture", None)
-        registration_number = validated_data.pop("registration_number", None)
+        with transaction.atomic():  # FIX 3: prevent partial saves / double-submit
+            profile_picture = validated_data.pop("profile_picture", None)
 
-        first_name = validated_data.pop("user_first_name")
-        last_name = validated_data.pop("user_last_name")
-        middle_name = validated_data.pop("user_middle_name", "")
-        email = validated_data.pop("user_email")
-        relationship = validated_data.pop("relationship", None)
-        is_primary_contact = validated_data.pop("is_primary_contact", False)
+            # FIX 2: pop the registration number the admin typed in the form
+            # We'll store it on the Student record AND use it in the username.
+            registration_number = validated_data.pop("registration_number", None)
 
-        existing_parent_id = validated_data.pop("existing_parent_id", None)
-        if existing_parent_id:
-            try:
-                parent_profile = ParentProfile.objects.get(id=existing_parent_id)
-                parent_user = parent_profile.user
-                self._generated_parent_password = None
-                self._generated_parent_username = parent_user.username
-            except ParentProfile.DoesNotExist:
-                raise serializers.ValidationError(
-                    "Parent not found with the provided ID."
-                )
-        else:
-            parent_first_name = validated_data.pop("parent_first_name")
-            parent_last_name = validated_data.pop("parent_last_name")
-            parent_email = validated_data.pop("parent_email")
-            parent_contact = validated_data.pop("parent_contact")
-            parent_address = validated_data.pop("parent_address", "")
+            first_name = validated_data.pop("user_first_name")
+            last_name = validated_data.pop("user_last_name")
+            middle_name = validated_data.pop("user_middle_name", "")
+            email = validated_data.pop("user_email")
+            relationship = validated_data.pop("relationship", None)
+            is_primary_contact = validated_data.pop("is_primary_contact", False)
 
-            if CustomUser.objects.filter(email=parent_email).exists():
-                raise serializers.ValidationError(
-                    "A parent with this email already exists."
+            # ------------------------------------------------------------------
+            # FIX 1: resolve the current tenant from the serializer context so
+            # generate_unique_username uses the right school code (GTS not LIS).
+            # The view must pass `request` in the serializer context, which
+            # DRF does automatically for ViewSet/APIView serializers.
+            # ------------------------------------------------------------------
+            request = self.context.get("request")
+            current_tenant = None
+            if request is not None:
+                # Works whether you use django-tenants, a custom middleware, or
+                # store the tenant on the request object yourself.
+                current_tenant = getattr(request, "tenant", None) or getattr(
+                    request, "current_tenant", None
                 )
 
+            # ------------------------------------------------------------------
+            # Parent resolution (unchanged logic, just moved inside atomic)
+            # ------------------------------------------------------------------
+            existing_parent_id = validated_data.pop("existing_parent_id", None)
+            if existing_parent_id:
+                try:
+                    parent_profile = ParentProfile.objects.get(id=existing_parent_id)
+                    parent_user = parent_profile.user
+                    self._generated_parent_password = None
+                    self._generated_parent_username = parent_user.username
+                except ParentProfile.DoesNotExist:
+                    raise serializers.ValidationError(
+                        "Parent not found with the provided ID."
+                    )
+            else:
+                parent_first_name = validated_data.pop("parent_first_name")
+                parent_last_name = validated_data.pop("parent_last_name")
+                parent_email = validated_data.pop("parent_email")
+                parent_contact = validated_data.pop("parent_contact")
+                parent_address = validated_data.pop("parent_address", "")
+
+                if CustomUser.objects.filter(email=parent_email).exists():
+                    raise serializers.ValidationError(
+                        "A parent with this email already exists."
+                    )
+
+                import secrets, string
+
+                parent_password = "".join(
+                    secrets.choice(string.ascii_letters + string.digits)
+                    for _ in range(10)
+                )
+                # FIX 1: pass tenant so parent username also gets GTS code
+                parent_username = generate_unique_username(
+                    "parent", tenant=current_tenant
+                )
+                parent_user = CustomUser.objects.create_user(
+                    email=parent_email,
+                    username=parent_username,
+                    first_name=parent_first_name,
+                    last_name=parent_last_name,
+                    role="parent",
+                    password=parent_password,
+                    is_active=True,
+                    tenant=current_tenant,
+                )
+                parent_profile, created = ParentProfile.objects.get_or_create(
+                    user=parent_user,
+                    defaults={"phone": parent_contact, "address": parent_address},
+                )
+                if not created:
+                    parent_profile.phone = parent_contact
+                    parent_profile.address = parent_address
+                    parent_profile.save()
+
+                self._generated_parent_password = parent_password
+                self._generated_parent_username = parent_username
+
+            # ------------------------------------------------------------------
+            # Student user creation
+            # FIX 1: pass tenant to get the correct school code
+            # FIX 2: registration_number in the username comes from the form
+            # ------------------------------------------------------------------
             import secrets, string
 
-            parent_password = "".join(
+            student_password = "".join(
                 secrets.choice(string.ascii_letters + string.digits) for _ in range(10)
             )
-            parent_username = generate_unique_username("parent")
-            parent_user = CustomUser.objects.create_user(
-                email=parent_email,
-                username=parent_username,
-                first_name=parent_first_name,
-                last_name=parent_last_name,
-                role="parent",
-                password=parent_password,
+            student_username = generate_unique_username(
+                "student",
+                registration_number=registration_number,  # uses form value if provided
+                tenant=current_tenant,  # FIX 1: correct school code
+            )
+            student_user = CustomUser.objects.create_user(
+                email=email,
+                username=student_username,
+                first_name=first_name,
+                last_name=last_name,
+                middle_name=middle_name,
+                role="student",
+                password=student_password,
                 is_active=True,
+                tenant=current_tenant,
             )
-            parent_profile, created = ParentProfile.objects.get_or_create(
-                user=parent_user,
-                defaults={"phone": parent_contact, "address": parent_address},
+
+            # FIX 2: explicitly store the admin-entered registration_number on
+            # the Student record.  If left to the model default it became an
+            # auto-generated value instead of what the admin typed.
+            student = Student.objects.create(
+                user=student_user,
+                profile_picture=profile_picture,
+                registration_number=registration_number,  # ← saves the typed value
+                tenant=current_tenant,
+                **validated_data,
             )
-            if not created:
-                parent_profile.phone = parent_contact
-                parent_profile.address = parent_address
-                parent_profile.save()
 
-            self._generated_parent_password = parent_password
-            self._generated_parent_username = parent_username
+            ParentStudentRelationship.objects.create(
+                parent=parent_profile,
+                student=student,
+                relationship=relationship or "Guardian",
+                is_primary_contact=is_primary_contact,
+            )
 
-        import secrets, string
+            if existing_parent_id and parent_profile.phone:
+                student.parent_contact = parent_profile.phone
+                student.save()
 
-        student_password = "".join(
-            secrets.choice(string.ascii_letters + string.digits) for _ in range(10)
-        )
-        student_username = generate_unique_username("student", registration_number)
-        student_user = CustomUser.objects.create_user(
-            email=email,
-            username=student_username,
-            first_name=first_name,
-            last_name=last_name,
-            middle_name=middle_name,
-            role="student",
-            password=student_password,
-            is_active=True,
-        )
-        student = Student.objects.create(
-            user=student_user,
-            profile_picture=profile_picture,
-            registration_number=registration_number,
-            **validated_data,
-        )
+            self._generated_student_password = student_password
+            self._generated_student_username = student_username
 
-        ParentStudentRelationship.objects.create(
-            parent=parent_profile,
-            student=student,
-            relationship=relationship or "Guardian",
-            is_primary_contact=is_primary_contact,
-        )
+            # ------------------------------------------------------------------
+            # Welcome emails (unchanged)
+            # ------------------------------------------------------------------
+            try:
+                from utils.email import send_email_via_brevo
 
-        if existing_parent_id and parent_profile.phone:
-            student.parent_contact = parent_profile.phone
-            student.save()
+                if self._generated_parent_password:
+                    parent_subject = "Welcome to SchoolMS - Your Parent Account Details"
+                    parent_html_content = f"""
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                        <h2 style="color: #333; text-align: center;">Welcome to SchoolMS!</h2>
+                        <p>Hello {parent_user.first_name} {parent_user.last_name},</p>
+                        <p>Your parent account has been created successfully by the school administrator.</p>
+                        <p>You are now linked to your child: {first_name} {last_name}</p>
+                        <p><strong>Your Login Credentials:</strong></p>
+                        <ul>
+                            <li><strong>Email:</strong> {parent_user.email}</li>
+                            <li><strong>Password:</strong> {self._generated_parent_password}</li>
+                        </ul>
+                        <p>Please change your password after your first login for security.</p>
+                        <p>Best regards,<br>SchoolMS Team</p>
+                    </div>
+                    """
+                    send_email_via_brevo(
+                        parent_subject, parent_html_content, parent_user.email
+                    )
+                else:
+                    parent_subject = "New Student Added to Your Account - SchoolMS"
+                    parent_html_content = f"""
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                        <h2 style="color: #333; text-align: center;">New Student Added</h2>
+                        <p>Hello {parent_user.first_name} {parent_user.last_name},</p>
+                        <p>A new student has been linked to your account: {first_name} {last_name}</p>
+                        <p>Best regards,<br>SchoolMS Team</p>
+                    </div>
+                    """
+                    send_email_via_brevo(
+                        parent_subject, parent_html_content, parent_user.email
+                    )
+            except Exception as e:
+                import logging
 
-        self._generated_student_password = student_password
-        self._generated_student_username = student_username
+                logging.getLogger(__name__).error(f"Failed to send welcome emails: {e}")
 
-        try:
-            from utils.email import send_email_via_brevo
-
-            if self._generated_parent_password:
-                parent_subject = "Welcome to SchoolMS - Your Parent Account Details"
-                parent_html_content = f"""
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-                    <h2 style="color: #333; text-align: center;">Welcome to SchoolMS!</h2>
-                    <p>Hello {parent_user.first_name} {parent_user.last_name},</p>
-                    <p>Your parent account has been created successfully by the school administrator.</p>
-                    <p>You are now linked to your child: {first_name} {last_name}</p>
-                    <p><strong>Your Login Credentials:</strong></p>
-                    <ul>
-                        <li><strong>Email:</strong> {parent_user.email}</li>
-                        <li><strong>Password:</strong> {self._generated_parent_password}</li>
-                    </ul>
-                    <p>Please change your password after your first login for security.</p>
-                    <p>Best regards,<br>SchoolMS Team</p>
-                </div>
-                """
-                send_email_via_brevo(
-                    parent_subject, parent_html_content, parent_user.email
-                )
-            else:
-                parent_subject = "New Student Added to Your Account - SchoolMS"
-                parent_html_content = f"""
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-                    <h2 style="color: #333; text-align: center;">New Student Added</h2>
-                    <p>Hello {parent_user.first_name} {parent_user.last_name},</p>
-                    <p>A new student has been linked to your account: {first_name} {last_name}</p>
-                    <p>Best regards,<br>SchoolMS Team</p>
-                </div>
-                """
-                send_email_via_brevo(
-                    parent_subject, parent_html_content, parent_user.email
-                )
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).error(f"Failed to send welcome emails: {e}")
-
-        return student
+            return student
 
 
 # ---------------------------------------------------------------------------

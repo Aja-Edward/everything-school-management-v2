@@ -1,7 +1,0 @@
-libpangocairo-1.0-0
-libpango1.0-0
-libgdk-pixbuf2.0-0
-libcairo2
-libffi-dev
-libpangoft2-1.0-0
-libgirepository1.0-dev

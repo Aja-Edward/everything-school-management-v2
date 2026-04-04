@@ -271,7 +271,7 @@ getClassroomEnrollment(c: Classroom): number {
   async getClassrooms(): Promise<Classroom[]> {
     try {
       const token = localStorage.getItem('authToken');
-      const res = await fetch(`${API_BASE_URL}/api/classrooms/classrooms/`, {
+      const res = await fetch(`${API_BASE_URL}/classrooms/classrooms/`, {
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),

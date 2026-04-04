@@ -129,7 +129,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           const rawUserData = authStatus.user;
           const role = mapServerRoleToEnum(rawUserData.role);
 
-          const userData: FullUserData = {
+          const baseUserData = {
             id: rawUserData.id,
             email: rawUserData.email,
             first_name: rawUserData.first_name || '',
@@ -138,8 +138,50 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             is_staff: rawUserData.is_staff || false,
             is_active:
               rawUserData.is_active !== undefined ? rawUserData.is_active : true,
-            role: role,
+            tenant_id: rawUserData.tenant_id || null,
+            tenant_slug: rawUserData.tenant_slug || null,
           };
+
+          let userData: FullUserData;
+
+          switch (role) {
+            case UserRole.STUDENT:
+              userData = {
+                ...baseUserData,
+                role: UserRole.STUDENT,
+                student_data: rawUserData.student_data || {},
+              };
+              break;
+            case UserRole.TEACHER:
+              userData = {
+                ...baseUserData,
+                role: UserRole.TEACHER,
+                teacher_data: rawUserData.teacher_data || {},
+              };
+              break;
+            case UserRole.PARENT:
+              userData = {
+                ...baseUserData,
+                role: UserRole.PARENT,
+                parent_data: rawUserData.parent_data || {},
+              };
+              break;
+            case UserRole.ADMIN:
+            case UserRole.SUPERADMIN:
+            case UserRole.NURSERY_ADMIN:
+            case UserRole.PRIMARY_ADMIN:
+            case UserRole.JUNIOR_SECONDARY_ADMIN:
+            case UserRole.SENIOR_SECONDARY_ADMIN:
+            case UserRole.SECONDARY_ADMIN:
+              userData = {
+                ...baseUserData,
+                role,
+                admin_data: rawUserData.admin_data || {},
+              };
+              break;
+            default:
+              throw new Error(`Unsupported role: ${role}`);
+          }
 
           setUser(userData);
           localStorage.setItem('userData', JSON.stringify(userData));
@@ -245,6 +287,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         is_staff: rawUserData.is_staff || false,
         is_active:
           rawUserData.is_active !== undefined ? rawUserData.is_active : true,
+        tenant_id: rawUserData.tenant_id || null,
+        tenant_slug: rawUserData.tenant_slug || null,
       };
 
       let userData: FullUserData;
@@ -275,7 +319,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         case UserRole.SECONDARY_ADMIN:
           userData = {
             ...baseUserData,
-            role: role,
+            role: role as
+              | UserRole.ADMIN
+              | UserRole.SUPERADMIN
+              | UserRole.NURSERY_ADMIN
+              | UserRole.PRIMARY_ADMIN
+              | UserRole.JUNIOR_SECONDARY_ADMIN
+              | UserRole.SENIOR_SECONDARY_ADMIN
+              | UserRole.SECONDARY_ADMIN,
             admin_data: rawUserData.admin_data || {},
           };
           break;
@@ -425,7 +476,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         updatedUser = {
           ...user,
           ...userUpdate,
-          role: updatedRole,
+          role: updatedRole as
+            | UserRole.ADMIN
+            | UserRole.SUPERADMIN
+            | UserRole.NURSERY_ADMIN
+            | UserRole.PRIMARY_ADMIN
+            | UserRole.JUNIOR_SECONDARY_ADMIN
+            | UserRole.SENIOR_SECONDARY_ADMIN
+            | UserRole.SECONDARY_ADMIN,
         };
         break;
       }

@@ -107,6 +107,14 @@ class Class(TenantMixin, models.Model):
         related_name="classes",
         help_text="Education level this class belongs to",
     )
+    grade_level = models.ForeignKey(
+        GradeLevel,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="classes",
+        help_text="The specific grade level this class maps to (e.g., Primary 1 → Grade 1)",
+    )
 
     grade_number = models.IntegerField(help_text="Grade number (1, 2, 3, etc.)")
 
@@ -163,8 +171,8 @@ class Section(TenantMixin, models.Model):
         on_delete=models.CASCADE,
         related_name="sections",
         help_text="The class this section belongs to",
-        null=True,  # ✅ ADD THIS
-        blank=True,  # ✅ ADD THIS
+        null=True,
+        blank=True,
     )
 
     name = models.CharField(
@@ -512,7 +520,8 @@ class Classroom(TenantMixin, models.Model):
 
     @property
     def education_level(self):
-        return self.section.grade_level.education_level
+        # section → class_grade → education_level (direct FK on Class)
+        return self.section.class_grade.education_level
 
     def __str__(self):
         stream_info = f" - {self.stream.name}" if self.stream else ""

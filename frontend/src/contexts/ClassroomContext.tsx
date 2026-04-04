@@ -8,7 +8,8 @@ import React, {
   ReactNode,
 } from 'react';
 import { toast } from 'react-toastify';
-import classroomService, {
+import classroomService from  '@/services/ClassroomService'; 
+import type{
   Classroom,
   ClassroomStats,
   ClassroomTeacherAssignment,
@@ -29,7 +30,7 @@ import classroomService, {
   Subject,
   EducationLevelType,
   BulkCapacityResult,
-} from '@/services/ClassroomService';
+} from '@/types/classroomtypes';
 
 // ============================================================================
 // TYPES
@@ -257,6 +258,7 @@ export const ClassroomProvider: React.FC<{ children: ReactNode }> = ({ children 
     setError(null);
     try {
       const data = await classroomService.getClassrooms();
+      console.log('loadClassrooms response:', data);
       setClassrooms(data);
     } catch (err: any) {
       handleError(err, 'Failed to load classrooms');

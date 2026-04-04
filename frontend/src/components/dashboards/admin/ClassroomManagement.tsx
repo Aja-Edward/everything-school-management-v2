@@ -1,12 +1,21 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   School, Plus, Search, Edit3, Trash2, Eye, Grid3X3, List, UserPlus
 } from 'lucide-react';
 import { useGlobalTheme } from '@/contexts/GlobalThemeContext';
-import { Classroom, EducationLevelType,  Subject, ClassroomTeacherAssignment, UpdateClassroomData, CreateClassroomData } from '@/services/ClassroomService';
+import { 
+  Classroom,
+   EducationLevelType,
+   Subject, 
+   ClassroomTeacherAssignment,
+   UpdateClassroomData, 
+   CreateClassroomData } from '@/types/classroomtypes';
 import { useClassroom } from '@/contexts/ClassroomContext';
 import { toast } from 'react-toastify';
-import ClassroomViewModal from './ClassroomViewModal';
+
+
+
 
 interface ClassroomManagementProps {}
 
@@ -16,9 +25,11 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
   // Modal states
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [showViewModal, setShowViewModal] = useState(false);
   const [showAssignTeacherModal, setShowAssignTeacherModal] = useState(false);
   const [selectedClassroom, setSelectedClassroom] = useState<Classroom | null>(null);
+
+
+  const navigate = useNavigate();
   
   // Form states - Fixed type consistency
   const [formData, setFormData] = useState({
@@ -77,18 +88,15 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
   
   
   // View toggle
-  const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
+  const [viewMode, setViewMode] = useState<'list' | 'card'>('list');
 
   // Load data
   
   // Filter classrooms
   
-
-  // Handle form submission with proper validation
-  const handleSubmit = async (e: React.FormEvent) => {
+const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validation
     if (!formData.name.trim()) {
       toast.error('Classroom name is required');
       return;
@@ -98,10 +106,9 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
       toast.error('Please select all required fields');
       return;
     }
-
+    
     try {
-      if (selectedClassroom) {
-        // Update existing classroom
+      if (showEditModal && selectedClassroom) {  // ← CHANGED
         const updateData: UpdateClassroomData = {
           name: formData.name.trim(),
           section: formData.section,
@@ -114,7 +121,6 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
         await updateClassroom(selectedClassroom.id, updateData);
        
       } else {
-        // Create new classroom
         const createData: CreateClassroomData = {
           name: formData.name.trim(),
           section: formData.section,
@@ -135,8 +141,7 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
       toast.error(err.message || 'Operation failed');
     }
   };
-
-  // Handle teacher assignment
+    // Handle teacher assignment
   const handleAssignTeacher = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedClassroom) return;
@@ -349,7 +354,11 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
             </div>
             <div className="flex gap-3">
               <button
-                onClick={() => setShowAddModal(true)}
+               onClick={() => {
+                      setSelectedClassroom(null); 
+                      resetForm();                  
+                      setShowAddModal(true);
+                    }}
                 className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-6 py-3 rounded-xl font-semibold flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
               >
                 <Plus size={20} />
@@ -478,7 +487,7 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
                     <strong>Room:</strong> {classroom.room_number || 'Not assigned'}
                   </p>
                   <p className={themeClasses.textSecondary}>
-                    <strong>Capacity:</strong> {classroom.current_enrollment}/{classroom.max_capacity}
+                    <strong>Capacity:</strong> {(classroom.current_enrollment ?? 0)}/{classroom.max_capacity}
                   </p>
                   <p className={themeClasses.textSecondary}>
                     <strong>Assigned Teachers:</strong> 
@@ -494,10 +503,7 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
 
                 <div className="flex items-center justify-center gap-3">
                   <button
-                    onClick={() => {
-                      setSelectedClassroom(classroom);
-                      setShowViewModal(true);
-                    }}
+                    onClick={() => navigate(`/admin/classrooms/${classroom.id}`, { state: { classroom } })}
                     className="p-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-all duration-200 hover:scale-110 group relative"
                     title="View Details"
                   >
@@ -532,7 +538,7 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
                         academic_session: classroom.academic_session,
                         term: classroom.term,
                         class_teacher: classroom.class_teacher || undefined,
-                        room_number: classroom.room_number,
+                        room_number: classroom.room_number ?? '',
                         max_capacity: classroom.max_capacity,
                      
                       };
@@ -609,10 +615,13 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
                         {classroom.section_name}
                       </td>
                       <td className={`px-6 py-4 text-sm ${themeClasses.textSecondary}`}>
+                        {classroom.stream_name || '—'}
+                      </td>
+                      <td className={`px-6 py-4 text-sm ${themeClasses.textSecondary}`}>
                         {classroom.room_number || 'Not assigned'}
                       </td>
                       <td className={`px-6 py-4 text-sm ${themeClasses.textSecondary}`}>
-                        {classroom.current_enrollment}/{classroom.max_capacity}
+                        {(classroom.current_enrollment ?? 0)}/{classroom.max_capacity}
                       </td>
                       <td className={`px-6 py-4 text-sm ${themeClasses.textSecondary}`}>
                         {classroom.teacher_assignments && classroom.teacher_assignments.length > 0 ? (
@@ -633,10 +642,7 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => {
-                              setSelectedClassroom(classroom);
-                              setShowViewModal(true);
-                            }}
+                           onClick={() => navigate(`/admin/classroom-management/classrooms/${classroom.id}`, { state: { classroom } })}
                             className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors"
                             title="View Details"
                           >
@@ -665,7 +671,7 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
                                 academic_session: classroom.academic_session,
                                 term: classroom.term,
                                 class_teacher: classroom.class_teacher || undefined,
-                                room_number: classroom.room_number,
+                                room_number: classroom.room_number ?? '',
                                 max_capacity: classroom.max_capacity,
                               };
                               
@@ -802,7 +808,7 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
                   >
                     <option value="">Select Term</option>
                     {terms.map(term => (
-                      <option key={term.id} value={term.id}>
+                      <option key={term.id} value={term.id} className='text-red-700'>
                         {term.name}
                       </option>
                     ))}
@@ -1047,14 +1053,6 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
           </div>
         </div>
       )}
-
-      {/* View Modal */}
-      <ClassroomViewModal
-        classroom={selectedClassroom}
-        isOpen={showViewModal}
-        onClose={() => setShowViewModal(false)}
-        onRemoveAssignment={handleRemoveAssignment}
-      />
     </div>
   );
 };

@@ -8,12 +8,16 @@ from .views import (
     SubjectAllocationViewSet,
     CurriculumViewSet,
     AcademicCalendarViewSet,
+    EducationLevelViewSet,
+    TermTypeViewSet,
 )
 
 router = DefaultRouter()
 router.register(r"sessions", AcademicSessionViewSet, basename="session")
 router.register(r"terms", TermViewSet, basename="term")
+router.register(r"term-types", TermTypeViewSet, basename="term-type")
 router.register(r"subjects", SubjectViewSet, basename="subject")
+router.register(r"education-levels", EducationLevelViewSet, basename="education-level")
 router.register(
     r"subject-allocations", SubjectAllocationViewSet, basename="subject-allocation"
 )

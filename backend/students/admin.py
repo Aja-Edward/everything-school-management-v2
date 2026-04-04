@@ -60,12 +60,11 @@ class StudentAdmin(admin.ModelAdmin):
 
     # ✅ Order by FK fields, not the derived property
     ordering = [
-        "student_class__education_level__order",
-        "student_class__order",
+        "student_class__education_level__display_order",  # correct
+        "student_class__order",  # correct
         "user__first_name",
         "user__last_name",
     ]
-
     fieldsets = (
         (
             "Basic Information",
@@ -127,7 +126,9 @@ class StudentAdmin(admin.ModelAdmin):
         return obj.education_level_display
 
     get_education_level.short_description = "Education Level"
-    get_education_level.admin_order_field = "student_class__education_level__order"
+    get_education_level.admin_order_field = (
+        "student_class__education_level__display_order"
+    )
 
     def get_age(self, obj):
         age = obj.age

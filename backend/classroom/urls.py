@@ -7,6 +7,7 @@ from academics.views import AcademicSessionViewSet, TermViewSet
 # Import from classroom app
 from .views import (
     # Academic Structure ViewSets
+    ClassViewSet,
     GradeLevelViewSet,
     SectionViewSet,
     StreamViewSet,
@@ -74,6 +75,7 @@ router.register(r"students", StudentViewSet, basename="student")
 # CLASSROOM MANAGEMENT ROUTES
 # ============================================================================
 router.register(r"classrooms", ClassroomViewSet, basename="classroom")
+router.register(r"classes", ClassViewSet, basename="class")
 router.register(
     r"teacher-assignments",
     ClassroomTeacherAssignmentViewSet,

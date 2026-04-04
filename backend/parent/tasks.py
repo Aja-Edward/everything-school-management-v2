@@ -19,6 +19,13 @@ from django.db import transaction
 
 logger = logging.getLogger(__name__)
 
+# Example phone numbers to skip during parsing
+EXAMPLE_PHONES = [
+    "+1234567890",
+    "1234567890",
+    "123-456-7890",
+    "+234-800-000-0000",
+]
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -100,32 +107,24 @@ def _create_parent(tenant, cleaned):
     from parent.models import ParentProfile, ParentStudentRelationship
     from students.models import Student
 
+    from utils import generate_unique_username
+
+    existing_user = ParentProfile.objects.filter(
+        tenant=tenant, phone=cleaned["phone"]
+    ).first()
+    if existing_user:
+        return (
+            existing_user,
+            None,
+            existing_user.user.username,
+            existing_user.user.email,
+        )
     password = _make_password()
 
-    # Build a unique username: parent_<phone_last8>
-    phone_suffix = cleaned["phone"].replace("+", "")[-8:]
-    base_username = f"parent_{phone_suffix}"
-    username = base_username
-    counter = 1
-    while CustomUser.objects.filter(username=username).exists():
-        username = f"{base_username}_{counter}"
-        counter += 1
+    username = generate_unique_username(role="parent", tenant=tenant)
 
     # Use provided email or synthesise one
     email = cleaned["email"] or f"{username}@{tenant.slug}.internal"
-
-    # Avoid creating duplicate accounts for the same phone
-    existing_user = CustomUser.objects.filter(
-        username=username
-    ).first()
-
-    if existing_user:
-        # Return existing account without recreating
-        parent = ParentProfile.objects.filter(
-            tenant=tenant, user=existing_user
-        ).first()
-        if parent:
-            return parent, None, username, email  # password=None means already exists
 
     user = CustomUser.objects.create_user(
         email=email,
@@ -193,10 +192,6 @@ def _normalise_header(h):
 
 
 def _parse_file(file_path, file_ext):
-    """
-    Parse CSV or Excel file.
-    Returns list of row dicts keyed by internal column names.
-    """
     if file_ext in (".xlsx", ".xls"):
         import openpyxl
         wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
@@ -204,30 +199,90 @@ def _parse_file(file_path, file_ext):
         rows = list(ws.iter_rows(values_only=True))
         if not rows:
             return []
-        raw_headers    = [_normalise_header(h) if h else "" for h in rows[0]]
+
+        # ✅ Find the real header row by looking for known column names
+        header_row_idx = None
+        for idx, row in enumerate(rows):
+            normalised = [_normalise_header(h) for h in row if h]
+            if any(h in COLUMN_MAP for h in normalised):
+                header_row_idx = idx
+                break
+
+        if header_row_idx is None:
+            raise ValueError("Could not find header row. Check your file format.")
+
+        raw_headers = [_normalise_header(h) if h else "" for h in rows[header_row_idx]]
         mapped_headers = [COLUMN_MAP.get(h, h) for h in raw_headers]
+
         result = []
-        for row in rows[1:]:
+        # Start from the row AFTER the header, skip the example/sample row too
+        data_rows = rows[header_row_idx + 1 :]
+
+        def _cell_to_str(val):
+            if val is None:
+                return ""
+            if isinstance(val, float) and val == int(val):
+                return str(int(val))  # ← strips the .0
+            return str(val).strip()
+
+        for row in data_rows:
             if all(cell is None or str(cell).strip() == "" for cell in row):
                 continue
-            result.append({
-                mapped_headers[i]: str(row[i]).strip() if row[i] is not None else ""
+            row_dict = {
+                mapped_headers[i]: _cell_to_str(row[i])
                 for i in range(len(mapped_headers))
-            })
+            }
+            # Skip known example/placeholder rows
+            if (
+                row_dict.get("phone", "") in EXAMPLE_PHONES
+                and row_dict.get("last_name", "").lower() == "adeyemi"
+            ):
+                continue
+            if row_dict.get("first_name", "").lower() in (
+                "fatima",
+                "firstname",
+            ) and row_dict.get("last_name", "").lower() in ("adeyemi", "lastname"):
+                continue
+            result.append(row_dict)
         return result
+
     else:
         import csv
         with open(file_path, newline="", encoding="utf-8-sig") as f:
-            reader = csv.DictReader(f)
+            # Skip lines until we find the header row
+            lines = f.readlines()
+            header_line_idx = None
+            for idx, line in enumerate(lines):
+                normalised = [_normalise_header(h) for h in line.strip().split(",")]
+                if any(h in COLUMN_MAP for h in normalised):
+                    header_line_idx = idx
+                    break
+
+            if header_line_idx is None:
+                raise ValueError("Could not find header row in CSV.")
+
+            import io
+
+            csv_content = "".join(lines[header_line_idx:])
+            reader = csv.DictReader(io.StringIO(csv_content))
             field_map = {
                 k: COLUMN_MAP.get(_normalise_header(k), _normalise_header(k))
                 for k in (reader.fieldnames or [])
             }
             result = []
+            first_row = True
             for row in reader:
                 normalised = {field_map[k]: v.strip() for k, v in row.items()}
                 if all(v == "" for v in normalised.values()):
                     continue
+                # Skip example row
+                if first_row and normalised.get("first_name", "").lower() in (
+                    "fatima",
+                    "firstname",
+                ):
+                    first_row = False
+                    continue
+                first_row = False
                 result.append(normalised)
         return result
 

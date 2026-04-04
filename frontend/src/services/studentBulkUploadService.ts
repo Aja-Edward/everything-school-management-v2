@@ -45,8 +45,15 @@ export const bulkUploadService = {
     return res.json();
   },
 
+
   getStatus: async (uploadId: number): Promise<BulkUploadStatusResponse> => {
-    return api.get(`${STUDENTS_BASE}/bulk-upload/${uploadId}/status/`);
+    const headers = await getHeaders();
+    const res = await fetch(`${STUDENTS_BASE}/bulk-upload/${uploadId}/status/`, {
+      headers,
+      credentials: "include",
+    });
+    if (!res.ok) throw await res.json();
+    return res.json();
   },
 
   exportCredentials: async (

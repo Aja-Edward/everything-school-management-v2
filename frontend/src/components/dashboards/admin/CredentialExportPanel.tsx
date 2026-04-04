@@ -107,8 +107,9 @@ export function CredentialExportPanel({
               style={{ marginTop: 2 }}
             />
             <div>
-              <p style={{ margin: 0, fontWeight: 500, fontSize: 14 }}>{fmt.label}</p>
-              <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--color-text-secondary)" }}>
+              <p 
+              className="m-0 font-medium text-sm">{fmt.label}</p>
+              <p className="mt-2 mb-2 ml-0 mr-0 text-sm text-variant" >
                 {fmt.desc}
               </p>
             </div>
@@ -117,15 +118,9 @@ export function CredentialExportPanel({
       </div>
 
       {/* Warning */}
-      <div style={{
-        background:   "var(--color-background-warning)",
-        border:       "1px solid var(--color-border-warning)",
-        borderRadius: "var(--border-radius-md)",
-        padding:      "10px 14px",
-        marginBottom: 18,
-        fontSize:     12,
-        color:        "var(--color-text-warning)",
-      }}>
+      <div 
+      className="bg-yellow-50 border-yellow-200 text-yellow-800 rounded-md p-3 mb-4 text-sm"
+      >
         ⚠ These are initial passwords. Advise students and parents to change
         their password on first login.
       </div>
@@ -133,20 +128,7 @@ export function CredentialExportPanel({
       <button
         onClick={handleExport}
         disabled={exporting}
-        style={{
-          background:   "var(--color-text-primary)",
-          color:        "var(--color-background-primary)",
-          border:       "none",
-          borderRadius: "var(--border-radius-md)",
-          padding:      "10px 22px",
-          fontSize:     14,
-          fontWeight:   500,
-          cursor:       exporting ? "not-allowed" : "pointer",
-          opacity:      exporting ? 0.7 : 1,
-          display:      "inline-flex",
-          alignItems:   "center",
-          gap:          8,
-        }}
+        className="bg-black hover:bg-gray-700 disabled:bg-gray-400 text-white font-medium rounded-md transition-colors p-2"
       >
         {exporting
           ? "Preparing download…"

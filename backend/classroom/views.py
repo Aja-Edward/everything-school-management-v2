@@ -26,7 +26,8 @@ from .models import (
     ClassSchedule,
     Section,
     Stream,
-    StreamType,  # NEW: Import StreamType
+    StreamType,
+    Class as StudentClass,
 )
 from students.models import Student
 from teacher.models import Teacher
@@ -42,6 +43,7 @@ from .serializers import (
     GradeLevelSerializer,
     SectionSerializer,
     StreamSerializer,
+    ClassSerializer,
     StreamTypeSerializer,  # NEW: Import StreamTypeSerializer
 )
 from teacher.serializers import TeacherSerializer
@@ -61,12 +63,12 @@ logger = logging.getLogger(__name__)
 # ==============================================================================
 
 
-class GradeLevelViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
-    """ViewSet for GradeLevel model with automatic section filtering"""
-
+class GradeLevelViewSet(
+    TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet
+):
     queryset = GradeLevel.objects.all()
     serializer_class = GradeLevelSerializer
-    permission_classes = []  # public access
+    permission_classes = []
     pagination_class = None
     filter_backends = [
         DjangoFilterBackend,
@@ -74,12 +76,12 @@ class GradeLevelViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
         filters.OrderingFilter,
     ]
     filterset_fields = ["education_level", "is_active"]
-    search_fields = ["name", "education_level"]
+    search_fields = ["name", "education_level__name"]  # ✅ FK traversal for search
     ordering_fields = ["order", "name"]
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        return queryset.order_by("order", "name")
+        return queryset.select_related("education_level").order_by("order", "name")
 
     @action(detail=True, methods=["get"])
     def subjects(self, request, pk=None):
@@ -92,40 +94,71 @@ class GradeLevelViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
     @action(detail=True, methods=["get"])
     def sections(self, request, pk=None):
         grade = self.get_object()
-        sections = Section.objects.filter(grade_level=grade)
+        sections = Section.objects.filter(
+            class_grade__grade_level=grade, is_active=True
+        )
         sections = self.apply_section_filters(sections)
         serializer = SectionSerializer(sections, many=True)
         return Response(serializer.data)
 
+    # ✅ All level filter actions now use education_level__level_type (FK traversal)
     @action(detail=False, methods=["get"])
     def nursery_grades(self, request):
-        grades = self.get_queryset().filter(education_level="NURSERY")
+        grades = self.get_queryset().filter(education_level__level_type="NURSERY")
         serializer = self.get_serializer(grades, many=True)
         return Response(serializer.data)
 
     @action(detail=False, methods=["get"])
     def primary_grades(self, request):
-        grades = self.get_queryset().filter(education_level="PRIMARY")
+        grades = self.get_queryset().filter(education_level__level_type="PRIMARY")
         serializer = self.get_serializer(grades, many=True)
         return Response(serializer.data)
 
     @action(detail=False, methods=["get"])
     def junior_secondary_grades(self, request):
-        grades = self.get_queryset().filter(education_level="JUNIOR_SECONDARY")
+        grades = self.get_queryset().filter(
+            education_level__level_type="JUNIOR_SECONDARY"
+        )
         serializer = self.get_serializer(grades, many=True)
         return Response(serializer.data)
 
     @action(detail=False, methods=["get"])
     def senior_secondary_grades(self, request):
-        grades = self.get_queryset().filter(education_level="SENIOR_SECONDARY")
+        grades = self.get_queryset().filter(
+            education_level__level_type="SENIOR_SECONDARY"
+        )
         serializer = self.get_serializer(grades, many=True)
         return Response(serializer.data)
+
+    def perform_create(self, serializer):
+        grade_level = serializer.save(tenant=self.request.tenant)
+        StudentClass.objects.get_or_create(
+            tenant=self.request.tenant,
+            code=f"GL_{grade_level.id}",
+            defaults={
+                "name": grade_level.name,
+                "education_level": grade_level.education_level,
+                "grade_level": grade_level,
+                "grade_number": grade_level.order,
+                "order": grade_level.order,
+            },
+        )
+
+    def perform_update(self, serializer):
+        grade_level = serializer.save()
+        StudentClass.objects.filter(
+            tenant=self.request.tenant, grade_level=grade_level
+        ).update(name=grade_level.name, order=grade_level.order)
 
 
 class SectionViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """ViewSet for Section model with automatic section filtering"""
 
-    queryset = Section.objects.all()
+    queryset = Section.objects.select_related(
+        "class_grade",
+        "class_grade__grade_level",
+        "class_grade__education_level",
+    )
     serializer_class = SectionSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = None
@@ -134,13 +167,13 @@ class SectionViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         filters.SearchFilter,
         filters.OrderingFilter,
     ]
-    filterset_fields = ["grade_level", "name", "is_active"]
+    filterset_fields = ["class_grade", "name", "is_active"]
     search_fields = ["name"]
     ordering_fields = ["name"]
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        return queryset.order_by("grade_level__order", "name")
+        return queryset.order_by("class_grade__order", "name")
 
     @action(detail=True, methods=["get"])
     def classrooms(self, request, pk=None):
@@ -542,14 +575,15 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
 
     def get_queryset(self):
         queryset = super().get_queryset()
-
         queryset = queryset.select_related(
-            "section__grade_level",
+            "section__class_grade__education_level",  # ✅
+            "section__class_grade",
+            "section__class_grade__grade_level",  # ✅
             "academic_session",
             "term",
             "class_teacher__user",
-            "stream",  # NEW: Prefetch stream
-            "stream__stream_type_new",  # NEW: Prefetch stream type
+            "stream",
+            "stream__stream_type_new",
         ).prefetch_related(
             "students",
             "schedules",
@@ -561,12 +595,7 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                 to_attr="active_assignments",
             ),
         )
-
-        logger.info(
-            f"[ClassroomViewSet] Queryset count after filtering: {queryset.count()}"
-        )
-
-        return queryset.order_by("section__grade_level__order", "name")
+        return queryset.order_by("section__class_grade__order", "name")
 
     def get_serializer_class(self):
         if self.action in ["retrieve", "list"]:
@@ -679,16 +708,16 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
 
         # By education level
         nursery_count = queryset.filter(
-            section__grade_level__education_level="NURSERY"
+            section__class_grade__education_level__level_type="NURSERY"  # adjust to your EducationLevel field name
         ).count()
         primary_count = queryset.filter(
-            section__grade_level__education_level="PRIMARY"
+            section__class_grade__education_level__level_type="PRIMARY"
         ).count()
         junior_secondary_count = queryset.filter(
-            section__grade_level__education_level="JUNIOR_SECONDARY"
+            section__class_grade__education_level__level_type="JUNIOR_SECONDARY"
         ).count()
         senior_secondary_count = queryset.filter(
-            section__grade_level__education_level="SENIOR_SECONDARY"
+            section__class_grade__education_level__level_type="SENIOR_SECONDARY"
         ).count()
 
         # NEW: By stream type
@@ -771,7 +800,10 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                 classroom=classroom, teacher=teacher, subject=subject
             )
 
-            if classroom.section.grade_level.education_level in ["NURSERY", "PRIMARY"]:
+            if classroom.section.class_grade.education_level.level_type in [
+                "NURSERY",
+                "PRIMARY",
+            ]:
                 classroom.class_teacher = teacher
                 classroom.save()
 
@@ -824,7 +856,10 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
             assignment.is_active = False
             assignment.save()
 
-            if classroom.section.grade_level.education_level in ["NURSERY", "PRIMARY"]:
+            if classroom.section.class_grade.education_level.level_type in [
+                "NURSERY",
+                "PRIMARY",
+            ]:
                 remaining = classroom.classroomteacherassignment_set.filter(
                     is_active=True
                 ).count()
@@ -1043,6 +1078,224 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
             }
         )
 
+    @action(detail=True, methods=["post"])
+    def transfer_teacher(self, request, pk=None):
+        """
+        Transfer a teacher's subject assignments from this classroom to another.
+
+        Request body:
+        {
+            "teacher_id": 5,
+            "target_classroom_id": 12,
+            "subject_ids": [1, 2, 3]   # subset of teacher's subjects to transfer
+        }
+        """
+        source_classroom = self.get_object()
+        teacher_id = request.data.get("teacher_id")
+        target_classroom_id = request.data.get("target_classroom_id")
+        subject_ids = request.data.get("subject_ids", [])
+
+        # ── Validation ──────────────────────────────────────────────────────────
+        if not teacher_id or not target_classroom_id:
+            return Response(
+                {"error": "teacher_id and target_classroom_id are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(subject_ids, list) or len(subject_ids) == 0:
+            return Response(
+                {"error": "subject_ids must be a non-empty list"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if source_classroom.id == int(target_classroom_id):
+            return Response(
+                {"error": "Source and target classroom cannot be the same"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            teacher = Teacher.objects.get(id=teacher_id, tenant=request.tenant)
+        except Teacher.DoesNotExist:
+            return Response(
+                {"error": "Teacher not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            target_classroom = Classroom.objects.get(
+                id=target_classroom_id, tenant=request.tenant
+            )
+        except Classroom.DoesNotExist:
+            return Response(
+                {"error": "Target classroom not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # ── Fetch the assignments being transferred ──────────────────────────────
+        source_assignments = ClassroomTeacherAssignment.objects.filter(
+            classroom=source_classroom,
+            teacher=teacher,
+            subject_id__in=subject_ids,
+            is_active=True,
+        )
+
+        if not source_assignments.exists():
+            return Response(
+                {
+                    "error": "No active assignments found for this teacher and the given subjects in this classroom"
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        transferred = []
+        skipped = []
+        errors = []
+
+        from django.db import transaction
+
+        try:
+            with transaction.atomic():
+                for assignment in source_assignments:
+                    # Check for conflict in target classroom (same subject already assigned)
+                    conflict = (
+                        ClassroomTeacherAssignment.objects.filter(
+                            classroom=target_classroom,
+                            subject=assignment.subject,
+                            is_active=True,
+                        )
+                        .exclude(teacher=teacher)
+                        .first()
+                    )
+
+                    if conflict:
+                        skipped.append(
+                            {
+                                "subject_id": assignment.subject_id,
+                                "subject_name": assignment.subject.name,
+                                "reason": f"Subject already assigned to {conflict.teacher.user.get_full_name()} in target classroom",
+                            }
+                        )
+                        continue
+
+                    # Deactivate old assignment
+                    assignment.is_active = False
+                    assignment.save(update_fields=["is_active"])
+
+                    # Create or reactivate in target classroom
+                    new_assignment, created = (
+                        ClassroomTeacherAssignment.objects.get_or_create(
+                            classroom=target_classroom,
+                            teacher=teacher,
+                            subject=assignment.subject,
+                            defaults={
+                                "is_primary_teacher": assignment.is_primary_teacher,
+                                "periods_per_week": assignment.periods_per_week,
+                                "tenant": request.tenant,
+                                "is_active": True,
+                            },
+                        )
+                    )
+
+                    if not created:
+                        new_assignment.is_active = True
+                        new_assignment.is_primary_teacher = (
+                            assignment.is_primary_teacher
+                        )
+                        new_assignment.periods_per_week = assignment.periods_per_week
+                        new_assignment.save(
+                            update_fields=[
+                                "is_active",
+                                "is_primary_teacher",
+                                "periods_per_week",
+                            ]
+                        )
+
+                    transferred.append(
+                        {
+                            "subject_id": assignment.subject_id,
+                            "subject_name": assignment.subject.name,
+                            "assignment_id": new_assignment.id,
+                        }
+                    )
+
+                # ── Update class_teacher if applicable ───────────────────────────
+                # If source classroom has no more active assignments for this teacher,
+                # and they were the class_teacher, clear it.
+                remaining_in_source = ClassroomTeacherAssignment.objects.filter(
+                    classroom=source_classroom,
+                    teacher=teacher,
+                    is_active=True,
+                ).exists()
+
+                if (
+                    not remaining_in_source
+                    and source_classroom.class_teacher_id == teacher.id
+                ):
+                    source_classroom.class_teacher = None
+                    source_classroom.save(update_fields=["class_teacher"])
+
+                # If target is Nursery/Primary and has no class_teacher yet, assign this teacher
+                target_level = (
+                    target_classroom.section.class_grade.education_level.level_type
+                )
+                if (
+                    target_level in ["NURSERY", "PRIMARY"]
+                    and target_classroom.class_teacher is None
+                    and transferred
+                ):
+                    target_classroom.class_teacher = teacher
+                    target_classroom.save(update_fields=["class_teacher"])
+
+        except Exception as e:
+            logger.error(f"Error transferring teacher: {str(e)}", exc_info=True)
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        if not transferred and skipped:
+            return Response(
+                {
+                    "error": "No subjects were transferred — all had conflicts in the target classroom",
+                    "skipped": skipped,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        return Response(
+            {
+                "message": f"Teacher {teacher.user.get_full_name()} transfer complete.",
+                "from_classroom": source_classroom.name,
+                "to_classroom": target_classroom.name,
+                "transferred": transferred,
+                "skipped": skipped,
+                "transferred_count": len(transferred),
+                "skipped_count": len(skipped),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ClassViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
+    """Read-only endpoint for Class (StudentClass) records — used by frontend to map GradeLevel → class_grade id"""
+
+    queryset = StudentClass.objects.all()
+    serializer_class = ClassSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ["education_level", "grade_level", "is_active"]
+    ordering_fields = ["order", "name"]
+
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .select_related("education_level", "grade_level")
+            .order_by("order")
+        )
+
 
 class ClassroomTeacherAssignmentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """ViewSet for ClassroomTeacherAssignment model"""
@@ -1149,16 +1402,16 @@ class StudentEnrollmentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewse
 
         # By education level
         nursery_enrollments = queryset.filter(
-            classroom__section__grade_level__education_level="NURSERY"
+            classroom__section__class_grade__education_level__level_type="NURSERY"
         ).count()
         primary_enrollments = queryset.filter(
-            classroom__section__grade_level__education_level="PRIMARY"
+            classroom__section__class_grade__education_level__level_type="PRIMARY"
         ).count()
         junior_secondary_enrollments = queryset.filter(
-            classroom__section__grade_level__education_level="JUNIOR_SECONDARY"
+            classroom__section__class_grade__education_level__level_type="JUNIOR_SECONDARY"
         ).count()
         senior_secondary_enrollments = queryset.filter(
-            classroom__section__grade_level__education_level="SENIOR_SECONDARY"
+            classroom__section__class_grade__education_level__level_type="SENIOR_SECONDARY"
         ).count()
 
         # NEW: By stream type

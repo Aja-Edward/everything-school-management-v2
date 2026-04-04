@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, X, Calendar, Search, Check } from 'lucide-react';
 import api from '@/services/api';
 import axios from 'axios';
@@ -45,11 +45,14 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
   const [uploading, setUploading] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [streams, setStreams] = useState<any[]>([]);
+
+  // ✅ FIX: Prevents double-submit when Save is clicked more than once
+  const submittingRef = useRef(false);
   
   // State for cascading dropdowns
-  const [gradeLevels, setGradeLevels] = useState<any[]>([]);  // Classes/Grade Levels
-  const [sections, setSections] = useState<any[]>([]);        // Sections for selected grade
-  const [classrooms, setClassrooms] = useState<any[]>([]);    // Classrooms for selected section
+  const [gradeLevels, setGradeLevels] = useState<any[]>([]);
+  const [sections, setSections] = useState<any[]>([]);
+  const [classrooms, setClassrooms] = useState<any[]>([]);
   
   const [loadingGrades, setLoadingGrades] = useState(false);
   const [loadingSections, setLoadingSections] = useState(false);
@@ -60,14 +63,12 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
   const [dobMonth, setDobMonth] = useState('');
   const [dobYear, setDobYear] = useState('');
 
-  // Fetch grade levels (Classes) on component mount
+  // Fetch grade levels on mount
   useEffect(() => {
     const fetchGradeLevels = async () => {
       setLoadingGrades(true);
       try {
-        const response = await api.get('/api/classrooms/grades/');
-        console.log('Grade Levels Response:', response);
-
+        const response = await api.get('/api/classrooms/classes/');
         let gradesArray: any[] = [];
         if (Array.isArray(response)) {
           gradesArray = response;
@@ -76,9 +77,7 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
         } else if (response && Array.isArray(response.data)) {
           gradesArray = response.data;
         }
-
         setGradeLevels(gradesArray);
-        console.log('Grade levels loaded:', gradesArray.length, 'items');
       } catch (error) {
         console.error('Error fetching grade levels:', error);
         toast.error('Failed to load grade levels');
@@ -87,11 +86,10 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
         setLoadingGrades(false);
       }
     };
-
     fetchGradeLevels();
   }, []);
 
-  // Fetch sections when grade level (student_class) is selected
+  // Fetch sections when grade level changes
   useEffect(() => {
     const fetchSections = async () => {
       if (!formData.student_class) {
@@ -99,13 +97,9 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
         setFormData(prev => ({ ...prev, section: '', classroom: '' }));
         return;
       }
-
       setLoadingSections(true);
       try {
-        // Fetch sections for the selected grade level
-        const response = await api.get(`/api/classrooms/grades/${formData.student_class}/sections/`);
-        console.log('Sections Response:', response);
-
+        const response = await api.get(`/api/classrooms/sections/?class_grade=${formData.student_class}`);
         let sectionsArray: any[] = [];
         if (Array.isArray(response)) {
           sectionsArray = response;
@@ -114,9 +108,7 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
         } else if (response && Array.isArray(response.data)) {
           sectionsArray = response.data;
         }
-
         setSections(sectionsArray);
-        console.log('Sections loaded:', sectionsArray.length, 'items');
       } catch (error) {
         console.error('Error fetching sections:', error);
         toast.error('Failed to load sections');
@@ -125,11 +117,10 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
         setLoadingSections(false);
       }
     };
-
     fetchSections();
   }, [formData.student_class]);
 
-  // Fetch classrooms when section is selected
+  // Fetch classrooms when section changes
   useEffect(() => {
     const fetchClassrooms = async () => {
       if (!formData.section) {
@@ -137,14 +128,9 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
         setFormData(prev => ({ ...prev, classroom: '' }));
         return;
       }
-
       setLoadingClassrooms(true);
       try {
-        console.log('Fetching classrooms for section ID:', formData.section);
-
         const response = await api.get(`/api/classrooms/classrooms/?section=${formData.section}`);
-        console.log('Classrooms API response:', response);
-
         let classroomList: any[] = [];
         if (Array.isArray(response)) {
           classroomList = response;
@@ -153,21 +139,14 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
         } else if (response && Array.isArray(response.data)) {
           classroomList = response.data;
         }
-
-        console.log('Processed classroom list:', classroomList);
         setClassrooms(classroomList);
-        
         if (classroomList.length === 0) {
           const section = sections.find(s => s.id === parseInt(formData.section));
           toast.info(
             `No classrooms found for ${section?.name || 'this section'}. You can proceed without selecting a classroom.`,
-            {
-              position: "top-right",
-              autoClose: 5000
-            }
+            { position: "top-right", autoClose: 5000 }
           );
         }
-        
       } catch (error: any) {
         console.error('Error fetching classrooms:', error);
         toast.error('Failed to load classrooms');
@@ -176,17 +155,16 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
         setLoadingClassrooms(false);
       }
     };
-    
     fetchClassrooms();
   }, [formData.section, sections]);
-  
+
   const handleParentUsernameSearch = async () => {
     if (!parentUsernameSearch) return;
     try {
       const res = await api.get(`/api/parents/search/?q=${encodeURIComponent(parentUsernameSearch)}`);
       const parentData = Array.isArray(res) ? res : [];
-      const found = parentData.find((p: any) => 
-        p.username === parentUsernameSearch || 
+      const found = parentData.find((p: any) =>
+        p.username === parentUsernameSearch ||
         p.username.includes(parentUsernameSearch) ||
         p.username.toLowerCase().includes(parentUsernameSearch.toLowerCase())
       );
@@ -227,8 +205,6 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
     const fetchStreams = async () => {
       try {
         const response = await api.get('/api/classrooms/streams/');
-        console.log('Streams response:', response);
-
         let streamsArray: any[] = [];
         if (Array.isArray(response)) {
           streamsArray = response;
@@ -237,9 +213,7 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
         } else if (response && Array.isArray(response.data)) {
           streamsArray = response.data;
         }
-
         setStreams(streamsArray);
-        console.log('Streams set to:', streamsArray.length, 'items');
       } catch (error) {
         console.error('Error fetching streams:', error);
         setStreams([]);
@@ -296,76 +270,88 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
   };
 
   const handleSave = async () => {
+    // ✅ FIX 1: Prevent double-submit
+    if (submittingRef.current) return;
+
+    const validationErrors: string[] = [];
+    if (!formData.email.trim())     validationErrors.push('Student email is required');
+    if (!formData.firstName.trim()) validationErrors.push('First name is required');
+    if (!formData.lastName.trim())  validationErrors.push('Last name is required');
+    if (!formData.gender)           validationErrors.push('Gender is required');
+    if (!formData.student_class)    validationErrors.push('Class is required');
+    if (!formData.section)          validationErrors.push('Section is required');
+
+    if (validationErrors.length > 0) {
+      setError(validationErrors.join(' • '));
+      return;
+    }
+
+    // Lock submission
+    submittingRef.current = true;
     setLoading(true);
     setError(null);
     setSuccess(null);
     setStudentPassword(null);
     setParentPassword(null);
     setShowPasswordModal(false);
-    
+
     try {
-      // ✅ FIXED: Build payload with proper FK IDs
       const payload: any = {
-        user_email: formData.email,
-        user_first_name: formData.firstName,
-        user_middle_name: formData.middleName,
-        user_last_name: formData.lastName,
-        gender: formData.gender,
-        blood_group: formData.bloodGroup,
-        date_of_birth: formData.dateOfBirth,
-        place_of_birth: formData.placeOfBirth,
-        academic_year: formData.academicYear,
-        
-        // ✅ Send FK IDs, not enum strings
-        student_class: formData.student_class ? parseInt(formData.student_class) : null,  // Class/GradeLevel ID
-        section: formData.section ? parseInt(formData.section) : null,                    // Section ID
-        stream: formData.stream ? parseInt(formData.stream) : null,                       // Stream ID
-        
-        registration_number: formData.registration_number,
-        // classroom field can be removed if backend computes it automatically
-        // or keep it optional if backend still accepts it
-        address: formData.address,
-        phone_number: formData.phoneNumber,
-        payment_method: formData.paymentMethod,
-        medical_conditions: formData.medicalConditions,
+        user_email:           formData.email,
+        user_first_name:      formData.firstName,
+        user_middle_name:     formData.middleName,
+        user_last_name:       formData.lastName,
+        gender:               formData.gender,
+        blood_group:          formData.bloodGroup,
+        date_of_birth:        formData.dateOfBirth,
+        place_of_birth:       formData.placeOfBirth,
+        academic_year:        formData.academicYear,
+        student_class:        formData.student_class ? parseInt(formData.student_class) : null,
+        section:              formData.section ? parseInt(formData.section) : null,
+        stream:               formData.stream ? parseInt(formData.stream) : null,
+        // ✅ FIX 2: send exactly what the admin typed; backend stores it on the Student record
+        registration_number:  formData.registration_number || '',
+        address:              formData.address,
+        phone_number:         formData.phoneNumber,
+        payment_method:       formData.paymentMethod,
+        medical_conditions:   formData.medicalConditions,
         special_requirements: formData.specialRequirements,
-        profile_picture: formData.photo,
-        relationship: formData.relationship,
-        is_primary_contact: formData.isPrimaryContact,
+        profile_picture:      formData.photo,
+        relationship:         formData.relationship,
+        is_primary_contact:   formData.isPrimaryContact,
       };
-      
+
       // Validate Senior Secondary stream requirement
       const selectedGrade = gradeLevels.find(g => g.id === parseInt(formData.student_class));
       const isSeniorSecondary = selectedGrade?.education_level === 'SENIOR_SECONDARY';
-      
       if (isSeniorSecondary && !formData.stream) {
         setError('Stream selection is required for Senior Secondary students');
-        setLoading(false);
-        return;
+        return; // finally block always runs — resets loading + lock
       }
-      
+
       if (selectedParent) {
         payload.existing_parent_id = selectedParent.id;
       } else {
         payload.parent_first_name = formData.parentFirstName;
-        payload.parent_last_name = formData.parentLastName;
-        payload.parent_email = formData.parentEmail;
-        payload.parent_contact = formData.parentPhoneNumber;
-        payload.parent_address = formData.parentAddress;
+        payload.parent_last_name  = formData.parentLastName;
+        payload.parent_email      = formData.parentEmail;
+        payload.parent_contact    = formData.parentPhoneNumber;
+        payload.parent_address    = formData.parentAddress;
       }
-      
+
       console.log('Submitting payload:', payload);
-      
+
       const response = await api.post('/api/students/students/', payload);
+
       setSuccess('Student and Parent created successfully!');
       toast.success('Student and Parent added successfully');
-      
+
+      // ✅ FIX 3: callbacks fire after confirmed response, before modal
       triggerDashboardRefresh();
-      
       if (onStudentAdded) {
         onStudentAdded();
       }
-      
+
       if (response) {
         setStudentUsername(response.student_username);
         setStudentPassword(response.student_password);
@@ -373,27 +359,38 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
         setParentPassword(response.parent_password);
         setShowPasswordModal(true);
       }
-      
-      setTimeout(() => {
-        setLoading(false);
-        setFormData({
-          photo: null, firstName: '', middleName: '', lastName: '', email: '',
-          gender: '', bloodGroup: '', dateOfBirth: '', placeOfBirth: '',
-          academicYear: '', education_level: '', student_class: '', section: '', stream: '',
-          registration_number: '', existing_parent_id: '', parentFirstName: '',
-          parentLastName: '', parentEmail: '', parentPhoneNumber: '', parentAddress: '',
-          address: '', phoneNumber: '', paymentMethod: '', medicalConditions: '',
-          specialRequirements: '', relationship: '', isPrimaryContact: false, classroom: '',
-        });
-        setDobDay('');
-        setDobMonth('');
-        setDobYear('');
-      }, 1200);
+
+      // Reset form
+      setFormData({
+        photo: null, firstName: '', middleName: '', lastName: '', email: '',
+        gender: '', bloodGroup: '', dateOfBirth: '', placeOfBirth: '',
+        academicYear: '', education_level: '', student_class: '', section: '', stream: '',
+        registration_number: '', existing_parent_id: '', parentFirstName: '',
+        parentLastName: '', parentEmail: '', parentPhoneNumber: '', parentAddress: '',
+        address: '', phoneNumber: '', paymentMethod: '', medicalConditions: '',
+        specialRequirements: '', relationship: '', isPrimaryContact: false, classroom: '',
+      });
+      setDobDay('');
+      setDobMonth('');
+      setDobYear('');
+      setSelectedParent(null);
+      setParentDetails(null);
+      setParentUsernameSearch('');
+      setPhotoPreview(null);
+
     } catch (err: any) {
       console.error('Error creating student:', err);
-      setError(err.response?.data?.detail || err.response?.data?.error || 'Failed to create student');
-      toast.error('Cannot add student');
+      const msg =
+        err.response?.data?.detail ||
+        err.response?.data?.error ||
+        JSON.stringify(err.response?.data) ||
+        'Failed to create student';
+      setError(msg);
+      toast.error('Cannot add student: ' + msg);
+    } finally {
+      // ✅ Always clears the spinner and releases the submit lock
       setLoading(false);
+      submittingRef.current = false;
     }
   };
 
@@ -444,10 +441,12 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
               )}
             </div>
           </div>
-          {uploading && <div className="text-sm text-blue-600 mt-2 flex items-center gap-2">
-            <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-            Uploading...
-          </div>}
+          {uploading && (
+            <div className="text-sm text-blue-600 mt-2 flex items-center gap-2">
+              <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              Uploading...
+            </div>
+          )}
           <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" id="student-photo" />
           <label
             htmlFor="student-photo"
@@ -485,7 +484,7 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Surame*</label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Surname*</label>
               <input
                 type="text"
                 name="lastName"
@@ -511,8 +510,20 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
                 <option value="F">Female</option>
               </select>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Student Email*</label>
+              <input
+                type="email"
+                name="email"
+                value={formData.email}
+                onChange={handleInputChange}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                placeholder="student@example.com"
+              />
+            </div>
           </div>
-          {/* Mobile-Friendly Date of Birth */}
+
+          {/* Date of Birth */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
               <Calendar className="w-4 h-4" />
@@ -553,17 +564,15 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
             {formData.dateOfBirth && (
               <div className="mt-2 text-sm text-slate-600 flex items-center gap-2">
                 <Check className="w-4 h-4 text-emerald-600" />
-                Selected: {new Date(formData.dateOfBirth).toLocaleDateString('en-US', { 
-                  year: 'numeric', 
-                  month: 'long', 
-                  day: 'numeric' 
+                Selected: {new Date(formData.dateOfBirth).toLocaleDateString('en-US', {
+                  year: 'numeric', month: 'long', day: 'numeric'
                 })}
               </div>
             )}
           </div>
         </div>
 
-        {/* Academic Information - FIXED SECTION */}
+        {/* Academic Information */}
         <div className="space-y-6">
           <h3 className="text-lg font-semibold text-slate-900 border-b border-slate-200 pb-2">Academic Information</h3>
           
@@ -592,11 +601,11 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
             </div>
           </div>
 
-          {/* ✅ FIXED: Cascading dropdowns for Class → Section → Classroom */}
+          {/* Cascading dropdowns */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
-                Class/Grade Level* 
+                Class/Grade Level*
                 <span className="text-xs text-slate-500 ml-2">(Step 1)</span>
               </label>
               <select
@@ -605,82 +614,60 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
                 onChange={(e) => {
                   const gradeId = e.target.value;
                   const selectedGrade = gradeLevels.find(g => g.id === parseInt(gradeId));
-                  
-                  console.log('Selected grade:', selectedGrade);
-                  
                   setFormData(prev => ({
                     ...prev,
-                    student_class: gradeId,           // Store the Class ID
-                    education_level: selectedGrade?.education_level || '',  // Store enum for validation
-                    section: '',                       // Reset section
-                    stream: '',                        // Reset stream
-                    classroom: ''                      // Reset classroom
+                    student_class: gradeId,
+                    education_level: selectedGrade?.education_level || '',
+                    section: '',
+                    stream: '',
+                    classroom: ''
                   }));
                 }}
                 className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-slate-900"
                 disabled={loadingGrades}
               >
-                <option value="" className="text-slate-900">
+                <option value="">
                   {loadingGrades ? 'Loading grades...' : 'Select Grade Level'}
                 </option>
                 {gradeLevels.map(grade => (
-                  <option
-                    key={grade.id}
-                    value={grade.id}
-                    className="text-slate-900"
-                  >
+                  <option key={grade.id} value={grade.id}>
                     {grade.name || grade.display_name}
                   </option>
                 ))}
               </select>
               {gradeLevels.length > 0 && (
-                <div className="mt-1 text-xs text-emerald-600">
-                  {gradeLevels.length} grade(s) loaded
-                </div>
+                <div className="mt-1 text-xs text-emerald-600">{gradeLevels.length} grade(s) loaded</div>
               )}
             </div>
 
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
-                Section* 
+                Section*
                 <span className="text-xs text-slate-500 ml-2">(Step 2)</span>
               </label>
               <select
                 name="section"
                 value={formData.section}
                 onChange={(e) => {
-                  const sectionId = e.target.value;
-                  setFormData(prev => ({
-                    ...prev,
-                    section: sectionId,      // Store Section ID
-                    classroom: ''            // Reset classroom
-                  }));
+                  setFormData(prev => ({ ...prev, section: e.target.value, classroom: '' }));
                 }}
                 className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-slate-900"
                 disabled={!formData.student_class || loadingSections}
               >
-                <option value="" className="text-slate-900">
+                <option value="">
                   {loadingSections ? 'Loading sections...' : !formData.student_class ? 'Select grade first' : 'Select Section'}
                 </option>
                 {sections.map(section => (
-                  <option
-                    key={section.id}
-                    value={section.id}
-                    className="text-slate-900"
-                  >
-                    {section.name}
-                  </option>
+                  <option key={section.id} value={section.id}>{section.name}</option>
                 ))}
               </select>
               {sections.length > 0 && (
-                <div className="mt-1 text-xs text-emerald-600">
-                  {sections.length} section(s) available
-                </div>
+                <div className="mt-1 text-xs text-emerald-600">{sections.length} section(s) available</div>
               )}
             </div>
           </div>
 
-          {/* Stream field - only for Senior Secondary */}
+          {/* Stream - only for Senior Secondary */}
           {formData.education_level === 'SENIOR_SECONDARY' && (
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
@@ -702,10 +689,10 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
             </div>
           )}
 
-          {/* Classroom field - optional */}
+          {/* Classroom - optional */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">
-              Classroom (Optional) 
+              Classroom (Optional)
               <span className="text-xs text-slate-500 ml-2">(Step 3)</span>
             </label>
             <select
@@ -715,38 +702,33 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
               className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-slate-900"
               disabled={!formData.section || loadingClassrooms}
             >
-              <option value="" className="text-slate-900">
-                {loadingClassrooms 
-                  ? 'Loading classrooms...' 
-                  : !formData.section 
-                    ? 'Select a section first' 
-                    : classrooms.length === 0 
-                      ? 'No classrooms available (can proceed without)' 
+              <option value="">
+                {loadingClassrooms
+                  ? 'Loading classrooms...'
+                  : !formData.section
+                    ? 'Select a section first'
+                    : classrooms.length === 0
+                      ? 'No classrooms available (can proceed without)'
                       : 'Select Classroom (Optional)'}
               </option>
               {classrooms.map(room => (
-                <option 
-                  key={room.id} 
-                  value={room.name || room.id}
-                  className="text-slate-900"
-                >
+                <option key={room.id} value={room.name || room.id}>
                   {room.name || room.display_name || `Classroom ${room.id}`}
                 </option>
               ))}
             </select>
             {formData.section && !loadingClassrooms && (
               <div className="mt-1 text-xs">
-                {classrooms.length > 0 ? (
-                  <span className="text-emerald-600">{classrooms.length} classroom(s) available</span>
-                ) : (
-                  <span className="text-slate-500">No classrooms configured - you can proceed without selecting one</span>
-                )}
+                {classrooms.length > 0
+                  ? <span className="text-emerald-600">{classrooms.length} classroom(s) available</span>
+                  : <span className="text-slate-500">No classrooms configured - you can proceed without selecting one</span>
+                }
               </div>
             )}
           </div>
         </div>
 
-        {/* Parent Information - Keep existing code */}
+        {/* Parent Information */}
         <div className="space-y-6">
           <h3 className="text-lg font-semibold text-slate-900 border-b border-slate-200 pb-2">Parent/Guardian Information</h3>
           
@@ -777,8 +759,8 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
                   <li
                     key={parent.id}
                     className={`p-4 cursor-pointer transition-all ${
-                      selectedParent && selectedParent.id === parent.id 
-                        ? 'bg-blue-50 border-l-4 border-blue-500' 
+                      selectedParent && selectedParent.id === parent.id
+                        ? 'bg-blue-50 border-l-4 border-blue-500'
                         : 'hover:bg-slate-50'
                     }`}
                     onClick={() => {
@@ -805,8 +787,8 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
                     <div className="text-sm text-emerald-700">{selectedParent.username}</div>
                   </div>
                 </div>
-                <button 
-                  className="text-sm text-rose-600 hover:text-rose-800 font-medium underline" 
+                <button
+                  className="text-sm text-rose-600 hover:text-rose-800 font-medium underline"
                   onClick={() => setSelectedParent(null)}
                 >
                   Clear
@@ -842,22 +824,10 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
                 Parent Found
               </h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                <div>
-                  <span className="font-medium text-emerald-800">Full Name:</span>
-                  <span className="ml-2 text-emerald-700">{parentDetails.full_name}</span>
-                </div>
-                <div>
-                  <span className="font-medium text-emerald-800">Email:</span>
-                  <span className="ml-2 text-emerald-700">{parentDetails.email}</span>
-                </div>
-                <div>
-                  <span className="font-medium text-emerald-800">Phone:</span>
-                  <span className="ml-2 text-emerald-700">{parentDetails.phone}</span>
-                </div>
-                <div>
-                  <span className="font-medium text-emerald-800">Address:</span>
-                  <span className="ml-2 text-emerald-700">{parentDetails.address}</span>
-                </div>
+                <div><span className="font-medium text-emerald-800">Full Name:</span><span className="ml-2 text-emerald-700">{parentDetails.full_name}</span></div>
+                <div><span className="font-medium text-emerald-800">Email:</span><span className="ml-2 text-emerald-700">{parentDetails.email}</span></div>
+                <div><span className="font-medium text-emerald-800">Phone:</span><span className="ml-2 text-emerald-700">{parentDetails.phone}</span></div>
+                <div><span className="font-medium text-emerald-800">Address:</span><span className="ml-2 text-emerald-700">{parentDetails.address}</span></div>
               </div>
             </div>
           )}
@@ -867,60 +837,35 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Parent First Name*</label>
-                  <input
-                    type="text"
-                    name="parentFirstName"
-                    value={formData.parentFirstName}
-                    onChange={handleInputChange}
+                  <input type="text" name="parentFirstName" value={formData.parentFirstName} onChange={handleInputChange}
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    placeholder="Parent first name"
-                  />
+                    placeholder="Parent first name" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Parent Last Name*</label>
-                  <input
-                    type="text"
-                    name="parentLastName"
-                    value={formData.parentLastName}
-                    onChange={handleInputChange}
+                  <input type="text" name="parentLastName" value={formData.parentLastName} onChange={handleInputChange}
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    placeholder="Parent last name"
-                  />
+                    placeholder="Parent last name" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Parent Phone*</label>
-                  <input
-                    type="tel"
-                    name="parentPhoneNumber"
-                    value={formData.parentPhoneNumber}
-                    onChange={handleInputChange}
+                  <input type="tel" name="parentPhoneNumber" value={formData.parentPhoneNumber} onChange={handleInputChange}
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    placeholder="+234 123 456 7890"
-                  />
+                    placeholder="+234 123 456 7890" />
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Parent Email*</label>
-                  <input
-                    type="email"
-                    name="parentEmail"
-                    value={formData.parentEmail}
-                    onChange={handleInputChange}
+                  <input type="email" name="parentEmail" value={formData.parentEmail} onChange={handleInputChange}
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    placeholder="parent@example.com"
-                  />
+                    placeholder="parent@example.com" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Parent Address*</label>
-                  <textarea
-                    name="parentAddress"
-                    value={formData.parentAddress}
-                    onChange={handleInputChange}
-                    rows={2}
+                  <textarea name="parentAddress" value={formData.parentAddress} onChange={handleInputChange} rows={2}
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all resize-none"
-                    placeholder="Parent address..."
-                  />
+                    placeholder="Parent address..." />
                 </div>
               </div>
             </>
@@ -929,12 +874,8 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">Relationship to Student*</label>
-              <select
-                name="relationship"
-                value={formData.relationship}
-                onChange={handleInputChange}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-              >
+              <select name="relationship" value={formData.relationship} onChange={handleInputChange}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all">
                 <option value="">Select Relationship</option>
                 <option value="Father">Father</option>
                 <option value="Mother">Mother</option>
@@ -943,14 +884,8 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
               </select>
             </div>
             <div className="flex items-center pt-8">
-              <input
-                type="checkbox"
-                name="isPrimaryContact"
-                checked={formData.isPrimaryContact}
-                onChange={handleInputChange}
-                className="w-5 h-5 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
-                id="is-primary-contact"
-              />
+              <input type="checkbox" name="isPrimaryContact" checked={formData.isPrimaryContact} onChange={handleInputChange}
+                className="w-5 h-5 text-blue-600 border-slate-300 rounded focus:ring-blue-500" id="is-primary-contact" />
               <label htmlFor="is-primary-contact" className="ml-3 text-sm font-medium text-slate-700">
                 Set as Primary Contact
               </label>
@@ -958,56 +893,39 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
           </div>
         </div>
 
-        {/* Student Contact & Additional Info - Keep existing code */}
+        {/* Contact & Additional Info */}
         <div className="space-y-6">
           <h3 className="text-lg font-semibold text-slate-900 border-b border-slate-200 pb-2">Contact & Additional Information</h3>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">Student Phone*</label>
-              <input
-                type="tel"
-                name="phoneNumber"
-                value={formData.phoneNumber}
-                onChange={handleInputChange}
+              <input type="tel" name="phoneNumber" value={formData.phoneNumber} onChange={handleInputChange}
                 className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                placeholder="+234 123 456 7890"
-              />
+                placeholder="+234 123 456 7890" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">Payment Method*</label>
-              <select
-                name="paymentMethod"
-                value={formData.paymentMethod}
-                onChange={handleInputChange}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-              >
+              <select name="paymentMethod" value={formData.paymentMethod} onChange={handleInputChange}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all">
                 <option value="">Select Payment Method</option>
                 <option value="cash">Cash</option>
                 <option value="debits">Debits</option>
               </select>
             </div>
           </div>
-
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">Student Address*</label>
-            <textarea
-              name="address"
-              value={formData.address}
-              onChange={handleInputChange}
-              rows={3}
+            <textarea name="address" value={formData.address} onChange={handleInputChange} rows={3}
               className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all resize-none"
-              placeholder="Enter student's residential address..."
-            />
+              placeholder="Enter student's residential address..." />
           </div>
-
         </div>
 
         {/* Error/Success Messages */}
         {error && (
           <div className="p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl flex items-center gap-3">
             <X className="w-5 h-5 flex-shrink-0" />
-            <span>{error}</span>  
+            <span>{error}</span>
           </div>
         )}
         {success && (
@@ -1043,51 +961,32 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
         </div>
       </div>
 
-      {/* Password Modal - Keep existing code */}
+      {/* Password Modal */}
       {showPasswordModal && (studentUsername || studentPassword || parentUsername || parentPassword) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-lg w-full">
             <h3 className="text-2xl font-bold text-slate-900 mb-6 text-center">Account Credentials Created</h3>
-            
+
             {studentUsername && (
               <div className="mb-4 p-5 bg-blue-50 border-2 border-blue-200 rounded-xl">
                 <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
-                  <User className="w-5 h-5" />
-                  Student Account
+                  <User className="w-5 h-5" /> Student Account
                 </h4>
                 <div className="space-y-3">
                   <div>
                     <span className="text-sm font-medium text-slate-700">Username:</span>
                     <div className="mt-1 flex items-center gap-2">
-                      <span className="flex-1 font-mono text-lg bg-white px-4 py-2 rounded-lg border border-blue-200">
-                        {studentUsername}
-                      </span>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(studentUsername!);
-                          toast.success('Username copied!');
-                        }}
-                        className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                      >
-                        Copy
-                      </button>
+                      <span className="flex-1 font-mono text-lg bg-white px-4 py-2 rounded-lg border border-blue-200">{studentUsername}</span>
+                      <button onClick={() => { navigator.clipboard.writeText(studentUsername!); toast.success('Username copied!'); }}
+                        className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm">Copy</button>
                     </div>
                   </div>
                   <div>
                     <span className="text-sm font-medium text-slate-700">Password:</span>
                     <div className="mt-1 flex items-center gap-2">
-                      <span className="flex-1 font-mono text-lg bg-white px-4 py-2 rounded-lg border border-blue-200">
-                        {studentPassword}
-                      </span>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(studentPassword!);
-                          toast.success('Password copied!');
-                        }}
-                        className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                      >
-                        Copy
-                      </button>
+                      <span className="flex-1 font-mono text-lg bg-white px-4 py-2 rounded-lg border border-blue-200">{studentPassword}</span>
+                      <button onClick={() => { navigator.clipboard.writeText(studentPassword!); toast.success('Password copied!'); }}
+                        className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm">Copy</button>
                     </div>
                   </div>
                 </div>
@@ -1097,42 +996,23 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
             {parentUsername && (
               <div className="mb-6 p-5 bg-emerald-50 border-2 border-emerald-200 rounded-xl">
                 <h4 className="font-semibold text-emerald-900 mb-3 flex items-center gap-2">
-                  <User className="w-5 h-5" />
-                  Parent Account
+                  <User className="w-5 h-5" /> Parent Account
                 </h4>
                 <div className="space-y-3">
                   <div>
                     <span className="text-sm font-medium text-slate-700">Username:</span>
                     <div className="mt-1 flex items-center gap-2">
-                      <span className="flex-1 font-mono text-lg bg-white px-4 py-2 rounded-lg border border-emerald-200">
-                        {parentUsername}
-                      </span>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(parentUsername!);
-                          toast.success('Username copied!');
-                        }}
-                        className="px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm"
-                      >
-                        Copy
-                      </button>
+                      <span className="flex-1 font-mono text-lg bg-white px-4 py-2 rounded-lg border border-emerald-200">{parentUsername}</span>
+                      <button onClick={() => { navigator.clipboard.writeText(parentUsername!); toast.success('Username copied!'); }}
+                        className="px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm">Copy</button>
                     </div>
                   </div>
                   <div>
                     <span className="text-sm font-medium text-slate-700">Password:</span>
                     <div className="mt-1 flex items-center gap-2">
-                      <span className="flex-1 font-mono text-lg bg-white px-4 py-2 rounded-lg border border-emerald-200">
-                        {parentPassword}
-                      </span>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(parentPassword!);
-                          toast.success('Password copied!');
-                        }}
-                        className="px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm"
-                      >
-                        Copy
-                      </button>
+                      <span className="flex-1 font-mono text-lg bg-white px-4 py-2 rounded-lg border border-emerald-200">{parentPassword}</span>
+                      <button onClick={() => { navigator.clipboard.writeText(parentPassword!); toast.success('Password copied!'); }}
+                        className="px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm">Copy</button>
                     </div>
                   </div>
                 </div>
@@ -1142,7 +1022,6 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
             <p className="text-sm text-slate-600 mb-6 p-3 bg-amber-50 border border-amber-200 rounded-lg">
               ⚠️ Please copy and securely send these credentials to the respective users. They should change their passwords on first login.
             </p>
-
             <button
               onClick={() => setShowPasswordModal(false)}
               className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all font-semibold shadow-lg"

@@ -66,6 +66,7 @@ const StudentDetailView = lazy(() => import('./../components/dashboards/admin/St
 const AddStudentForm = lazy(() => import('./../pages/admin/AddStudentForm'));
 const EditStudentForm = lazy(() => import('./../components/dashboards/admin/EditStudentForm'));
 const AdminClassroomManagement = lazy(() => import('./../pages/admin/AdminClassroomManagement'));
+const ClassroomDetailPage = lazy(() => import('./../pages/admin/ClassroomDetailPage'));
 const AdminSubjectManagement = lazy(() => import('./../pages/admin/AdminSubjectManagement'));
 const AdminExamsManagement = lazy(() => import('./../pages/admin/AdminExamsManagement'));
 const AdminExamScheduleManagement = lazy(() => import('./../pages/admin/AdminExamScheduleManagement'));
@@ -448,6 +449,10 @@ export const router = createBrowserRouter([
                 element: <LazyWrapper><AdminClassroomManagement /></LazyWrapper>,
               },
               {
+                path: 'classrooms/:classroomId',
+                element: <LazyWrapper><ClassroomDetailPage /></LazyWrapper>,
+              },
+              {
                 path: 'subjects',
                 element: <LazyWrapper><AdminSubjectManagement /></LazyWrapper>,
               },
@@ -456,6 +461,7 @@ export const router = createBrowserRouter([
                 element: <LazyWrapper><SettingsPage /></LazyWrapper>,
               },
             ],
+            
           },
 
           {
@@ -474,6 +480,7 @@ export const router = createBrowserRouter([
             path: 'token-generator',
             element: <LazyWrapper><AdminTokenGenerator /></LazyWrapper>,
           },
+          
           {
             path: 'admin-remarks',
             element: <LazyWrapper><AdminRemarksAndSignatureManager /></LazyWrapper>,
