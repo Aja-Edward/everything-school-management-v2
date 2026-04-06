@@ -293,9 +293,12 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = "Africa/Lagos"
-CELERY_WORKER_POOL = "solo"  # for dev on Windows
-# CELERY_WORKER_POOL = "threads"     # for production
-CELERY_WORKER_CONCURRENCY = 1  # solo only supports 1
+if DEBUG:
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_TASK_EAGER_PROPAGATES = True
+else:
+    CELERY_WORKER_POOL = "threads"
+    CELERY_WORKER_CONCURRENCY = 4
 
 CORS_ALLOW_CREDENTIALS = True
 

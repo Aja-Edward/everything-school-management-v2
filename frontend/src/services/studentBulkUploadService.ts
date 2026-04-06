@@ -75,14 +75,14 @@ export const bulkUploadService = {
   },
 
   downloadErrorReport: async (uploadId: number): Promise<void> => {
-    const headers = await getHeaders();
-    const res = await fetch(
-      `${STUDENTS_BASE}/bulk-upload/${uploadId}/errors/`,
-      { headers, credentials: "include" }
-    );
-    if (!res.ok) throw new Error("Download failed");
-    await triggerBlobDownload(res, "upload_errors.csv");
-  },
+  const headers = await getHeaders();
+  const res = await fetch(
+    `${STUDENTS_BASE}/bulk-upload/${uploadId}/error-report/`, // ← fix URL to match Django urls.py
+    { headers, credentials: "include" }
+  );
+  if (!res.ok) throw new Error("Download failed");
+  await triggerBlobDownload(res, "upload_errors.csv");
+},
 
   downloadTemplate: async (format: TemplateFormat = "excel"): Promise<void> => {
     const headers = await getHeaders();

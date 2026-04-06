@@ -41,12 +41,6 @@ logger = logging.getLogger(__name__)
 class PromotionRuleViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     """
     CRUD for student_promotions thresholds per education level.
-
-    GET    /api/student_promotions/rules/
-    POST   /api/student_promotions/rules/
-    GET    /api/student_promotions/rules/{id}/
-    PATCH  /api/student_promotions/rules/{id}/
-    DELETE /api/student_promotions/rules/{id}/
     """
 
     queryset = PromotionRule.objects.all().select_related("education_level", "created_by")
@@ -56,9 +50,6 @@ class PromotionRuleViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         if self.action in ("create", "update", "partial_update"):
             return PromotionRuleCreateUpdateSerializer
         return PromotionRuleSerializer
-
-    def perform_create(self, serializer):
-        serializer.save(tenant=self.get_tenant(), created_by=self.request.user)
 
 
 # ── Student Promotion ViewSet ──────────────────────────────────────────────────
@@ -90,6 +81,9 @@ class StudentPromotionViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
     # ── Filtering ──────────────────────────────────────────────────────
+
+    def get_tenant(self):
+        return getattr(self.request, "tenant", None)
 
     def get_queryset(self):
         qs = super().get_queryset()

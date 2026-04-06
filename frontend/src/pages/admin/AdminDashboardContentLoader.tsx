@@ -19,6 +19,7 @@ const AdminDashboardContentLoader = () => {
   const { user } = useAuth();
   const [dashboardStats, setDashboardStats] = useState<DashboardStats>({} as DashboardStats);
   const [students, setStudents] = useState<Student[]>([]);
+
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [attendanceData, setAttendanceData] = useState<AttendanceData>({} as AttendanceData);
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);

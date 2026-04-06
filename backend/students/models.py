@@ -112,6 +112,10 @@ class Student(TenantMixin, models.Model):
         null=True,
         help_text="Preferred payment method",
     )
+    state_of_origin = models.CharField(max_length=100, blank=True, null=True)
+    lga_of_origin = models.CharField(max_length=100, blank=True, null=True)
+    lga_of_residence = models.CharField(max_length=100, blank=True, null=True)
+    year_admitted = models.CharField(max_length=4, blank=True, null=True)
 
     is_active = models.BooleanField(
         default=True, help_text="Is the student currently active/registered?"

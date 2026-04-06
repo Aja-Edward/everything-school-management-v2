@@ -7,9 +7,11 @@ import { AuthLostProvider } from './../components/common/AuthLostProvider';
 import { ClassroomProvider } from '@/contexts/ClassroomContext';
 import { GlobalThemeProvider } from '@/contexts/GlobalThemeContext';
 import { TenantProvider, useTenant } from '@/contexts/TenantContext';
+import { PromotionThresholdProvider } from "@/contexts/PromotionThresholdContext";
 import { lazy, Suspense } from 'react';
 import Navbar from '@/components/home/Nav';
 import Footer from '@/components/home/Footer';
+
 
 // Loading component
 const PageLoader = () => (
@@ -40,6 +42,7 @@ const EmailVerification = lazy(() => import('./../pages/EmailVerification'));
 // Dashboard pages (Subdomain - Protected)
 const StudentDashboard = lazy(() => import('./../pages/student/Dashboard'));
 const ParentDashboard = lazy(() => import('./../pages/parent/Dashboard'));
+const PromotionDashboard = lazy(() => import('./../pages/admin/Promotiondashboard'));
 
 // Teacher pages
 const TeacherDashboard = lazy(() => import('./../pages/teacher/Dashboard'));
@@ -203,7 +206,9 @@ const AdminProtectedLayout = () => (
     UserRole.NURSERY_ADMIN
   ]}>
     <LazyWrapper>
-      <AdminLayout />
+       <PromotionThresholdProvider>
+        <AdminLayout />
+      </PromotionThresholdProvider>
     </LazyWrapper>
   </ProtectedRoute>
 );
@@ -488,6 +493,10 @@ export const router = createBrowserRouter([
           {
             path: 'students',
             element: <LazyWrapper><StudentList /></LazyWrapper>,
+          },
+          {
+            path: 'student_promotions',
+            element: <LazyWrapper><PromotionDashboard /></LazyWrapper>,
           },
           {
             path: 'students/:id',

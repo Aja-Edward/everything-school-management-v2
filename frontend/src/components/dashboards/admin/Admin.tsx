@@ -21,7 +21,9 @@ import {
   Calendar,
   Menu,
   X,
-  PenTool
+  PenTool,
+  MarsStrokeIcon,
+  Award
 } from 'lucide-react';
 import StudentResultChecker from './StudentResultChecker';
 import TokenGenerator from '@/pages/admin/TokenGenerator';
@@ -133,6 +135,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
     if (canViewStudents()) {
       items.push({ name: 'Students', icon: GraduationCap, path: '/admin/students' });
+    }
+    if (canViewStudents()) {
+      items.push({ name: 'Promotions', icon: Award, path: '/admin/student_promotions' });
     }
 
     if (canViewAttendance()) {

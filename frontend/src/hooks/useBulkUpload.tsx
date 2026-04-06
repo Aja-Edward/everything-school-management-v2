@@ -84,28 +84,25 @@ export function useBulkUpload(): UseBulkUploadReturn {
   );
 
   const exportCredentials = useCallback(
-    async (format: ExportFormat = "excel"): Promise<void> => {
-      if (!uploadId) return;
-      try {
-        const blob = await bulkUploadService.exportCredentials(uploadId, format);
-        const ext = format === "pdf" ? "pdf" : format === "csv" ? "csv" : "xlsx";
-        triggerDownload(blob, `student_credentials.${ext}`);
-      } catch {
-        alert("Export failed. Please try again.");
-      }
-    },
-    [uploadId]
-  );
-
-  const downloadErrorReport = useCallback(async (): Promise<void> => {
+  async (format: ExportFormat = "excel"): Promise<void> => {
     if (!uploadId) return;
     try {
-      const blob = await bulkUploadService.downloadErrorReport(uploadId);
-      triggerDownload(blob, "upload_errors.csv");
+      await bulkUploadService.exportCredentials(uploadId, format);
     } catch {
-      alert("Could not download error report.");
+      alert("Export failed. Please try again.");
     }
-  }, [uploadId]);
+  },
+  [uploadId]
+);
+
+const downloadErrorReport = useCallback(async (): Promise<void> => {
+  if (!uploadId) return;
+  try {
+    await bulkUploadService.downloadErrorReport(uploadId);
+  } catch {
+    alert("Could not download error report.");
+  }
+}, [uploadId]);
 
   const reset = useCallback((): void => {
     stopPolling();
@@ -136,13 +133,3 @@ export function useBulkUpload(): UseBulkUploadReturn {
 // Utility
 // ---------------------------------------------------------------------------
 
-function triggerDownload(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a   = document.createElement("a");
-  a.href     = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}

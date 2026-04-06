@@ -12,6 +12,7 @@ import {
   GraduationCap,
   Blocks,
   Globe,
+  Award,
 } from 'lucide-react';
 import GeneralTab from '@/components/dashboards/admin/settingtab/components/tabs/GeneralTab';
 import DesignTab from '@/components/dashboards/admin/settingtab/components/tabs/DesignTab';
@@ -24,6 +25,7 @@ import AcademicCalendarTab from '@/components/dashboards/admin/settingtab/compon
 import FinanceTab from '@/components/dashboards/admin/settingtab/components/tabs/Finance';
 import SecurityTab from '@/components/dashboards/admin/settingtab/components/tabs/Security';
 import AdvancedTab from '@/components/dashboards/admin/settingtab/components/tabs/Advanced';
+import PromotionSettingsTab from '@/components/dashboards/admin/settingtab/components/tabs/PromotionSettings';
 import ServicesTab from '@/components/dashboards/admin/settingtab/components/tabs/ServicesTab';
 import DomainTab from '@/components/dashboards/admin/settingtab/components/tabs/DomainTab';
 import { useSettings } from '@/contexts/SettingsContext';
@@ -75,6 +77,7 @@ const SettingsDashboard = () => {
     { id: 'finance',      label: 'Finance',            icon: CreditCard    },
     { id: 'security',     label: 'Security',           icon: Lock          },
     { id: 'advanced',     label: 'Advanced',           icon: Zap           },
+    { id: 'promotions',   label: 'Promotions',         icon: Award         },
   ];
 
   const renderActiveTab = () => {
@@ -93,6 +96,7 @@ const SettingsDashboard = () => {
       case 'finance':       return <FinanceTab />;
       case 'security':      return <SecurityTab {...props} />;
       case 'advanced':      return <AdvancedTab />;
+      case 'promotions':    return <PromotionSettingsTab/>;
       default:              return <GeneralTab {...props} />;
     }
   };

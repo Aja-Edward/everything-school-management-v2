@@ -30,11 +30,13 @@ class PromotionRuleCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = PromotionRule
         fields = [
+            "id",
             "education_level",
             "pass_threshold",
             "require_all_three_terms",
             "is_active",
         ]
+        read_only_fields = ["id"]
 
     def validate_pass_threshold(self, value):
         if value < 0 or value > 100:

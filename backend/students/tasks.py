@@ -35,11 +35,9 @@ def _compute_age(dob):
 
 
 def _resolve_class(tenant_id, class_code):
-    """
-    Return Class instance matching tenant + code (case-insensitive).
-    Accepts codes like 'JSS_1', 'SS_3', 'PRIMARY_2', or display names like 'JSS 1'.
-    """
     from classroom.models import Class
+
+    normalized = class_code.strip().replace("_", " ")
 
     # Try exact code match first
     obj = Class.objects.filter(
@@ -50,10 +48,10 @@ def _resolve_class(tenant_id, class_code):
     if obj:
         return obj
 
-    # Try matching by name
+    # Try exact name match
     obj = Class.objects.filter(
         tenant_id=tenant_id,
-        name__iexact=class_code.strip(),
+        name__iexact=normalized,
         is_active=True,
     ).first()
     return obj
@@ -244,7 +242,7 @@ def _validate_row(row_num, row, tenant_id, academic_session_id=None):
         "date_of_birth": dob,
         "age": _compute_age(dob),
         "admission_date": admission_date,
-        "year_admitted": row["year_admitted"].strip(),
+        "year_admitted": row.get("year_admitted", "").strip() or None,
         "reg_number": reg_number,
         "email": email,
         "class_obj": class_obj,
@@ -255,7 +253,9 @@ def _validate_row(row_num, row, tenant_id, academic_session_id=None):
         "parent_guardian_role": row["parent_guardian_role"].strip(),
         "address": row["address"].strip(),
         "place_of_birth": row["place_of_birth"].strip(),
-        "lga": row["lga"].strip(),
+        "state_of_origin": row.get("state_of_origin", "").strip() or None,
+        "lga_of_origin": row.get("lga_of_origin", "").strip() or None,
+        "lga_of_residence": row.get("lga_of_residence", "").strip() or None,
         "blood_group": row.get("blood_group", "").strip() or None,
         "phone_number": row.get("phone_number", "").strip() or None,
         "parent_contact": parent_phone,
@@ -263,7 +263,8 @@ def _validate_row(row_num, row, tenant_id, academic_session_id=None):
         "medical_conditions": row.get("medical_conditions", "").strip() or None,
         "special_requirements": row.get("special_requirements", "").strip() or None,
         "profile_picture": row.get("profile_picture_url", "").strip() or None,
-        "is_active": row.get("is_active", "true").strip().lower() not in ("false", "0", "no"),
+        "is_active": row.get("is_active", "true").strip().lower()
+        not in ("false", "0", "no"),
     }
     return [], cleaned
 
@@ -308,6 +309,9 @@ def _create_student_from_cleaned(tenant, cleaned):
         section=cleaned["section_obj"],
         stream=cleaned["stream_obj"],
         registration_number=cleaned["reg_number"],
+        lga=cleaned.get("lga"),
+        state_of_origin=cleaned.get("state_of_origin"),
+        year_admitted=cleaned.get("year_admitted"),
         address=cleaned["address"],
         place_of_birth=cleaned["place_of_birth"],
         blood_group=cleaned["blood_group"],
@@ -351,13 +355,17 @@ COLUMN_MAP = {
     "gender": "gender",
     "date of birth": "date_of_birth",
     "dob": "date_of_birth",
-    "lga": "lga",
+    "state of origin": "state_of_origin",
+    "state": "state_of_origin",
+    "lga of residence": "lga_of_residence",
+    "lga of origin": "lga_of_origin",
     "blood group": "blood_group",
     "place of birth": "place_of_birth",
     "education level": "class_code",
     "grade level": "class_code",
     "class": "class_code",
     "class code": "class_code",
+    "class name": "class_code",
     "section": "section_name",
     "stream": "stream",
     "year admitted": "year_admitted",
