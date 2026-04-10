@@ -50,8 +50,18 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
             "website",
             "logo",
             "favicon",
+            # Design & Branding
             "primary_color",
             "secondary_color",
+            "theme",
+            "typography",
+            "border_radius",
+            "shadow_style",
+            "animations_enabled",
+            "compact_mode",
+            "dark_mode",
+            "high_contrast",
+            # Current Session/Term
             "current_session",
             "current_term",
             "billing_period",
@@ -70,10 +80,53 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
             "show_position_on_result",
             "show_class_average_on_result",
             "require_token_for_result",
+            # Academic Year
+            "academic_year_start",
+            "academic_year_end",
+            "terms_per_year",
+            "weeks_per_term",
+            # Class Settings
+            "allow_class_overflow",
+            "enable_streaming",
+            "enable_subject_electives",
+            # Grading
+            "grading_system",
+            "pass_percentage",
+            "enable_grade_curving",
+            "enable_grade_weighting",
+            # Attendance
+            "require_attendance",
+            "minimum_attendance_percentage",
+            "enable_attendance_tracking",
+            "allow_late_arrival",
+            # Curriculum
+            "enable_cross_cutting_subjects",
+            "enable_subject_prerequisites",
+            "allow_subject_changes",
+            "enable_credit_system",
             "created_at",
             "updated_at",
         ]
         read_only_fields = ['tenant', 'created_at', 'updated_at']
+
+
+class DesignSettingsSerializer(serializers.ModelSerializer):
+    """Simplified serializer for design/branding settings only."""
+
+    class Meta:
+        model = TenantSettings
+        fields = [
+            "primary_color",
+            "secondary_color",
+            "theme",
+            "typography",
+            "border_radius",
+            "shadow_style",
+            "animations_enabled",
+            "compact_mode",
+            "dark_mode",
+            "high_contrast",
+        ]
 
 
 class TenantServiceSerializer(serializers.ModelSerializer):

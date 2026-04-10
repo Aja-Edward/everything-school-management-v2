@@ -337,6 +337,8 @@ class Stream(TenantMixin, models.Model):
     stream_type = models.CharField(
         max_length=20,
         choices=STREAM_CHOICES,
+        blank=True,
+        default="",
         help_text="Stream type (DEPRECATED - use stream_type_new)",
     )
 

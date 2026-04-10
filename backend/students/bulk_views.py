@@ -341,6 +341,8 @@ def _template_excel(headers, example, column_defs, tenant=None):
     if not streams:
         streams = ["SCIENCE", "ARTS", "COMMERCIAL"]
 
+    BLOOD_GROUP_CHOICES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]
+
     NIGERIA_STATES = [
         "Abia",
         "Adamawa",
@@ -400,6 +402,10 @@ def _template_excel(headers, example, column_defs, tenant=None):
     section_src = _write_ref_col(ref_ws, 3, sections)
     stream_src = _write_ref_col(ref_ws, 4, streams)
     state_src = _write_ref_col(ref_ws, 5, NIGERIA_STATES)
+    parent_role_src = _write_ref_col(
+        ref_ws, 6, ["Father", "Mother", "Guardian", "Sponsor"]
+    )
+    blood_group_src = _write_ref_col(ref_ws, 7, BLOOD_GROUP_CHOICES)
 
     # ---- Styles ----
     REQUIRED_COLOR = "FFF2CC"
@@ -481,6 +487,8 @@ def _template_excel(headers, example, column_defs, tenant=None):
         "section*": section_src,
         "stream": stream_src,
         "state of origin": state_src,
+        "parent/guardian role*": parent_role_src,
+        "blood group": blood_group_src,
     }
 
     DATA_ROWS = f"{start_row + 2}:{start_row + 1001}"  # up to 1000 data rows

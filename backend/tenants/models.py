@@ -484,6 +484,7 @@ class TenantSettings(models.Model):
         null=True,
         help_text="School favicon stored in Cloudinary",
     )
+
     address = models.TextField(blank=True)
     city = models.CharField(max_length=100, blank=True)
     state = models.CharField(max_length=100, blank=True)
@@ -493,13 +494,70 @@ class TenantSettings(models.Model):
     email = models.EmailField(blank=True)
     website = models.URLField(blank=True)
 
-    # Branding
-    logo = models.URLField(blank=True)
-    favicon = models.URLField(blank=True)
+    # Branding & Appearance
     primary_color = models.CharField(max_length=7, default='#4F46E5')
     secondary_color = models.CharField(max_length=7, default='#10B981')
-    theme = models.CharField(max_length=20, default='light')
-    typography = models.CharField(max_length=50, default='Inter')
+    theme = models.CharField(
+        max_length=50,
+        default="default",
+        choices=[
+            ("default", "Default (Recommended)"),
+            ("modern", "Modern"),
+            ("classic", "Classic"),
+            ("vibrant", "Vibrant"),
+            ("minimal", "Minimal"),
+            ("corporate", "Corporate"),
+            ("premium", "Premium"),
+            ("dark", "Dark Mode"),
+            ("obsidian", "Obsidian (Ultra Premium)"),
+            ("aurora", "Aurora (Ultra Premium)"),
+            ("midnight", "Midnight (Ultra Premium)"),
+            ("crimson", "Crimson (Ultra Premium)"),
+            ("forest", "Forest (Ultra Premium)"),
+            ("golden", "Golden (Ultra Premium)"),
+        ],
+    )
+    typography = models.CharField(
+        max_length=50,
+        default="Inter",
+        choices=[
+            ("Inter", "Inter (Recommended)"),
+            ("Roboto", "Roboto"),
+            ("Open Sans", "Open Sans"),
+            ("Poppins", "Poppins"),
+            ("Montserrat", "Montserrat"),
+        ],
+    )
+
+    # Design Customization
+    border_radius = models.CharField(
+        max_length=50,
+        default="rounded-lg",
+        choices=[
+            ("rounded-none", "Sharp"),
+            ("rounded", "Slightly Rounded"),
+            ("rounded-lg", "Rounded"),
+            ("rounded-xl", "More Rounded"),
+            ("rounded-2xl", "Very Rounded"),
+        ],
+    )
+    shadow_style = models.CharField(
+        max_length=50,
+        default="shadow-md",
+        choices=[
+            ("shadow-none", "No Shadow"),
+            ("shadow-sm", "Subtle Shadow"),
+            ("shadow-md", "Medium Shadow"),
+            ("shadow-lg", "Large Shadow"),
+            ("shadow-xl", "Extra Large Shadow"),
+        ],
+    )
+
+    # Display Preferences
+    animations_enabled = models.BooleanField(default=True)
+    compact_mode = models.BooleanField(default=False)
+    dark_mode = models.BooleanField(default=False)
+    high_contrast = models.BooleanField(default=False)
 
     # Academic Settings
     current_session = models.ForeignKey(
@@ -559,6 +617,49 @@ class TenantSettings(models.Model):
     show_class_average_on_result = models.BooleanField(default=True)
     require_token_for_result = models.BooleanField(default=True)
 
+    # Grading
+    GRADING_SYSTEM_CHOICES = [
+        ("percentage", "Percentage"),
+        ("letter", "Letter Grade"),
+        ("gpa", "GPA"),
+        ("points", "Points"),
+    ]
+    grading_system = models.CharField(
+        max_length=20, choices=GRADING_SYSTEM_CHOICES, default="percentage"
+    )
+    pass_percentage = models.PositiveIntegerField(default=40)
+    enable_grade_curving = models.BooleanField(default=False)
+    enable_grade_weighting = models.BooleanField(default=True)
+
+    # Attendance
+    require_attendance = models.BooleanField(default=True)
+    minimum_attendance_percentage = models.PositiveIntegerField(default=75)
+    enable_attendance_tracking = models.BooleanField(default=True)
+    allow_late_arrival = models.BooleanField(default=True)
+
+    # Curriculum
+    enable_cross_cutting_subjects = models.BooleanField(default=True)
+    enable_subject_prerequisites = models.BooleanField(default=True)
+    allow_subject_changes = models.BooleanField(default=True)
+    enable_credit_system = models.BooleanField(default=True)
+    # ──────────────────────────────────────────────
+    # Academic Year Settings
+    # ──────────────────────────────────────────────
+    academic_year_start = models.CharField(
+        max_length=20, default="September", help_text="Month the academic year begins"
+    )
+    academic_year_end = models.CharField(
+        max_length=20, default="July", help_text="Month the academic year ends"
+    )
+    terms_per_year = models.PositiveIntegerField(
+        default=3, help_text="Number of terms per academic year"
+    )
+    weeks_per_term = models.PositiveIntegerField(
+        default=13, help_text="Average number of weeks per term"
+    )
+    allow_class_overflow = models.BooleanField(default=False)
+    enable_streaming = models.BooleanField(default=True)
+    enable_subject_electives = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

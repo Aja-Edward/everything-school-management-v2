@@ -12,7 +12,9 @@ from .views import (
     SubjectByEducationLevelView,
     SchoolStreamConfigurationViewSet,
     SchoolStreamSubjectAssignmentViewSet,
+    SubjectCombinationViewSet,  # NEW
     health_check,
+    subject_combinations,
 )
 
 # ==============================================================================
@@ -51,6 +53,12 @@ stream_assignment_router.register(
     r"", SchoolStreamSubjectAssignmentViewSet, basename="stream-subject-assignment"
 )
 
+# Subject combination router
+subject_combination_router = DefaultRouter()
+subject_combination_router.register(
+    r"", SubjectCombinationViewSet, basename="subject-combination"
+)
+
 # ==============================================================================
 # URL PATTERNS
 # ==============================================================================
@@ -72,6 +80,14 @@ urlpatterns = [
     path(
         "stream-configurations/",
         SchoolStreamConfigurationViewSet.as_view({"get": "list", "post": "create"}),
+    ),
+    path(
+        "stream-configurations/<int:pk>/bulk_assign_subjects/",
+        SchoolStreamConfigurationViewSet.as_view({"post": "bulk_assign_subjects"}),
+    ),
+    path(
+        "stream-configurations/<int:pk>/remove_subject/",
+        SchoolStreamConfigurationViewSet.as_view({"post": "remove_subject"}),
     ),
     path(
         "stream-configurations/<int:pk>/",
@@ -100,10 +116,13 @@ urlpatterns = [
             }
         ),
     ),
+    # Subject combination endpoints - /api/subjects/subject-combinations/
+    path("subject-combinations/", include(subject_combination_router.urls)),
     # Analytics endpoints - /api/subjects/analytics/ (MUST COME BEFORE main router)
     path("analytics/", include(analytics_router.urls)),
     # Management endpoints - /api/subjects/management/ (MUST COME BEFORE main router)
     path("management/", include(management_router.urls)),
+    path("subject-combinations/", subject_combinations, name="subject-combinations"),
     # Core subject operations - /api/subjects/ (MUST BE LAST)
     path("", include(router.urls)),
 ]

@@ -97,13 +97,10 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 # Allowed hosts
 ALLOWED_HOSTS = [
-    host.strip()
-    for host in os.getenv(
-        "ALLOWED_HOSTS",
-        "localhost,127.0.0.1,backend,school-project-with-edward.onrender.com",
-    ).split(",")
+    "localhost",
+    "127.0.0.1",
+    ".localhost",  # ✅ THIS IS IMPORTANT for subdomains
 ]
-
 # Production security settingsay
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")  # CRITICAL for Render

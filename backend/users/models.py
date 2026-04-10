@@ -39,11 +39,13 @@ SECTION_CHOICES = (
 
 
 class CustomUserManager(BaseUserManager):
-    def create_user(self, email, password=None, **extra_fields):
-        if not email:
-            raise ValueError("User must have an email address")
-        email = self.normalize_email(email)
-        user = self.model(email=email, **extra_fields)
+
+    def create_user(self, username, password=None, email=None, **extra_fields):
+        if not username:
+            raise ValueError("Users must have a username")
+        if email:
+            email = self.normalize_email(email)
+        user = self.model(username=username, email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
         return user
@@ -67,7 +69,7 @@ class CustomUserManager(BaseUserManager):
 
 
 class CustomUser(AbstractBaseUser, PermissionsMixin):
-    email = models.EmailField(blank=False, null=False)
+    email = models.EmailField(blank=True, null=True, default=None)
     username = models.CharField(max_length=150, unique=True)
     first_name = models.CharField(max_length=150)
     middle_name = models.CharField(max_length=150, blank=True, null=True)
@@ -126,7 +128,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     objects = CustomUserManager()
 
     USERNAME_FIELD = "username"
-    REQUIRED_FIELDS = ["email", "first_name", "last_name", "role"]
+    REQUIRED_FIELDS = ["first_name", "last_name", "role"]
 
     class Meta:
         verbose_name = "User"
@@ -141,7 +143,8 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         school_name = self.tenant.name if self.tenant else "No School"
-        return f"{self.email} ({school_name})"
+        identifier = self.email or self.username
+        return f"{identifier} ({school_name})"
 
     @property
     def full_name(self):

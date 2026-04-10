@@ -213,18 +213,26 @@ class StreamSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="FK to StreamType (replaces old stream_type CharField)",
     )
+
     stream_type_name = serializers.CharField(
         source="stream_type_new.name", read_only=True, allow_null=True
     )
     stream_type_code = serializers.CharField(
         source="stream_type_new.code", read_only=True, allow_null=True
     )
-    stream_type_detail = StreamTypeSerializer(source="stream_type_new", read_only=True)
+    stream_type_detail = StreamTypeSerializer(
+        source="stream_type_new",
+        read_only=True,
+        allow_null=True,
+    )
 
     # Keep old field as read-only for backward compat during transition
     stream_type_legacy = serializers.CharField(
         source="stream_type",
         read_only=True,
+        allow_blank=True,
+        allow_null=True,
+        default="",
         help_text="Deprecated — use stream_type_name instead",
     )
 

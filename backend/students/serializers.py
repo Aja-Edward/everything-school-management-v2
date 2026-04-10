@@ -307,7 +307,12 @@ class StreamSerializer(serializers.ModelSerializer):
 class StudentDetailSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
     short_name = serializers.SerializerMethodField()
-    email = serializers.EmailField(source="user.email", read_only=True)
+    first_name = serializers.CharField(source="user.first_name", required=False)
+    middle_name = serializers.CharField(
+        source="user.middle_name", required=False, allow_blank=True
+    )
+    last_name = serializers.CharField(source="user.last_name", required=False)
+    email = serializers.EmailField(source="user.email", required=False)
     username = serializers.CharField(source="user.username", read_only=True)
     age = serializers.SerializerMethodField()
 
@@ -327,6 +332,7 @@ class StudentDetailSerializer(serializers.ModelSerializer):
         queryset=Section.objects.all(), required=False, allow_null=True
     )
     section_detail = SectionSerializer(source="section", read_only=True)
+    section_display = serializers.SerializerMethodField()
 
     # Frontend compat alias
     name = serializers.SerializerMethodField()
@@ -363,6 +369,9 @@ class StudentDetailSerializer(serializers.ModelSerializer):
             "full_name",
             "name",
             "short_name",
+            "first_name",
+            "middle_name",
+            "last_name",
             "email",
             "username",
             "gender",
@@ -375,6 +384,7 @@ class StudentDetailSerializer(serializers.ModelSerializer):
             "student_class_display",
             "section",
             "section_detail",
+            "section_display",
             "is_nursery_student",
             "is_primary_student",
             "is_secondary_student",
@@ -414,6 +424,9 @@ class StudentDetailSerializer(serializers.ModelSerializer):
 
     def get_student_class_display(self, obj):
         return obj.student_class.name if obj.student_class else "Not Assigned"
+
+    def get_section_display(self, obj):
+        return obj.section.name if obj.section else None
 
     def get_parents(self, obj):
         from parent.models import ParentStudentRelationship
@@ -493,6 +506,20 @@ class StudentDetailSerializer(serializers.ModelSerializer):
         # Keep backward-compat 'class' key for frontend
         data["class"] = instance.student_class.name if instance.student_class else None
         return data
+
+    def update(self, instance, validated_data):
+        user_data = validated_data.pop("user", {})
+
+        user = instance.user
+        for attr, value in user_data.items():
+            setattr(user, attr, value)
+        user.save()
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        return instance
 
 
 # ---------------------------------------------------------------------------
@@ -609,7 +636,9 @@ class StudentListSerializer(serializers.ModelSerializer):
 class StudentCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating new students with automatic parent creation."""
 
-    user_email = serializers.EmailField(write_only=True)
+    user_email = serializers.EmailField(
+        write_only=True, required=False, allow_blank=True, allow_null=True
+    )
     user_first_name = serializers.CharField(write_only=True, max_length=30)
     user_last_name = serializers.CharField(write_only=True, max_length=30)
     user_middle_name = serializers.CharField(
@@ -757,43 +786,34 @@ class StudentCreateSerializer(serializers.ModelSerializer):
         from parent.models import ParentProfile, ParentStudentRelationship
         from django.db import transaction
 
-        with transaction.atomic():  # FIX 3: prevent partial saves / double-submit
+        with transaction.atomic():
             profile_picture = validated_data.pop("profile_picture", None)
-
-            # FIX 2: pop the registration number the admin typed in the form
-            # We'll store it on the Student record AND use it in the username.
             registration_number = validated_data.pop("registration_number", None)
 
             first_name = validated_data.pop("user_first_name")
             last_name = validated_data.pop("user_last_name")
             middle_name = validated_data.pop("user_middle_name", "")
-            email = validated_data.pop("user_email")
+            user_email = validated_data.pop("user_email", None)  # may be None
             relationship = validated_data.pop("relationship", None)
             is_primary_contact = validated_data.pop("is_primary_contact", False)
 
-            # ------------------------------------------------------------------
-            # FIX 1: resolve the current tenant from the serializer context so
-            # generate_unique_username uses the right school code (GTS not LIS).
-            # The view must pass `request` in the serializer context, which
-            # DRF does automatically for ViewSet/APIView serializers.
-            # ------------------------------------------------------------------
             request = self.context.get("request")
             current_tenant = None
             if request is not None:
-                # Works whether you use django-tenants, a custom middleware, or
-                # store the tenant on the request object yourself.
                 current_tenant = getattr(request, "tenant", None) or getattr(
                     request, "current_tenant", None
                 )
 
             # ------------------------------------------------------------------
-            # Parent resolution (unchanged logic, just moved inside atomic)
+            # Parent resolution — must happen BEFORE email fallback so that
+            # parent_email is available if user_email was not provided.
             # ------------------------------------------------------------------
             existing_parent_id = validated_data.pop("existing_parent_id", None)
             if existing_parent_id:
                 try:
                     parent_profile = ParentProfile.objects.get(id=existing_parent_id)
                     parent_user = parent_profile.user
+                    parent_email = parent_user.email  # available for fallback below
                     self._generated_parent_password = None
                     self._generated_parent_username = parent_user.username
                 except ParentProfile.DoesNotExist:
@@ -803,11 +823,16 @@ class StudentCreateSerializer(serializers.ModelSerializer):
             else:
                 parent_first_name = validated_data.pop("parent_first_name")
                 parent_last_name = validated_data.pop("parent_last_name")
-                parent_email = validated_data.pop("parent_email")
+                parent_email = validated_data.pop(
+                    "parent_email"
+                )  # always a string here
                 parent_contact = validated_data.pop("parent_contact")
                 parent_address = validated_data.pop("parent_address", "")
 
-                if CustomUser.objects.filter(email=parent_email).exists():
+                if (
+                    parent_email
+                    and CustomUser.objects.filter(email=parent_email).exists()
+                ):
                     raise serializers.ValidationError(
                         "A parent with this email already exists."
                     )
@@ -818,7 +843,6 @@ class StudentCreateSerializer(serializers.ModelSerializer):
                     secrets.choice(string.ascii_letters + string.digits)
                     for _ in range(10)
                 )
-                # FIX 1: pass tenant so parent username also gets GTS code
                 parent_username = generate_unique_username(
                     "parent", tenant=current_tenant
                 )
@@ -845,9 +869,13 @@ class StudentCreateSerializer(serializers.ModelSerializer):
                 self._generated_parent_username = parent_username
 
             # ------------------------------------------------------------------
+            # Email fallback: use parent_email if student email was not provided.
+            # parent_email is now guaranteed to be defined in both branches above.
+            # ------------------------------------------------------------------
+            email = user_email or parent_email or None
+
+            # ------------------------------------------------------------------
             # Student user creation
-            # FIX 1: pass tenant to get the correct school code
-            # FIX 2: registration_number in the username comes from the form
             # ------------------------------------------------------------------
             import secrets, string
 
@@ -856,8 +884,8 @@ class StudentCreateSerializer(serializers.ModelSerializer):
             )
             student_username = generate_unique_username(
                 "student",
-                registration_number=registration_number,  # uses form value if provided
-                tenant=current_tenant,  # FIX 1: correct school code
+                registration_number=registration_number,
+                tenant=current_tenant,
             )
             student_user = CustomUser.objects.create_user(
                 email=email,
@@ -871,13 +899,10 @@ class StudentCreateSerializer(serializers.ModelSerializer):
                 tenant=current_tenant,
             )
 
-            # FIX 2: explicitly store the admin-entered registration_number on
-            # the Student record.  If left to the model default it became an
-            # auto-generated value instead of what the admin typed.
             student = Student.objects.create(
                 user=student_user,
                 profile_picture=profile_picture,
-                registration_number=registration_number,  # ← saves the typed value
+                registration_number=registration_number,
                 tenant=current_tenant,
                 **validated_data,
             )
@@ -897,7 +922,7 @@ class StudentCreateSerializer(serializers.ModelSerializer):
             self._generated_student_username = student_username
 
             # ------------------------------------------------------------------
-            # Welcome emails (unchanged)
+            # Welcome emails
             # ------------------------------------------------------------------
             try:
                 from utils.email import send_email_via_brevo

@@ -735,8 +735,10 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             queryset = queryset.select_related(
                 "user",
                 "student_class",  # FK to Class (which is the grade level)
+                "student_class__education_level",
                 "section",
                 "stream",
+                "stream__stream_type_new",
             ).prefetch_related("parents")
 
             # Filter by the specific user
@@ -753,8 +755,10 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         queryset = queryset.select_related(
             "user",
             "student_class",  # FK to Class (which is the grade level)
+            "student_class__education_level",
             "section",
             "stream",
+            "stream__stream_type_new",
         ).prefetch_related("parents")
 
         logger.info(f"📊 Final queryset count: {queryset.count()} students")
@@ -818,9 +822,20 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
     def retrieve(self, request, pk=None):
         """Standard retrieve method for numeric IDs only."""
         try:
-            student = get_object_or_404(Student, pk=pk)
-            student_data = StudentDetailSerializer(student).data
-            return Response(student_data)
+            student = (
+                self.get_queryset()
+                .select_related(
+                    "user",
+                    "student_class",
+                    "student_class__education_level",  # ← critical for education_level property
+                    "section",
+                    "stream",
+                    "stream__stream_type_new",
+                )
+                .get(pk=pk)
+            )
+            serializer = StudentDetailSerializer(student, context={"request": request})
+            return Response(serializer.data)
         except Student.DoesNotExist:
             return Response(
                 {"detail": f"Student with id '{pk}' not found."},

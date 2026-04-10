@@ -7,10 +7,11 @@ from .models import (
     SubjectType,
     SchoolStreamConfiguration,
     SchoolStreamSubjectAssignment,
+    SubjectCombination,
 )
 
 # GradeLevel lives in classroom app
-from classroom.models import GradeLevel
+from classroom.models import GradeLevel, Stream
 
 # EducationLevel lives in students app — used for FK validation in filters
 from academics.models import EducationLevel
@@ -88,8 +89,8 @@ class SubjectSerializer(serializers.ModelSerializer):
     )
     grade_levels_info = serializers.SerializerMethodField()
 
-    # education_levels — old JSONField kept read-only for backward compat
-    education_levels = serializers.JSONField(read_only=True)
+    # education_levels — old JSONField but now writable to support frontend
+    education_levels = serializers.JSONField(required=False, allow_null=True)
     education_levels_display = serializers.ReadOnlyField()
 
     # nursery levels (still JSONField on model for now)
@@ -462,6 +463,9 @@ class SubjectCreateUpdateSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
 
+    # Education levels (JSONField - writable)
+    education_levels = serializers.JSONField(required=False, allow_null=True)
+
     # Writable M2M IDs
     grade_level_ids = serializers.PrimaryKeyRelatedField(
         source="grade_levels",
@@ -486,6 +490,7 @@ class SubjectCreateUpdateSerializer(serializers.ModelSerializer):
             "code",
             "description",
             "category",
+            "education_levels",
             "nursery_levels",
             "ss_subject_type",
             "is_cross_cutting",
@@ -525,6 +530,10 @@ class SubjectCreateUpdateSerializer(serializers.ModelSerializer):
                 if gl.education_level
             }
 
+        if not level_types:
+            raw_education_levels = self.initial_data.get("education_levels", [])
+            if isinstance(raw_education_levels, list):
+                level_types = set(raw_education_levels)
         subject_type = data.get("subject_type_new")
         is_cross_cutting = data.get("is_cross_cutting", False)
 
@@ -805,7 +814,7 @@ class SchoolStreamSubjectAssignmentSerializer(serializers.ModelSerializer):
 
 
 class SchoolStreamConfigurationSerializer(serializers.ModelSerializer):
-    school_name = serializers.CharField(default="My School", read_only=True)
+
     stream_name = serializers.CharField(source="stream.name", read_only=True)
     # stream_type via new FK (replaces old CharField source="stream.stream_type")
     stream_type = serializers.CharField(
@@ -824,8 +833,6 @@ class SchoolStreamConfigurationSerializer(serializers.ModelSerializer):
         model = SchoolStreamConfiguration
         fields = [
             "id",
-            "school_id",
-            "school_name",
             "stream",
             "stream_id",
             "stream_name",
@@ -891,3 +898,195 @@ class StreamConfigurationSummarySerializer(serializers.Serializer):
     total_subjects = serializers.IntegerField()
     min_subjects_required = serializers.IntegerField()
     max_subjects_allowed = serializers.IntegerField()
+
+
+# ---------------------------------------------------------------------------
+# SUBJECT COMBINATION SERIALIZERS
+# ---------------------------------------------------------------------------
+
+
+class SubjectCombinationSerializer(serializers.ModelSerializer):
+    """Serializer for SubjectCombination model"""
+
+    stream_name = serializers.CharField(source="stream.name", read_only=True)
+    stream_code = serializers.CharField(source="stream.code", read_only=True)
+
+    # Subject IDs for input/output
+    core_subjects = serializers.PrimaryKeyRelatedField(
+        queryset=Subject.objects.all(), many=True, required=False
+    )
+    elective_subjects = serializers.PrimaryKeyRelatedField(
+        queryset=Subject.objects.all(), many=True, required=False
+    )
+    cross_cutting_subjects = serializers.PrimaryKeyRelatedField(
+        queryset=Subject.objects.all(), many=True, required=False
+    )
+
+    # Subject details for output
+    core_subjects_detail = serializers.SerializerMethodField()
+    elective_subjects_detail = serializers.SerializerMethodField()
+    cross_cutting_subjects_detail = serializers.SerializerMethodField()
+
+    total_subjects = serializers.ReadOnlyField()
+
+    class Meta:
+        model = SubjectCombination
+        fields = [
+            "id",
+            "name",
+            "code",
+            "description",
+            "stream",
+            "stream_name",
+            "stream_code",
+            "core_subjects",
+            "elective_subjects",
+            "cross_cutting_subjects",
+            "core_subjects_detail",
+            "elective_subjects_detail",
+            "cross_cutting_subjects_detail",
+            "total_subjects",
+            "display_order",
+            "is_active",
+            "is_default",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["created_at", "updated_at"]
+
+    def get_core_subjects_detail(self, obj):
+        return [
+            {
+                "id": subject.id,
+                "name": subject.name,
+                "code": subject.code,
+                "credit_weight": getattr(subject, "credit_weight", 1),
+            }
+            for subject in obj.core_subjects.all()
+        ]
+
+    def get_elective_subjects_detail(self, obj):
+        return [
+            {
+                "id": subject.id,
+                "name": subject.name,
+                "code": subject.code,
+                "credit_weight": getattr(subject, "credit_weight", 1),
+            }
+            for subject in obj.elective_subjects.all()
+        ]
+
+    def get_cross_cutting_subjects_detail(self, obj):
+        return [
+            {
+                "id": subject.id,
+                "name": subject.name,
+                "code": subject.code,
+                "credit_weight": getattr(subject, "credit_weight", 1),
+            }
+            for subject in obj.cross_cutting_subjects.all()
+        ]
+
+    def validate_code(self, value):
+        """Ensure code is unique within the tenant and stream"""
+        request = self.context.get("request")
+        if request and hasattr(request, "tenant"):
+            tenant = request.tenant
+            stream_id = self.initial_data.get("stream")
+
+            # Check for existing combination with same code
+            existing = SubjectCombination.objects.filter(
+                tenant=tenant, stream_id=stream_id, code=value
+            )
+
+            # Exclude current instance if updating
+            if self.instance:
+                existing = existing.exclude(id=self.instance.id)
+
+            if existing.exists():
+                raise serializers.ValidationError(
+                    f"A combination with code '{value}' already exists for this stream."
+                )
+
+        return value
+
+    def validate(self, data):
+        """Validate that subjects are available in stream configurations"""
+        stream = data.get("stream")
+        if stream:
+            # Get stream configurations
+            configs = SchoolStreamConfiguration.objects.filter(
+                tenant=getattr(self.context.get("request"), "tenant", None),
+                stream=stream,
+                is_active=True,
+            )
+
+            # Validate core subjects
+            core_subjects = data.get("core_subjects", [])
+            if core_subjects:
+                core_config = configs.filter(subject_role="core").first()
+                if core_config:
+                    valid_subject_ids = set(
+                        core_config.subject_assignments.filter(
+                            is_active=True
+                        ).values_list("subject_id", flat=True)
+                    )
+                    invalid_subjects = [
+                        subj
+                        for subj in core_subjects
+                        if subj.id not in valid_subject_ids
+                    ]
+                    if invalid_subjects:
+                        raise serializers.ValidationError(
+                            {
+                                "core_subjects": f"Subjects {', '.join([s.name for s in invalid_subjects])} are not available as core subjects in this stream."
+                            }
+                        )
+
+            # Validate elective subjects
+            elective_subjects = data.get("elective_subjects", [])
+            if elective_subjects:
+                elective_config = configs.filter(subject_role="elective").first()
+                if elective_config:
+                    valid_subject_ids = set(
+                        elective_config.subject_assignments.filter(
+                            is_active=True
+                        ).values_list("subject_id", flat=True)
+                    )
+                    invalid_subjects = [
+                        subj
+                        for subj in elective_subjects
+                        if subj.id not in valid_subject_ids
+                    ]
+                    if invalid_subjects:
+                        raise serializers.ValidationError(
+                            {
+                                "elective_subjects": f"Subjects {', '.join([s.name for s in invalid_subjects])} are not available as elective subjects in this stream."
+                            }
+                        )
+
+            # Validate cross-cutting subjects
+            cross_cutting_subjects = data.get("cross_cutting_subjects", [])
+            if cross_cutting_subjects:
+                cross_cutting_config = configs.filter(
+                    subject_role="cross_cutting"
+                ).first()
+                if cross_cutting_config:
+                    valid_subject_ids = set(
+                        cross_cutting_config.subject_assignments.filter(
+                            is_active=True
+                        ).values_list("subject_id", flat=True)
+                    )
+                    invalid_subjects = [
+                        subj
+                        for subj in cross_cutting_subjects
+                        if subj.id not in valid_subject_ids
+                    ]
+                    if invalid_subjects:
+                        raise serializers.ValidationError(
+                            {
+                                "cross_cutting_subjects": f"Subjects {', '.join([s.name for s in invalid_subjects])} are not available as cross-cutting subjects in this stream."
+                            }
+                        )
+
+        return data

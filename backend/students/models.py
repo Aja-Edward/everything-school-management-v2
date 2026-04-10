@@ -160,10 +160,22 @@ class Student(TenantMixin, models.Model):
 
     @property
     def education_level(self):
-        """Returns education level type string from class FK"""
         if not self.student_class:
             return None
-        return self.student_class.education_level.level_type
+        level = self.student_class.education_level
+        if not level:
+            return None
+        # Use level_type if set, otherwise derive from code
+        if level.level_type:
+            return level.level_type
+        # Map code to the expected constant
+        code_map = {
+            "nursery": "NURSERY",
+            "primary": "PRIMARY",
+            "junior_secondary": "JUNIOR_SECONDARY",
+            "senior_secondary": "SENIOR_SECONDARY",
+        }
+        return code_map.get(level.code, "")
 
     @property
     def education_level_display(self):

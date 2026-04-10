@@ -225,13 +225,6 @@ def _validate_row(row_num, row, tenant_id, academic_session_id=None):
 
     # ---- Email uniqueness (if provided) ----
     email = row.get("email", "").strip() or None
-    if email:
-        from users.models import CustomUser
-        if CustomUser.objects.filter(email=email).exists():
-            errors.append(
-                f"Row {row_num}: Email '{email}' is already in use."
-            )
-            return errors, None
 
     cleaned = {
         "row_num": row_num,
@@ -286,12 +279,18 @@ def _create_student_from_cleaned(tenant, cleaned):
         tenant=tenant,
     )
 
+    parent_email = None
+    try:
+        parent_user = cleaned["parent_profile"].user
+        parent_email = getattr(parent_user, "email", None)
+    except Exception:
+        pass
     # Build email: use provided or synthesise from username
-    email = cleaned["email"] or f"{username}@{tenant.schema_name}.internal"
+    email = cleaned["email"] or parent_email or None
 
     user = CustomUser.objects.create_user(
-        email=email,
         username=username,
+        email=email,
         first_name=cleaned["first_name"],
         last_name=cleaned["last_name"],
         middle_name=cleaned["middle_name"],
@@ -309,7 +308,7 @@ def _create_student_from_cleaned(tenant, cleaned):
         section=cleaned["section_obj"],
         stream=cleaned["stream_obj"],
         registration_number=cleaned["reg_number"],
-        lga=cleaned.get("lga"),
+        lga_of_origin=cleaned.get("lga_of_origin"),
         state_of_origin=cleaned.get("state_of_origin"),
         year_admitted=cleaned.get("year_admitted"),
         address=cleaned["address"],

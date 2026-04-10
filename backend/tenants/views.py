@@ -13,6 +13,7 @@ from django.utils import timezone
 from django.conf import settings
 from django.conf import settings as django_settings
 from django.shortcuts import get_object_or_404
+from django.core.cache import cache
 import dns.resolver
 import logging
 
@@ -24,14 +25,24 @@ from .models import (
     TenantSetupToken
 )
 from .serializers import (
-    TenantSerializer, TenantSettingsSerializer, TenantServiceSerializer,
-    ServicePricingSerializer, AvailableServiceSerializer,
-    TenantInvoiceSerializer, TenantInvoiceLineItemSerializer,
-    TenantPaymentSerializer, TenantInvitationSerializer,
-    SchoolRegistrationSerializer, ServiceToggleSerializer,
-    CustomDomainSerializer, ManualPaymentSerializer,
-    PaystackInitializeSerializer, PaystackVerifySerializer,
-    SlugCheckSerializer, DomainCheckSerializer
+    TenantSerializer,
+    TenantSettingsSerializer,
+    DesignSettingsSerializer,
+    TenantServiceSerializer,
+    ServicePricingSerializer,
+    AvailableServiceSerializer,
+    TenantInvoiceSerializer,
+    TenantInvoiceLineItemSerializer,
+    TenantPaymentSerializer,
+    TenantInvitationSerializer,
+    SchoolRegistrationSerializer,
+    ServiceToggleSerializer,
+    CustomDomainSerializer,
+    ManualPaymentSerializer,
+    PaystackInitializeSerializer,
+    PaystackVerifySerializer,
+    SlugCheckSerializer,
+    DomainCheckSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,8 +53,10 @@ logger = logging.getLogger(__name__)
 class IsTenantOwner(permissions.BasePermission):
     """Permission check for tenant owner (superadmin)."""
 
+    ADMIN_ROLES = {"superadmin", "admin", "secondary_admin"}
+
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role == 'superadmin'
+        return request.user.is_authenticated and request.user.role in self.ADMIN_ROLES
 
 
 class IsTenantMember(permissions.BasePermission):
@@ -193,14 +206,14 @@ class PublicTenantView(APIView):
 
         if settings_obj:
             settings_data = {
-                'logo': settings_obj.logo,
-                'favicon': settings_obj.favicon,
-                'primary_color': settings_obj.primary_color,
-                'secondary_color': settings_obj.secondary_color,
-                'school_motto': settings_obj.school_motto,
-                'student_portal_enabled': settings_obj.student_portal_enabled,
-                'teacher_portal_enabled': settings_obj.teacher_portal_enabled,
-                'parent_portal_enabled': settings_obj.parent_portal_enabled,
+                "logo": settings_obj.logo.url if settings_obj.logo else None,
+                "favicon": settings_obj.favicon.url if settings_obj.favicon else None,
+                "primary_color": settings_obj.primary_color,
+                "secondary_color": settings_obj.secondary_color,
+                "school_motto": settings_obj.school_motto,
+                "student_portal_enabled": settings_obj.student_portal_enabled,
+                "teacher_portal_enabled": settings_obj.teacher_portal_enabled,
+                "parent_portal_enabled": settings_obj.parent_portal_enabled,
             }
 
         return Response({
@@ -537,6 +550,21 @@ class DomainManagementViewSet(viewsets.ViewSet):
         tenant = getattr(request, 'tenant', None)
         if not tenant:
             return Response({'error': 'No tenant context'}, status=400)
+
+        settings_obj, created = TenantSettings.objects.get_or_create(tenant=tenant)
+
+        if request.method == "PATCH":
+            serializer = self.get_serializer(
+                settings_obj, data=request.data, partial=True
+            )
+            if serializer.is_valid():
+                serializer.save()
+                # ← Clear the cache so GET returns fresh data
+                cache.delete(f"tenant_settings_{tenant.id}")
+                return Response(serializer.data)
+            return Response(serializer.errors, status=400)
+
+        return Response(TenantSettingsSerializer(settings_obj).data)
 
         return Response({
             'subdomain': tenant.slug,
@@ -884,17 +912,30 @@ class TenantSettingsViewSet(viewsets.ModelViewSet):
         """Get or update current tenant settings."""
         tenant = getattr(request, 'tenant', None)
         if not tenant:
+            logger.error("TenantSettings.current: No tenant context found")
             return Response({'error': 'No tenant context'}, status=400)
 
         settings_obj, created = TenantSettings.objects.get_or_create(tenant=tenant)
+        logger.info(f"TenantSettings.current: tenant={tenant.slug}, created={created}")
 
         if request.method == 'PATCH':
-            serializer = self.get_serializer(settings_obj, data=request.data, partial=True)
+            logger.info(f"TenantSettings PATCH: Received data: {request.data}")
+            # Use DesignSettingsSerializer for PATCH to only handle design fields
+            serializer = DesignSettingsSerializer(
+                settings_obj, data=request.data, partial=True
+            )
             if serializer.is_valid():
                 serializer.save()
+                cache.delete(f"tenant_settings_{tenant.id}")
+                logger.info(
+                    f"TenantSettings PATCH: Successfully saved. Returning: {serializer.data}"
+                )
                 return Response(serializer.data)
+
+            logger.error(f"TenantSettings PATCH validation errors: {serializer.errors}")
             return Response(serializer.errors, status=400)
 
+        logger.info(f"TenantSettings GET: Returning settings for {tenant.slug}")
         return Response(TenantSettingsSerializer(settings_obj).data)
 
 

@@ -10,9 +10,17 @@ from .models import (
 
 from django.utils.html import format_html
 from django.db.models import Count
+from academics.models import EducationLevel
 
 
 # Register your classroom models
+
+
+@admin.register(EducationLevel)
+class EducationLevelAdmin(admin.ModelAdmin):
+    list_display = ["name", "code", "level_type"]
+
+
 @admin.register(GradeLevel)
 class GradeLevelAdmin(admin.ModelAdmin):
     list_display = ("name", "education_level", "order", "is_active")

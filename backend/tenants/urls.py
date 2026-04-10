@@ -89,7 +89,7 @@ urlpatterns = [
     path("domain/verify/", domain_verify, name="domain-verify"),
     path("domain/remove/", domain_remove, name="domain-remove"),
     # Settings
-    path("settings/", settings_current, name="tenant-settings"),
+    path("settings/current/", settings_current, name="tenant-settings"),
     path(
         "settings/upload-logo/",
         settings_upload_logo,

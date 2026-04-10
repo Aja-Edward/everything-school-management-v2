@@ -50,42 +50,6 @@ from .permissions import (
 logger = logging.getLogger(__name__)
 
 
-# class SchoolSettingsDetail(APIView):
-#     """
-#     Retrieve and update school settings
-#     """
-
-#     permission_classes = [HasSettingsPermissionOrReadOnly]
-#     parser_classes = [MultiPartParser, FormParser]
-
-#     def get(self, request):
-#         try:
-#             settings, created = SchoolSettings.objects.get_or_create(pk=1)
-#             serializer = SchoolSettingsSerializer(settings)
-#             return Response(serializer.data, status=status.HTTP_200_OK)
-#         except Exception as e:
-#             return Response(
-#                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-#             )
-
-#     @transaction.atomic
-#     def put(self, request):
-#         try:
-#             settings, created = SchoolSettings.objects.get_or_create(pk=1)
-#             serializer = SchoolSettingsSerializer(
-#                 settings, data=request.data, partial=True
-#             )
-
-#             if serializer.is_valid():
-#                 serializer.save()
-#                 return Response(serializer.data, status=status.HTTP_200_OK)
-#             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-#         except Exception as e:
-#             return Response(
-#                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-#             )
-
-
 class SchoolSettingsDetail(APIView):
     """
     Retrieve and update school settings using multi-tenant TenantSettings.
@@ -121,7 +85,6 @@ class SchoolSettingsDetail(APIView):
             # From Tenant model
             "school_name": tenant.name,
             "site_name": tenant.name,
-
             # From TenantSettings model
             "school_code": tenant_settings.school_code,
             "school_motto": tenant_settings.school_motto,
@@ -136,40 +99,46 @@ class SchoolSettingsDetail(APIView):
             "school_email": tenant_settings.email,
             "email": tenant_settings.email,
             "website": tenant_settings.website,
-
             # Branding
-            "logo": tenant_settings.logo,
-            "logo_url": tenant_settings.logo,
-            "favicon": tenant_settings.favicon,
-            "favicon_url": tenant_settings.favicon,
+            "logo": str(tenant_settings.logo) if tenant_settings.logo else None,
+            "logo_url": str(tenant_settings.logo) if tenant_settings.logo else None,
+            "favicon": (
+                str(tenant_settings.favicon) if tenant_settings.favicon else None
+            ),
+            "favicon_url": (
+                str(tenant_settings.favicon) if tenant_settings.favicon else None
+            ),
             "primary_color": tenant_settings.primary_color,
             "secondary_color": tenant_settings.secondary_color,
             "theme": tenant_settings.theme,
             "typography": tenant_settings.typography,
-
             # Academic
-            "academic_year": str(tenant_settings.current_session) if tenant_settings.current_session else "",
-            "current_term": str(tenant_settings.current_term) if tenant_settings.current_term else "",
-
+            "academic_year": (
+                str(tenant_settings.current_session)
+                if tenant_settings.current_session
+                else ""
+            ),
+            "current_term": (
+                str(tenant_settings.current_term)
+                if tenant_settings.current_term
+                else ""
+            ),
             # Localization
             "timezone": tenant_settings.timezone,
             "date_format": tenant_settings.date_format,
             "language": tenant_settings.language,
             "currency": tenant_settings.currency,
-
             # Registration & User Settings
             "allow_self_registration": tenant_settings.allow_student_registration,
             "allow_student_registration": tenant_settings.allow_student_registration,
             "allow_parent_registration": tenant_settings.allow_parent_registration,
             "registration_approval_required": tenant_settings.registration_approval_required,
             "default_user_role": tenant_settings.default_user_role,
-
             # Security & Authentication
             "email_verification_required": tenant_settings.require_email_verification,
             "session_timeout": tenant_settings.session_timeout_minutes,
             "max_login_attempts": tenant_settings.max_login_attempts,
             "account_lock_duration": tenant_settings.account_lock_duration_minutes,
-
             # Password Policy
             "password_min_length": tenant_settings.password_min_length,
             "password_reset_interval": tenant_settings.password_reset_interval_days,
@@ -177,27 +146,54 @@ class SchoolSettingsDetail(APIView):
             "password_require_symbols": tenant_settings.password_require_symbols,
             "password_require_uppercase": tenant_settings.password_require_uppercase,
             "password_expiration": tenant_settings.password_expiration_days,
-
             # Profile Settings
             "allow_profile_image_upload": tenant_settings.allow_profile_image_upload,
             "profile_image_max_size": tenant_settings.profile_image_max_size_mb,
-
             # Notifications
             "notifications_enabled": tenant_settings.notifications_enabled,
-
             # Portal Access
             "student_portal_enabled": tenant_settings.student_portal_enabled,
             "teacher_portal_enabled": tenant_settings.teacher_portal_enabled,
             "parent_portal_enabled": tenant_settings.parent_portal_enabled,
-
             # Result Settings
             "show_position_on_result": tenant_settings.show_position_on_result,
             "show_class_average_on_result": tenant_settings.show_class_average_on_result,
             "require_token_for_result": tenant_settings.require_token_for_result,
-
+            # ── Academic Year ──────────────────────────────
+            "academic_year_start": tenant_settings.academic_year_start,
+            "academic_year_end": tenant_settings.academic_year_end,
+            "terms_per_year": tenant_settings.terms_per_year,
+            "weeks_per_term": tenant_settings.weeks_per_term,
+            # ── Class Settings ─────────────────────────────
+            "allow_class_overflow": tenant_settings.allow_class_overflow,
+            "enable_streaming": tenant_settings.enable_streaming,
+            "enable_subject_electives": tenant_settings.enable_subject_electives,
+            # ── Grading ────────────────────────────────────
+            "grading_system": tenant_settings.grading_system,
+            "pass_percentage": tenant_settings.pass_percentage,
+            "enable_grade_curving": tenant_settings.enable_grade_curving,
+            "enable_grade_weighting": tenant_settings.enable_grade_weighting,
+            # ── Attendance ─────────────────────────────────
+            "require_attendance": tenant_settings.require_attendance,
+            "minimum_attendance_percentage": tenant_settings.minimum_attendance_percentage,
+            "enable_attendance_tracking": tenant_settings.enable_attendance_tracking,
+            "allow_late_arrival": tenant_settings.allow_late_arrival,
+            # ── Curriculum ─────────────────────────────────
+            "enable_cross_cutting_subjects": tenant_settings.enable_cross_cutting_subjects,
+            "enable_subject_prerequisites": tenant_settings.enable_subject_prerequisites,
+            "allow_subject_changes": tenant_settings.allow_subject_changes,
+            "enable_credit_system": tenant_settings.enable_credit_system,
             # Timestamps
-            "created_at": tenant_settings.created_at.isoformat() if tenant_settings.created_at else None,
-            "updated_at": tenant_settings.updated_at.isoformat() if tenant_settings.updated_at else None,
+            "created_at": (
+                tenant_settings.created_at.isoformat()
+                if tenant_settings.created_at
+                else None
+            ),
+            "updated_at": (
+                tenant_settings.updated_at.isoformat()
+                if tenant_settings.updated_at
+                else None
+            ),
         }
 
     def get(self, request):

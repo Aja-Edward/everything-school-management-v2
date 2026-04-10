@@ -46,8 +46,7 @@ class TenantMiddleware:
                 if parts and parts[0] not in self.EXCLUDED_SUBDOMAINS:
                     subdomain = parts[0]
                     tenant = Tenant.objects.filter(
-                        slug=subdomain,
-                        is_active=True
+                        slug=subdomain, status="active", is_active=True
                     ).first()
                     logger.debug(f"TenantMiddleware: localhost subdomain lookup for '{subdomain}': tenant={tenant}")
 
@@ -74,8 +73,7 @@ class TenantMiddleware:
                 if parts and parts[0] not in self.EXCLUDED_SUBDOMAINS:
                     subdomain = parts[0]
                     tenant = Tenant.objects.filter(
-                        slug=subdomain,
-                        is_active=True
+                        slug=subdomain, status="active", is_active=True
                     ).first()
                     logger.debug(
                         f"TenantMiddleware: Platform subdomain lookup for '{subdomain}': tenant={tenant}"

@@ -444,16 +444,43 @@ class SectionFilterMixin:
                 return filtered
 
             # SUBJECT MODELS
+            # SUBJECT MODELS — include both new grade_levels and legacy education_levels
             elif model_name == "Subject":
-                filtered = queryset.filter(education_level__in=allowed_education_levels)
+                grade_filtered = queryset.filter(
+                    grade_levels__education_level__level_type__in=allowed_education_levels
+                )
+                legacy_ids = []
+                for subject in queryset:
+                    if any(
+                        level in getattr(subject, "education_levels", [])
+                        for level in allowed_education_levels
+                    ):
+                        legacy_ids.append(subject.id)
+                legacy_filtered = queryset.filter(id__in=legacy_ids)
+                filtered = (grade_filtered | legacy_filtered).distinct()
                 logger.info(
                     f"✅ Filtered Subjects: {filtered.count()} of {queryset.count()}"
                 )
                 return filtered
 
+            # STREAM MODELS — add this before the default else block
+            elif model_name == "Stream":
+                # Streams are tenant-wide, not section-restricted
+                logger.info(f"✅ Stream access granted - no section filtering needed")
+                return queryset
+
+            # SCHOOL STREAM CONFIGURATION — add this too
+            elif model_name == "SchoolStreamConfiguration":
+                logger.info(
+                    f"✅ SchoolStreamConfiguration - no section filtering needed"
+                )
+                return queryset
+
             # GRADE LEVEL MODELS
             elif model_name == "GradeLevel":
-                filtered = queryset.filter(education_level__in=allowed_education_levels)
+                filtered = queryset.filter(
+                    education_level__level_type__in=allowed_education_levels
+                )
                 logger.info(
                     f"✅ Filtered GradeLevels: {filtered.count()} of {queryset.count()}"
                 )
@@ -462,12 +489,8 @@ class SectionFilterMixin:
             # SECTION MODELS
             elif model_name == "Section":
                 filtered = queryset.filter(
-                    grade_level__education_level__in=allowed_education_levels
+                    grade_level__education_level__level_type__in=allowed_education_levels  # add __level_type
                 )
-                logger.info(
-                    f"✅ Filtered Sections: {filtered.count()} of {queryset.count()}"
-                )
-                return filtered
 
             # EXAM/RESULT MODELS
             elif model_name in ["ExamSession", "Exam"]:

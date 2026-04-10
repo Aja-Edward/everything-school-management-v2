@@ -65,19 +65,21 @@ class TenantFilterMixin:
         return queryset
 
     def perform_create(self, serializer):
-        """Auto-populate tenant-scoped fields when creating objects"""
         tenant = getattr(self.request, "tenant", None)
         model = serializer.Meta.model
 
+        # 🚨 STRICT: even platform admins MUST have tenant when creating
+        if hasattr(model, "tenant") and not tenant:
+            raise ValidationError(
+                "Tenant context is required to create this resource. "
+                "Please ensure X-Tenant-Slug header is set."
+            )
+
         save_kwargs = {}
 
-        # Tenant-scoped models
         if hasattr(model, "tenant"):
-            if not tenant:
-                raise ValidationError("Tenant context is required for this operation.")
             save_kwargs["tenant"] = tenant
 
-        # Academic-session–scoped models
         if hasattr(model, "academic_session"):
             academic_session = AcademicSession.objects.filter(
                 tenant=tenant, is_active=True
@@ -88,7 +90,6 @@ class TenantFilterMixin:
 
             save_kwargs["academic_session"] = academic_session
 
-        # Save ONCE
         serializer.save(**save_kwargs)
 
         logger.info(

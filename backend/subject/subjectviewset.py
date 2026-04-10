@@ -161,6 +161,46 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                 grade_levels__education_level_id=education_level_id
             ).distinct()
 
+        education_levels_legacy = self.request.query_params.get("education_levels")
+        if education_levels_legacy:
+            grade_level_qs = queryset.filter(
+                grade_levels__education_level__level_type=education_levels_legacy
+            )
+            legacy_qs = filter_subjects_by_education_level(
+                queryset, education_levels_legacy
+            )
+            queryset = (grade_level_qs | legacy_qs).distinct()
+
+            # First, get subjects that have grade_levels with this education level
+            grade_level_qs = queryset.filter(
+                grade_levels__education_level__level_type=education_levels_legacy
+            )
+            grade_level_count = grade_level_qs.count()
+            logger.info(f"   Grade level filtered: {grade_level_count} subjects")
+
+            # Then, get subjects that have this level in their JSON education_levels field
+            legacy_qs = filter_subjects_by_education_level(
+                queryset, education_levels_legacy
+            )
+            legacy_count = legacy_qs.count()
+            logger.info(f"   Legacy JSON filtered: {legacy_count} subjects")
+
+            # Combine both
+            queryset = (grade_level_qs | legacy_qs).distinct()
+            after_count = queryset.count()
+            logger.info(f"   Combined (distinct): {after_count} subjects")
+
+            # Log subjects that have education_levels set
+            all_subjects_with_ed_levels = [
+                s
+                for s in queryset
+                if education_levels_legacy in getattr(s, "education_levels", [])
+            ]
+            if all_subjects_with_ed_levels:
+                logger.info(
+                    f"   Subjects with '{education_levels_legacy}' in education_levels: {[s.name for s in all_subjects_with_ed_levels]}"
+                )
+
         # Filter by grade level directly
         grade_level_id = self.request.query_params.get("grade_level_id")
         if grade_level_id:
@@ -185,6 +225,22 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         cross_cutting_only = self.request.query_params.get("cross_cutting_only")
         if cross_cutting_only == "true":
             queryset = queryset.filter(is_cross_cutting=True)
+
+        # Debug: Log final queryset
+        final_count = queryset.count()
+        if self.request.query_params.get("education_levels"):
+            subject_names = [s.name for s in queryset]
+            logger.info(
+                f"✅ Final queryset for education_levels='{self.request.query_params.get('education_levels')}': {final_count} subjects"
+            )
+            logger.info(f"   Subject names: {subject_names}")
+            if "Technical Drawing" in subject_names:
+                tech_drawing = queryset.get(name="Technical Drawing")
+                logger.info(
+                    f"   ✅ Technical Drawing FOUND - education_levels={tech_drawing.education_levels}, grade_levels={list(tech_drawing.grade_levels.all())}"
+                )
+            else:
+                logger.info(f"   ❌ Technical Drawing NOT FOUND")
 
         return queryset
 
@@ -304,10 +360,26 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
 
     def list(self, request, *args, **kwargs):
         """Enhanced list with comprehensive metadata"""
+        if request.query_params.get("education_levels"):
+            queryset = self.filter_queryset(self.get_queryset())
+            logger.info(
+                f"📋 LIST response for education_levels='{request.query_params.get('education_levels')}': total queryset count = {queryset.count()}"
+            )
+
         response = super().list(request, *args, **kwargs)
         if hasattr(response, "data") and isinstance(response.data, dict):
             if "results" in response.data:
                 queryset = self.filter_queryset(self.get_queryset())
+
+                if request.query_params.get("education_levels"):
+                    # Log what's actually in the response
+                    returned_names = [
+                        item.get("name") for item in response.data["results"]
+                    ]
+                    logger.info(
+                        f"📤 Returning to frontend: {len(returned_names)} subjects: {returned_names}"
+                    )
+
                 response.data["metadata"] = {
                     "filters_applied": bool(request.query_params),
                     "summary": {
@@ -321,19 +393,19 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         return response
 
     def perform_create(self, serializer):
-        """Create with enhanced logging and cache invalidation"""
         with transaction.atomic():
-            subject = serializer.save()
+            tenant = getattr(self.request, "tenant", None)
+            subject = serializer.save(tenant=tenant)
             clear_subject_caches()
             logger.info(
                 f"Subject '{subject.name}' ({subject.code}) created by {self.request.user}"
             )
 
     def perform_update(self, serializer):
-        """Update with enhanced logging and cache invalidation"""
         with transaction.atomic():
             old_name = serializer.instance.name
-            subject = serializer.save()
+            tenant = getattr(self.request, "tenant", None)
+            subject = serializer.save(tenant=tenant)
             clear_subject_caches()
             logger.info(
                 f"Subject '{old_name}' updated to '{subject.name}' by {self.request.user}"

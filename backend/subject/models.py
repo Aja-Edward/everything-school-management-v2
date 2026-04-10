@@ -296,14 +296,6 @@ class Subject(TenantMixin, models.Model):
         help_text="Default role if not specifically configured by school",
     )
 
-    # Grade levels - old M2M (keep temporarily)
-    grade_levels_old = models.ManyToManyField(
-        "classroom.GradeLevel",
-        related_name="subjects",
-        blank=True,
-        help_text="Specific grade levels where this subject is taught (OLD)",
-    )
-
     parent_subject = models.ForeignKey(
         "self",
         on_delete=models.CASCADE,
@@ -365,6 +357,21 @@ class Subject(TenantMixin, models.Model):
 
     def clean(self):
         """Custom validation"""
+
+        # ── Tenant cross-contamination guards ──────────────────────────
+        if self.category_new and self.tenant:
+            if self.category_new.tenant != self.tenant:
+                raise ValidationError(
+                    "Subject category must belong to the same tenant as the subject."
+                )
+
+        if self.subject_type_new and self.tenant:
+            if self.subject_type_new.tenant != self.tenant:
+                raise ValidationError(
+                    "Subject type must belong to the same tenant as the subject."
+                )
+
+        # ── Existing validation (keep as-is) ───────────────────────────
         if self.education_levels:
             valid_levels = [choice[0] for choice in EDUCATION_LEVELS]
             for level in self.education_levels:
@@ -516,6 +523,157 @@ class Subject(TenantMixin, models.Model):
     def get_dependent_subjects(self):
         """Get subjects that depend on this subject as a prerequisite"""
         return self.unlocks_subjects.filter(is_active=True)
+
+
+# ========================================
+# SUBJECT COMBINATION MODEL (NEW)
+# ========================================
+class SubjectCombination(TenantMixin, models.Model):
+    """
+    Predefined subject combinations that students can choose from.
+    Examples: "Government for Arts", "Physics under Science", etc.
+    """
+
+    name = models.CharField(
+        max_length=100,
+        help_text="Combination name (e.g., 'Government Combination', 'Science with Physics')",
+    )
+
+    code = models.CharField(
+        max_length=20,
+        help_text="Unique code for this combination (e.g., 'GOV-ARTS', 'PHY-SCI')",
+    )
+
+    description = models.TextField(
+        blank=True, help_text="Description of what this combination includes"
+    )
+
+    stream = models.ForeignKey(
+        "classroom.Stream",
+        on_delete=models.CASCADE,
+        related_name="subject_combinations",
+        help_text="Stream this combination belongs to",
+    )
+
+    # Subject selections for each role
+    core_subjects = models.ManyToManyField(
+        Subject,
+        related_name="core_combinations",
+        blank=True,
+        help_text="Core subjects in this combination",
+    )
+
+    elective_subjects = models.ManyToManyField(
+        Subject,
+        related_name="elective_combinations",
+        blank=True,
+        help_text="Elective subjects in this combination",
+    )
+
+    cross_cutting_subjects = models.ManyToManyField(
+        Subject,
+        related_name="cross_cutting_combinations",
+        blank=True,
+        help_text="Cross-cutting subjects in this combination",
+    )
+
+    display_order = models.PositiveIntegerField(
+        default=0, help_text="Order for displaying combinations"
+    )
+
+    is_active = models.BooleanField(
+        default=True, help_text="Whether this combination is available for selection"
+    )
+
+    is_default = models.BooleanField(
+        default=False,
+        help_text="Whether this is the default combination for the stream",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ["tenant", "stream", "code"]
+        ordering = ["tenant", "stream", "display_order", "name"]
+        verbose_name = "Subject Combination"
+        verbose_name_plural = "Subject Combinations"
+
+    def __str__(self):
+        return f"{self.stream.name} - {self.name} ({self.code})"
+
+    def clean(self):
+        """Validate combination constraints"""
+        # Check that subjects belong to appropriate stream configurations
+        stream_configs = SchoolStreamConfiguration.objects.filter(
+            tenant=self.tenant, stream=self.stream, is_active=True
+        )
+
+        # Validate core subjects
+        if self.core_subjects.exists():
+            core_config = stream_configs.filter(subject_role="core").first()
+            if core_config:
+                valid_core_ids = [
+                    assignment.subject_id
+                    for assignment in core_config.subject_assignments.filter(
+                        is_active=True
+                    )
+                ]
+                invalid_cores = self.core_subjects.exclude(id__in=valid_core_ids)
+                if invalid_cores.exists():
+                    raise ValidationError(
+                        f"Core subjects {list(invalid_cores.values_list('name', flat=True))} "
+                        "are not available in this stream's core configuration"
+                    )
+
+        # Validate elective subjects
+        if self.elective_subjects.exists():
+            elective_config = stream_configs.filter(subject_role="elective").first()
+            if elective_config:
+                valid_elective_ids = [
+                    assignment.subject_id
+                    for assignment in elective_config.subject_assignments.filter(
+                        is_active=True
+                    )
+                ]
+                invalid_electives = self.elective_subjects.exclude(
+                    id__in=valid_elective_ids
+                )
+                if invalid_electives.exists():
+                    raise ValidationError(
+                        f"Elective subjects {list(invalid_electives.values_list('name', flat=True))} "
+                        "are not available in this stream's elective configuration"
+                    )
+
+        # Validate cross-cutting subjects
+        if self.cross_cutting_subjects.exists():
+            cross_cutting_config = stream_configs.filter(
+                subject_role="cross_cutting"
+            ).first()
+            if cross_cutting_config:
+                valid_cross_cutting_ids = [
+                    assignment.subject_id
+                    for assignment in cross_cutting_config.subject_assignments.filter(
+                        is_active=True
+                    )
+                ]
+                invalid_cross_cutting = self.cross_cutting_subjects.exclude(
+                    id__in=valid_cross_cutting_ids
+                )
+                if invalid_cross_cutting.exists():
+                    raise ValidationError(
+                        f"Cross-cutting subjects {list(invalid_cross_cutting.values_list('name', flat=True))} "
+                        "are not available in this stream's cross-cutting configuration"
+                    )
+
+    @property
+    def total_subjects(self):
+        """Total number of subjects in this combination"""
+        return (
+            self.core_subjects.count()
+            + self.elective_subjects.count()
+            + self.cross_cutting_subjects.count()
+        )
 
 
 # ========================================

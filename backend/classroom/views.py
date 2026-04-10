@@ -284,7 +284,7 @@ class StreamTypeViewSet(
 # ==============================================================================
 # UPDATED: Stream ViewSet (FK-based)
 # ==============================================================================
-class StreamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+class StreamViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     """
     ViewSet for Stream model - UPDATED for FK-based stream_type_new
     """
@@ -535,7 +535,29 @@ class StreamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
         )
 
     def perform_create(self, serializer):
-        serializer.save(tenant=self.request.tenant)
+        tenant = getattr(self.request, "tenant", None)
+
+        if tenant is None:
+            # Fallback: resolve from header
+            slug = self.request.headers.get(
+                "X-Tenant-Slug"
+            ) or self.request.headers.get("X-Tenant-ID")
+            if slug:
+                from tenants.models import Tenant
+
+                try:
+                    tenant = Tenant.objects.get(slug=slug)
+                except Tenant.DoesNotExist:
+                    pass
+
+        if tenant is None:
+            from rest_framework.exceptions import ValidationError
+
+            raise ValidationError(
+                {"detail": "Could not resolve tenant for this request."}
+            )
+
+        serializer.save(tenant=tenant)
 
     def create(self, request, *args, **kwargs):
         try:
@@ -544,6 +566,9 @@ class StreamViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
             import traceback
 
             logger.error(f"Stream create error: {traceback.format_exc()}")
+            # Also log what tenant resolved to
+            logger.error(f"Request tenant: {getattr(request, 'tenant', 'NOT SET')}")
+            logger.error(f"Request headers: {dict(request.headers)}")
             return Response(
                 {"error": str(e), "type": type(e).__name__},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,

@@ -23,3 +23,16 @@ def clear_subject_caches():
 
     logger.info(f"Cleared {cleared_count} subject cache keys")
     return cleared_count
+
+
+# subject/utils.py — add this function
+
+
+def filter_subjects_by_education_level(queryset, level_type: str):
+    """
+    Filter subjects by education level using both the new M2M path
+    and the legacy JSON field, combined with OR + distinct.
+    """
+    m2m_qs = queryset.filter(grade_levels__education_level__level_type=level_type)
+    legacy_qs = queryset.filter(education_levels__contains=[level_type])
+    return (m2m_qs | legacy_qs).distinct()
