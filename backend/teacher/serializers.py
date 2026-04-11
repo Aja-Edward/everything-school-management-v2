@@ -12,14 +12,15 @@ class TeacherAssignmentSerializer(serializers.ModelSerializer):
     """Serializer for the new ClassroomTeacherAssignment model"""
 
     grade_level_name = serializers.CharField(
-        source="classroom.section.grade_level.name", read_only=True
+        source="classroom.section.class_grade.grade_level.name", read_only=True
     )
     section_name = serializers.CharField(
         source="classroom.section.name", read_only=True
     )
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     education_level = serializers.CharField(
-        source="classroom.section.grade_level.education_level", read_only=True
+        source="classroom.section.class_grade.grade_level.education_level.level_type",
+        read_only=True,
     )
     classroom_name = serializers.CharField(source="classroom.name", read_only=True)
     # Explicitly define assigned_date to avoid datetime/date coercion issues
@@ -344,8 +345,16 @@ class TeacherSerializer(serializers.ModelSerializer):
         for assignment in assignments:
             classroom = assignment.classroom
             section = classroom.section
-            grade_level = section.grade_level if section else None
-            education_level = grade_level.education_level if grade_level else None
+            grade_level = (
+                section.class_grade.grade_level
+                if section and section.class_grade
+                else None
+            )
+            education_level = (
+                grade_level.education_level.level_type
+                if grade_level and grade_level.education_level
+                else None
+            )
 
             # Uses pre-calculated count from annotation
             student_count = getattr(classroom, "student_count", 0)

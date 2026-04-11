@@ -958,7 +958,7 @@ const handleUpdateExamSession = async (id: string) => {
         <div className="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-3 rounded-xl">
+              <div className="bg-black p-3 rounded-xl">
                 <FileText className="h-8 w-8 text-white" />
               </div>
               <div>
@@ -969,7 +969,7 @@ const handleUpdateExamSession = async (id: string) => {
               </div>
             </div>
             <div className="flex items-center space-x-3">
-              <div className="bg-green-100 text-green-800 px-4 py-2 rounded-full text-sm font-medium">
+              <div className="bg-gray-100 text-gray-800 hover:bg-green-100 hover:text-green-800 px-4 py-2 rounded-full text-sm font-medium">
                 <CheckCircle className="h-4 w-4 inline mr-2" />
                 System Active
               </div>
@@ -985,8 +985,8 @@ const handleUpdateExamSession = async (id: string) => {
                 <p className="text-sm font-medium text-gray-600">Grading Systems</p>
                 <p className="text-2xl font-bold text-gray-900">{gradingSystems?.length || 0}</p>
               </div>
-              <div className="bg-blue-100 p-3 rounded-lg">
-                <Award className="h-6 w-6 text-blue-600" />
+              <div className="bg-gray-100 p-3 rounded-lg">
+                <Award className="h-6 w-6 text-black" />
               </div>
             </div>
           </div>
@@ -997,8 +997,8 @@ const handleUpdateExamSession = async (id: string) => {
                 <p className="text-sm font-medium text-gray-600">Assessment Types</p>
                 <p className="text-2xl font-bold text-gray-900">{assessmentTypes?.length || 0}</p>
               </div>
-              <div className="bg-green-100 p-3 rounded-lg">
-                <BookOpen className="h-6 w-6 text-green-600" />
+              <div className="bg-gray-100 p-3 rounded-lg">
+                <BookOpen className="h-6 w-6 text-black" />
               </div>
             </div>
           </div>
@@ -1009,8 +1009,8 @@ const handleUpdateExamSession = async (id: string) => {
                 <p className="text-sm font-medium text-gray-600">Exam Sessions</p>
                 <p className="text-2xl font-bold text-gray-900">{examSessions?.length || 0}</p>
               </div>
-              <div className="bg-purple-100 p-3 rounded-lg">
-                <Calendar className="h-6 w-6 text-purple-600" />
+              <div className="bg-gray-100 p-3 rounded-lg">
+                <Calendar className="h-6 w-6 text-black" />
               </div>
             </div>
           </div>
@@ -1021,8 +1021,8 @@ const handleUpdateExamSession = async (id: string) => {
                 <p className="text-sm font-medium text-gray-600">Scoring Configs</p>
                 <p className="text-2xl font-bold text-gray-900">{scoringConfigurations?.length || 0}</p>
               </div>
-              <div className="bg-orange-100 p-3 rounded-lg">
-                <Calculator className="h-6 w-6 text-orange-600" />
+              <div className="bg-gray-100 p-3 rounded-lg">
+                <Calculator className="h-6 w-6 text-black" />
               </div>
             </div>
           </div>
@@ -1030,7 +1030,7 @@ const handleUpdateExamSession = async (id: string) => {
 
         {/* Scoring Configurations Section */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-6">
+          <div className="bg-black px-8 py-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <div className="bg-white/20 p-3 rounded-xl">
@@ -1062,7 +1062,7 @@ const handleUpdateExamSession = async (id: string) => {
                   )}
                 </button>
                 <button
-                  className="bg-white text-blue-600 hover:bg-gray-50 px-4 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2 font-medium"
+                  className="bg-white text-black hover:bg-gray-50 px-4 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2 font-medium"
                   onClick={() => setShowScoringConfigForm(true)}
                 >
                   <Plus className="h-4 w-4" />
@@ -1280,7 +1280,7 @@ const handleUpdateExamSession = async (id: string) => {
 
         {/* Grading Systems Section */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-          <div className="bg-gradient-to-r from-green-600 to-emerald-600 px-8 py-6">
+          <div className="bg-black px-8 py-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <div className="bg-white/20 p-3 rounded-xl">
@@ -1312,7 +1312,7 @@ const handleUpdateExamSession = async (id: string) => {
                   )}
                 </button>
                 <button
-                  className="bg-white text-green-600 hover:bg-gray-50 px-4 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2 font-medium"
+                  className="bg-white text-black hover:bg-gray-50 px-4 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2 font-medium"
                   onClick={() => setShowGradingSystemForm(true)}
                 >
                   <Plus className="h-4 w-4" />
@@ -1438,7 +1438,7 @@ const handleUpdateExamSession = async (id: string) => {
 
         {/* Assessment Types Section */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-          <div className="bg-gradient-to-r from-purple-600 to-pink-600 px-8 py-6">
+          <div className="bg-black px-8 py-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <div className="bg-white/20 p-3 rounded-xl">
@@ -1470,7 +1470,7 @@ const handleUpdateExamSession = async (id: string) => {
                   )}
                 </button>
                 <button
-                  className="bg-white text-purple-600 hover:bg-gray-50 px-4 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2 font-medium"
+                  className="bg-white text-black hover:bg-gray-50 px-4 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2 font-medium"
                   onClick={() => setShowAssessmentTypeForm(true)}
                 >
                   <Plus className="h-4 w-4" />
@@ -1561,7 +1561,7 @@ const handleUpdateExamSession = async (id: string) => {
 
         {/* Exam Sessions Section */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-          <div className="bg-gradient-to-r from-indigo-600 to-blue-600 px-8 py-6">
+          <div className="bg-black px-8 py-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <div className="bg-white/20 p-3 rounded-xl">
@@ -1593,7 +1593,7 @@ const handleUpdateExamSession = async (id: string) => {
                   )}
                 </button>
                 <button
-                  className="bg-white text-indigo-600 hover:bg-gray-50 px-4 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2 font-medium"
+                  className="bg-white text-black hover:bg-gray-50 px-4 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2 font-medium"
                   onClick={() => setShowExamSessionForm(true)}
                 >
                   <Plus className="h-4 w-4" />

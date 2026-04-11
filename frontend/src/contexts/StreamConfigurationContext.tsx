@@ -124,10 +124,17 @@ export const StreamConfigurationProvider: React.FC<StreamConfigurationProviderPr
   // Load combinations
   const loadCombinations = useCallback(async (streamId?: number) => {
     try {
-      console.log('🔄 Loading combinations...');
+      console.log(`🔄 Loading combinations for stream ${streamId || 'all'}...`);
       const data = await StreamConfigurationService.getSubjectCombinations(streamId);
-      console.log('✅ Combinations loaded:', data?.length);
-      setCombinations(Array.isArray(data) ? data : []);
+      
+      if (!Array.isArray(data)) {
+        console.warn('⚠️ Combinations response is not an array:', data);
+        setCombinations([]);
+        return;
+      }
+      
+      console.log('✅ Combinations loaded:', data.length, 'items');
+      setCombinations(data);
     } catch (error) {
       console.error('❌ Error loading combinations:', error);
       setCombinations([]);
@@ -285,7 +292,10 @@ export const StreamConfigurationProvider: React.FC<StreamConfigurationProviderPr
     try {
       setIsLoading(true);
       
-      // Optimistically update UI
+      // Call API to remove subject
+      await StreamConfigurationService.removeSubjectFromConfiguration(configId, subjectId);
+      
+      // Update UI only after successful API call
       setConfigurations(prev => 
         prev.map(c => 
           c.id === configId 
@@ -294,24 +304,16 @@ export const StreamConfigurationProvider: React.FC<StreamConfigurationProviderPr
         )
       );
       
-      // Try to call remove endpoint if available
-      try {
-        await StreamConfigurationService.removeSubjectFromConfiguration(configId, subjectId);
-      } catch (error) {
-        console.warn('Remove endpoint not available, using optimistic update');
-      }
-      
       toast.success(`Removed ${subject.name} successfully`);
     } catch (error) {
       console.error('❌ Error removing subject:', error);
-      toast.error('Failed to remove subject');
-      // Reload to get correct state
-      await loadConfigurations();
+      toast.error('Failed to remove subject. Please try again.');
       throw error;
     } finally {
       setIsLoading(false);
     }
-  }, [configurations, loadConfigurations]);
+  }, [configurations]);
+
 
   // Update configuration
   const updateConfiguration = useCallback(async (configId: number, updates: Partial<StreamConfiguration>) => {
@@ -323,7 +325,6 @@ export const StreamConfigurationProvider: React.FC<StreamConfigurationProviderPr
       
       await StreamConfigurationService.saveStreamConfiguration({
         id: config.id,
-        school_id: config.school_id,
         stream_id: config.stream_id,
         subject_role: updates.subject_role || config.subject_role,
         min_subjects_required: updates.min_subjects_required ?? config.min_subjects_required,

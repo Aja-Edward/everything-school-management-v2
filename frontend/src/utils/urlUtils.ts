@@ -6,7 +6,7 @@
  * Gets the base URL for API/backend calls
  */
 export const getApiBaseUrl = (): string => {
-  return import.meta.env.VITE_API_URL || 'https://school-management-project-qpox.onrender.com';
+  return import.meta.env.VITE_API_URL || 'localhost:8000/api';
 };
 
 /**
@@ -16,22 +16,24 @@ export const getApiBaseUrl = (): string => {
  */
 export const getAbsoluteUrl = (relativeUrl: string | null | undefined): string => {
   if (!relativeUrl) return '';
- 
-  // If it's already an absolute URL, return as is
+
+  // 🔥 FIX: Extract real Cloudinary URL if embedded
+  if (relativeUrl.includes('https://')) {
+    return relativeUrl.substring(relativeUrl.indexOf('https://'));
+  }
+
+  // If it's already a proper absolute URL
   if (relativeUrl.startsWith('http://') || relativeUrl.startsWith('https://')) {
     return relativeUrl;
   }
- 
-  // Get the backend base URL (without /api)
+
   const apiBase = getApiBaseUrl();
-  const backendBase = apiBase.replace('/api', ''); // Remove /api suffix if present
- 
-  // If it's a relative URL starting with /, prepend the backend origin
+  const backendBase = apiBase.replace('/api', '');
+
   if (relativeUrl.startsWith('/')) {
     return `${backendBase}${relativeUrl}`;
   }
- 
-  // If it's a relative URL without /, prepend the backend origin with /
+
   return `${backendBase}/${relativeUrl}`;
 };
 

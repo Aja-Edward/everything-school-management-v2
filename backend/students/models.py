@@ -346,7 +346,7 @@ class BulkUploadRecord(TenantMixin, models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="bulk_uploads",
+        related_name="student_bulk_uploads",
     )
     original_filename = models.CharField(max_length=255)
     file_path = models.CharField(max_length=500)  # absolute path on server

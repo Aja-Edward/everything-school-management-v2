@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Teacher, UpdateTeacherData } from '@/services/TeacherService';
+import type {Teacher, UpdateTeacherData} from '@/types/teacher'
 
 interface EditTeacherFormProps {
   teacher: Teacher | null;

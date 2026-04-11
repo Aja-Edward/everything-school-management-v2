@@ -3,7 +3,6 @@ import api, { API_BASE_URL } from './api';
 export interface SchoolSettings {
   site_name: string;
   school_name: string;
-  
   school_code: string;
   address: string;
   phone: string;
@@ -89,29 +88,29 @@ class SettingsService {
 
   async getSettings(): Promise<SchoolSettings> {
   try {
-    // 🔍 DETECT: Platform or Tenant?
     const hostname = window.location.hostname;
     const isPlatform = hostname === 'localhost' || hostname === '127.0.0.1';
-    const endpoint = isPlatform ? 'platform/info/' : 'tenants/settings/';
-    console.log(`🔍 Detected ${isPlatform ? 'PLATFORM' : 'TENANT'} - using endpoint: ${endpoint}`);
 
-    // 🛡️ Cache-busting to prevent stale responses
+    if (!isPlatform) {
+      // Don't attempt protected endpoint without a token
+      const token = localStorage.getItem('authToken') || localStorage.getItem('token');
+      if (!token) {
+        console.warn('⚠️ No auth token — skipping settings fetch, returning defaults');
+        return this.getDefaultSettings();
+      }
+    }
+
+    const endpoint = isPlatform ? '/api/platform/info/' : '/api/tenants/settings/current/';
     const cacheBuster = `${Date.now()}_${Math.random()}`;
     const response = await api.get(`${endpoint}?_=${cacheBuster}`);
 
-    // 🛡️ Guard against HTML error pages returned as 200
     if (typeof response === 'string' && response.includes('<!DOCTYPE html>')) {
-      console.error('❌ Received HTML instead of JSON — likely a 404 or auth error');
       return this.getDefaultSettings();
     }
 
-    console.log('📥 Raw backend response:', response);
-
-    // Transform response based on environment
     return this.transformBackendToFrontend(response);
   } catch (error) {
     console.error('❌ Error fetching settings:', error);
-    // Graceful fallback so the app keeps running
     return this.getDefaultSettings();
   }
 }
@@ -213,9 +212,9 @@ class SettingsService {
       if (settings.messageTemplates !== undefined) backendSettings.message_templates = settings.messageTemplates;
       if (settings.chatSystem !== undefined) backendSettings.chat_system = settings.chatSystem;
       
-      console.log('📤 Transformed for backend:', backendSettings);
+
       
-      const response = await api.patch('tenants/settings/', backendSettings);
+      const response = await api.patch('/api/tenants/settings/current/', backendSettings);
       console.log('✅ Backend response:', response);
       
       const transformedResponse = this.transformBackendToFrontend(response);

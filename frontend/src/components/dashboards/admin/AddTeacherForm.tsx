@@ -1,1345 +1,855 @@
-import React, { useState, useEffect } from 'react';
-import { User, X } from 'lucide-react';
-import { toast } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
+import React, { useState, useEffect, useRef } from 'react';
+import { User, ChevronRight, ChevronLeft, Check, X, AlertCircle, Plus, Trash2 } from 'lucide-react';
 import axios from 'axios';
+import { toast } from 'react-toastify';
+import teacherService from '@/services/TeacherService';
 
-// --- Type Definitions ---
-type TeacherFormData = {
-  photo: string | null;
-  firstName: string;
-  middleName: string;
-  lastName: string;
-  gender: string;
-  bloodGroup: string;
-  dateOfBirth: string;
-  placeOfBirth: string;
-  academicSession: string;
-  employeeId: string;
-  address: string;
-  email: string;
-  phoneNumber: string;
-  staffType: string;
-  level: string;
-  subjects: string[];
-  hireDate: string;
-  qualification: string;
-  specialization: string;
-  assignments: Array<{
-    grade_level_id?: string | number;
-    section_id?: string;
-    subject_ids?: string[];
-    classroom_id?: string | number;
-    subject_id?: string;
-  }>;
-};
+import type {FormData, GradeLevel, Section, SubjectOption, ClassroomOption, CreateTeacherPayload, PrimaryAssignmentPayload, SecondaryAssignmentPayload, AssignmentRow
+} from '@/types/teacher'
 
-type Section = {
-  id: string | number;
-  name: string;
-  grade_level_id: string | number;
-};
 
-type GradeLevel = {
-  id: string | number;
-  name: string;
-  education_level: string;
-};
+interface AddTeacherFormProps {
+  onTeacherAdded?: () => void;
+}
 
-type Subject = {
-  id: string | number;
-  name: string;
-  code?: string;
-  education_levels?: string[];
-};
+// ─── Steps ────────────────────────────────────────────────────────────────────
 
-type Classroom = {
-  id: number;
-  name: string;
-  section: number;
-  section_name: string;
-  grade_level_name: string;
-  education_level: string;
-};
+const STEPS = [
+  { id: 1, label: 'Personal',     short: 'Who'  },
+  { id: 2, label: 'Professional', short: 'Role' },
+  { id: 3, label: 'Review',       short: 'Done' },
+];
 
-type Assignment = {
-  id: string;
-  grade_level_id?: string | number;
-  section_id?: string;
-  subject_ids?: string[];
-  classroom_id?: string | number;
-  subject_id?: string;
-  classroom_ids?: string[];
-  is_primary_teacher?: boolean;
-  periods_per_week?: number;
-  sectionOptions?: Section[];
-  availableSections?: Section[];
-};
+// ─── Component ────────────────────────────────────────────────────────────────
 
-const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+const AddTeacherForm: React.FC<AddTeacherFormProps> = ({ onTeacherAdded }) => {
+  const submittingRef = useRef(false);
+  const [step, setStep]             = useState(1);
+  const [loading, setLoading]       = useState(false);
+  const [stepErrors, setStepErrors] = useState<string[]>([]);
 
-const getAuthHeaders = () => {
-  const token = localStorage.getItem('access_token') || 
-                localStorage.getItem('authToken') || 
-                localStorage.getItem('token') ||
-                localStorage.getItem('jwt_token');
-  
-  return {
-    'Content-Type': 'application/json',
-    ...(token && { 'Authorization': `Bearer ${token}` })
-  };
-};
+  const [modal, setModal] = useState<{ username: string; password: string } | null>(null);
 
-const createFallbackClassrooms = (level: string): Classroom[] => {
-  const classroomMap: Record<string, string[]> = {
-    nursery: ['Pre-Nursery Gold', 'Pre-Nursery Silver', 'Nursery 1 Gold', 'Nursery 1 Silver', 'Nursery 2 Gold', 'Nursery 2 Silver'],
-    primary: ['Primary 1 Gold', 'Primary 1 Silver', 'Primary 2 Gold', 'Primary 2 Silver', 'Primary 3 Gold', 'Primary 3 Silver'],
-    junior_secondary: ['JSS 1 Gold', 'JSS 1 Silver', 'JSS 2 Gold', 'JSS 2 Silver', 'JSS 3 Gold', 'JSS 3 Silver'],
-    senior_secondary: ['SS 1 Gold', 'SS 1 Silver', 'SS 2 Gold', 'SS 2 Silver', 'SS 3 Gold', 'SS 3 Silver']
-  };
-
-  const classrooms = classroomMap[level] || [];
-  return classrooms.map((name, index) => ({
-    id: index + 1,
-    name: name,
-    section: index + 1,
-    section_name: name.split(' ').pop() || 'A',
-    grade_level_name: name.split(' ').slice(0, -1).join(' '),
-    education_level: level.toUpperCase()
-  }));
-};
-
-const AddTeacherForm: React.FC = () => {
-  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-
-  const [formData, setFormData] = useState<TeacherFormData>({
-    photo: null,
-    firstName: '',
-    middleName: '',
-    lastName: '',
-    gender: '',
-    bloodGroup: '',
-    dateOfBirth: '',
-    placeOfBirth: '',
-    academicSession: '',
-    employeeId: '',
-    address: '',
-    email: '',
-    phoneNumber: '',
-    staffType: 'teaching',
-    level: '',
-    subjects: [],
-    hireDate: '',
-    qualification: '',
-    specialization: '',
-    assignments: [],
-  });
-
-  const [loading, setLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  // Photo
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [teacherUsername, setTeacherUsername] = useState<string | null>(null);
-  const [teacherPassword, setTeacherPassword] = useState<string | null>(null);
+  const [photoUrl, setPhotoUrl]         = useState<string | null>(null);
+  const [uploading, setUploading]       = useState(false);
 
-  const [subjectOptions, setSubjectOptions] = useState<Subject[]>([]);
-  const [classroomOptions, setClassroomOptions] = useState<Classroom[]>([]);
-  const [gradeLevelOptions, setGradeLevelOptions] = useState<GradeLevel[]>([]);
-  const [currentAssignments, setCurrentAssignments] = useState<Assignment[]>([]);
-
-  const isPrimaryLevel = formData.level === 'nursery' || formData.level === 'primary';
-  const isSecondaryLevel = formData.level === 'junior_secondary' || formData.level === 'senior_secondary';
-
-  useEffect(() => {
-    if (isPrimaryLevel && currentAssignments.length === 0) {
-      addAssignment();
-    }
-  }, [isPrimaryLevel]);
-
-  useEffect(() => {
-    if (formData.staffType === 'teaching' && formData.level) {
-      const levelMap: Record<string, string> = {
-        nursery: 'NURSERY',
-        primary: 'PRIMARY',
-        junior_secondary: 'JUNIOR_SECONDARY',
-        senior_secondary: 'SENIOR_SECONDARY'
-      };
-
-      const educationLevel = levelMap[formData.level];
-      if (!educationLevel) return;
-
-      fetch(`${API_BASE_URL}/subjects/?education_level=${educationLevel}`, {
-  headers: getAuthHeaders()
-})
-  .then(res => {
-    if (!res.ok) throw new Error(`Failed to fetch subjects: ${res.status}`);
-    return res.json();
-  })
-  .then(data => {
-    const subjects = Array.isArray(data) ? data : (data.results || []);
-    setSubjectOptions(subjects.map((s: any) => ({
-      id: s.id,
-      name: s.name,
-      code: s.code,
-      education_levels: s.education_levels
-    })));
-    
-    if (isPrimaryLevel) {
-      setFormData(prev => ({ ...prev, subjects: subjects.map((s: any) => String(s.id)) }));
-    }
-  })
-  .catch(error => {
-    console.error('Error fetching subjects:', error);
-    toast.error(`Failed to load subjects: ${error.message}`);
-    setSubjectOptions([]);
+  const [form, setForm] = useState<FormData>({
+    firstName: '', lastName: '', middleName: '',
+    email: '', phoneNumber: '',
+    staffType: 'teaching', level: '',
+    employeeId: '', hireDate: '', qualification: '',
+    subjects: [], assignments: [],
   });
-  
-      fetch(`${API_BASE_URL}/classrooms/classrooms/?section__grade_level__education_level=${educationLevel}`, {
-  headers: getAuthHeaders()
-})
-  .then(res => {
-    if (!res.ok) throw new Error(`Failed to fetch classrooms: ${res.status}`);
-    return res.json();
-  })
-  .then(data => {
-    const classrooms = Array.isArray(data) ? data : (data.results || []);
-    
-    if (classrooms && classrooms.length > 0) {
-      const mappedClassrooms = classrooms.map((c: any) => ({
-        id: c.id,
-        name: c.name || `${c.grade_level_name} ${c.section_name}`,
-        section: c.section,
-        section_name: c.section_name,
-        grade_level_name: c.grade_level_name,
-        education_level: c.education_level
-      }));
-      setClassroomOptions(mappedClassrooms);
-    } else {
-      const fallbackClassrooms = createFallbackClassrooms(formData.level);
-      setClassroomOptions(fallbackClassrooms);
-    }
-  })
-  .catch(error => {
-    console.error('Error fetching classrooms:', error);
-    toast.error(`Failed to load classrooms: ${error.message}`);
-    const fallbackClassrooms = createFallbackClassrooms(formData.level);
-    setClassroomOptions(fallbackClassrooms);
-  });
-    } else {
+
+  // Dropdown data — all fetched via TeacherService
+  const [gradeLevels, setGradeLevels]         = useState<GradeLevel[]>([]);
+  const [subjectOptions, setSubjectOptions]   = useState<SubjectOption[]>([]);
+  const [classroomOptions, setClassroomOptions] = useState<ClassroomOption[]>([]);
+  const [loadingSubjects, setLoadingSubjects]     = useState(false);
+  const [loadingClassrooms, setLoadingClassrooms] = useState(false);
+
+  const isPrimary   = form.level === 'nursery' || form.level === 'primary';
+  const isSecondary = form.level === 'junior_secondary' || form.level === 'senior_secondary';
+  const isTeaching  = form.staffType === 'teaching';
+
+  // ── Fetch grade levels ────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isTeaching || !form.level) { setGradeLevels([]); return; }
+    teacherService
+      .getGradeLevelsByEducationLevel(form.level)
+      .then(setGradeLevels)
+      .catch(() => setGradeLevels([]));
+  }, [form.level, form.staffType]);
+
+  // ── Fetch subjects ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isTeaching || !form.level) {
       setSubjectOptions([]);
-      setClassroomOptions([]);
-      setFormData(prev => ({ ...prev, subjects: [] }));
-    }
-  }, [formData.staffType, formData.level, API_BASE_URL]);
-
-  useEffect(() => {
-    if (formData.staffType === 'teaching' && formData.level) {
-      const isPrimary = formData.level === 'nursery' || formData.level === 'primary';
-      
-      if (!isPrimary) {
-        setGradeLevelOptions([]);
-        return;
-      }
-
-      const levelMap: Record<string, string> = {
-        nursery: 'NURSERY',
-        primary: 'PRIMARY',
-        junior_secondary: 'JUNIOR_SECONDARY',
-        senior_secondary: 'SENIOR_SECONDARY'
-      };
-
-      const educationLevel = levelMap[formData.level];
-      if (!educationLevel) return;
-
-      const url = `${API_BASE_URL}/classrooms/grades/?education_level=${educationLevel}`;
-
-fetch(url, {
-  headers: getAuthHeaders()
-})
-  .then(res => {
-    if (!res.ok) throw new Error(`API returned ${res.status}`);
-    return res.json();
-  })
-  .then(data => {
-    let gradeLevels = Array.isArray(data) ? data : (data.results || data.data || []);
-    
-    if (gradeLevels && gradeLevels.length > 0) {
-      const mappedLevels = gradeLevels.map((gl: any) => ({
-        id: gl.id,
-        name: gl.name,
-        education_level: gl.education_level
-      }));
-      setGradeLevelOptions(mappedLevels);
-    } else {
-      setGradeLevelOptions([]);
-      toast.error('No grade levels found. Please create grade levels in the system first.');
-    }
-  })
-  .catch(error => {
-    console.error('Error fetching grade levels:', error);
-    setGradeLevelOptions([]);
-    toast.error(`Failed to load grade levels: ${error.message}`);
-  });
-    } else {
-      setGradeLevelOptions([]);
-    }
-  }, [formData.staffType, formData.level, API_BASE_URL]);
-
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setUploading(true);
-      try {
-        const cloudinaryData = new FormData();
-        cloudinaryData.append('file', file);
-        cloudinaryData.append('upload_preset', 'profile_upload');
-
-        const res = await axios.post('https://api.cloudinary.com/v1_1/djbz7wunu/image/upload', cloudinaryData);
-        const imageUrl = res.data.secure_url;
-
-        setFormData(prev => ({ ...prev, photo: imageUrl }));
-        setPhotoPreview(imageUrl);
-        toast.success('Photo uploaded successfully');
-      } catch (error) {
-        console.error('Error uploading to Cloudinary:', error);
-        toast.error('Failed to upload image');
-      } finally {
-        setUploading(false);
-      }
-    }
-  };
-
-  const removePhoto = () => {
-    setFormData(prev => ({ ...prev, photo: null }));
-    setPhotoPreview(null);
-  };
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubjectChange = (subjectId: string | number, checked: boolean) => {
-    setFormData(prev => {
-      const subjectIdStr = String(subjectId);
-      const newSubjects = checked
-        ? [...prev.subjects, subjectIdStr]
-        : prev.subjects.filter(id => id !== subjectIdStr);
-      return { ...prev, subjects: newSubjects };
-    });
-  };
-
-  const addAssignment = () => {
-    const newAssignment: Assignment = {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-      classroom_id: '',
-      subject_id: '',
-      is_primary_teacher: false,
-      periods_per_week: 1,
-      availableSections: []
-    };
-    setCurrentAssignments(prev => [...prev, newAssignment]);
-  };
-
-  const removeAssignment = (assignmentId: string) => {
-    setCurrentAssignments(prev => prev.filter(a => a.id !== assignmentId));
-  };
-
-  const updateAssignment = (assignmentId: string, field: string, value: any) => {
-    setCurrentAssignments(prev =>
-      prev.map(assignment => {
-        if (assignment.id === assignmentId) {
-          const updated: Assignment = { ...assignment, [field]: value };
-
-          if (field === 'classroom_id' && isSecondaryLevel) {
-            updated.section_id = '';
-            updated.subject_id = '';
-            
-            const selectedClassroom = classroomOptions.find(c => c.id === Number(value));
-            if (selectedClassroom) {
-              updated.availableSections = [{
-                id: selectedClassroom.section,
-                name: selectedClassroom.section_name,
-                grade_level_id: selectedClassroom.id
-              }];
-            }
-          }
-
-          if (field === 'grade_level_id' && isPrimaryLevel) {
-            updated.section_id = '';
-            updated.subject_ids = [];
-            loadSectionsForGradeLevel(value, assignmentId);
-          }
-
-          return updated;
-        }
-        return assignment;
-      })
-    );
-  };
-
-  const loadSectionsForGradeLevel = (gradeLevelId: string | number | undefined, assignmentId?: string) => {
-  if (!gradeLevelId) {
-    if (assignmentId) {
-      setCurrentAssignments(prev =>
-        prev.map(assignment =>
-          assignment.id === assignmentId
-            ? { ...assignment, sectionOptions: [] }
-            : assignment
-        )
-      );
-    }
-    return;
-  }
-
-     fetch(`${API_BASE_URL}/classrooms/grades/${gradeLevelId}/sections/`, {
-    headers: getAuthHeaders()
-  })
-    .then(res => {
-      if (!res.ok) throw new Error(`Failed to fetch sections: ${res.status}`);
-      return res.json();
-    })
-    .then(data => {
-      const sections = Array.isArray(data) ? data : (data.results || []);
-
-      if (sections && sections.length > 0) {
-        const mappedSections: Section[] = sections.map((s: any) => ({
-          id: s.id,
-          name: s.name,
-          grade_level_id: typeof s.grade_level === 'object' ? s.grade_level.id : s.grade_level
-        }));
-
-        if (assignmentId) {
-          setCurrentAssignments(prev =>
-            prev.map(assignment =>
-              assignment.id === assignmentId
-                ? { ...assignment, sectionOptions: mappedSections }
-                : assignment
-            )
-          );
-        }
-      } else {
-        if (assignmentId) {
-          setCurrentAssignments(prev =>
-            prev.map(assignment =>
-              assignment.id === assignmentId
-                ? { ...assignment, sectionOptions: [] }
-                : assignment
-            )
-          );
-        }
-        toast.warning('No sections found for this grade level.');
-      }
-    })
-    .catch(error => {
-      console.error('Error fetching sections:', error);
-      toast.error(`Failed to load sections: ${error.message}`);
-      if (assignmentId) {
-        setCurrentAssignments(prev =>
-          prev.map(assignment =>
-            assignment.id === assignmentId
-              ? { ...assignment, sectionOptions: [] }
-              : assignment
-          )
-        );
-      }
-    });
-};
-  const handleSave = async () => {
-  if (!formData.firstName || !formData.lastName || !formData.email) {
-    toast.error('Please fill in all required fields');
-    return;
-  }
-
-  setLoading(true);
-
-  try {
-    let assignments: any[] = [];
-
-    if (isPrimaryLevel) {
-      const firstAssignment = currentAssignments[0];
-      if (firstAssignment?.grade_level_id && firstAssignment?.section_id) {
-        assignments = [{
-          grade_level_id: firstAssignment.grade_level_id,
-          section_id: firstAssignment.section_id,
-          subject_ids: formData.subjects
-        }];
-      } else {
-        toast.error('Please select a classroom for this teacher');
-        setLoading(false);
-        return;
-      }
-    } else if (isSecondaryLevel) {
-      assignments = currentAssignments
-        .filter(a => a.classroom_id && a.subject_id)
-        .map(a => ({
-          classroom_id: a.classroom_id,
-          subject_id: a.subject_id,
-          is_primary_teacher: a.is_primary_teacher || false,
-          periods_per_week: a.periods_per_week || 1
-        }));
-    }
-
-    // Build payload with ONLY fields that the Teacher model accepts
-    const payload: any = {
-      user_email: formData.email,
-      user_first_name: formData.firstName,
-      user_last_name: formData.lastName,
-      employee_id: formData.employeeId,
-      address: formData.address,
-      phone_number: formData.phoneNumber,
-      photo: formData.photo,
-      staff_type: formData.staffType,
-      level: formData.level,
-      subjects: formData.subjects.map(s => Number(s)), // Convert to numbers
-      hire_date: formData.hireDate,
-      qualification: formData.qualification,
-      specialization: formData.specialization,
-      assignments: assignments,
-      // Remove these fields - they're not part of the Teacher model:
-      // gender, blood_group, place_of_birth, academic_session, date_of_birth
-    };
-
-    // Only include user_middle_name if it has a value (not blank)
-    if (formData.middleName && formData.middleName.trim()) {
-      payload.user_middle_name = formData.middleName;
-    }
-
-    console.log('📤 Submitting teacher data:', payload);
-
-    // Get auth token from localStorage - try multiple possible key names
-    let token = localStorage.getItem('access_token') || 
-                localStorage.getItem('authToken') || 
-                localStorage.getItem('token') ||
-                localStorage.getItem('jwt_token');
-    
-    console.log('🔑 Token found:', token ? '✓ Yes' : '✗ No');
-    console.log('📋 Token used from key:', token ? 'authToken or similar' : 'none');
-    
-    if (!token) {
-      toast.error('Authentication token not found. Please log in again.');
-      setLoading(false);
+      setForm(p => ({ ...p, subjects: [] }));
       return;
     }
+    setLoadingSubjects(true);
+    teacherService
+      .getSubjectsByEducationLevel(form.level)
+      .then(subjects => {
+        setSubjectOptions(subjects);
+        // Auto-select all for primary / nursery
+        if (isPrimary) {
+          setForm(p => ({ ...p, subjects: subjects.map(s => String(s.id)) }));
+        }
+      })
+      .catch(() => setSubjectOptions([]))
+      .finally(() => setLoadingSubjects(false));
+  }, [form.level, form.staffType]);
 
-    const headers: any = {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    };
+  // ── Fetch classrooms (secondary only) ────────────────────────────────────────
+  useEffect(() => {
+    if (!isTeaching || !isSecondary || !form.level) { setClassroomOptions([]); return; }
+    setLoadingClassrooms(true);
+    teacherService
+      .getClassroomsByEducationLevel(form.level)
+      .then(setClassroomOptions)
+      .catch(() => setClassroomOptions([]))
+      .finally(() => setLoadingClassrooms(false));
+  }, [form.level, form.staffType]);
 
-    // FIXED: Use correct endpoint URL - /teachers/teachers/
-    const endpoint = `${API_BASE_URL}/teachers/teachers/`;
-    console.log('📍 API Endpoint:', endpoint);
-    console.log('🔐 Headers:', { 'Authorization': `Bearer ${token.substring(0, 20)}...` });
+  // ── Photo upload ──────────────────────────────────────────────────────────────
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    const reader = new FileReader();
+    reader.onload = ev => setPhotoPreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('upload_preset', 'profile_upload');
+    try {
+      const res = await axios.post(
+        'https://api.cloudinary.com/v1_1/djbz7wunu/image/upload',
+        fd,
+      );
+      setPhotoUrl(res.data.secure_url);
+      setPhotoPreview(res.data.secure_url);
+    } catch {
+      toast.error('Image upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload)
-    });
+  // ── Helpers ───────────────────────────────────────────────────────────────────
+  const set = (field: keyof FormData, value: any) =>
+    setForm(p => ({ ...p, [field]: value }));
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('❌ API Error:', errorData);
+  const newRow = (): AssignmentRow => ({
+    id: Date.now().toString() + Math.random().toString(36).slice(2, 7),
+    grade_level_id: '', section_id: '', sectionOptions: [],
+    classroom_id: '', subject_id: '',
+    periods_per_week: 1, is_primary_teacher: false,
+  });
 
-      // Handle different error formats from Django REST Framework
-      let errorMessage = 'Failed to create teacher';
+  const updateRow = (id: string, field: string, value: any) =>
+    setForm(p => ({
+      ...p,
+      assignments: p.assignments.map(a => (a.id === id ? { ...a, [field]: value } : a)),
+    }));
 
-      if (Array.isArray(errorData)) {
-        // Array of error messages
-        errorMessage = errorData.map(err =>
-          typeof err === 'string' ? err : err.detail || err.message || JSON.stringify(err)
-        ).join(', ');
-      } else if (errorData.detail) {
-        // Single detail message
-        errorMessage = errorData.detail;
-      } else if (typeof errorData === 'object') {
-        // Object with field-specific errors
-        const fieldErrors = Object.entries(errorData)
-          .map(([field, errors]) => {
-            if (Array.isArray(errors)) {
-              return `${field}: ${errors.join(', ')}`;
-            }
-            return `${field}: ${errors}`;
-          })
-          .join('; ');
-        errorMessage = fieldErrors || JSON.stringify(errorData);
+  const loadSections = async (gradeLevelId: string, rowId: string) => {
+    if (!gradeLevelId) return;
+    try {
+      const sections = await teacherService.getSectionsByGradeLevel(gradeLevelId);
+      setForm(p => ({
+        ...p,
+        assignments: p.assignments.map(a =>
+          a.id === rowId ? { ...a, sectionOptions: sections, section_id: '' } : a,
+        ),
+      }));
+    } catch {
+      toast.error('Failed to load sections');
+    }
+  };
+
+  // ── Validation ────────────────────────────────────────────────────────────────
+  const validate = (s: number): string[] => {
+    const e: string[] = [];
+    if (s === 1) {
+      if (!form.firstName.trim()) e.push('First name is required');
+      if (!form.lastName.trim())  e.push('Last name is required');
+      if (!form.email.trim())     e.push('Email is required');
+      else if (!/\S+@\S+\.\S+/.test(form.email)) e.push('Enter a valid email');
+      if (!form.phoneNumber.trim()) e.push('Phone number is required');
+    }
+    if (s === 2) {
+      if (!form.employeeId.trim()) e.push('Employee ID is required');
+      if (!form.hireDate)          e.push('Hire date is required');
+      if (isTeaching && !form.level) e.push('Education level is required for teaching staff');
+      if (isTeaching && form.subjects.length === 0) e.push('Select at least one subject');
+      if (isTeaching && isPrimary) {
+        const a = form.assignments[0];
+        if (!a?.grade_level_id) e.push('Select a grade level for the assignment');
+        if (!a?.section_id)     e.push('Select a section for the assignment');
       }
+      if (isTeaching && isSecondary && form.assignments.length === 0)
+        e.push('Add at least one classroom assignment');
+      if (isTeaching && isSecondary) {
+        form.assignments.forEach((a, i) => {
+          if (!a.classroom_id) e.push(`Assignment ${i + 1}: select a classroom`);
+          if (!a.subject_id)   e.push(`Assignment ${i + 1}: select a subject`);
+        });
+      }
+    }
+    return e;
+  };
 
-      throw new Error(errorMessage);
+  const next = () => {
+    const errs = validate(step);
+    if (errs.length) { setStepErrors(errs); return; }
+    setStepErrors([]);
+    setStep(s => s + 1);
+  };
+
+  const back = () => { setStepErrors([]); setStep(s => s - 1); };
+
+  // ── Build payload ─────────────────────────────────────────────────────────────
+  const buildPayload = (): CreateTeacherPayload => {
+    let assignments: PrimaryAssignmentPayload[] | SecondaryAssignmentPayload[] = [];
+
+    if (isPrimary) {
+      const a = form.assignments[0];
+      if (a?.grade_level_id && a?.section_id) {
+        assignments = [{
+          grade_level_id: a.grade_level_id,
+          section_id: a.section_id,
+          subject_ids: form.subjects,
+        }] as PrimaryAssignmentPayload[];
+      }
+    } else if (isSecondary) {
+      assignments = form.assignments
+        .filter(a => a.classroom_id && a.subject_id)
+        .map(a => ({
+          classroom_id: Number(a.classroom_id),
+          subject_id: Number(a.subject_id),
+          is_primary_teacher: a.is_primary_teacher,
+          periods_per_week: a.periods_per_week,
+        })) as SecondaryAssignmentPayload[];
     }
 
-    const responseData = await response.json();
-    console.log('✅ API Response:', responseData);
+    return {
+      user_first_name: form.firstName,
+      user_last_name: form.lastName,
+      user_email: form.email,
+      phone_number: form.phoneNumber,
+      employee_id: form.employeeId,
+      hire_date: form.hireDate,
+      staff_type: form.staffType,
+      subjects: form.subjects.map(Number),
+      assignments,
+      ...(form.middleName.trim() && { user_middle_name: form.middleName }),
+      ...(form.level && { level: form.level }),
+      ...(form.qualification && { qualification: form.qualification }),
+      ...(photoUrl && { photo: photoUrl }),
+    };
+  };
 
-    toast.success('Teacher added successfully');
+  // ── Submit ────────────────────────────────────────────────────────────────────
+  const handleSubmit = async () => {
+    const errs = [...validate(1), ...validate(2)];
+    if (errs.length) { setStepErrors(errs); return; }
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setLoading(true);
+    setStepErrors([]);
 
-    // Use credentials from backend response
-    const username = responseData.user_username || responseData.generated_username || responseData.username;
-    const password = responseData.user_password || responseData.generated_password || responseData.password;
+    try {
+      const data = await teacherService.createTeacher(buildPayload());
 
-    setTeacherUsername(username);
-    setTeacherPassword(password);
-    setShowPasswordModal(true);
+      toast.success('Teacher created successfully');
+      onTeacherAdded?.();
 
-    // Reset form after successful submission
-    setTimeout(() => {
-      setFormData({
-        photo: null,
-        firstName: '',
-        middleName: '',
-        lastName: '',
-        gender: '',
-        bloodGroup: '',
-        dateOfBirth: '',
-        placeOfBirth: '',
-        academicSession: '',
-        employeeId: '',
-        address: '',
-        email: '',
-        phoneNumber: '',
-        staffType: 'teaching',
-        level: '',
-        subjects: [],
-        hireDate: '',
-        qualification: '',
-        specialization: '',
-        assignments: [],
+      setModal({
+        username: data.user_username || (data as any).username || '',
+        password: data.user_password || (data as any).password || '',
       });
-      setCurrentAssignments([]);
+
+      // Reset form
+      setForm({
+        firstName: '', lastName: '', middleName: '',
+        email: '', phoneNumber: '',
+        staffType: 'teaching', level: '',
+        employeeId: '', hireDate: '', qualification: '',
+        subjects: [], assignments: [],
+      });
       setPhotoPreview(null);
-    }, 1000);
-  } catch (err: any) {
-    console.error('❌ Error creating teacher:', err);
-    toast.error(err.message || 'Failed to create teacher');
-  } finally {
-    setLoading(false);
-  }
-};
+      setPhotoUrl(null);
+      setStep(1);
+    } catch (err: any) {
+      const msg = err.message || 'Failed to create teacher';
+      setStepErrors([msg]);
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+      submittingRef.current = false;
+    }
+  };
+
+  // ── Shared styles ─────────────────────────────────────────────────────────────
+  const inp = 'w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all placeholder:text-slate-400';
+  const sel = inp + ' cursor-pointer';
+  const lbl = 'block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wide';
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-sm border border-gray-200">
-      <div className="p-6 border-b border-gray-200">
-        <h2 className="text-xl font-semibold text-gray-800">Add New Teacher</h2>
-      </div>
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+        .atf-root { font-family: 'DM Sans', sans-serif; }
+        .step-dot { transition: all .25s ease; }
+        .step-line { transition: background .25s ease; }
+        .fade-in { animation: fadeSlide .2s ease forwards; }
+        @keyframes fadeSlide { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+        .cred-pill { font-family: 'Courier New', monospace; letter-spacing:.04em; }
+      `}</style>
 
-      <div className="p-6 space-y-6">
-        {/* Photo Upload */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Photo</label>
-          <div className="flex flex-col items-center">
-            <div className="w-24 h-24 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center mb-3 bg-gray-50">
-              {photoPreview ? (
-                <div className="relative">
-                  <img src={photoPreview} alt="Teacher" className="w-20 h-20 object-cover rounded" />
-                  <button
-                    type="button"
-                    onClick={removePhoto}
-                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs"
-                  >
-                    <X size={12} />
-                  </button>
+      <div className="atf-root max-w-xl mx-auto">
+
+        {/* Header */}
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-slate-900">Add New Teacher</h2>
+          <p className="text-sm text-slate-500 mt-0.5">Required fields only — takes about 60 seconds</p>
+        </div>
+
+        {/* Step indicator */}
+        <div className="flex items-center mb-8 select-none">
+          {STEPS.map((s, idx) => (
+            <React.Fragment key={s.id}>
+              <div className="flex items-center gap-2">
+                <div className={`step-dot w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold border-2
+                  ${step > s.id  ? 'bg-blue-600 border-blue-600 text-white'
+                  : step === s.id ? 'bg-white border-blue-600 text-blue-600'
+                  :                 'bg-white border-slate-200 text-slate-400'}`}>
+                  {step > s.id ? <Check className="w-4 h-4" /> : s.id}
                 </div>
-              ) : (
-                <User size={32} className="text-gray-400" />
-              )}
-            </div>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handlePhotoUpload}
-              className="hidden"
-              id="teacher-photo"
-              disabled={uploading}
-            />
-            <label
-              htmlFor="teacher-photo"
-              className={`px-4 py-2 rounded text-sm cursor-pointer transition-colors ${
-                uploading
-                  ? 'bg-gray-400 text-white cursor-not-allowed'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'
-              }`}
-            >
-              {uploading ? 'Uploading...' : 'Choose File'}
-            </label>
-          </div>
-        </div>
-
-        {/* Name Fields */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">First Name*</label>
-            <input
-              type="text"
-              name="firstName"
-              value={formData.firstName}
-              onChange={handleInputChange}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="First name"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Middle Name</label>
-            <input
-              type="text"
-              name="middleName"
-              value={formData.middleName}
-              onChange={handleInputChange}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Middle name"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Last Name*</label>
-            <input
-              type="text"
-              name="lastName"
-              value={formData.lastName}
-              onChange={handleInputChange}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Last name"
-              required
-            />
-          </div>
-        </div>
-
-        {/* Contact Info */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Email*</label>
-            <input
-              type="email"
-              name="email"
-              value={formData.email}
-              onChange={handleInputChange}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="teacher@example.com"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Phone Number*</label>
-            <input
-              type="tel"
-              name="phoneNumber"
-              value={formData.phoneNumber}
-              onChange={handleInputChange}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="+234 xxx xxx xxxx"
-              required
-            />
-          </div>
-        </div>
-
-        {/* Personal Info */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Gender*</label>
-            <select
-              name="gender"
-              value={formData.gender}
-              onChange={handleInputChange}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            >
-              <option value="">Select Gender</option>
-              <option value="M">Male</option>
-              <option value="F">Female</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Blood Group</label>
-            <select
-              name="bloodGroup"
-              value={formData.bloodGroup}
-              onChange={handleInputChange}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">Select Blood Group</option>
-              {bloodGroups.map(group => (
-                <option key={group} value={group}>
-                  {group}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Date of Birth*</label>
-            <input
-              type="date"
-              name="dateOfBirth"
-              value={formData.dateOfBirth}
-              onChange={handleInputChange}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            />
-          </div>
-        </div>
-
-        {/* Additional Info */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Place of Birth</label>
-            <input
-              type="text"
-              name="placeOfBirth"
-              value={formData.placeOfBirth}
-              onChange={handleInputChange}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="City, State"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Employee ID*</label>
-            <input
-              type="text"
-              name="employeeId"
-              value={formData.employeeId}
-              onChange={handleInputChange}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="EMP001"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Hire Date*</label>
-            <input
-              type="date"
-              name="hireDate"
-              value={formData.hireDate}
-              onChange={handleInputChange}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            />
-          </div>
-        </div>
-
-        {/* Academic Info */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Academic Session</label>
-            <input
-              type="text"
-              name="academicSession"
-              value={formData.academicSession}
-              onChange={handleInputChange}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="2024/2025"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Qualification</label>
-            <input
-              type="text"
-              name="qualification"
-              value={formData.qualification}
-              onChange={handleInputChange}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="B.Sc., M.Ed., etc."
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Specialization</label>
-          <input
-            type="text"
-            name="specialization"
-            value={formData.specialization}
-            onChange={handleInputChange}
-            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            placeholder="Mathematics, Science, etc."
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Address</label>
-          <textarea
-            name="address"
-            value={formData.address}
-            onChange={handleInputChange}
-            rows={3}
-            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            placeholder="Full address"
-          />
-        </div>
-
-        {/* Staff Type */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Staff Type*</label>
-          <select
-            name="staffType"
-            value={formData.staffType}
-            onChange={handleInputChange}
-            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            required
-          >
-            <option value="teaching">Teaching</option>
-            <option value="non-teaching">Non-Teaching</option>
-          </select>
-        </div>
-
-        {/* Level (for teaching staff) */}
-        {formData.staffType === 'teaching' && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Education Level*</label>
-            <select
-              name="level"
-              value={formData.level}
-              onChange={handleInputChange}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            >
-              <option value="">Select Level</option>
-              <option value="nursery">Nursery</option>
-              <option value="primary">Primary</option>
-              <option value="junior_secondary">Junior Secondary</option>
-              <option value="senior_secondary">Senior Secondary</option>
-            </select>
-          </div>
-        )}
-
-        {/* Subjects Selection */}
-        {formData.staffType === 'teaching' && formData.level && (
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <label className="block text-sm font-medium text-gray-700">Subjects*</label>
-              {subjectOptions.length > 0 && (
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const allSubjectIds = subjectOptions.map(s => String(s.id));
-                      setFormData(prev => ({ ...prev, subjects: allSubjectIds }));
-                    }}
-                    className="text-xs px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
-                  >
-                    Select All
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFormData(prev => ({ ...prev, subjects: [] }))}
-                    className="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
-                  >
-                    Clear All
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {subjectOptions.length === 0 ? (
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <p className="text-gray-500 text-sm">No subjects available for this level.</p>
+                <span className={`text-sm font-medium hidden sm:block
+                  ${step === s.id ? 'text-slate-900' : 'text-slate-400'}`}>
+                  {s.label}
+                </span>
               </div>
-            ) : (
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {subjectOptions.map(subject => (
-                    <label
-                      key={subject.id}
-                      className="flex items-center space-x-3 cursor-pointer hover:bg-white p-3 rounded-lg transition-colors"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={formData.subjects.includes(String(subject.id))}
-                        onChange={(e) => handleSubjectChange(subject.id, e.target.checked)}
-                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
-                      />
-                      <span className="text-sm text-gray-700 font-medium">{subject.name}</span>
+              {idx < STEPS.length - 1 && (
+                <div className={`step-line flex-1 h-0.5 mx-3 rounded
+                  ${step > s.id ? 'bg-blue-600' : 'bg-slate-200'}`} />
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+
+        {/* Card */}
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+          <div className="p-6">
+
+            {/* ── STEP 1: Personal ─────────────────────────────────────────── */}
+            {step === 1 && (
+              <div className="fade-in space-y-4">
+                <h3 className="text-base font-semibold text-slate-800 mb-4">Personal Information</h3>
+
+                {/* Photo */}
+                <div className="flex items-center gap-4 pb-4 border-b border-slate-100">
+                  <div className="relative w-16 h-16 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 flex-shrink-0">
+                    {photoPreview
+                      ? <img src={photoPreview} alt="" className="w-full h-full object-cover" />
+                      : <User className="w-7 h-7 text-slate-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />}
+                    {photoPreview && (
+                      <button
+                        onClick={() => { setPhotoPreview(null); setPhotoUrl(null); }}
+                        className="absolute top-0.5 right-0.5 w-5 h-5 bg-rose-500 text-white rounded-full flex items-center justify-center">
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                  <div>
+                    <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" id="teacher-photo" />
+                    <label htmlFor="teacher-photo"
+                      className="text-xs font-semibold text-blue-600 border border-blue-200 px-3 py-1.5 rounded-lg cursor-pointer hover:bg-blue-50 transition-colors">
+                      {uploading ? 'Uploading…' : 'Upload Photo'}
                     </label>
-                  ))}
+                    <p className="text-xs text-slate-400 mt-1">Optional</p>
+                  </div>
                 </div>
-                <div className="mt-3 pt-3 border-t border-gray-200">
-                  <p className="text-xs text-gray-500">
-                    Selected: {formData.subjects.length} of {subjectOptions.length} subjects
-                  </p>
+
+                {/* Name */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={lbl}>First Name <span className="text-rose-500">*</span></label>
+                    <input className={inp} placeholder="e.g. Amara" value={form.firstName}
+                      onChange={e => set('firstName', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className={lbl}>Last Name <span className="text-rose-500">*</span></label>
+                    <input className={inp} placeholder="e.g. Okonkwo" value={form.lastName}
+                      onChange={e => set('lastName', e.target.value)} />
+                  </div>
+                </div>
+
+                <div>
+                  <label className={lbl}>Middle Name <span className="text-slate-400 normal-case font-normal">(optional)</span></label>
+                  <input className={inp} placeholder="Middle name" value={form.middleName}
+                    onChange={e => set('middleName', e.target.value)} />
+                </div>
+
+                <div>
+                  <label className={lbl}>Email <span className="text-rose-500">*</span></label>
+                  <input className={inp} type="email" placeholder="teacher@school.edu"
+                    value={form.email} onChange={e => set('email', e.target.value)} />
+                </div>
+
+                <div>
+                  <label className={lbl}>Phone Number <span className="text-rose-500">*</span></label>
+                  <input className={inp} type="tel" placeholder="+234 xxx xxx xxxx"
+                    value={form.phoneNumber} onChange={e => set('phoneNumber', e.target.value)} />
                 </div>
               </div>
             )}
-          </div>
-        )}
 
-        {/* Assignments Section */}
-        {formData.staffType === 'teaching' && formData.level && (
-          <div className="border-t pt-6 mt-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">
-                  {isPrimaryLevel ? 'Classroom Assignment*' : 'Subject Assignments*'}
-                </label>
-                {isPrimaryLevel && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Select the classroom where this teacher will teach all selected subjects
-                  </p>
-                )}
-              </div>
-              {isSecondaryLevel && (
-                <button
-                  type="button"
-                  onClick={addAssignment}
-                  className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-                >
-                  <span>+</span>
-                  Add Assignment
-                </button>
-              )}
-            </div>
+            {/* ── STEP 2: Professional ─────────────────────────────────────── */}
+            {step === 2 && (
+              <div className="fade-in space-y-4">
+                <h3 className="text-base font-semibold text-slate-800 mb-4">Professional Information</h3>
 
-            {isPrimaryLevel ? (
-              <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                <div className="mb-4">
-                  <p className="text-sm text-blue-700 font-medium mb-2">Primary/Nursery Assignment</p>
-                  <p className="text-xs text-blue-600">
-                    Select a grade level and section. This teacher will teach all selected subjects to this class.
-                  </p>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Grade Level*</label>
-                    <select
-                      value={currentAssignments[0]?.grade_level_id || ''}
-                      onChange={(e) => {
-                        if (currentAssignments.length === 0) {
-                          const newAssignment: Assignment = {
-                            id: Date.now().toString(),
-                            grade_level_id: e.target.value,
-                            section_id: '',
-                            subject_ids: formData.subjects,
-                            sectionOptions: []
-                          };
-                          setCurrentAssignments([newAssignment]);
-                          loadSectionsForGradeLevel(e.target.value, newAssignment.id);
-                        } else {
-                          updateAssignment(currentAssignments[0].id, 'grade_level_id', e.target.value);
-                        }
-                      }}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required
-                    >
-                      <option value="">Select Grade Level</option>
-                      {gradeLevelOptions.length === 0 ? (
-                        <option disabled>Loading grade levels...</option>
-                      ) : (
-                        gradeLevelOptions.map(gl => (
-                          <option key={gl.id} value={gl.id}>
-                            {gl.name}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                    {gradeLevelOptions.length === 0 && (
-                      <p className="text-xs text-red-500 mt-1">
-                        No grade levels found. Please create grade levels first.
-                      </p>
-                    )}
+                    <label className={lbl}>Employee ID <span className="text-rose-500">*</span></label>
+                    <input className={inp} placeholder="e.g. EMP001"
+                      value={form.employeeId} onChange={e => set('employeeId', e.target.value)} />
                   </div>
-
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Section*</label>
-                    <select
-                      value={currentAssignments[0]?.section_id || ''}
-                      onChange={(e) => {
-                        if (currentAssignments.length > 0) {
-                          updateAssignment(currentAssignments[0].id, 'section_id', e.target.value);
-                        }
-                      }}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      disabled={!currentAssignments[0]?.grade_level_id}
-                      required
-                    >
-                      <option value="">Select Section</option>
-                      {!currentAssignments[0]?.grade_level_id ? (
-                        <option disabled>Select grade level first</option>
-                      ) : (currentAssignments[0]?.sectionOptions || []).length === 0 ? (
-                        <option disabled>Loading sections...</option>
-                      ) : (
-                        (currentAssignments[0]?.sectionOptions || []).map(section => (
-                          <option key={section.id} value={section.id}>
-                            {section.name}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                    {currentAssignments[0]?.grade_level_id && (currentAssignments[0]?.sectionOptions || []).length === 0 && (
-                      <p className="text-xs text-red-500 mt-1">
-                        No sections found for this grade level.
-                      </p>
+                    <label className={lbl}>Hire Date <span className="text-rose-500">*</span></label>
+                    <input className={inp} type="date"
+                      value={form.hireDate} onChange={e => set('hireDate', e.target.value)} />
+                  </div>
+                </div>
+
+                <div>
+                  <label className={lbl}>Qualification <span className="text-slate-400 normal-case font-normal">(optional)</span></label>
+                  <input className={inp} placeholder="e.g. B.Sc. Education, M.Ed."
+                    value={form.qualification} onChange={e => set('qualification', e.target.value)} />
+                </div>
+
+                <div>
+                  <label className={lbl}>Staff Type <span className="text-rose-500">*</span></label>
+                  <select className={sel} value={form.staffType}
+                    onChange={e => {
+                      set('staffType', e.target.value);
+                      set('level', '');
+                      set('subjects', []);
+                      set('assignments', []);
+                    }}>
+                    <option value="teaching">Teaching</option>
+                    <option value="non-teaching">Non-Teaching</option>
+                  </select>
+                </div>
+
+                {/* Teaching-only fields */}
+                {isTeaching && (
+                  <>
+                    <div>
+                      <label className={lbl}>Education Level <span className="text-rose-500">*</span></label>
+                      <select className={sel} value={form.level}
+                        onChange={e => {
+                          set('level', e.target.value);
+                          set('subjects', []);
+                          set('assignments', []);
+                        }}>
+                        <option value="">Select level</option>
+                        <option value="nursery">Nursery</option>
+                        <option value="primary">Primary</option>
+                        <option value="junior_secondary">Junior Secondary</option>
+                        <option value="senior_secondary">Senior Secondary</option>
+                      </select>
+                    </div>
+
+                    {/* Subjects */}
+                    {form.level && (
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className={lbl + ' mb-0'}>
+                            Subjects <span className="text-rose-500">*</span>
+                          </label>
+                          {subjectOptions.length > 0 && (
+                            <div className="flex gap-2">
+                              <button type="button"
+                                onClick={() => set('subjects', subjectOptions.map(s => String(s.id)))}
+                                className="text-xs text-blue-600 hover:underline font-medium">
+                                All
+                              </button>
+                              <span className="text-slate-300">|</span>
+                              <button type="button"
+                                onClick={() => set('subjects', [])}
+                                className="text-xs text-slate-500 hover:underline">
+                                Clear
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {loadingSubjects ? (
+                          <div className="py-4 text-center text-sm text-slate-400">Loading subjects…</div>
+                        ) : subjectOptions.length === 0 ? (
+                          <div className="py-4 text-center text-sm text-slate-400 border border-dashed border-slate-200 rounded-lg">
+                            No subjects found for this level
+                          </div>
+                        ) : (
+                          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 max-h-44 overflow-y-auto">
+                            <div className="grid grid-cols-2 gap-1">
+                              {subjectOptions.map(subject => (
+                                <label key={subject.id}
+                                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-white transition-colors">
+                                  <input type="checkbox"
+                                    checked={form.subjects.includes(String(subject.id))}
+                                    onChange={e => {
+                                      const id = String(subject.id);
+                                      set('subjects', e.target.checked
+                                        ? [...form.subjects, id]
+                                        : form.subjects.filter(s => s !== id));
+                                    }}
+                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+                                  />
+                                  <span className="text-sm text-slate-700">{subject.name} ({subject.code})</span>
+                                </label>
+                              ))}
+                            </div>
+                            <p className="text-xs text-slate-400 mt-2 pt-2 border-t border-slate-200">
+                              {form.subjects.length} of {subjectOptions.length} selected
+                            </p>
+                          </div>
+                        )}
+                      </div>
                     )}
-                  </div>
-                </div>
 
-                {currentAssignments[0]?.grade_level_id && currentAssignments[0]?.section_id && (
-                  <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                    <p className="text-sm text-green-700">
-                      <strong>Assignment Preview:</strong> This teacher will teach{' '}
-                      <strong>{formData.subjects.length} subject(s)</strong> in{' '}
-                      <strong>
-                        {gradeLevelOptions.find(gl => gl.id == currentAssignments[0].grade_level_id)?.name}
-                        {' - Section '}
-                        {(currentAssignments[0]?.sectionOptions || []).find(s => s.id == currentAssignments[0].section_id)?.name}
-                      </strong>
-                    </p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <>
-                <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-sm text-blue-700 font-medium mb-2">Secondary Teacher Assignments</p>
-                  <p className="text-xs text-blue-600">
-                    For secondary teachers, assign subjects to specific classrooms. Each assignment represents one subject in one classroom.
-                  </p>
-                </div>
+                    {/* ── Primary / Nursery assignment ── */}
+                    {isPrimary && form.level && (
+                      <div>
+                        <label className={lbl}>Classroom Assignment <span className="text-rose-500">*</span></label>
+                        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3">
+                          <p className="text-xs text-blue-600">
+                            This teacher will teach all selected subjects to one class.
+                          </p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className={lbl}>Grade Level <span className="text-rose-500">*</span></label>
+                              <select className={sel}
+                                value={form.assignments[0]?.grade_level_id || ''}
+                                onChange={e => {
+                                  const gradeId = e.target.value;
+                                  if (form.assignments.length === 0) {
+                                    const row = newRow();
+                                    setForm(p => ({
+                                      ...p,
+                                      assignments: [{ ...row, grade_level_id: gradeId }],
+                                    }));
+                                    loadSections(gradeId, row.id);
+                                  } else {
+                                    updateRow(form.assignments[0].id, 'grade_level_id', gradeId);
+                                    loadSections(gradeId, form.assignments[0].id);
+                                  }
+                                }}>
+                                <option value="">Select grade</option>
+                                {gradeLevels.map(g => (
+                                  <option key={g.id} value={g.id}>{g.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className={lbl}>Section <span className="text-rose-500">*</span></label>
+                              <select className={sel}
+                                value={form.assignments[0]?.section_id || ''}
+                                disabled={!form.assignments[0]?.grade_level_id}
+                                onChange={e =>
+                                  updateRow(form.assignments[0].id, 'section_id', e.target.value)
+                                }>
+                                <option value="">
+                                  {!form.assignments[0]?.grade_level_id ? 'Select grade first' : 'Select section'}
+                                </option>
+                                {(form.assignments[0]?.sectionOptions ?? []).map(s => (
+                                  <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
 
-                {currentAssignments.length === 0 ? (
-                  <div className="bg-gray-50 p-8 rounded-lg border border-gray-200 text-center">
-                    <p className="text-gray-500 text-sm mb-4">No assignments added yet.</p>
-                    <button
-                      type="button"
-                      onClick={addAssignment}
-                      className="px-6 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                      Add First Assignment
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {currentAssignments.map((assignment, index) => {
-                      const selectedClassroom = classroomOptions.find(c => c.id === Number(assignment.classroom_id));
-                      
-                      return (
-                        <div key={assignment.id} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                          <div className="flex items-center justify-between mb-4">
-                            <h4 className="text-sm font-semibold text-gray-700">
-                              Assignment {index + 1}
-                              {selectedClassroom && (
-                                <span className="ml-2 text-blue-600">
-                                  - {selectedClassroom.name}
-                                </span>
-                              )}
-                            </h4>
-                            <button
-                              type="button"
-                              onClick={() => removeAssignment(assignment.id)}
-                              className="text-red-500 hover:text-red-700 text-sm font-medium transition-colors"
-                            >
-                              Remove
+                          {/* Preview */}
+                          {form.assignments[0]?.grade_level_id && form.assignments[0]?.section_id && (
+                            <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 flex items-center gap-2">
+                              <Check className="w-3.5 h-3.5" />
+                              Teaching {form.subjects.length} subject(s) to{' '}
+                              <strong>
+                                {gradeLevels.find(g => String(g.id) === form.assignments[0].grade_level_id)?.name}
+                                {' — '}
+                                {form.assignments[0].sectionOptions.find(
+                                  s => String(s.id) === form.assignments[0].section_id,
+                                )?.name}
+                              </strong>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── Secondary assignments ── */}
+                    {isSecondary && form.level && (
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className={lbl + ' mb-0'}>
+                            Classroom Assignments <span className="text-rose-500">*</span>
+                          </label>
+                          <button type="button"
+                            onClick={() =>
+                              setForm(p => ({ ...p, assignments: [...p.assignments, newRow()] }))
+                            }
+                            className="flex items-center gap-1 text-xs font-semibold text-blue-600 border border-blue-200 px-2.5 py-1 rounded-lg hover:bg-blue-50 transition-colors">
+                            <Plus className="w-3.5 h-3.5" /> Add
+                          </button>
+                        </div>
+
+                        {form.assignments.length === 0 ? (
+                          <div className="py-6 text-center text-sm text-slate-400 border border-dashed border-slate-200 rounded-xl">
+                            No assignments yet.{' '}
+                            <button type="button"
+                              onClick={() =>
+                                setForm(p => ({ ...p, assignments: [newRow()] }))
+                              }
+                              className="text-blue-600 font-semibold underline">
+                              Add one
                             </button>
                           </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {form.assignments.map((a, idx) => (
+                              <div key={a.id} className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                                <div className="flex items-center justify-between mb-3">
+                                  <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
+                                    Assignment {idx + 1}
+                                  </span>
+                                  <button type="button"
+                                    onClick={() =>
+                                      setForm(p => ({
+                                        ...p,
+                                        assignments: p.assignments.filter(x => x.id !== a.id),
+                                      }))
+                                    }
+                                    className="text-rose-400 hover:text-rose-600 transition-colors">
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
 
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-2">
-                                Classroom* 
-                                <span className="text-gray-400 ml-1">(Grade & Section)</span>
-                              </label>
-                              <select
-                                value={assignment.classroom_id || ''}
-                                onChange={(e) => updateAssignment(assignment.id, 'classroom_id', e.target.value)}
-                                className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                                required
-                              >
-                                <option value="">Select Classroom</option>
-                                {classroomOptions.map(classroom => (
-                                  <option key={classroom.id} value={classroom.id}>
-                                    {classroom.name} ({classroom.section_name})
-                                  </option>
-                                ))}
-                              </select>
-                              {selectedClassroom && (
-                                <p className="text-xs text-gray-500 mt-1">
-                                  {selectedClassroom.grade_level_name} - Section {selectedClassroom.section_name}
-                                </p>
-                              )}
-                            </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <label className={lbl}>Classroom <span className="text-rose-500">*</span></label>
+                                    <select className={sel} value={a.classroom_id}
+                                      disabled={loadingClassrooms}
+                                      onChange={e => updateRow(a.id, 'classroom_id', e.target.value)}>
+                                      <option value="">
+                                        {loadingClassrooms ? 'Loading…' : 'Select classroom'}
+                                      </option>
+                                      {classroomOptions.map(c => (
+                                        <option key={c.id} value={c.id}>{c.name}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className={lbl}>Subject <span className="text-rose-500">*</span></label>
+                                    <select className={sel} value={a.subject_id}
+                                      disabled={!a.classroom_id}
+                                      onChange={e => updateRow(a.id, 'subject_id', e.target.value)}>
+                                      <option value="">Select subject</option>
+                                      {subjectOptions.map(s => (
+                                        <option key={s.id} value={s.id}>{s.name}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                </div>
 
-                            <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-2">Subject*</label>
-                              <select
-                                value={assignment.subject_id || ''}
-                                onChange={(e) => updateAssignment(assignment.id, 'subject_id', e.target.value)}
-                                className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                                disabled={!assignment.classroom_id}
-                                required
-                              >
-                                <option value="">Select Subject</option>
-                                {subjectOptions.map(subject => (
-                                  <option key={subject.id} value={subject.id}>
-                                    {subject.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                            <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-2">
-                                Periods per Week
-                              </label>
-                              <input
-                                type="number"
-                                min="1"
-                                max="10"
-                                value={assignment.periods_per_week || 1}
-                                onChange={(e) => updateAssignment(assignment.id, 'periods_per_week', parseInt(e.target.value) || 1)}
-                                className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                              />
-                            </div>
-
-                            <div className="flex items-center pt-6">
-                              <input
-                                type="checkbox"
-                                id={`primary-${assignment.id}`}
-                                checked={assignment.is_primary_teacher || false}
-                                onChange={(e) => updateAssignment(assignment.id, 'is_primary_teacher', e.target.checked)}
-                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
-                              />
-                              <label
-                                htmlFor={`primary-${assignment.id}`}
-                                className="ml-2 text-sm text-gray-700 cursor-pointer"
-                              >
-                                Primary/Class Teacher
-                              </label>
+                                <div className="grid grid-cols-2 gap-3 mt-3">
+                                  <div>
+                                    <label className={lbl}>Periods / Week</label>
+                                    <input className={inp} type="number" min="1" max="10"
+                                      value={a.periods_per_week}
+                                      onChange={e =>
+                                        updateRow(a.id, 'periods_per_week', parseInt(e.target.value) || 1)
+                                      } />
+                                  </div>
+                                  <div className="flex items-end pb-2.5">
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                      <input type="checkbox" checked={a.is_primary_teacher}
+                                        onChange={e =>
+                                          updateRow(a.id, 'is_primary_teacher', e.target.checked)
+                                        }
+                                        className="rounded border-slate-300 text-blue-600 h-4 w-4" />
+                                      <span className="text-sm text-slate-700">Class teacher</span>
+                                    </label>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                            <div className="text-xs text-slate-500 text-right">
+                              {form.assignments.filter(a => a.classroom_id && a.subject_id).length} of{' '}
+                              {form.assignments.length} complete
                             </div>
                           </div>
-                        </div>
-                      );
-                    })}
-
-                    <div className="bg-green-50 p-4 rounded-lg border border-green-200">
-                      <p className="text-sm text-green-700 font-medium">
-                        Total Assignments: {currentAssignments.length}
-                      </p>
-                      <p className="text-xs text-green-600 mt-1">
-                        {currentAssignments.filter(a => a.classroom_id && a.subject_id).length} complete assignments
-                      </p>
-                    </div>
-                  </div>
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
-              </>
+              </div>
+            )}
+
+            {/* ── STEP 3: Review ────────────────────────────────────────────── */}
+            {step === 3 && (
+              <div className="fade-in space-y-5">
+                <h3 className="text-base font-semibold text-slate-800 mb-4">Review & Confirm</h3>
+
+                <ReviewSection title="Personal">
+                  <ReviewRow label="Name"  value={[form.firstName, form.middleName, form.lastName].filter(Boolean).join(' ')} />
+                  <ReviewRow label="Email" value={form.email} />
+                  <ReviewRow label="Phone" value={form.phoneNumber} />
+                </ReviewSection>
+
+                <ReviewSection title="Professional">
+                  <ReviewRow label="Employee ID" value={form.employeeId} />
+                  <ReviewRow label="Hire Date"   value={form.hireDate} />
+                  <ReviewRow label="Staff Type"  value={form.staffType === 'teaching' ? 'Teaching' : 'Non-Teaching'} />
+                  {form.level && (
+                    <ReviewRow label="Level" value={form.level.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} />
+                  )}
+                  {form.qualification && <ReviewRow label="Qualification" value={form.qualification} />}
+                  {form.subjects.length > 0 && (
+                    <ReviewRow
+                      label="Subjects"
+                      value={`${form.subjects.length} subject(s): ${
+                        subjectOptions
+                          .filter(s => form.subjects.includes(String(s.id)))
+                          .map(s => s.name)
+                          .join(', ')
+                      }`}
+                    />
+                  )}
+                </ReviewSection>
+
+                {form.assignments.length > 0 && (
+                  <ReviewSection title="Assignments">
+                    {isPrimary && form.assignments[0] && (
+                      <ReviewRow
+                        label="Classroom"
+                        value={`${gradeLevels.find(g => String(g.id) === form.assignments[0].grade_level_id)?.name || ''} — ${
+                          form.assignments[0].sectionOptions.find(
+                            s => String(s.id) === form.assignments[0].section_id,
+                          )?.name || ''
+                        }`}
+                      />
+                    )}
+                    {isSecondary && form.assignments.map((a, i) => (
+                      <ReviewRow key={a.id}
+                        label={`#${i + 1}`}
+                        value={`${classroomOptions.find(c => String(c.id) === a.classroom_id)?.name || '—'} · ${
+                          subjectOptions.find(s => String(s.id) === a.subject_id)?.name || '—'
+                        } · ${a.periods_per_week} period/wk`}
+                      />
+                    ))}
+                  </ReviewSection>
+                )}
+
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700">
+                  A login username and password will be generated automatically and shown after saving.
+                </div>
+              </div>
+            )}
+
+            {/* Errors */}
+            {stepErrors.length > 0 && (
+              <div className="mt-4 p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-500 flex-shrink-0 mt-0.5" />
+                <ul className="text-xs text-rose-700 space-y-0.5">
+                  {stepErrors.map((e, i) => <li key={i}>{e}</li>)}
+                </ul>
+              </div>
             )}
           </div>
-        )}
 
-        {/* Action Buttons */}
-        <div className="flex justify-end gap-4 pt-6 border-t border-gray-200">
-          <button
-            type="button"
-            onClick={() => {
-              setFormData({
-                photo: null,
-                firstName: '',
-                middleName: '',
-                lastName: '',
-                gender: '',
-                bloodGroup: '',
-                dateOfBirth: '',
-                placeOfBirth: '',
-                academicSession: '',
-                employeeId: '',
-                address: '',
-                email: '',
-                phoneNumber: '',
-                staffType: 'teaching',
-                level: '',
-                subjects: [],
-                hireDate: '',
-                qualification: '',
-                specialization: '',
-                assignments: [],
-              });
-              setCurrentAssignments([]);
-              setPhotoPreview(null);
-            }}
-            className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
-          >
-            Reset Form
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={loading}
-            className={`px-6 py-3 rounded-lg font-semibold transition-colors ${
-              loading
-                ? 'bg-gray-400 text-white cursor-not-allowed'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
-            }`}
-          >
-            {loading ? 'Saving...' : 'Save Teacher'}
-          </button>
+          {/* Footer nav */}
+          <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+            <button
+              onClick={step === 1 ? () => window.history.back() : back}
+              className="flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors px-3 py-2 rounded-lg hover:bg-slate-100">
+              <ChevronLeft className="w-4 h-4" />
+              {step === 1 ? 'Cancel' : 'Back'}
+            </button>
+
+            {step < 3 ? (
+              <button onClick={next}
+                className="flex items-center gap-1.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 px-5 py-2 rounded-lg transition-colors shadow-sm">
+                Next <ChevronRight className="w-4 h-4" />
+              </button>
+            ) : (
+              <button onClick={handleSubmit} disabled={loading}
+                className="flex items-center gap-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed px-5 py-2 rounded-lg transition-colors shadow-sm">
+                {loading
+                  ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Saving…</>
+                  : <><Check className="w-4 h-4" /> Save Teacher</>}
+              </button>
+            )}
+          </div>
         </div>
+
+        <p className="text-center text-xs text-slate-400 mt-3">
+          Step {step} of {STEPS.length} — {STEPS[step - 1].label}
+        </p>
       </div>
 
-      {/* Password Modal */}
-      {showPasswordModal && (teacherUsername || teacherPassword) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full mx-4">
-            <h3 className="text-xl font-bold mb-4 text-green-700">Teacher Account Created!</h3>
-            
-            <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-              <h4 className="font-semibold text-blue-800 mb-3">Login Credentials</h4>
-              
-              <div className="mb-3">
-                <label className="text-sm font-medium text-gray-600">Username:</label>
-                <div className="flex items-center gap-2 mt-1">
-                  <code className="flex-1 p-2 bg-white border border-gray-300 rounded text-sm font-mono break-all">
-                    {teacherUsername}
-                  </code>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(teacherUsername!);
-                      toast.success('Username copied!');
-                    }}
-                    className="px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors whitespace-nowrap"
-                  >
-                    Copy
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-600">Password:</label>
-                <div className="flex items-center gap-2 mt-1">
-                  <code className="flex-1 p-2 bg-white border border-gray-300 rounded text-sm font-mono break-all">
-                    {teacherPassword}
-                  </code>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(teacherPassword!);
-                      toast.success('Password copied!');
-                    }}
-                    className="px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors whitespace-nowrap"
-                  >
-                    Copy
-                  </button>
-                </div>
-              </div>
+      {/* Credentials Modal */}
+      {modal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-7 max-w-md w-full">
+            <h3 className="text-lg font-bold text-slate-900 mb-1">Teacher Account Created</h3>
+            <p className="text-xs text-slate-500 mb-5">
+              Copy and securely share these credentials. The teacher should change their password on first login.
+            </p>
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-2 mb-4">
+              <div className="text-xs font-bold text-blue-700 uppercase tracking-wider mb-2">Login Credentials</div>
+              <CredRow label="Username" value={modal.username} />
+              <CredRow label="Password" value={modal.password} />
             </div>
-
-            <div className="bg-yellow-50 p-3 rounded border border-yellow-200 mb-4">
-              <p className="text-sm text-yellow-800">
-                <strong>Important:</strong> Please save these credentials securely and share them with the teacher. 
-                They should change their password on first login.
-              </p>
-            </div>
-
-            <button
-              onClick={() => {
-                setShowPasswordModal(false);
-                setTeacherUsername(null);
-                setTeacherPassword(null);
-              }}
-              className="w-full bg-green-600 text-white px-4 py-3 rounded-lg font-semibold hover:bg-green-700 transition-colors"
-            >
-              Close
+            <button onClick={() => setModal(null)}
+              className="w-full py-2.5 bg-slate-900 text-white rounded-xl text-sm font-semibold hover:bg-slate-800 transition-colors">
+              Done
             </button>
           </div>
         </div>
       )}
+    </>
+  );
+};
+
+// ─── Review helpers ───────────────────────────────────────────────────────────
+
+const ReviewSection = ({ title, children }: { title: string; children: React.ReactNode }) => (
+  <div>
+    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{title}</div>
+    <div className="bg-slate-50 border border-slate-200 rounded-xl divide-y divide-slate-100">
+      {children}
+    </div>
+  </div>
+);
+
+const ReviewRow = ({ label, value }: { label: string; value?: string }) => {
+  if (!value) return null;
+  return (
+    <div className="flex items-start justify-between gap-4 px-4 py-2.5">
+      <span className="text-xs text-slate-500 flex-shrink-0 w-24">{label}</span>
+      <span className="text-sm text-slate-800 text-right">{value}</span>
+    </div>
+  );
+};
+
+const CredRow = ({ label, value }: { label: string; value?: string }) => {
+  if (!value) return null;
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-xs text-slate-500 w-16 flex-shrink-0">{label}</span>
+      <span className="cred-pill flex-1 text-sm bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-slate-800 truncate">
+        {value}
+      </span>
+      <button
+        onClick={() => { navigator.clipboard.writeText(value); toast.success(`${label} copied`); }}
+        className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex-shrink-0">
+        Copy
+      </button>
     </div>
   );
 };
 
 export default AddTeacherForm;
+       

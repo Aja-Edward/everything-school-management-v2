@@ -18,16 +18,22 @@ type StudentFormData = {
   bloodGroup: string;
   dateOfBirth: string;
   placeOfBirth: string;
-  student_class: string;  // Class/GradeLevel ID
-  section: string;         // Section ID
-  stream: string;          // Stream ID
+  student_class: string;
+  section: string;
+  stream: string;
   registration_number: string;
   address: string;
   phoneNumber: string;
   paymentMethod: string;
   medicalConditions: string;
   specialRequirements: string;
-  classroom: string;       // Optional - computed by backend
+  classroom: string;
+  section_detail?: {
+    id: number;
+    class_grade: number;
+    class_grade_name: string;
+    name: string;
+  }
   academicYear: string;
 };
 
@@ -41,9 +47,9 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  
+
   const isSuperAdmin = user?.is_superuser && user?.is_staff;
-  
+
   const [formData, setFormData] = useState<StudentFormData>({
     photo: null,
     firstName: '',
@@ -66,71 +72,44 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
     classroom: '',
     academicYear: '',
   });
-  
+  const [gradesExpanded, setGradesExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [student, setStudent] = useState<Student | null>(null);
-  
-  // ✅ NEW: State for cascading dropdowns
+
   const [gradeLevels, setGradeLevels] = useState<any[]>([]);
   const [sections, setSections] = useState<any[]>([]);
   const [classrooms, setClassrooms] = useState<any[]>([]);
   const [streams, setStreams] = useState<any[]>([]);
-  
+
   const [loadingGrades, setLoadingGrades] = useState(false);
   const [loadingSections, setLoadingSections] = useState(false);
   const [loadingClassrooms, setLoadingClassrooms] = useState(false);
   const [loadingStreams, setLoadingStreams] = useState(false);
 
-  // ✅ Fetch grade levels on mount
+  // ✅ Trigger load on mount
   useEffect(() => {
-    const fetchGradeLevels = async () => {
-      setLoadingGrades(true);
-      try {
-        const response = await api.get('/api/classrooms/grades/');
-        const gradesArray = Array.isArray(response) ? response : response?.results || response?.data || [];
-        setGradeLevels(gradesArray);
-      } catch (error) {
-        console.error('Error fetching grade levels:', error);
-        toast.error('Failed to load grade levels');
-      } finally {
-        setLoadingGrades(false);
-      }
-    };
+    if (id) {
+      loadStudentData();
+    }
+  }, [id]);
 
-    fetchGradeLevels();
-  }, []);
-
-  // ✅ Fetch streams on mount
+  // ✅ Fetch sections when grade changes (user-driven change only)
   useEffect(() => {
-    const fetchStreams = async () => {
-      setLoadingStreams(true);
-      try {
-        const response = await api.get('/api/classrooms/streams/');
-        const streamsArray = Array.isArray(response) ? response : response?.results || response?.data || [];
-        setStreams(streamsArray);
-      } catch (error) {
-        console.error('Error fetching streams:', error);
-        toast.error('Failed to load streams');
-      } finally {
-        setLoadingStreams(false);
-      }
-    };
+    if (!formData.student_class) {
+      setSections([]);
+      return;
+    }
 
-    fetchStreams();
-  }, []);
+    // Skip re-fetch if sections are already seeded for this grade
+    if (sections.length > 0 && student?.student_class?.toString() === formData.student_class) {
+      return;
+    }
 
-  // ✅ Fetch sections when student_class changes
-  useEffect(() => {
     const fetchSections = async () => {
-      if (!formData.student_class) {
-        setSections([]);
-        return;
-      }
-
       setLoadingSections(true);
       try {
         const response = await api.get(`/api/classrooms/grades/${formData.student_class}/sections/`);
@@ -138,23 +117,27 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
         setSections(sectionsArray);
       } catch (error) {
         console.error('Error fetching sections:', error);
-        setSections([]);
       } finally {
         setLoadingSections(false);
       }
     };
 
     fetchSections();
-  }, [formData.student_class]);
+  }, [formData.student_class, student?.student_class]);
 
-  // ✅ Fetch classrooms when section changes
+  // ✅ Fetch classrooms when section changes (user-driven change only)
   useEffect(() => {
-    const fetchClassrooms = async () => {
-      if (!formData.section) {
-        setClassrooms([]);
-        return;
-      }
+    if (!formData.section) {
+      setClassrooms([]);
+      return;
+    }
 
+    // Skip re-fetch if classrooms are already seeded for this section
+    if (classrooms.length > 0 && student?.section?.toString() === formData.section) {
+      return;
+    }
+
+    const fetchClassrooms = async () => {
       setLoadingClassrooms(true);
       try {
         const response = await api.get(`/api/classrooms/classrooms/?section=${formData.section}`);
@@ -162,73 +145,43 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
         setClassrooms(classroomList);
       } catch (error) {
         console.error('Error fetching classrooms:', error);
-        setClassrooms([]);
       } finally {
         setLoadingClassrooms(false);
       }
     };
 
     fetchClassrooms();
-  }, [formData.section]);
-
-  useEffect(() => {
-    if (id) {
-      loadStudentData();
-    }
-  }, [id]);
+  }, [formData.section, student?.section]);
 
   const loadStudentData = async () => {
     if (!id) return;
-    
     setLoading(true);
     setError(null);
-    
+
     try {
       const studentData = await StudentService.getStudent(parseInt(id));
+      console.log('Fetched student data:', studentData);
       setStudent(studentData);
-      
-      const mapGenderValue = (backendGender: string) => {
-        if (backendGender === 'M') return 'M';
-        if (backendGender === 'F') return 'F';
-        return backendGender;
-      };
-      
-      // IMPROVED NAME PARSING LOGIC
-      const nameParts = (studentData.full_name || '').trim().split(' ').filter(part => part.length > 0);
-      let firstName = '';
-      let middleName = '';
-      let lastName = '';
-      
-      if (nameParts.length === 1) {
-        firstName = nameParts[0];
-      } else if (nameParts.length === 2) {
-        firstName = nameParts[0];
-        lastName = nameParts[1];
-      } else if (nameParts.length >= 3) {
-        firstName = nameParts[0];
-        middleName = nameParts.slice(1, -1).join(' ');
-        lastName = nameParts[nameParts.length - 1];
-      }
-      
-          
-      // ✅ FIXED: Store FK IDs as strings for form fields
+
+      // Read name fields directly from user object — more reliable than splitting full_name
+      const firstName = studentData.first_name || '';
+      const middleName = studentData.middle_name || '';
+      const lastName = studentData.last_name || '';
+
       setFormData({
         photo: studentData.profile_picture || null,
-        firstName: firstName,
-        middleName: middleName,
-        lastName: lastName,
-        email: studentData.user_details?.email || '',
-        gender: mapGenderValue(studentData.gender || ''),
+        firstName,
+        middleName,
+        lastName,
+        email: studentData.user?.email || studentData.email || '',
+        gender: studentData.gender || '',
         bloodGroup: studentData.blood_group || '',
         dateOfBirth: studentData.date_of_birth || '',
         placeOfBirth: studentData.place_of_birth || '',
-        
-        // ✅ Store FK IDs (backend returns IDs, not enum strings)
         student_class: studentData.student_class?.toString() || '',
         section: studentData.section?.toString() || '',
         stream: studentData.stream?.toString() || '',
-        
-        registration_number: studentData.username || '',
+        registration_number: studentData.registration_number || studentData.username || '',
         address: studentData.address || '',
         phoneNumber: studentData.phone_number || '',
         paymentMethod: studentData.payment_method || '',
@@ -237,7 +190,29 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
         classroom: studentData.classroom || '',
         academicYear: '',
       });
-      
+
+      // Seed dropdowns immediately with student's current values
+      // so the user sees their selections without waiting for background fetch
+      if (studentData.student_class_detail) {
+        setGradeLevels([studentData.student_class_detail]);
+      }
+      if (studentData.section_detail) {
+        setSections([studentData.section_detail]);
+      }
+      if (studentData.stream_detail) {
+        setStreams([studentData.stream_detail]);
+      }
+      if (studentData.classroom) {
+        setClassrooms([{
+          id: studentData.section,
+          name: studentData.classroom,
+          display_name: studentData.classroom,
+        }]);
+      }
+
+      // Then expand dropdowns with full lists in background
+      fetchFullDropdownLists();
+
     } catch (error) {
       console.error('Error loading student data:', error);
       setError('Failed to load student data');
@@ -246,6 +221,44 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
       setLoading(false);
     }
   };
+
+  // Fetches full grade and stream lists after student data is loaded.
+  // Runs in the background — formData already has correct IDs so dropdowns
+  // will auto-select correctly once the full lists arrive.
+  const fetchFullDropdownLists = async () => {
+  setLoadingStreams(true);
+  try {
+    const [streamsRes] = await Promise.all([
+      api.get('/api/classrooms/streams/'),
+    ]);
+    const streamsArray = Array.isArray(streamsRes)
+      ? streamsRes
+      : streamsRes?.results || streamsRes?.data || [];
+    setStreams(streamsArray);
+  } catch (error) {
+    console.error('Error fetching streams:', error);
+  } finally {
+    setLoadingStreams(false);
+  }
+};
+
+const handleGradeDropdownOpen = async () => {
+  if (gradesExpanded) return; // already loaded full list
+  setGradesExpanded(true);
+  setLoadingGrades(true);
+  try {
+    const response = await api.get('/api/classrooms/grades/');
+    const gradesArray = Array.isArray(response)
+      ? response
+      : response?.results || response?.data || [];
+    setGradeLevels(gradesArray); // now safe — user explicitly opened dropdown
+  } catch (error) {
+    console.error('Error fetching grade levels:', error);
+    toast.error('Failed to load grade levels');
+  } finally {
+    setLoadingGrades(false);
+  }
+};
 
   const handleInputChange = (field: keyof StudentFormData, value: string | boolean) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -259,12 +272,10 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
       toast.error('Only super administrators can upload profile pictures');
       return;
     }
-
     if (!file.type.startsWith('image/')) {
       toast.error('Please select an image file');
       return;
     }
-
     if (file.size > 5 * 1024 * 1024) {
       toast.error('File size must be less than 5MB');
       return;
@@ -275,20 +286,16 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
       const cloudinaryData = new FormData();
       cloudinaryData.append('file', file);
       cloudinaryData.append('upload_preset', 'profile_upload');
-      
+
       const response = await fetch('https://api.cloudinary.com/v1_1/djbz7wunu/image/upload', {
         method: 'POST',
-        body: cloudinaryData
+        body: cloudinaryData,
       });
-      
-      if (!response.ok) {
-        throw new Error('Upload failed');
-      }
-      
+
+      if (!response.ok) throw new Error('Upload failed');
+
       const result = await response.json();
-      const photoUrl = result.secure_url;
-      
-      handleInputChange('photo', photoUrl);
+      handleInputChange('photo', result.secure_url);
       toast.success('Profile picture uploaded successfully');
     } catch (error) {
       console.error('Error uploading photo:', error);
@@ -300,70 +307,95 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (!id) return;
-    
+
+    // Validate grade level
+    const selectedGrade = gradeLevels.find(g => g.id.toString() === formData.student_class);
+    const gradeFromStudent = student?.student_class_detail?.id.toString() === formData.student_class
+      ? student.student_class_detail
+      : null;
+
+    if (formData.student_class && !selectedGrade && !gradeFromStudent) {
+      const msg = `Selected grade level is no longer valid. Please select a different class.`;
+      toast.error(msg);
+      setError(msg);
+      return;
+    }
+
+    const gradeToCheck = selectedGrade || gradeFromStudent;
+
+    // Validate section
+    if (formData.section) {
+      const selectedSection = sections.find(s => s.id.toString() === formData.section);
+      if (!selectedSection) {
+        const msg = `Selected section is no longer valid. Please select a different section.`;
+        toast.error(msg);
+        setError(msg);
+        return;
+      }
+      if (gradeToCheck && selectedSection.class_grade) {
+        if (selectedSection.class_grade.toString() !== formData.student_class) {
+          const msg = `Selected section does not belong to the selected class.`;
+          toast.error(msg);
+          setError(msg);
+          return;
+        }
+      }
+    }
+
+    // Validate stream for Senior Secondary
+    if (isSeniorSecondary() && !formData.stream) {
+      toast.error('Stream is required for Senior Secondary students');
+      setError('Stream is required for Senior Secondary students');
+      return;
+    }
+
     setSaving(true);
     setError(null);
     setSuccess(null);
 
     try {
-      // IMPROVED FULL NAME CONSTRUCTION - Remove empty parts and extra spaces
-      const nameParts = [
-        formData.firstName.trim(),
-        formData.middleName.trim(),
-        formData.lastName.trim()
-      ].filter(part => part.length > 0);
-      
-      const fullName = nameParts.join(' ');
-      
-      // ✅ FIXED: Prepare update data with FK IDs as integers
       const updateData: any = {
-        full_name: fullName,
+        // Send individual name fields — serializer writes to user.first_name etc.
+        first_name: formData.firstName.trim(),
+        middle_name: formData.middleName.trim(),
+        last_name: formData.lastName.trim(),
         email: formData.email,
         gender: formData.gender,
         blood_group: formData.bloodGroup,
         date_of_birth: formData.dateOfBirth,
         place_of_birth: formData.placeOfBirth,
-        
-        // ✅ Send FK IDs as integers, not enum strings
         student_class: formData.student_class ? parseInt(formData.student_class) : null,
         section: formData.section ? parseInt(formData.section) : null,
         stream: formData.stream ? parseInt(formData.stream) : null,
-        
         registration_number: formData.registration_number,
         address: formData.address,
         phone_number: formData.phoneNumber,
         payment_method: formData.paymentMethod,
         medical_conditions: formData.medicalConditions,
         special_requirements: formData.specialRequirements,
-        
-        // classroom is optional - backend can compute it
         ...(formData.photo ? { profile_picture: formData.photo } : {}),
       };
-      
-      console.log('🔍 DEBUG: Submitting student update');
-      console.log('🔍 DEBUG: Full name being sent:', fullName);
-      console.log('🔍 DEBUG: Complete update data:', updateData);
 
       const response = await StudentService.updateStudent(parseInt(id), updateData);
-      
-      console.log('✅ DEBUG: Update response:', response);
-      
+
       setSuccess('Student updated successfully');
       toast.success('Student updated successfully');
-      
+
       if (onStudentUpdated) {
         onStudentUpdated(response);
       }
-      
+
       setTimeout(() => {
         navigate('/admin/students');
       }, 1500);
-      
+
     } catch (error: any) {
-      console.error('❌ ERROR: Failed to update student:', error);
-      const errorMessage = error?.response?.data?.detail || error?.response?.data?.error || 'Failed to update student';
+      console.error('Error updating student:', error);
+      const errorMessage =
+        error?.response?.data?.detail ||
+        error?.response?.data?.error ||
+        'Failed to update student';
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
@@ -371,14 +403,18 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
     }
   };
 
-  // ✅ Get selected grade info for stream requirement check
   const getSelectedGrade = () => {
-    return gradeLevels.find(g => g.id === parseInt(formData.student_class));
+    return gradeLevels.find(g => g.id.toString() === formData.student_class);
   };
 
   const isSeniorSecondary = () => {
     const grade = getSelectedGrade();
-    return grade?.education_level === 'SENIOR_SECONDARY';
+    // Handle both flat and nested education_level shape from API
+    const levelType = grade?.education_level_detail?.level_type || grade?.education_level;
+    if (levelType === 'SENIOR_SECONDARY') return true;
+    // Fallback to student's own education_level property
+    if (student?.education_level === 'SENIOR_SECONDARY' && formData.student_class) return true;
+    return false;
   };
 
   if (loading) {
@@ -395,6 +431,7 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+
         {/* Header */}
         <div className="mb-8">
           <button
@@ -404,15 +441,14 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
             <ArrowLeft className="w-5 h-5 mr-2" />
             Back to Students
           </button>
-          
+
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Edit Student</h1>
               <p className="text-gray-600 mt-1">
-                Update student information {isSuperAdmin ? '(Super Admin Access)' : '(Limited Access)'}
+                Update student information {isSuperAdmin ? '(Super Admin Access)' : '(Standard Access)'}
               </p>
             </div>
-            
             {student && (
               <div className="text-right">
                 <p className="text-sm text-gray-500">Student ID</p>
@@ -422,29 +458,27 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
           </div>
         </div>
 
-        {/* Error/Success Messages */}
+        {/* Error / Success */}
         {error && (
           <div className="mb-6 bg-red-50 border border-red-200 rounded-md p-4">
             <p className="text-red-800">{error}</p>
           </div>
         )}
-        
         {success && (
           <div className="mb-6 bg-green-50 border border-green-200 rounded-md p-4">
             <p className="text-green-800">{success}</p>
           </div>
         )}
 
-        {/* Form */}
         <form onSubmit={handleSubmit} className="bg-white shadow-lg rounded-lg overflow-hidden">
-          {/* Profile Picture Section */}
+
+          {/* Profile Picture — Super Admin only */}
           {isSuperAdmin && (
             <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
               <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
                 <Camera className="w-5 h-5 mr-2" />
                 Profile Picture
               </h3>
-              
               <div className="flex items-center space-x-6">
                 <div className="flex-shrink-0">
                   {formData.photo ? (
@@ -459,37 +493,32 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
                     </div>
                   )}
                 </div>
-                
                 <div className="flex-1">
-                  <label className="block">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handlePhotoUpload}
-                      disabled={uploading}
-                      className="hidden"
-                      id="photo-upload"
-                    />
-                    <label
-                      htmlFor="photo-upload"
-                      className="cursor-pointer inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-                    >
-                      {uploading ? (
-                        <>
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"></div>
-                          Uploading...
-                        </>
-                      ) : (
-                        <>
-                          <Upload className="w-4 h-4 mr-2" />
-                          {formData.photo ? 'Change Photo' : 'Upload Photo'}
-                        </>
-                      )}
-                    </label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handlePhotoUpload}
+                    disabled={uploading}
+                    className="hidden"
+                    id="photo-upload"
+                  />
+                  <label
+                    htmlFor="photo-upload"
+                    className="cursor-pointer inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  >
+                    {uploading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"></div>
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4 mr-2" />
+                        {formData.photo ? 'Change Photo' : 'Upload Photo'}
+                      </>
+                    )}
                   </label>
-                  <p className="mt-1 text-xs text-gray-500">
-                    JPG, PNG or GIF. Max size 5MB.
-                  </p>
+                  <p className="mt-1 text-xs text-gray-500">JPG, PNG or GIF. Max size 5MB.</p>
                 </div>
               </div>
             </div>
@@ -498,12 +527,10 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
           {/* Student Information */}
           <div className="px-6 py-4 border-b border-gray-200">
             <h3 className="text-lg font-medium text-gray-900 mb-4">Student Information</h3>
-            
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  First Name *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
                 <input
                   type="text"
                   value={formData.firstName}
@@ -512,11 +539,9 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
                   required
                 />
               </div>
-              
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Middle Name
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Middle Name</label>
                 <input
                   type="text"
                   value={formData.middleName}
@@ -524,11 +549,9 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
-              
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Last Name *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
                 <input
                   type="text"
                   value={formData.lastName}
@@ -537,11 +560,9 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
                   required
                 />
               </div>
-              
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
                 <input
                   type="email"
                   value={formData.email}
@@ -550,11 +571,9 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
                   required
                 />
               </div>
-              
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Gender *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Gender *</label>
                 <select
                   value={formData.gender}
                   onChange={(e) => handleInputChange('gender', e.target.value)}
@@ -566,11 +585,9 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
                   <option value="F">Female</option>
                 </select>
               </div>
-              
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Blood Group
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Blood Group</label>
                 <select
                   value={formData.bloodGroup}
                   onChange={(e) => handleInputChange('bloodGroup', e.target.value)}
@@ -582,11 +599,9 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
                   ))}
                 </select>
               </div>
-              
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Date of Birth *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Date of Birth *</label>
                 <input
                   type="date"
                   value={formData.dateOfBirth}
@@ -595,11 +610,9 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
                   required
                 />
               </div>
-              
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Place of Birth
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Place of Birth</label>
                 <input
                   type="text"
                   value={formData.placeOfBirth}
@@ -608,11 +621,9 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
                   placeholder="e.g., Lagos, Nigeria"
                 />
               </div>
-              
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Phone Number
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
                 <input
                   type="tel"
                   value={formData.phoneNumber}
@@ -621,11 +632,9 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
                   placeholder="e.g., +2348012345678"
                 />
               </div>
-              
+
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Address
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
                 <textarea
                   value={formData.address}
                   onChange={(e) => handleInputChange('address', e.target.value)}
@@ -634,11 +643,9 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
                   placeholder="Student's home address"
                 />
               </div>
-              
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Payment Method
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
                 <select
                   value={formData.paymentMethod}
                   onChange={(e) => handleInputChange('paymentMethod', e.target.value)}
@@ -652,177 +659,191 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
                   <option value="Other">Other</option>
                 </select>
               </div>
+
             </div>
           </div>
 
-          {/* Academic Information - ✅ FIXED SECTION */}
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Academic Information</h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Class/Grade Level * 
-                  <span className="text-xs text-gray-500 ml-2">(Step 1)</span>
-                </label>
-                <select
-                  value={formData.student_class}
-                  onChange={(e) => {
-                    const gradeId = e.target.value;
-                    handleInputChange('student_class', gradeId);
-                    // Reset dependent fields
-                    handleInputChange('section', '');
-                    handleInputChange('classroom', '');
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                  disabled={loadingGrades}
-                >
-                  <option value="">
-                    {loadingGrades ? 'Loading grades...' : 'Select Grade Level'}
-                  </option>
-                  {gradeLevels.map(grade => (
-                    <option key={grade.id} value={grade.id}>
-                      {grade.name || grade.display_name}
-                    </option>
-                  ))}
-                </select>
-                {gradeLevels.length > 0 && (
-                  <p className="mt-1 text-xs text-emerald-600">
-                    {gradeLevels.length} grade(s) loaded
-                  </p>
-                )}
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Section * 
-                  <span className="text-xs text-gray-500 ml-2">(Step 2)</span>
-                </label>
-                <select
-                  value={formData.section}
-                  onChange={(e) => {
-                    handleInputChange('section', e.target.value);
-                    // Reset classroom
-                    handleInputChange('classroom', '');
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                  disabled={!formData.student_class || loadingSections}
-                >
-                  <option value="">
-                    {loadingSections ? 'Loading sections...' : !formData.student_class ? 'Select grade first' : 'Select Section'}
-                  </option>
-                  {sections.map(section => (
-                    <option key={section.id} value={section.id}>
-                      {section.name}
-                    </option>
-                  ))}
-                </select>
-                {sections.length > 0 && (
-                  <p className="mt-1 text-xs text-emerald-600">
-                    {sections.length} section(s) available
-                  </p>
-                )}
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Classroom (Optional) 
-                  <span className="text-xs text-gray-500 ml-2">(Step 3)</span>
-                </label>
-                <select
-                  value={formData.classroom}
-                  onChange={(e) => handleInputChange('classroom', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  disabled={!formData.section || loadingClassrooms}
-                >
-                  <option value="">
-                    {loadingClassrooms 
-                      ? 'Loading classrooms...' 
-                      : !formData.section 
-                        ? 'Select section first' 
-                        : classrooms.length === 0
-                          ? 'No classrooms (can proceed without)'
-                          : 'Select Classroom (Optional)'}
-                  </option>
-                  {classrooms.map(room => (
-                    <option key={room.id} value={room.name || room.id}>
-                      {room.name || room.display_name || `Classroom ${room.id}`}
-                    </option>
-                  ))}
-                </select>
-                {formData.section && !loadingClassrooms && (
-                  <p className="mt-1 text-xs">
-                    {classrooms.length > 0 ? (
-                      <span className="text-emerald-600">{classrooms.length} classroom(s) available</span>
-                    ) : (
-                      <span className="text-slate-500">No classrooms configured</span>
-                    )}
-                  </p>
-                )}
-              </div>
-              
-              {/* Stream field - only for Senior Secondary */}
-              {isSeniorSecondary() && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Stream * <span className="text-xs text-gray-500">(Required for SS)</span>
-                  </label>
-                  <select
-                    value={formData.stream}
-                    onChange={(e) => handleInputChange('stream', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                    disabled={loadingStreams}
-                  >
-                    <option value="">Select Stream</option>
-                    {streams.map(stream => (
-                      <option key={stream.id} value={stream.id}>
-                        {stream.name} ({stream.stream_type})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Registration Number *
-                </label>
-                <input
-                  type="text"
-                  value={formData.registration_number}
-                  onChange={(e) => handleInputChange('registration_number', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Academic Year
-                </label>
-                <input
-                  type="text"
-                  value={formData.academicYear}
-                  onChange={(e) => handleInputChange('academicYear', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="e.g., 2024/2025"
-                />
-              </div>
-            </div>
-          </div>
+          {/* Academic Information */}
+<div className="px-6 py-4 border-b border-gray-200">
+  <h3 className="text-lg font-medium text-gray-900 mb-4">Academic Information</h3>
+  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+
+    {/* Grade Level */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">
+        Class/Grade Level *
+        <span className="text-xs text-gray-500 ml-2">(Step 1)</span>
+      </label>
+      <select
+  value={formData.student_class}
+  onFocus={handleGradeDropdownOpen} 
+  onChange={(e) => {
+    const gradeId = e.target.value;
+    handleInputChange('student_class', gradeId);
+    handleInputChange('section', '');
+    handleInputChange('classroom', '');
+    const selectedGrade = gradeLevels.find(g => g.id.toString() === gradeId);
+    const levelType =
+      selectedGrade?.education_level_detail?.level_type ||
+      selectedGrade?.education_level;
+    if (levelType !== 'SENIOR_SECONDARY') {
+      handleInputChange('stream', '');
+    }
+  }}
+  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+  required
+  disabled={loadingGrades}
+>
+  <option value="">
+    {loadingGrades ? 'Loading grades...' : 'Select Grade Level'}
+  </option>
+  {gradeLevels.map(grade => (
+    <option key={grade.id} value={grade.id.toString()}>
+      {grade.name || grade.display_name}
+    </option>
+  ))}
+</select>
+      {loadingGrades && (
+        <p className="mt-1 text-xs text-gray-400">Loading full list...</p>
+      )}
+    </div>
+
+    {/* Section */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">
+        Section *
+        <span className="text-xs text-gray-500 ml-2">(Step 2)</span>
+      </label>
+      <select
+        value={formData.section}  
+        onChange={(e) => {
+          handleInputChange('section', e.target.value);
+          handleInputChange('classroom', '');
+        }}
+        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        required
+        disabled={!formData.student_class || loadingSections}
+      >
+        <option value="">
+          {loadingSections
+            ? 'Loading sections...'
+            : !formData.student_class
+              ? 'Select grade first'
+              : 'Select Section'}
+        </option>
+        {sections.map(section => (
+          <option key={section.id} value={section.id.toString()}>
+            {section.name}  {/* ✅ Shows "Diamond" */}
+          </option>
+        ))}
+      </select>
+      {sections.length > 0 && (
+        <p className="mt-1 text-xs text-emerald-600">{sections.length} section(s) available</p>
+      )}
+    </div>
+
+    {/* Classroom */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">
+        Classroom (Optional)
+        <span className="text-xs text-gray-500 ml-2">(Step 3)</span>
+      </label>
+      <select
+        value={formData.classroom}  
+        onChange={(e) => handleInputChange('classroom', e.target.value)}
+        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        disabled={!formData.section || loadingClassrooms}
+      >
+        <option value="">
+          {loadingClassrooms
+            ? 'Loading classrooms...'
+            : !formData.section
+              ? 'Select section first'
+              : classrooms.length === 0
+                ? 'No classrooms (can proceed without)'
+                : 'Select Classroom (Optional)'}
+        </option>
+        {classrooms.map(room => (
+          <option key={room.id} value={room.name || room.id.toString()}>
+            {room.name || room.display_name || `Classroom ${room.id}`}
+          </option>
+        ))}
+      </select>
+      {formData.section && !loadingClassrooms && (
+        <p className="mt-1 text-xs">
+          {classrooms.length > 0
+            ? <span className="text-emerald-600">{classrooms.length} classroom(s) available</span>
+            : <span className="text-slate-500">No classrooms configured</span>}
+        </p>
+      )}
+    </div>
+
+    {/* Stream — Senior Secondary only */}
+    {isSeniorSecondary() && (
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Stream *
+          <span className="text-xs text-gray-500 ml-1">(Required for SS)</span>
+        </label>
+        <select
+          value={formData.stream}  
+          onChange={(e) => handleInputChange('stream', e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          required
+          disabled={loadingStreams}
+        >
+          <option value="">
+            {loadingStreams ? 'Loading streams...' : 'Select Stream'}
+          </option>
+          {streams.map(stream => (
+            <option key={stream.id} value={stream.id.toString()}>
+              {stream.name} ({stream.stream_type_name || 'Unnamed'})
+            </option>
+          ))}
+        </select>
+        {formData.stream && streams.length > 0 && (
+          <p className="mt-1 text-xs text-emerald-600">
+            ✓ {streams.find(s => s.id.toString() === formData.stream)?.name}
+          </p>
+        )}
+      </div>
+    )}
+
+    {/* Registration Number */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">
+        Registration Number *
+      </label>
+      <input
+        type="text"
+        value={formData.registration_number}
+        onChange={(e) => handleInputChange('registration_number', e.target.value)}
+        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        required
+      />
+    </div>
+
+    {/* Academic Year */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">Academic Year</label>
+      <input
+        type="text"
+        value={formData.academicYear}
+        onChange={(e) => handleInputChange('academicYear', e.target.value)}
+        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        placeholder="e.g., 2024/2025"
+      />
+    </div>
+
+  </div>
+</div>
 
           {/* Medical Information */}
           <div className="px-6 py-4 border-b border-gray-200">
             <h3 className="text-lg font-medium text-gray-900 mb-4">Medical Information</h3>
-            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Medical Conditions
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Medical Conditions</label>
                 <textarea
                   value={formData.medicalConditions}
                   onChange={(e) => handleInputChange('medicalConditions', e.target.value)}
@@ -831,11 +852,8 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
                   placeholder="Any known medical conditions..."
                 />
               </div>
-              
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Special Requirements
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Special Requirements</label>
                 <textarea
                   value={formData.specialRequirements}
                   onChange={(e) => handleInputChange('specialRequirements', e.target.value)}
@@ -856,7 +874,6 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
             >
               Cancel
             </button>
-            
             <button
               type="submit"
               disabled={saving}
@@ -877,7 +894,7 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
           </div>
         </form>
 
-        {/* Access Notice for Non-Super Admins */}
+        {/* Access notice — only shown to non-super-admins, scoped to photo upload */}
         {!isSuperAdmin && (
           <div className="mt-6 bg-yellow-50 border border-yellow-200 rounded-md p-4">
             <div className="flex">
@@ -887,16 +904,16 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({ onStudentUpdated }) =
                 </svg>
               </div>
               <div className="ml-3">
-                <h3 className="text-sm font-medium text-yellow-800">
-                  Limited Access
-                </h3>
-                <div className="mt-2 text-sm text-yellow-700">
-                  <p>You have limited editing permissions. Only super administrators can upload profile pictures and modify certain sensitive fields.</p>
-                </div>
+                <h3 className="text-sm font-medium text-yellow-800">Note</h3>
+                <p className="mt-1 text-sm text-yellow-700">
+                  Profile picture uploads are restricted to super administrators.
+                  All other student fields can be edited freely.
+                </p>
               </div>
             </div>
           </div>
         )}
+
       </div>
     </div>
   );

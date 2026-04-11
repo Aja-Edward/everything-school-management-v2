@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Save, Loader2, Building2, Globe, Calendar, Check, X } from 'lucide-react';
 import SettingsService from '@/services/SettingsService';
+import i18n from "i18next";
 import { API_BASE_URL } from '@/services/api';
+import { getAbsoluteUrl } from '@/utils/urlUtils';
+import { useTranslation } from "react-i18next";
+
 
 interface GeneralTabProps {
   settings?: any;
@@ -24,6 +28,21 @@ const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSe
     logo: '',
     favicon: ''
   });
+const { t } = useTranslation();
+
+
+ const handleLanguageChange = (lang: string) => {
+  setFormData((prev) => ({
+    ...prev,
+    language: lang,
+  }));
+
+  localStorage.setItem("lang", lang);
+  i18n.changeLanguage(lang);
+  document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+};
+
+
 
   const formatAcademicYear = (year: string) => {
   if (!year) return '';
@@ -49,17 +68,9 @@ const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSe
     if (initialSettings) {
       console.log('GeneralTab: Initializing with settings:', initialSettings);
       
-      // Helper function to construct full URL from filename or path
-      const constructFullUrl = (urlOrFilename: string) => {
-        if (!urlOrFilename) return '';
-        if (urlOrFilename.startsWith('http')) return urlOrFilename;
-        // If it's just a filename or relative path, construct full URL
-        const cleanPath = urlOrFilename.startsWith('/') ? urlOrFilename : `/${urlOrFilename}`;
-        return `${API_BASE_URL}${cleanPath}`;
-      };
-      
-      const logoUrl = constructFullUrl(initialSettings.logo);
-      const faviconUrl = constructFullUrl(initialSettings.favicon);
+
+      const logoUrl = getAbsoluteUrl(initialSettings.logo);
+      const faviconUrl = getAbsoluteUrl(initialSettings.favicon);
       
       console.log('GeneralTab: Constructed logo URL:', logoUrl);
       console.log('GeneralTab: Constructed favicon URL:', faviconUrl);
@@ -123,11 +134,13 @@ const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSe
       console.log('GeneralTab: Uploading logo...', file.name);
       
       const result = await SettingsService.uploadLogo(file);
-      const fullLogoUrl = result.logoUrl
-        ? result.logoUrl.startsWith('http')
-          ? result.logoUrl
-          : `${API_BASE_URL}${result.logoUrl.startsWith('/') ? result.logoUrl : '/' + result.logoUrl}`
-        : '';
+      const normalizeUrl = (url?: string) => {
+      if (!url) return '';
+      if (url.startsWith('http')) return url;
+      return `${API_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+    };
+
+        const fullLogoUrl = normalizeUrl(result.logoUrl);
       console.log('GeneralTab: Logo upload result:', result);
       console.log('GeneralTab: Full logo URL:', fullLogoUrl);
       
@@ -265,7 +278,17 @@ const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSe
   ];
 
   const dateFormats = ['dd/mm/yyyy', 'mm/dd/yyyy', 'yyyy-mm-dd', 'dd-mm-yyyy'];
-  const languages = ['English', 'Spanish', 'French', 'German', 'Chinese', 'Arabic'];
+  // const languages = ['English', 'Spanish', 'French', 'German', 'Chinese', 'Arabic'];
+
+  const languages = [
+  { code: "en", label: "English" },
+  { code: "fr", label: "Français" },
+  { code: "es", label: "Español" },
+  { code: "de", label: "Deutsch" },
+  { code: "nl", label: "Nederlands" },
+  { code: "zh", label: "中文" },
+  { code: "ar", label: "العربية" },
+];
 
   return (
     <div className="p-8 space-y-8">
@@ -302,7 +325,7 @@ const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSe
       {/* School Information Section */}
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
         <h3 className="text-xl font-semibold text-slate-900 mb-6 flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+          <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
             <Building2 className="w-4 h-4 text-white" />
           </div>
           School Information
@@ -311,7 +334,7 @@ const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSe
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">
-              School Name <span className="text-red-500">*</span>
+             <label>{t("settings.school_name")}</label> <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
@@ -408,7 +431,7 @@ const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSe
       {/* Localization Section */}
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
         <h3 className="text-xl font-semibold text-slate-900 mb-6 flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-teal-600 rounded-lg flex items-center justify-center">
+          <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
             <Globe className="w-4 h-4 text-white" />
           </div>
           Localization
@@ -450,37 +473,20 @@ const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSe
               Language
             </label>
             <select
-              value={formData.language}
-              onChange={(e) => handleInputChange('language', e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
-            >
-              {languages.map(lang => (
-                <option key={lang} value={lang}>{lang}</option>
-              ))}
+                value={formData.language}
+                onChange={(e) => handleLanguageChange(e.target.value)}
+              >
+                {languages.map((lang) => (
+                  <option key={lang.code} value={lang.code}>
+                    {lang.label}
+                  </option>
+                ))}
             </select>
           </div>
         </div>
       </div>
 
-      {/* Academic Year Section */}
-      <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
-        <h3 className="text-xl font-semibold text-slate-900 mb-6 flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-red-600 rounded-lg flex items-center justify-center">
-            <Calendar className="w-4 h-4 text-white" />
-          </div>
-          Academic Year
-        </h3>
-        
-        <div>
-          <input
-            type="text"
-            value={formData.academicYear}
-            onChange={(e) => handleInputChange('academicYear', e.target.value)}
-            placeholder="e.g., 2025/2026"
-            className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
-          />
-        </div>
-      </div>
+      
 
       {/* Branding Section */}
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
@@ -546,7 +552,7 @@ const GeneralTab: React.FC<GeneralTabProps> = ({ settings: initialSettings, onSe
         <button
           onClick={handleSave}
           disabled={isLoading}
-          className="flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl transform hover:scale-105"
+          className="flex items-center gap-3 px-6 py-3 bg-black text-white rounded-xl hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl transform hover:scale-105"
         >
           {isLoading ? (
             <Loader2 className="w-5 h-5 animate-spin" />

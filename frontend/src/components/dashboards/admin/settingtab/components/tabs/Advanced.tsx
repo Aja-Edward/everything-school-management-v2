@@ -2055,7 +2055,7 @@ const Advanced: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      const response = await api.get('/api/school-settings/school-settings/');
+      const response = await api.get('/school-settings/school-settings/');
       
       const settings = {
         student_portal_enabled: response.student_portal_enabled ?? true,
@@ -2079,7 +2079,7 @@ const Advanced: React.FC = () => {
       setError(null);
       setSuccess(false);
       
-      await api.put('api/school-settings/school-settings/', currentPortalSettings);
+      await api.put('/school-settings/school-settings/', currentPortalSettings);
       
       setOriginalPortalSettings(currentPortalSettings);
       setSuccess(true);

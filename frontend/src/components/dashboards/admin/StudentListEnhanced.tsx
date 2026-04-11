@@ -136,7 +136,7 @@ const StudentListEnhanced: React.FC = () => {
         (s) =>
           s.full_name?.toLowerCase().includes(q) ||
           s.username?.toLowerCase().includes(q) ||
-          s.user_details?.email?.toLowerCase().includes(q) ||
+          s.user?.email?.toLowerCase().includes(q) ||
           s.registration_number?.toLowerCase().includes(q),
       );
     }
@@ -481,7 +481,7 @@ const StudentListEnhanced: React.FC = () => {
                             <p className="text-sm font-medium text-gray-900">{student.full_name}</p>
                             <p className="text-xs text-gray-500">
                               {student.registration_number ??
-                                student.user_details?.email ??
+                                student.user?.email ??
                                 student.username ??
                                 `#${student.id}`}
                             </p>
@@ -636,10 +636,10 @@ const StudentListEnhanced: React.FC = () => {
                     <BookOpen className="w-4 h-4 text-gray-400 flex-shrink-0" />
                     <span className="text-gray-600">{resolveEducationLevelDisplay(student)}</span>
                   </div>
-                  {student.user_details?.email && (
+                  {student.user?.email && (
                     <div className="flex items-center gap-2 text-sm">
                       <Mail className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                      <span className="text-gray-600 truncate">{student.user_details.email}</span>
+                      <span className="text-gray-600 truncate">{student.user?.email}</span>
                     </div>
                   )}
                   {student.date_of_birth && (

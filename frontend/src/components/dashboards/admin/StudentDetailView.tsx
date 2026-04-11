@@ -170,6 +170,8 @@ const StudentDetailView: React.FC = () => {
     setError(null);
     try {
       const data = await StudentService.getStudent(parseInt(id, 10));
+      console.log('Loaded student data:', data);
+      
       setStudent(data);
     } catch (err) {
       console.error('Error loading student data:', err);
@@ -237,9 +239,7 @@ const StudentDetailView: React.FC = () => {
   // ---- Derived values (all type-safe) ----
   const classDisplay = resolveDisplayName(student.student_class, student.student_class_display);
   const sectionDisplay = resolveDisplayName(student.section, student.section_display);
-  const educationLevelDisplay =
-    student.education_level_display ??
-    (student.education_level ? EDUCATION_LEVEL_LABEL[student.education_level] : '—');
+ 
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -313,7 +313,7 @@ const StudentDetailView: React.FC = () => {
                   <div className="mb-1 min-w-0">
                     <h2 className="text-xl font-bold text-gray-900 truncate">{student.full_name}</h2>
                     <p className="text-sm text-gray-500">
-                      {student.user_details?.email ?? '—'}
+                      {student.email ?? '—'}
                     </p>
                   </div>
                 </div>
@@ -322,11 +322,17 @@ const StudentDetailView: React.FC = () => {
                 <div className="flex flex-wrap gap-2">
                   <StatusBadge isActive={student.is_active} />
                   <GenderBadge gender={student.gender} />
-                  <EducationBadge level={student.education_level} />
-                  {student.registration_number && (
+                  {student.education_level ? (
+                    <EducationBadge level={student.education_level} />
+                  ) : student.education_level_display ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600 ring-1 ring-gray-200">
+                      {student.education_level_display}
+                    </span>
+                  ) : null}
+                  {student.username && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600 ring-1 ring-gray-200">
                       <Hash className="w-3 h-3" />
-                      {student.registration_number}
+                       {student.username ?? '—'}
                     </span>
                   )}
                 </div>
@@ -378,11 +384,15 @@ const StudentDetailView: React.FC = () => {
                   icon={<BookOpen className="w-4 h-4" />}
                   label="Education Level"
                   value={
-                    student.education_level ? (
-                      <EducationBadge level={student.education_level} />
-                    ) : (
-                      educationLevelDisplay
-                    )
+                  student.education_level ? (
+                    <EducationBadge level={student.education_level} />
+                  ) : student.education_level_display ? (
+                    <span className="text-sm font-medium text-gray-900">
+                      {student.education_level_display}
+                    </span>
+                  ) : (
+                    '—'
+                  )
                   }
                 />
                 <InfoRow
@@ -394,6 +404,11 @@ const StudentDetailView: React.FC = () => {
                   icon={<Users className="w-4 h-4" />}
                   label="Section"
                   value={sectionDisplay}
+                />
+                <InfoRow
+                  icon={<BookOpen className="w-4 h-4" />}
+                  label="Stream"
+                  value={student.stream_name || '—'}
                 />
                 <InfoRow
                   icon={<Users className="w-4 h-4" />}
@@ -418,7 +433,7 @@ const StudentDetailView: React.FC = () => {
                 <InfoRow
                   icon={<Mail className="w-4 h-4" />}
                   label="Email"
-                  value={student.user_details?.email}
+                  value={student.user?.email}
                 />
                 <InfoRow
                   icon={<Phone className="w-4 h-4" />}
@@ -517,7 +532,15 @@ const StudentDetailView: React.FC = () => {
                   { label: 'Gender', value: <GenderBadge gender={student.gender} /> },
                   {
                     label: 'Education Level',
-                    value: <EducationBadge level={student.education_level} />,
+                    value: student.education_level ? (
+                      <EducationBadge level={student.education_level} />
+                    ) : student.education_level_display ? (
+                      <span className="text-sm font-semibold text-gray-800">
+                        {student.education_level_display}
+                      </span>
+                    ) : (
+                      <span className="text-sm text-gray-400">—</span>
+                    ),
                   },
                   {
                     label: 'Age',
@@ -530,16 +553,15 @@ const StudentDetailView: React.FC = () => {
                     ),
                   },
                   {
-                    label: 'Stream',
-                    value:
-                      student.stream != null ? (
-                        <span className="text-sm font-semibold text-gray-800">
-                          {String(student.stream)}
-                        </span>
-                      ) : (
-                        <span className="text-sm text-gray-400">—</span>
-                      ),
-                  },
+                  label: 'Stream',
+                  value: student.stream_name ? (
+                    <span className="text-sm font-semibold text-gray-800">
+                      {student.stream_name}
+                    </span>
+                  ) : (
+                    <span className="text-sm text-gray-400">—</span>
+                  ),
+                },
                 ].map(({ label, value }) => (
                   <div key={label} className="flex items-center justify-between gap-2">
                     <span className="text-xs text-gray-500">{label}</span>

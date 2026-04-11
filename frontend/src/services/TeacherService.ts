@@ -1,376 +1,255 @@
 import api from '@/services/api';
+import { API_BASE_URL } from '@/services/api';
+import type {
+  Teacher,
+  AssignmentRequest,
+  UpdateTeacherData,
+  TeacherSchedule,
+  CreateAssignmentRequestData,
+  CreateScheduleData,
+  GradeLevel,
+  CreateTeacherPayload,
+  Section,
+  SubjectOption,
+  ClassroomOption,
+} from '@/types/teacher';
 
-export interface Teacher {
-  id: number;
-  first_name: string;
-  last_name: string;
-  full_name?: string;
-  employee_id?: string;
-  email: string;
-  phone_number: string;
-  address: string;
-  staff_type: 'teaching' | 'non-teaching';
-  level: 'nursery' | 'primary' | 'junior_secondary' | 'senior_secondary' | 'secondary' | null;
-  hire_date: string;
-  qualification: string;
-  specialization: string;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-  photo?: string;
-  date_of_birth?: string;
-  
-  // User object containing additional user info including bio
-  user?: {
-    id: number;
-    first_name: string;
-    last_name: string;
-    email: string;
-    username: string;
-    bio?: string;
-    date_of_birth?: string;
-    date_joined: string;
-    is_active: boolean;
+// ─── Shared auth helper ───────────────────────────────────────────────────────
+
+const getAuthHeaders = (): Record<string, string> => {
+  const token =
+    localStorage.getItem('access_token') ||
+    localStorage.getItem('authToken') ||
+    localStorage.getItem('token') ||
+    localStorage.getItem('jwt_token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
-  
-  // Updated to use new assignment structure
-  assigned_subjects: Array<{
-    id: number;
-    name: string;
-    code: string;
-  }>;
-  
-  // New classroom assignments using ClassroomTeacherAssignment
-  classroom_assignments?: Array<{
-    id: number;
-    classroom_name: string;
-    classroom_id: number;
-    section_name: string;
-    grade_level_name: string;
-    education_level: string;
-    academic_session: string;
-    term: string;
-    subject_name: string;
-    subject_code: string;
-    assigned_date: string;
-    room_number: string;
-    student_count: number;
-    max_capacity: number;
-    is_primary_teacher: boolean;
-    periods_per_week: number;
-    stream_name?: string;
-    stream_type?: string;
-  }>;
-  
-  // Legacy field for backward compatibility (deprecated)
-  teacher_assignments?: Array<{
-    id: number;
-    grade_level_name: string;
-    section_name: string;
-    subject_name: string;
-    education_level: string;
-  }>;
-  
-  assignment_requests?: AssignmentRequest[];
-  schedules?: TeacherSchedule[];
-}
+};
 
-export interface AssignmentRequest {
-  id: number;
-  teacher: number;
-  teacher_name: string;
-  teacher_id: number;
-  request_type: 'subject' | 'class' | 'schedule' | 'additional';
-  title: string;
-  description: string;
-  requested_subjects: number[];
-  requested_subjects_names: string[];
-  requested_grade_levels: number[];
-  requested_grade_levels_names: string[];
-  requested_sections: number[];
-  requested_sections_names: string[];
-  preferred_schedule: string;
-  reason: string;
-  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
-  admin_notes: string;
-  submitted_at: string;
-  reviewed_at?: string;
-  reviewed_by?: number;
-  reviewed_by_name?: string;
-  days_since_submitted: number;
-}
 
-export interface TeacherSchedule {
-  id: number;
-  teacher: number;
-  teacher_name: string;
-  day_of_week: string;
-  start_time: string;
-  end_time: string;
-  subject: number;
-  subject_name: string;
-  classroom: number;
-  classroom_name: string;
-  room_number: string;
-  is_active: boolean;
-  academic_session: string;
-  term: string;
-  created_at: string;
-  updated_at: string;
-}
 
-export interface CreateTeacherData {
-  user: {
-    first_name: string;
-    last_name: string;
-    email: string;
-    password: string;
-    bio?: string;
-  };
-  employee_id: string;
-  staff_type: 'teaching' | 'non-teaching';
-  level?: 'nursery' | 'primary' | 'junior_secondary' | 'senior_secondary' | 'secondary';
-  phone_number?: string;
-  address?: string;
-  date_of_birth?: string;
-  hire_date: string;
-  qualification?: string;
-  specialization?: string;
-  subjects?: number[];
-  // Updated to use new assignment structure
-  assignments?: Array<{
-    classroom_id: number;
-    subject_id: number;
-    is_primary_teacher?: boolean;
-    periods_per_week?: number;
-  }>;
-  photo?: string;
-}
 
-export interface UpdateTeacherData {
-  user?: {
-    first_name?: string;
-    last_name?: string;
-    email?: string;
-    bio?: string;
-  };
-  employee_id?: string;
-  staff_type?: 'teaching' | 'non-teaching';
-  level?: 'nursery' | 'primary' | 'junior_secondary' | 'senior_secondary' | 'secondary';
-  phone_number?: string;
-  address?: string;
-  date_of_birth?: string;
-  bio?: string;
-  hire_date?: string;
-  qualification?: string;
-  specialization?: string;
-  subjects?: number[];
-  // Updated to use new assignment structure
-  assignments?: Array<{
-    classroom_id: number;
-    subject_id: number;
-    is_primary_teacher?: boolean;
-    periods_per_week?: number;
-  }>;
-  photo?: string;
-  is_active?: boolean;
-}
-
-export interface CreateAssignmentRequestData {
-  request_type: 'subject' | 'class' | 'schedule' | 'additional';
-  title: string;
-  description: string;
-  requested_subjects?: number[];
-  requested_grade_levels?: number[];
-  requested_sections?: number[];
-  preferred_schedule?: string;
-  reason: string;
-}
-
-export interface CreateScheduleData {
-  day_of_week: string;
-  start_time: string;
-  end_time: string;
-  subject: number;
-  classroom: number;
-  room_number?: string;
-  academic_session?: string;
-  term?: string;
-}
-
-// New interface for enhanced teacher assignment management
-export interface CreateTeacherAssignmentData {
-  classroom_id: number;
-  teacher_id: number;
-  subject_id: number;
-  is_primary_teacher?: boolean;
-  periods_per_week?: number;
-}
-
-export interface UpdateTeacherAssignmentData {
-  is_primary_teacher?: boolean;
-  periods_per_week?: number;
-  is_active?: boolean;
-}
+// ─── TeacherService ───────────────────────────────────────────────────────────
 
 class TeacherService {
-  // Get all teachers
-  async getTeachers(params?: { 
-    search?: string; 
-    level?: string; 
+  // ── Teacher CRUD ────────────────────────────────────────────────────────────
+
+  async getTeachers(params?: {
+    search?: string;
+    level?: string;
     status?: string;
     page?: number;
     page_size?: number;
   }): Promise<{ results: Teacher[]; count: number }> {
     try {
-      const response = await api.get('/api/teachers/teachers/', { 
-        params: { 
-          ...params,
-          _t: Date.now() // Cache busting
-        } 
-      });
-      console.log('Raw API response:', response);
-      
-      // Handle both response formats: { results: [...] } and direct array
-      if (response && response.results && Array.isArray(response.results)) {
-        return { results: response.results, count: response.results.length };
+      // ✅ Correct
+      const response = await api.get('/api/teachers/teachers/', { ...params, _t: Date.now() });
+      if (response?.results && Array.isArray(response.results)) {
+        return { results: response.results, count: response.count ?? response.results.length };
       } else if (Array.isArray(response)) {
         return { results: response, count: response.length };
-      } else {
-        console.warn('Unexpected response format:', response);
-        return { results: [], count: 0 };
       }
+      return { results: [], count: 0 };
     } catch (error) {
       console.error('Error in getTeachers:', error);
       return { results: [], count: 0 };
     }
   }
 
-  // Get single teacher
   async getTeacher(id: number): Promise<Teacher> {
-    console.log('🔍 TeacherService.getTeacher - Fetching teacher with ID:', id);
-    const response = await api.get(`/api/teachers/teachers/${id}/`);
-    console.log('🔍 TeacherService.getTeacher - API response:', response);
-    return response;
+    return api.get(`/api/teachers/teachers/${id}/`);
   }
 
-  // Get teacher by user ID
-  async getTeacherByUserId(userId: number) {
-  try {
-    console.log('🔍 TeacherService.getTeacherByUserId - userId:', userId);
-    const response = await api.get(`/api/teachers/teachers/by-user/${userId}/`);
-    return response;
-  } catch (error: any) {
-    console.error('Teacher not found by user ID:', userId, error);
-    throw error;
-  }
-}
-
-  // Create teacher
-  async createTeacher(data: CreateTeacherData): Promise<Teacher> {
-    const response = await api.post('/api/teachers/teachers/', data);
-    return response;
+  async getTeacherByUserId(userId: number): Promise<Teacher> {
+    return api.get(`/api/teachers/teachers/by-user/${userId}/`);
   }
 
-  // Update teacher
+  async getMe(): Promise<Teacher> {
+    return api.get('/api/teachers/teachers/me/');
+  }
+
+  async createTeacher(
+    payload: CreateTeacherPayload,
+  ): Promise<Teacher & { user_username?: string; user_password?: string }> {
+    const token =
+      localStorage.getItem('access_token') ||
+      localStorage.getItem('authToken') ||
+      localStorage.getItem('token');
+
+    if (!token) throw new Error('Not authenticated. Please log in again.');
+
+    const res = await fetch(`${API_BASE_URL}/teachers/teachers/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const msg =
+        err.detail ||
+        err.message ||
+        err.error ||
+        Object.entries(err)
+          .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
+          .join('; ') ||
+        `HTTP ${res.status}`;
+      throw new Error(msg);
+    }
+
+    return res.json();
+  }
+
   async updateTeacher(id: number, data: UpdateTeacherData): Promise<Teacher> {
-    // Transform the data to match backend expectations
-    const updateData: any = { ...data };
-    
-    // If user data is provided, keep it as a nested object for the backend
-    // The backend should handle updating the nested user object
-    if (data.user) {
-      updateData.user = data.user;
-    }
-    
-    // Convert subjects from string array to number array if needed
-    if (data.subjects && Array.isArray(data.subjects)) {
-      updateData.subjects = data.subjects;
-    }
-    
-    // Ensure bio and date_of_birth are included if they exist
-    if (data.bio !== undefined) {
-      updateData.bio = data.bio;
-    }
-    if (data.date_of_birth !== undefined) {
-      updateData.date_of_birth = data.date_of_birth;
-    }
-    
-    console.log('🔍 TeacherService.updateTeacher - Sending data:', updateData);
-    const response = await api.patch(`/api/teachers/teachers/${id}/`, updateData);
-    console.log('🔍 TeacherService.updateTeacher - Response:', response);
-    return response;
+    return api.patch(`/api/teachers/teachers/${id}/`, data);
   }
 
-  // Delete teacher
   async deleteTeacher(id: number): Promise<{ message: string; status: string }> {
-    const response = await api.delete(`/api/teachers/teachers/${id}/`);
-    return response;
+    return api.delete(`/api/teachers/teachers/${id}/`);
   }
 
-  // Activate teacher
   async activateTeacher(id: number): Promise<{ status: string }> {
-    const response = await api.post(`/api/teachers/teachers/${id}/activate/`, {});
-    return response;
+    return api.post(`/api/teachers/teachers/${id}/activate/`, {});
   }
 
-  // Deactivate teacher
   async deactivateTeacher(id: number): Promise<{ status: string }> {
-    const response = await api.post(`/api/teachers/teachers/${id}/deactivate/`, {});
-    return response;
+    return api.post(`/api/teachers/teachers/${id}/deactivate/`, {});
   }
 
-  // Get teacher statistics
   async getTeacherStatistics(): Promise<{
     total: number;
     active: number;
     inactive: number;
-    by_level: {
-      nursery: number;
-      primary: number;
-      secondary: number;
-    };
+    by_level: { nursery: number; primary: number; secondary: number };
   }> {
-    const response = await api.get('/api/teachers/teachers/', { 
-      params: { 
-        _t: Date.now(),
-        statistics: true 
-      } 
-    });
-    
-    // Calculate statistics from the response
-    const teachers = response.results || response;
+    const { results: teachers } = await this.getTeachers();
     const total = teachers.length;
-    const active = teachers.filter((t: Teacher) => t.is_active).length;
+    const active = teachers.filter((t) => t.is_active).length;
     const inactive = total - active;
-    
-    const by_level = {
-      nursery: teachers.filter((t: Teacher) => t.level === 'nursery' && t.is_active).length,
-      primary: teachers.filter((t: Teacher) => t.level === 'primary' && t.is_active).length,
-      secondary: teachers.filter((t: Teacher) => t.level === 'secondary' && t.is_active).length,
+    return {
+      total,
+      active,
+      inactive,
+      by_level: {
+        nursery: teachers.filter((t) => t.level === 'nursery' && t.is_active).length,
+        primary: teachers.filter((t) => t.level === 'primary' && t.is_active).length,
+        secondary: teachers.filter(
+          (t) =>
+            (t.level === 'junior_secondary' || t.level === 'senior_secondary') && t.is_active,
+        ).length,
+      },
     };
-
-    return { total, active, inactive, by_level };
   }
 
-  // Assignment Request Management
+  async getTeacherWorkload(teacherId: number) {
+    return api.get(`/api/teachers/teachers/${teacherId}/workload/`);
+  }
+
+
+  /** Form level value → GradeLevelViewSet named action path segment */
+  private static readonly GRADE_ACTION: Record<string, string> = {
+    nursery:          'nursery_grades',
+    primary:          'primary_grades',
+    junior_secondary: 'junior_secondary_grades',
+    senior_secondary: 'senior_secondary_grades',
+  };
+
+  /** Form level value → education_level__level_type string (uppercase) */
+  private static readonly LEVEL_TYPE: Record<string, string> = {
+    nursery:          'NURSERY',
+    primary:          'PRIMARY',
+    junior_secondary: 'JUNIOR_SECONDARY',
+    senior_secondary: 'SENIOR_SECONDARY',
+  };
+
+  /**
+   * GET /classrooms/grades/{action}/
+   * Uses named actions instead of broken string filter.
+   */
+  async getGradeLevelsByEducationLevel(level: string): Promise<GradeLevel[]> {
+    const action = TeacherService.GRADE_ACTION[level];
+    if (!action) throw new Error(`Unknown level: "${level}"`);
+    const res = await fetch(
+      `${API_BASE_URL}/classrooms/grades/${action}/`,
+      { headers: getAuthHeaders() },
+    );
+    if (!res.ok) throw new Error(`Failed to fetch grade levels (${res.status})`);
+    const data = await res.json();
+    return Array.isArray(data) ? data : data.results ?? [];
+  }
+
+  /**
+   * GET /classrooms/grades/{id}/sections/
+   */
+  async getSectionsByGradeLevel(gradeLevelId: string | number): Promise<Section[]> {
+    const res = await fetch(
+      `${API_BASE_URL}/classrooms/grades/${gradeLevelId}/sections/`,
+      { headers: getAuthHeaders() },
+    );
+    if (!res.ok) throw new Error(`Failed to fetch sections (${res.status})`);
+    const data = await res.json();
+    return Array.isArray(data) ? data : data.results ?? [];
+  }
+
+  /**
+   * GET /subjects/?education_level=<UPPERCASE_LEVEL_TYPE>
+   */
+  async getSubjectsByEducationLevel(level: string): Promise<SubjectOption[]> {
+  const levelType = TeacherService.LEVEL_TYPE[level];
+  if (!levelType) throw new Error(`Unknown level: "${level}"`);
+
+  const res = await fetch(
+    `${API_BASE_URL}/subjects/?education_levels=${levelType}`,  // ← was education_level
+    { headers: getAuthHeaders() },
+  );
+  if (!res.ok) throw new Error(`Failed to fetch subjects (${res.status})`);
+  const data = await res.json();
+  return Array.isArray(data) ? data : data.results ?? [];
+}
+
+  /**
+   * GET /classrooms/classrooms/?education_level__level_type=<UPPERCASE_LEVEL_TYPE>
+   */
+  async getClassroomsByEducationLevel(level: string): Promise<ClassroomOption[]> {
+    const levelType = TeacherService.LEVEL_TYPE[level];
+    if (!levelType) throw new Error(`Unknown level: "${level}"`);
+    const res = await fetch(
+      `${API_BASE_URL}/classrooms/classrooms/?education_level__level_type=${levelType}`,
+      { headers: getAuthHeaders() },
+    );
+    if (!res.ok) throw new Error(`Failed to fetch classrooms (${res.status})`);
+    const data = await res.json();
+    const arr: any[] = Array.isArray(data) ? data : data.results ?? [];
+    return arr.map((c) => ({
+      id: c.id,
+      name: c.name || `${c.grade_level_name ?? ''} ${c.section_name ?? ''}`.trim(),
+      section: c.section,
+      section_name: c.section_name,
+      grade_level_name: c.grade_level_name,
+    }));
+  }
+
+  // ── Assignment Management ────────────────────────────────────────────────────
+
   async getAssignmentRequests(params?: {
     teacher_id?: number;
     status?: string;
     request_type?: string;
   }): Promise<AssignmentRequest[]> {
-    const response = await api.get('/api/teachers/assignment-requests/', params);
-    return response;
+    return api.get('/api/teachers/assignment-requests/', params);
   }
 
   async createAssignmentRequest(data: CreateAssignmentRequestData): Promise<AssignmentRequest> {
-    const response = await api.post('/api/teachers/assignment-requests/', data);
-    return response;
+    return api.post('/api/teachers/assignment-requests/', data);
   }
 
-  async updateAssignmentRequest(id: number, data: Partial<AssignmentRequest>): Promise<AssignmentRequest> {
-    const response = await api.patch(`/api/teachers/assignment-requests/${id}/`, data);
-    return response;
+  async updateAssignmentRequest(
+    id: number,
+    data: Partial<AssignmentRequest>,
+  ): Promise<AssignmentRequest> {
+    return api.patch(`/api/teachers/assignment-requests/${id}/`, data);
   }
 
   async deleteAssignmentRequest(id: number): Promise<void> {
@@ -378,80 +257,73 @@ class TeacherService {
   }
 
   async approveAssignmentRequest(id: number): Promise<{ status: string }> {
-    const response = await api.post(`/api/teachers/assignment-requests/${id}/approve/`, {});
-    return response;
+    return api.post(`/api/teachers/assignment-requests/${id}/approve/`, {});
   }
 
   async rejectAssignmentRequest(id: number, admin_notes?: string): Promise<{ status: string }> {
-    const response = await api.post(`/api/teachers/assignment-requests/${id}/reject/`, { admin_notes });
-    return response;
+    return api.post(`/api/teachers/assignment-requests/${id}/reject/`, { admin_notes });
   }
 
   async cancelAssignmentRequest(id: number): Promise<{ status: string }> {
-    const response = await api.post(`/api/teachers/assignment-requests/${id}/cancel/`, {});
-    return response;
+    return api.post(`/api/teachers/assignment-requests/${id}/cancel/`, {});
   }
 
-  // Teacher Schedule Management
+  // ── Teacher Schedules ────────────────────────────────────────────────────────
+
   async getTeacherSchedules(params?: {
     teacher_id?: number;
     academic_session?: string;
     term?: string;
     day_of_week?: string;
   }): Promise<TeacherSchedule[]> {
-    const response = await api.get('/api/teachers/teacher-schedules/', params);
-    return response;
+    return api.get('/api/teachers/teacher-schedules/', params);
   }
 
-  async getWeeklySchedule(teacher_id: number): Promise<{
-    weekly_schedule: any;
-    schedules: TeacherSchedule[];
-  }> {
-    const response = await api.get('/api/teachers/teacher-schedules/weekly_schedule/', {
-      params: { teacher_id }
+  async getWeeklySchedule(
+    teacher_id: number,
+  ): Promise<{ weekly_schedule: any; schedules: TeacherSchedule[] }> {
+    return api.get('/api/teachers/teacher-schedules/weekly_schedule/', {
+      params: { teacher_id },
     });
-    return response;
   }
 
   async createTeacherSchedule(data: CreateScheduleData): Promise<TeacherSchedule> {
-    const response = await api.post('/api/teachers/teacher-schedules/', data);
-    return response;
+    return api.post('/api/teachers/teacher-schedules/', data);
   }
 
-  async updateTeacherSchedule(id: number, data: Partial<TeacherSchedule>): Promise<TeacherSchedule> {
-    const response = await api.patch(`/api/teachers/teacher-schedules/${id}/`, data);
-    return response;
+  async updateTeacherSchedule(
+    id: number,
+    data: Partial<TeacherSchedule>,
+  ): Promise<TeacherSchedule> {
+    return api.patch(`/api/teachers/teacher-schedules/${id}/`, data);
   }
 
   async deleteTeacherSchedule(id: number): Promise<void> {
     await api.delete(`/api/teachers/teacher-schedules/${id}/`);
   }
 
-  async bulkCreateSchedules(teacher_id: number, schedules: CreateScheduleData[]): Promise<{
-    message: string;
-    schedules: TeacherSchedule[];
-  }> {
-    const response = await api.post('/api/teachers/teacher-schedules/bulk_create/', {
-      teacher_id,
-      schedules
-    });
-    return response;
+  async bulkCreateSchedules(
+    teacher_id: number,
+    schedules: CreateScheduleData[],
+  ): Promise<{ message: string; schedules: TeacherSchedule[] }> {
+    return api.post('/api/teachers/teacher-schedules/bulk_create/', { teacher_id, schedules });
   }
 
-  // Assignment Management Utilities
-  async getAvailableSubjects(): Promise<Array<{ id: number; name: string; code: string }>> {
+  // ── Assignment Management Utilities ─────────────────────────────────────────
+
+  async getAvailableSubjects(): Promise<SubjectOption[]> {
     const response = await api.get('/api/teachers/assignment-management/available_subjects/');
-    return response.subjects;
+    return response.subjects ?? response;
   }
 
-  async getAvailableGradeLevels(): Promise<Array<{ id: number; name: string; education_level: string }>> {
+  async getAvailableGradeLevels(): Promise<GradeLevel[]> {
     const response = await api.get('/api/teachers/assignment-management/available_grade_levels/');
-    return response.grade_levels;
+    return response.grade_levels ?? response;
   }
 
   async getAvailableSections(): Promise<Array<{ id: number; name: string; grade_level: string }>> {
     const response = await api.get('/api/teachers/assignment-management/available_sections/');
-    return response.sections;
+    return response.sections ?? response;
   }
 
   async getTeacherAssignmentsSummary(teacher_id: number): Promise<{
@@ -461,51 +333,9 @@ class TeacherService {
     pending_requests: number;
     teaching_hours: number;
   }> {
-    const response = await api.get('/api/teachers/assignment-management/teacher_assignments_summary/', {
-      params: { teacher_id }
+    return api.get('/api/teachers/assignment-management/teacher_assignments_summary/', {
+      params: { teacher_id },
     });
-    return response;
-  }
-
-  // New methods for enhanced teacher assignment management
-  async createTeacherAssignment(data: CreateTeacherAssignmentData) {
-    const response = await api.post('/api/classrooms/teacher-assignments/', data);
-    return response;
-  }
-
-  async updateTeacherAssignment(assignmentId: number, data: UpdateTeacherAssignmentData) {
-    const response = await api.patch(`/api/classrooms/teacher-assignments/${assignmentId}/`, data);
-    return response;
-  }
-
-  async deleteTeacherAssignment(assignmentId: number) {
-    const response = await api.delete(`/api/classrooms/teacher-assignments/${assignmentId}/`);
-    return response;
-  }
-
-  async getTeacherAssignments(teacherId?: number, classroomId?: number) {
-    const params: any = {};
-    if (teacherId) params.teacher = teacherId;
-    if (classroomId) params.classroom = classroomId;
-    
-    const response = await api.get('/api/classrooms/teacher-assignments/', params);
-    return response;
-  }
-
-  // Get available classrooms for assignment
-  async getAvailableClassrooms(teacherId?: number, subjectId?: number) {
-    const params: any = {};
-    if (teacherId) params.teacher_id = teacherId;
-    if (subjectId) params.subject_id = subjectId;
-    
-    const response = await api.get('/api/classrooms/classrooms/available-for-assignment/', params);
-    return response;
-  }
-
-  // Get teacher workload analysis
-  async getTeacherWorkload(teacherId: number) {
-    const response = await api.get(`/api/teachers/teachers/${teacherId}/workload/`);
-    return response;
   }
 }
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -46,8 +46,47 @@ const StreamConfigurationManager: React.FC = () => {
   } = useStreamConfiguration();
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const getStreamColor = (streamType: string) => {
+  // Handle manual refresh of available subjects
+  const handleRefreshSubjects = async () => {
+    setIsRefreshing(true);
+    try {
+      await loadAllData();
+      console.log('✅ StreamConfigurationManager: Data refreshed successfully');
+    } catch (error) {
+      console.error('❌ Failed to refresh data:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  // Auto-refresh when window regains focus (in case data changed in another tab)
+  useEffect(() => {
+    const handleFocus = () => {
+      console.log('🔄 Window focused - refreshing StreamConfigurationManager data');
+      handleRefreshSubjects();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, []);
+
+  // Debug: Log available subjects and look for Technical drawing
+  useEffect(() => {
+    if (availableSubjects.length > 0) {
+      console.log('📋 [StreamConfigurationManager] Total available subjects:', availableSubjects.length);
+      const technicalDrawing = availableSubjects.find(s => s.name.toLowerCase().includes('technical drawing'));
+      if (technicalDrawing) {
+        console.log('✅ Technical drawing FOUND:', technicalDrawing);
+      } else {
+        console.log('❌ Technical drawing NOT FOUND');
+        console.log('📌 Available subjects:', availableSubjects.map(s => s.name));
+      }
+    }
+  }, [availableSubjects]);
+
+  const getStreamColor = (streamType: string | undefined) => {
     switch (streamType) {
       case 'SCIENCE': return 'from-cyan-500 to-blue-600';
       case 'ARTS': return 'from-amber-500 to-orange-600';
@@ -363,14 +402,38 @@ const StreamConfigurationManager: React.FC = () => {
                 </h3>
                 
                 <div className="mb-4">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
-                    <Input
-                      placeholder="Search available subjects..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-10"
-                    />
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
+                      <Input
+                        placeholder="Search available subjects..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="pl-10"
+                      />
+                    </div>
+                    <Button
+                      onClick={handleRefreshSubjects}
+                      disabled={isRefreshing || isLoading}
+                      variant="outline"
+                      size="sm"
+                      className="px-3"
+                      title="Refresh available subjects list"
+                    >
+                      <svg
+                        className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                        />
+                      </svg>
+                    </Button>
                   </div>
                 </div>
 

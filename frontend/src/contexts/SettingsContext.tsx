@@ -9,6 +9,8 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import SettingsService, { SchoolSettings, Classroom } from '@/services/SettingsService';
+import { useAuth } from '@/hooks/useAuth';
+
 
 // ── Context shape ─────────────────────────────────────────────────────────────
 
@@ -46,7 +48,8 @@ export const useSettings = (): SettingsContextType => {
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-
+  
+ 
   // ── School settings state ─────────────────────────────────────────────────
   const [settings, setSettings] = useState<SchoolSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -118,16 +121,24 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     await fetchClassrooms();
     return result;
   }, [classrooms, fetchClassrooms]);
+ 
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────
+  const { user, isLoading: authLoading } = useAuth(); 
   useEffect(() => {
+    if(user){
     fetchSettings();
     fetchClassrooms();
+    } else{
+      setLoading(false);
+      setClassroomsLoading(false);
+    }
+    
 
     const handleExternalUpdate = (e: CustomEvent) => setSettings(e.detail);
     window.addEventListener('settings-updated' as any, handleExternalUpdate);
     return () => window.removeEventListener('settings-updated' as any, handleExternalUpdate);
-  }, [fetchSettings, fetchClassrooms]);
+  }, [authLoading, user, fetchSettings, fetchClassrooms]);
 
   // ── Context value ─────────────────────────────────────────────────────────
   const value: SettingsContextType = {

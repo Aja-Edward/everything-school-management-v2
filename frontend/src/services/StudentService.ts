@@ -37,6 +37,7 @@ export interface UserDetails {
   username: string;
   email: string;
   first_name: string;
+  middle_name?: string;
   last_name: string;
   full_name: string;
   is_active: boolean;
@@ -112,103 +113,67 @@ export interface ParentInfo {
 export interface Student {
   id: number;
 
-  /** FK to CustomUser — the user's primary key */
-  user: number;
+  user: UserDetails; // ✅ FIXED
 
-  /** Expanded user details (from nested serializer) */
-  user_details?: UserDetails;
-
-  // ---- Computed / annotated fields from serializer ----
-  /** Derived from user.full_name */
   full_name: string;
-  /** Derived from user.username (used as registration number display) */
+  name?: string;
+  first_name: string;
+  middle_name?: string;
+  last_name: string;
   username?: string;
-
-  // ---- Model fields ----
-
-  /** Single-char gender: 'M' | 'F' */
+  email?: string;
+  blood_group?: string;
+  phone_number?: string;
+  place_of_birth?: string;
+  address?: string;
+  payment_method?: string;
+  medical_conditions?: string;
+  special_requirements?: string;
   gender: GenderType;
-  /** Human-readable gender label */
   gender_display?: string;
 
-  date_of_birth: string; // ISO date string: YYYY-MM-DD
+  date_of_birth?: string;
 
-  /**
-   * FK to Class — may be returned as a string name, numeric ID,
-   * or nested object depending on serializer depth.
-   * Use student_class_detail for the full object.
-   */
   student_class: number | string | null;
-  /** Human-readable class name */
   student_class_display?: string;
-  /** Full nested Class object (if serializer uses depth > 0) */
-  student_class_detail?: ClassDetail | null;
-
-  /**
-   * FK to Section — nullable.
-   * Use section_detail for the full object.
-   */
-  section: number | string | null;
-  /** Human-readable section name */
+  student_class_detail?: any;  // ✅ Added: Contains id, name, etc.
   section_display?: string;
-  /** Full nested Section object */
-  section_detail?: SectionDetail | null;
+  class?: string;
 
-  /** FK to Stream — nullable, only for senior secondary students */
+  section?: number | string | null;
+  section_id?: number;
+  section_detail?: any;  // ✅ Added: Contains id, name, etc.
+
   stream: number | string | null;
-  stream_detail?: StreamDetail | null;
+  stream_name?: string | null;
+  stream_type?: string | null;
+  stream_detail?: any;  // ✅ Added: Contains id, name, etc.
 
-  /** auto_now_add field */
-  admission_date: string; // ISO date string: YYYY-MM-DD
+  admission_date: string;
+  registration_number?: string | null;
 
-  /** Unique registration number (may be null until assigned) */
-  registration_number: string | null;
-
-  /** Cloudinary URL */
   profile_picture: string | null;
-
-  parent_contact: string | null;
-  emergency_contact: string | null;
-  medical_conditions: string | null;
-  special_requirements: string | null;
-  blood_group: string | null;
-  place_of_birth: string | null;
-  address: string | null;
-  phone_number: string | null;
-  payment_method: string | null;
+  parents?: ParentInfo[];
+  parent_contact?: string | null;
+  emergency_contact?: string | null;
+  parent_email?: string | null;
+  parent_count?: number;
 
   is_active: boolean;
 
-  // ---- Computed @property fields (serializer must expose these) ----
-
-  /**
-   * @property — derived from student_class.education_level.level_type
-   * Returns null if student_class is not assigned.
-   */
   education_level: EducationLevelType | null;
-  /** Human-readable education level name */
   education_level_display?: string;
 
-  /**
-   * @property — returns section.full_name if section exists,
-   * else student_class.name, else "Not Assigned"
-   */
   classroom: string;
-
-  /** @property — calculated from date_of_birth */
   age?: number;
 
-  // ---- Convenience boolean @property fields ----
+  // optional flags
   is_nursery_student?: boolean;
   is_primary_student?: boolean;
   is_secondary_student?: boolean;
   is_junior_secondary_student?: boolean;
   is_senior_secondary_student?: boolean;
 
-  // ---- Related objects ----
-  parents?: ParentInfo[];
-
-  // ---- Timestamps (if returned by serializer) ----
   created_at?: string;
   updated_at?: string;
 }
@@ -544,15 +509,19 @@ class StudentService {
   async getStudents(params?: StudentFilters): Promise<Student[]> {
     try {
       const response = await api.get('/api/students/students/', params);
+      console.log('Fetched students:', response || response.results);
       return response.results || response;
+      
     } catch (error) {
       console.error('Error fetching students:', error);
       throw error;
     }
+    
   }
 
   async getStudent(id: number): Promise<Student> {
     try {
+      
       return await api.get(`/api/students/students/${id}/`);
     } catch (error) {
       console.error(`Error fetching student ${id}:`, error);
@@ -610,6 +579,7 @@ class StudentService {
 
   async getStudentSchedule(studentId?: number): Promise<StudentSchedule> {
     if (!studentId) return this.getMySchedule();
+
     return api.get(`/api/students/students/${studentId}/schedule/`);
   }
 
@@ -722,6 +692,7 @@ class StudentService {
 
   async getStudentByUserId(userId: number): Promise<Student> {
     const response = await this.getStudents({ user: userId });
+    console.log(`Searching for student with user ID ${userId}:`, response);
     if (Array.isArray(response) && response.length > 0) return response[0];
     throw new Error('Student not found');
   }

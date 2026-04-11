@@ -86,7 +86,7 @@ const getCSRFToken = async (): Promise<string> => {
  * Get headers for API requests
  * Uses Authorization header as fallback when cookies don't work (development)
  */
-const getHeaders = async (
+export const getHeaders = async (
   method: string,
   includeContentType: boolean = true
 ): Promise<Record<string, string>> => {
@@ -119,7 +119,7 @@ const getHeaders = async (
   return headers;
 };
 
-const handleResponseError = async (
+export const handleResponseError = async (
   response: Response,
   endpoint: string,
   method: string

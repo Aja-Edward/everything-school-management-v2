@@ -8,6 +8,10 @@ import { ClassroomProvider } from '@/contexts/ClassroomContext';
 import { GlobalThemeProvider } from '@/contexts/GlobalThemeContext';
 import { TenantProvider, useTenant } from '@/contexts/TenantContext';
 import { PromotionThresholdProvider } from "@/contexts/PromotionThresholdContext";
+import { SettingsProvider } from '@/contexts/SettingsContext';
+import { DesignProvider } from '@/contexts/DesignContext';
+import ThemeProvider from '@/components/ThemeProvider';
+import FaviconUpdater from '@/components/FaviconUpdater';
 import { lazy, Suspense } from 'react';
 import Navbar from '@/components/home/Nav';
 import Footer from '@/components/home/Footer';
@@ -77,6 +81,7 @@ const AdminLessonsManagement = lazy(() => import('./../pages/admin/AdminLessonsM
 const AdminAtendanceMangement = lazy(() => import('./../pages/admin/AdminAttendanceView'));
 const AdminResultManagement = lazy(() => import('./../pages/admin/AdminResultManagement'));
 const AllTeachers = lazy(() => import('./../pages/admin/AllTeachers'));
+const TeacherBulkUploadPage = lazy(() => import('./../pages/admin/TeacherBulkUploadPage'));
 const AddTeacherForm = lazy(() => import('./../pages/admin/AddTeacherForm'));
 const AllParents = lazy(() => import('./../pages/admin/AllParents'));
 const AddParentForm = lazy(() => import('./../pages/admin/AddParentForm'));
@@ -142,17 +147,24 @@ const LazyWrapper = ({ children }: { children: React.ReactNode }) => (
 
 // Root layout with providers
 const RootLayout = () => (
-  <GlobalThemeProvider>
-    <TenantProvider>
-      <AuthProvider>
-        <AuthLostProvider>
-          <ErrorBoundary>
-            <Outlet />
-          </ErrorBoundary>
-        </AuthLostProvider>
-      </AuthProvider>
-    </TenantProvider>
-  </GlobalThemeProvider>
+  <DesignProvider>              {/* ← must be OUTSIDE GlobalThemeProvider */}
+    <GlobalThemeProvider>       {/* ← calls useDesign(), so needs DesignProvider above */}
+      <TenantProvider>
+        <AuthProvider>
+          <AuthLostProvider>
+            <SettingsProvider>
+              <ThemeProvider>
+                <FaviconUpdater />
+                <ErrorBoundary>
+                  <Outlet />
+                </ErrorBoundary>
+              </ThemeProvider>
+            </SettingsProvider>
+          </AuthLostProvider>
+        </AuthProvider>
+      </TenantProvider>
+    </GlobalThemeProvider>
+  </DesignProvider>
 );
 
 // Main domain layout with Navbar and Footer (for marketing pages)
@@ -538,6 +550,10 @@ export const router = createBrowserRouter([
           {
             path: 'teachers',
             element: <LazyWrapper><AllTeachers /></LazyWrapper>,
+          },
+          {
+            path: 'teacher_bulk_upload',
+            element: <LazyWrapper><TeacherBulkUploadPage /></LazyWrapper>,
           },
           {
             path: 'teachers/add',

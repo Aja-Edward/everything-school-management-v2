@@ -177,7 +177,8 @@ class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             student_count=Count("students")
         ).select_related(
             "section",
-            "section__grade_level",
+            "section__class_grade",
+            "section__class_grade__grade_level",
         )
 
         queryset = queryset.prefetch_related(
@@ -448,6 +449,32 @@ class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
 
     def perform_create(self, serializer):
         tenant = getattr(self.request, "tenant", None)
+
+        # If tenant not in request, try to get from authenticated user
+        if not tenant and self.request.user.is_authenticated:
+            user = self.request.user
+            tenant = getattr(user, "tenant", None)
+            logger.info(
+                f"[TeacherViewSet.perform_create] Tenant not in request, using user's tenant: {tenant}"
+            )
+
+        # If still no tenant, try to find the school from the current session or user role
+        if not tenant and self.request.user.is_authenticated:
+            # For admin/staff users, try to find their tenant from related objects
+            if self.request.user.is_staff or self.request.user.is_superuser:
+                from tenants.models import Tenant
+
+                # Try to find the default/active tenant
+                tenant = Tenant.objects.filter(is_active=True, status="active").first()
+                logger.warning(
+                    f"[TeacherViewSet.perform_create] Using fallback tenant: {tenant}"
+                )
+
+        if not tenant:
+            logger.error(
+                f"[TeacherViewSet.perform_create] No tenant could be determined for user {self.request.user}"
+            )
+
         serializer.save(tenant=tenant)
 
     def retrieve(self, request, *args, **kwargs):

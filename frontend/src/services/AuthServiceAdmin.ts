@@ -327,7 +327,8 @@ export function useAdminAuth() {
       // Try teachers endpoint
       const tryTeacher = async (): Promise<number | null> => {
         try {
-          const res = await api.get('/api/teachers/teachers/', { params: { search: username } });
+        // ✅ Correct
+          const res = await api.get('/api/teachers/teachers/', { search: username });
           const list: any[] = (res.results || res || []) as any[];
           const match = list.find((t: any) => (t.user?.username || t.username) === username);
           if (match?.user?.id) return Number(match.user.id);

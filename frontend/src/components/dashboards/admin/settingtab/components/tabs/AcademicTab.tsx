@@ -1,16 +1,17 @@
-import React, { useState } from 'react';
-import { 
-  GraduationCap, 
-  BookOpen, 
-  Users, 
-  School, 
-  Calendar, 
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  GraduationCap,
+  BookOpen,
+  Users,
+  School,
+  Calendar,
   Save,
   CheckCircle,
   AlertCircle,
   Target,
   GitBranch,
-  Layers
+  Layers,
+  Loader2,
 } from 'lucide-react';
 import ToggleSwitch from '@/components/dashboards/admin/settingtab/components/ToggleSwitch';
 import { StreamConfigurationProvider } from '@/contexts/StreamConfigurationContext';
@@ -18,199 +19,342 @@ import StreamManagement from '@/components/admin/StreamManagement';
 import StreamConfigurationManager from '@/components/admin/StreamConfigurationManager';
 import SubjectCombinationsManager from '@/components/admin/SubjectCombinationsManager';
 import ClassSettingsSection from './ClassSettingsSection';
+import academicSettingsService, {
+  type AllAcademicSettings,
+} from '@/services/AcademicSettingsService';
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+type SaveStatus = 'idle' | 'saving' | 'success' | 'error';
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+// Sections that own their own save logic — hide the global Save button for these
+const SELF_SAVING_SECTIONS = ['stream-management', 'stream-config', 'subject-combinations'];
+
+const SECTIONS = [
+  {
+    id: 'stream-management',
+    label: 'Stream Management',
+    icon: Layers,
+    description: 'Create and manage streams',
+  },
+  {
+    id: 'stream-config',
+    label: 'Stream Configuration',
+    icon: Target,
+    description: 'Configure streams and subjects',
+  },
+  {
+    id: 'subject-combinations',
+    label: 'Subject Combinations',
+    icon: GitBranch,
+    description: 'Define valid combinations',
+  },
+  {
+    id: 'academic-settings',
+    label: 'Academic Year',
+    icon: Calendar,
+    description: 'Calendar and terms',
+  },
+  {
+    id: 'class-settings',
+    label: 'Class Management',
+    icon: School,
+    description: 'Class sizes and options',
+  },
+  {
+    id: 'grading-settings',
+    label: 'Grading System',
+    icon: GraduationCap,
+    description: 'Scales and assessments',
+  },
+  {
+    id: 'attendance-settings',
+    label: 'Attendance',
+    icon: Users,
+    description: 'Tracking and policies',
+  },
+  {
+    id: 'curriculum-settings',
+    label: 'Curriculum',
+    icon: BookOpen,
+    description: 'Prerequisites and credits',
+  },
+];
+
+const DEFAULT_SETTINGS: AllAcademicSettings = {
+  academic_year_start: 'September',
+  academic_year_end: 'July',
+  terms_per_year: 3,
+  weeks_per_term: 13,
+  allow_class_overflow: false,
+  enable_streaming: true,
+  enable_subject_electives: true,
+  grading_system: 'percentage',
+  pass_percentage: 40,
+  enable_grade_curving: false,
+  enable_grade_weighting: true,
+  require_attendance: true,
+  minimum_attendance_percentage: 75,
+  enable_attendance_tracking: true,
+  allow_late_arrival: true,
+  enable_cross_cutting_subjects: true,
+  enable_subject_prerequisites: true,
+  allow_subject_changes: true,
+  enable_credit_system: true,
+};
+
+// ============================================================================
+// SUB-COMPONENTS
+// ============================================================================
+
+function SaveBanner({ status }: { status: SaveStatus }) {
+  if (status === 'idle' || status === 'saving') return null;
+  const isSuccess = status === 'success';
+  return (
+    <div
+      className={`flex items-center gap-2 p-3 rounded-xl mb-4 ${
+        isSuccess
+          ? 'bg-green-50 text-green-800 border border-green-200'
+          : 'bg-red-50 text-red-800 border border-red-200'
+      }`}
+    >
+      {isSuccess ? (
+        <CheckCircle className="w-4 h-4 shrink-0" />
+      ) : (
+        <AlertCircle className="w-4 h-4 shrink-0" />
+      )}
+      <span className="text-sm font-medium">
+        {isSuccess
+          ? 'Settings saved successfully!'
+          : 'Failed to save settings. Please try again.'}
+      </span>
+    </div>
+  );
+}
+
+function SectionLoader() {
+  return (
+    <div className="flex items-center justify-center py-24">
+      <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+      <span className="ml-3 text-slate-500 font-medium">Loading settings…</span>
+    </div>
+  );
+}
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
 
 const AcademicTabContent: React.FC = () => {
   const [activeSection, setActiveSection] = useState('stream-management');
-  const [academicSettings, setAcademicSettings] = useState({
-    academicYearStart: 'September',
-    academicYearEnd: 'July',
-    termsPerYear: 3,
-    weeksPerTerm: 13,
-    maxClassSize: 30,
-    allowClassOverflow: false,
-    enableStreaming: true,
-    enableSubjectElectives: true,
-    gradingSystem: 'percentage',
-    passPercentage: 40,
-    enableGradeCurving: false,
-    enableGradeWeighting: true,
-    requireAttendance: true,
-    minimumAttendancePercentage: 75,
-    enableAttendanceTracking: true,
-    allowLateArrival: true,
-    enableCrossCuttingSubjects: true,
-    enableSubjectPrerequisites: true,
-    allowSubjectChanges: true,
-    enableCreditSystem: true
-  });
+  const [settings, setSettings] = useState<AllAcademicSettings>(DEFAULT_SETTINGS);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
 
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  // ── Fetch on mount ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    setLoadError(null);
 
-  const updateAcademicSetting = (field: string, value: any) => {
-    setAcademicSettings(prev => ({ ...prev, [field]: value }));
-    setSaveStatus('idle');
-  };
+    academicSettingsService
+      .getAcademicSettings()
+      .then((data) => {
+        if (!cancelled) setSettings(data);
+      })
+      .catch((err) => {
+        console.error('Failed to load academic settings:', err);
+        if (!cancelled) setLoadError('Could not load settings — showing defaults.');
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
 
+    return () => { cancelled = true; };
+  }, []);
+
+  // ── Field update ────────────────────────────────────────────────────────────
+  const updateSetting = useCallback(
+    <K extends keyof AllAcademicSettings>(field: K, value: AllAcademicSettings[K]) => {
+      setSettings((prev) => ({ ...prev, [field]: value }));
+      setSaveStatus('idle');
+    },
+    []
+  );
+
+  // ── Save dispatcher ─────────────────────────────────────────────────────────
   const handleSave = async () => {
-    setIsSaving(true);
-    setSaveStatus('idle');
-    
+    setSaveStatus('saving');
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      let updatedSettings: AllAcademicSettings | undefined;
+      
+      switch (activeSection) {
+        case 'academic-settings':
+          updatedSettings = await academicSettingsService.saveAcademicYearSettings({
+            academic_year_start: settings.academic_year_start,
+            academic_year_end: settings.academic_year_end,
+            terms_per_year: settings.terms_per_year,
+            weeks_per_term: settings.weeks_per_term,
+          });
+          break;
+
+        case 'class-settings':
+          updatedSettings = await academicSettingsService.saveClassSettings({
+            allow_class_overflow: settings.allow_class_overflow,
+            enable_streaming: settings.enable_streaming,
+            enable_subject_electives: settings.enable_subject_electives,
+          });
+          break;
+
+        case 'grading-settings':
+          updatedSettings = await academicSettingsService.saveGradingSettings({
+            grading_system: settings.grading_system,
+            pass_percentage: settings.pass_percentage,
+            enable_grade_curving: settings.enable_grade_curving,
+            enable_grade_weighting: settings.enable_grade_weighting,
+          });
+          break;
+
+        case 'attendance-settings':
+          updatedSettings = await academicSettingsService.saveAttendanceSettings({
+            require_attendance: settings.require_attendance,
+            minimum_attendance_percentage: settings.minimum_attendance_percentage,
+            enable_attendance_tracking: settings.enable_attendance_tracking,
+            allow_late_arrival: settings.allow_late_arrival,
+          });
+          break;
+
+        case 'curriculum-settings':
+          updatedSettings = await academicSettingsService.saveCurriculumSettings({
+            enable_cross_cutting_subjects: settings.enable_cross_cutting_subjects,
+            enable_subject_prerequisites: settings.enable_subject_prerequisites,
+            allow_subject_changes: settings.allow_subject_changes,
+            enable_credit_system: settings.enable_credit_system,
+          });
+          break;
+      }
+      
+      // Update state with returned settings to ensure persistence
+      if (updatedSettings) {
+        setSettings(updatedSettings);
+        console.log('✅ Settings updated and persisted:', updatedSettings);
+      }
+      
       setSaveStatus('success');
       setTimeout(() => setSaveStatus('idle'), 3000);
-    } catch (error) {
+    } catch (err) {
+      console.error('Save failed:', err);
       setSaveStatus('error');
-      setTimeout(() => setSaveStatus('idle'), 3000);
-    } finally {
-      setIsSaving(false);
+      setTimeout(() => setSaveStatus('idle'), 4000);
+      throw err;
     }
   };
 
-  const sections = [
-    { 
-      id: 'stream-management', 
-      label: 'Stream Management', 
-      icon: Layers, 
-      description: 'Create and manage streams',
-      color: 'black'
-    },
-    { 
-      id: 'stream-config', 
-      label: 'Stream Configuration', 
-      icon: Target, 
-      description: 'Configure streams and subjects',
-      color: 'black'
-    },
-    { 
-      id: 'subject-combinations', 
-      label: 'Subject Combinations', 
-      icon: GitBranch, 
-      description: 'Define valid combinations',
-      color: 'black'
-    },
-    { 
-      id: 'academic-settings', 
-      label: 'Academic Year', 
-      icon: Calendar, 
-      description: 'Calendar and terms',
-      color: 'black'
-    },
-    { 
-      id: 'class-settings', 
-      label: 'Class Management', 
-      icon: School, 
-      description: 'Class sizes and options',
-      color: 'black'
-    },
-    { 
-      id: 'grading-settings', 
-      label: 'Grading System', 
-      icon: GraduationCap, 
-      description: 'Scales and assessments',
-      color: 'black'
-    },
-    { 
-      id: 'attendance-settings', 
-      label: 'Attendance', 
-      icon: Users, 
-      description: 'Tracking and policies',
-      color: 'black'
-    },
-    { 
-      id: 'curriculum-settings', 
-      label: 'Curriculum', 
-      icon: BookOpen, 
-      description: 'Prerequisites and credits',
-      color: 'black'
-    }
-  ];
-
+  // ── Section renderer ────────────────────────────────────────────────────────
   const renderSection = () => {
+    // Stream panels are self-contained — never show our loader for them
+    if (isLoading && !SELF_SAVING_SECTIONS.includes(activeSection)) {
+      return <SectionLoader />;
+    }
+
     switch (activeSection) {
+      // ── Self-managed panels ───────────────────────────────────────────────
       case 'stream-management':
         return <StreamManagement />;
-      
       case 'stream-config':
         return <StreamConfigurationManager />;
-      
       case 'subject-combinations':
         return <SubjectCombinationsManager />;
-      
+
+      // ── Academic Year ─────────────────────────────────────────────────────
       case 'academic-settings':
         return (
           <div className="space-y-6">
             <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-600 rounded-2xl flex items-center justify-center">
-                    <Calendar className="w-5 h-5 text-white" />
-                  </div>
-                  Academic Year Settings
-                </h3>
-              </div>
-              
+              <h3 className="text-2xl font-bold text-slate-900 flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-600 rounded-2xl flex items-center justify-center">
+                  <Calendar className="w-5 h-5 text-white" />
+                </div>
+                Academic Year Settings
+              </h3>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <label className="block text-sm font-semibold text-slate-700">
                     Academic Year Start
                   </label>
                   <select
-                    value={academicSettings.academicYearStart}
-                    onChange={(e) => updateAcademicSetting('academicYearStart', e.target.value)}
+                    value={settings.academic_year_start}
+                    onChange={(e) => updateSetting('academic_year_start', e.target.value)}
                     className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all bg-white font-medium"
                   >
-                    {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map(month => (
-                      <option key={month} value={month}>{month}</option>
+                    {MONTHS.map((m) => (
+                      <option key={m} value={m}>{m}</option>
                     ))}
                   </select>
                 </div>
-                
+
                 <div className="space-y-2">
                   <label className="block text-sm font-semibold text-slate-700">
                     Academic Year End
                   </label>
                   <select
-                    value={academicSettings.academicYearEnd}
-                    onChange={(e) => updateAcademicSetting('academicYearEnd', e.target.value)}
+                    value={settings.academic_year_end}
+                    onChange={(e) => updateSetting('academic_year_end', e.target.value)}
                     className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all bg-white font-medium"
                   >
-                    {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map(month => (
-                      <option key={month} value={month}>{month}</option>
+                    {MONTHS.map((m) => (
+                      <option key={m} value={m}>{m}</option>
                     ))}
                   </select>
                 </div>
-                
+
                 <div className="space-y-2">
                   <label className="block text-sm font-semibold text-slate-700">
                     Terms Per Year
                   </label>
                   <input
                     type="number"
-                    min="1"
-                    max="6"
-                    value={academicSettings.termsPerYear}
-                    onChange={(e) => updateAcademicSetting('termsPerYear', parseInt(e.target.value))}
+                    min={1}
+                    max={6}
+                    value={settings.terms_per_year}
+                    onChange={(e) =>
+                      updateSetting('terms_per_year', parseInt(e.target.value) || 1)
+                    }
                     className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all bg-white font-medium text-center"
                   />
                 </div>
-                
+
                 <div className="space-y-2">
                   <label className="block text-sm font-semibold text-slate-700">
                     Weeks Per Term
                   </label>
                   <input
                     type="number"
-                    min="8"
-                    max="20"
-                    value={academicSettings.weeksPerTerm}
-                    onChange={(e) => updateAcademicSetting('weeksPerTerm', parseInt(e.target.value))}
+                    min={8}
+                    max={20}
+                    value={settings.weeks_per_term}
+                    onChange={(e) =>
+                      updateSetting('weeks_per_term', parseInt(e.target.value) || 8)
+                    }
                     className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all bg-white font-medium text-center"
                   />
                 </div>
               </div>
 
+              {/* Summary */}
               <div className="mt-8 p-6 bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl border border-amber-200">
                 <div className="flex items-center gap-3 mb-4">
                   <Target className="w-5 h-5 text-amber-700" />
@@ -219,49 +363,66 @@ const AcademicTabContent: React.FC = () => {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                   <div>
                     <p className="text-amber-700 font-medium mb-1">Duration</p>
-                    <p className="text-amber-900 font-semibold">{academicSettings.academicYearStart} - {academicSettings.academicYearEnd}</p>
+                    <p className="text-amber-900 font-semibold">
+                      {settings.academic_year_start} – {settings.academic_year_end}
+                    </p>
                   </div>
                   <div>
                     <p className="text-amber-700 font-medium mb-1">Total Terms</p>
-                    <p className="text-amber-900 font-semibold text-2xl">{academicSettings.termsPerYear}</p>
+                    <p className="text-amber-900 font-semibold text-2xl">
+                      {settings.terms_per_year}
+                    </p>
                   </div>
                   <div>
                     <p className="text-amber-700 font-medium mb-1">Weeks per Term</p>
-                    <p className="text-amber-900 font-semibold text-2xl">{academicSettings.weeksPerTerm}</p>
+                    <p className="text-amber-900 font-semibold text-2xl">
+                      {settings.weeks_per_term}
+                    </p>
                   </div>
                   <div>
                     <p className="text-amber-700 font-medium mb-1">Total Weeks</p>
-                    <p className="text-amber-900 font-semibold text-2xl">{academicSettings.termsPerYear * academicSettings.weeksPerTerm}</p>
+                    <p className="text-amber-900 font-semibold text-2xl">
+                      {settings.terms_per_year * settings.weeks_per_term}
+                    </p>
                   </div>
                 </div>
               </div>
             </div>
           </div>
         );
-      
+
+      // ── Class Settings ────────────────────────────────────────────────────
       case 'class-settings':
         return (
           <ClassSettingsSection
-      allowClassOverflow={academicSettings.allowClassOverflow}
-      enableStreaming={academicSettings.enableStreaming}
-      enableSubjectElectives={academicSettings.enableSubjectElectives}
-      onSettingChange={updateAcademicSetting}
-    />
+            allowClassOverflow={settings.allow_class_overflow}
+            enableStreaming={settings.enable_streaming}
+            enableSubjectElectives={settings.enable_subject_electives}
+            onSettingChange={(field, value) => {
+              // ClassSettingsSection uses camelCase — map to snake_case
+              const keyMap: Record<string, keyof AllAcademicSettings> = {
+                allowClassOverflow: 'allow_class_overflow',
+                enableStreaming: 'enable_streaming',
+                enableSubjectElectives: 'enable_subject_electives',
+              };
+              const snakeKey = keyMap[field] ?? (field as keyof AllAcademicSettings);
+              updateSetting(snakeKey, value);
+            }}
+          />
         );
 
+      // ── Grading ───────────────────────────────────────────────────────────
       case 'grading-settings':
         return (
           <div className="space-y-6">
             <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
-                  <div className="w-10 h-10 bg-black rounded-2xl flex items-center justify-center">
-                    <GraduationCap className="w-5 h-5 text-white" />
-                  </div>
-                  Grading System Settings
-                </h3>
-              </div>
-              
+              <h3 className="text-2xl font-bold text-slate-900 flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 bg-black rounded-2xl flex items-center justify-center">
+                  <GraduationCap className="w-5 h-5 text-white" />
+                </div>
+                Grading System Settings
+              </h3>
+
               <div className="space-y-8">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
@@ -269,8 +430,13 @@ const AcademicTabContent: React.FC = () => {
                       Grading System
                     </label>
                     <select
-                      value={academicSettings.gradingSystem}
-                      onChange={(e) => updateAcademicSetting('gradingSystem', e.target.value)}
+                      value={settings.grading_system}
+                      onChange={(e) =>
+                        updateSetting(
+                          'grading_system',
+                          e.target.value as AllAcademicSettings['grading_system']
+                        )
+                      }
                       className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all bg-white font-medium"
                     >
                       <option value="percentage">Percentage (0-100)</option>
@@ -279,35 +445,36 @@ const AcademicTabContent: React.FC = () => {
                       <option value="points">Points System</option>
                     </select>
                   </div>
-                  
+
                   <div className="space-y-2">
                     <label className="block text-sm font-semibold text-slate-700">
                       Pass Percentage
                     </label>
                     <input
                       type="number"
-                      min="0"
-                      max="100"
-                      value={academicSettings.passPercentage}
-                      onChange={(e) => updateAcademicSetting('passPercentage', parseInt(e.target.value))}
+                      min={0}
+                      max={100}
+                      value={settings.pass_percentage}
+                      onChange={(e) =>
+                        updateSetting('pass_percentage', parseInt(e.target.value) || 0)
+                      }
                       className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all bg-white font-medium text-center"
                     />
                   </div>
                 </div>
-                
+
                 <div className="space-y-4">
                   <ToggleSwitch
                     id="enable-grade-curving"
-                    checked={academicSettings.enableGradeCurving}
-                    onChange={(checked) => updateAcademicSetting('enableGradeCurving', checked)}
+                    checked={settings.enable_grade_curving}
+                    onChange={(checked) => updateSetting('enable_grade_curving', checked)}
                     label="Enable Grade Curving"
                     description="Allow automatic grade adjustments based on class performance"
                   />
-                  
                   <ToggleSwitch
                     id="enable-grade-weighting"
-                    checked={academicSettings.enableGradeWeighting}
-                    onChange={(checked) => updateAcademicSetting('enableGradeWeighting', checked)}
+                    checked={settings.enable_grade_weighting}
+                    onChange={(checked) => updateSetting('enable_grade_weighting', checked)}
                     label="Enable Grade Weighting"
                     description="Allow different weights for assignments and exams"
                   />
@@ -317,19 +484,18 @@ const AcademicTabContent: React.FC = () => {
           </div>
         );
 
+      // ── Attendance ────────────────────────────────────────────────────────
       case 'attendance-settings':
         return (
           <div className="space-y-6">
             <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-2xl flex items-center justify-center">
-                    <Users className="w-5 h-5 text-white" />
-                  </div>
-                  Attendance Settings
-                </h3>
-              </div>
-              
+              <h3 className="text-2xl font-bold text-slate-900 flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-2xl flex items-center justify-center">
+                  <Users className="w-5 h-5 text-white" />
+                </div>
+                Attendance Settings
+              </h3>
+
               <div className="space-y-8">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
@@ -338,37 +504,42 @@ const AcademicTabContent: React.FC = () => {
                     </label>
                     <input
                       type="number"
-                      min="0"
-                      max="100"
-                      value={academicSettings.minimumAttendancePercentage}
-                      onChange={(e) => updateAcademicSetting('minimumAttendancePercentage', parseInt(e.target.value))}
+                      min={0}
+                      max={100}
+                      value={settings.minimum_attendance_percentage}
+                      onChange={(e) =>
+                        updateSetting(
+                          'minimum_attendance_percentage',
+                          parseInt(e.target.value) || 0
+                        )
+                      }
                       className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all bg-white font-medium text-center"
                     />
-                    <p className="text-xs text-slate-500 mt-1">Students must maintain this attendance to pass</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Students must maintain this attendance to pass
+                    </p>
                   </div>
                 </div>
-                
+
                 <div className="space-y-4">
                   <ToggleSwitch
                     id="require-attendance"
-                    checked={academicSettings.requireAttendance}
-                    onChange={(checked) => updateAcademicSetting('requireAttendance', checked)}
+                    checked={settings.require_attendance}
+                    onChange={(checked) => updateSetting('require_attendance', checked)}
                     label="Require Attendance"
                     description="Make attendance mandatory for students"
                   />
-                  
                   <ToggleSwitch
                     id="enable-attendance-tracking"
-                    checked={academicSettings.enableAttendanceTracking}
-                    onChange={(checked) => updateAcademicSetting('enableAttendanceTracking', checked)}
+                    checked={settings.enable_attendance_tracking}
+                    onChange={(checked) => updateSetting('enable_attendance_tracking', checked)}
                     label="Enable Attendance Tracking"
                     description="Track and record student attendance"
                   />
-                  
                   <ToggleSwitch
                     id="allow-late-arrival"
-                    checked={academicSettings.allowLateArrival}
-                    onChange={(checked) => updateAcademicSetting('allowLateArrival', checked)}
+                    checked={settings.allow_late_arrival}
+                    onChange={(checked) => updateSetting('allow_late_arrival', checked)}
                     label="Allow Late Arrival"
                     description="Mark students as late instead of absent"
                   />
@@ -378,48 +549,48 @@ const AcademicTabContent: React.FC = () => {
           </div>
         );
 
+      // ── Curriculum ────────────────────────────────────────────────────────
       case 'curriculum-settings':
         return (
           <div className="space-y-6">
             <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center">
-                    <BookOpen className="w-5 h-5 text-white" />
-                  </div>
-                  Curriculum Settings
-                </h3>
-              </div>
-              
+              <h3 className="text-2xl font-bold text-slate-900 flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center">
+                  <BookOpen className="w-5 h-5 text-white" />
+                </div>
+                Curriculum Settings
+              </h3>
+
               <div className="space-y-4">
                 <ToggleSwitch
                   id="enable-cross-cutting-subjects"
-                  checked={academicSettings.enableCrossCuttingSubjects}
-                  onChange={(checked) => updateAcademicSetting('enableCrossCuttingSubjects', checked)}
+                  checked={settings.enable_cross_cutting_subjects}
+                  onChange={(checked) =>
+                    updateSetting('enable_cross_cutting_subjects', checked)
+                  }
                   label="Enable Cross-Cutting Subjects"
                   description="Allow subjects that span multiple streams"
                 />
-                
                 <ToggleSwitch
                   id="enable-subject-prerequisites"
-                  checked={academicSettings.enableSubjectPrerequisites}
-                  onChange={(checked) => updateAcademicSetting('enableSubjectPrerequisites', checked)}
+                  checked={settings.enable_subject_prerequisites}
+                  onChange={(checked) =>
+                    updateSetting('enable_subject_prerequisites', checked)
+                  }
                   label="Enable Subject Prerequisites"
                   description="Require completion of prerequisite subjects"
                 />
-                
                 <ToggleSwitch
                   id="allow-subject-changes"
-                  checked={academicSettings.allowSubjectChanges}
-                  onChange={(checked) => updateAcademicSetting('allowSubjectChanges', checked)}
+                  checked={settings.allow_subject_changes}
+                  onChange={(checked) => updateSetting('allow_subject_changes', checked)}
                   label="Allow Subject Changes"
                   description="Let students change their subject selection"
                 />
-                
                 <ToggleSwitch
                   id="enable-credit-system"
-                  checked={academicSettings.enableCreditSystem}
-                  onChange={(checked) => updateAcademicSetting('enableCreditSystem', checked)}
+                  checked={settings.enable_credit_system}
+                  onChange={(checked) => updateSetting('enable_credit_system', checked)}
                   label="Enable Credit System"
                   description="Use credits for course completion"
                 />
@@ -427,11 +598,14 @@ const AcademicTabContent: React.FC = () => {
             </div>
           </div>
         );
-      
+
       default:
         return <StreamManagement />;
     }
   };
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+  const showSaveButton = !SELF_SAVING_SECTIONS.includes(activeSection);
 
   return (
     <div className="space-y-6">
@@ -447,21 +621,21 @@ const AcademicTabContent: React.FC = () => {
               <p className="text-slate-600 mt-1">Configure your school's academic structure</p>
             </div>
           </div>
-          
-          {!['stream-management', 'stream-config', 'subject-combinations'].includes(activeSection) && (
+
+          {showSaveButton && (
             <button
               onClick={handleSave}
-              disabled={isSaving}
+              disabled={saveStatus === 'saving' || isLoading}
               className={`flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all shadow-lg ${
-                isSaving
+                saveStatus === 'saving' || isLoading
                   ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                  : 'bg-black text-white hover:to-blue-700 hover:shadow-xl transform hover:-translate-y-0.5'
+                  : 'bg-black text-white hover:shadow-xl transform hover:-translate-y-0.5'
               }`}
             >
-              {isSaving ? (
+              {saveStatus === 'saving' ? (
                 <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  Saving...
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Saving…
                 </>
               ) : (
                 <>
@@ -473,70 +647,63 @@ const AcademicTabContent: React.FC = () => {
           )}
         </div>
 
-        {saveStatus !== 'idle' && (
-          <div className={`flex items-center gap-2 p-3 rounded-xl mb-4 ${
-            saveStatus === 'success' 
-              ? 'bg-green-50 text-green-800 border border-green-200' 
-              : 'bg-red-50 text-red-800 border border-red-200'
-          }`}>
-            {saveStatus === 'success' ? (
-              <CheckCircle className="w-4 h-4" />
-            ) : (
-              <AlertCircle className="w-4 h-4" />
-            )}
-            <span className="text-sm font-medium">
-              {saveStatus === 'success' ? 'Settings saved successfully!' : 'Error saving settings'}
-            </span>
+        {/* Load error notice */}
+        {loadError && (
+          <div className="flex items-center gap-2 p-3 rounded-xl mb-4 bg-yellow-50 text-yellow-800 border border-yellow-200">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span className="text-sm font-medium">{loadError}</span>
           </div>
         )}
-        
-        {/* Navigation */}
+
+        {/* Save status */}
+        <SaveBanner status={saveStatus} />
+
+        {/* Section navigation */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {sections.map((section) => (
-            <button
-              key={section.id}
-              onClick={() => setActiveSection(section.id)}
-              className={`group text-left p-2 rounded-2xl transition-all ${
-                activeSection === section.id
-                  ? 'bg' + section.color + ' text-black shadow-lg scale-105'
-                  : 'black text-slate-600 hover:bg-slate-100 hover:scale-102'
-              }`}
-            >
-              <div className={`w-4 h-4 rounded-xl flex items-center justify-center mb-3 transition-all ${
-                activeSection === section.id
-                  ? 'bg-black'
-                  : 'bg-black ' + section.color
-              }`}>
-                <section.icon className={`w-3 h-4 ${
-                  activeSection === section.id ? 'text-white' : 'text-white'
-                }`} />
-              </div>
-              <div className="font-semibold text-sm mb-1">{section.label}</div>
-              <div className={`text-xs ${
-                activeSection === section.id ? 'text-black/80' : 'text-slate-500'
-              }`}>
-                {section.description}
-              </div>
-            </button>
-          ))}
+          {SECTIONS.map((section) => {
+            const Icon = section.icon;
+            const isActive = activeSection === section.id;
+            return (
+              <button
+                key={section.id}
+                onClick={() => {
+                  setActiveSection(section.id);
+                  setSaveStatus('idle');
+                }}
+                className={`group text-left p-3 rounded-2xl transition-all ${
+                  isActive
+                    ? 'bg-slate-900 text-white shadow-lg scale-105'
+                    : 'text-slate-600 hover:bg-slate-100 hover:scale-[1.02]'
+                }`}
+              >
+                <div
+                  className={`w-8 h-8 rounded-xl flex items-center justify-center mb-3 transition-all ${
+                    isActive ? 'bg-white/20' : 'bg-slate-900'
+                  }`}
+                >
+                  <Icon className="w-4 h-4 text-white" />
+                </div>
+                <div className="font-semibold text-sm mb-1">{section.label}</div>
+                <div className={`text-xs ${isActive ? 'text-white/70' : 'text-slate-500'}`}>
+                  {section.description}
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Content */}
-      <div className="min-h-[600px]">
-        {renderSection()}
-      </div>
+      {/* Section content */}
+      <div className="min-h-[600px]">{renderSection()}</div>
     </div>
   );
 };
 
-// Wrap the component with the context provider
-const AcademicTab: React.FC = () => {
-  return (
-    <StreamConfigurationProvider>
-      <AcademicTabContent />
-    </StreamConfigurationProvider>
-  );
-};
+// Wrap with stream context provider
+const AcademicTab: React.FC = () => (
+  <StreamConfigurationProvider>
+    <AcademicTabContent />
+  </StreamConfigurationProvider>
+);
 
 export default AcademicTab;

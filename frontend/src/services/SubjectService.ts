@@ -63,7 +63,7 @@ export interface Subject {
   education_levels_display?: string;
   nursery_levels?: string[];
   nursery_levels_display?: string;
-  ss_subject_type?: string;
+  ss_subject_type?: string | number;
   ss_subject_type_display?: string;
   
   // NEW FK FIELDS (Use these going forward)
@@ -151,7 +151,7 @@ export interface CreateSubjectData {
   category?: string | number;
   education_levels?: string[];
   nursery_levels?: string[];
-  ss_subject_type?: string;
+  ss_subject_type?: string | number;
   
   // Configuration
   is_compulsory?: boolean;
@@ -214,7 +214,7 @@ export interface SubjectFilters {
   // OLD FILTERS (Deprecated but maintained)
   category?: string;
   nursery_level?: string;
-  ss_subject_type?: string;
+ ss_subject_type?: string | number;
   
   // Boolean filters
   is_compulsory?: boolean;
@@ -297,28 +297,46 @@ class SubjectService {
   // ========================================
   
   async getSubjects(params?: SubjectFilters): Promise<Subject[]> {
-    try {
-      console.log('🔍 [SubjectService] Fetching subjects with params:', params);
-      const response = await api.get('/api/subjects/', params);
+  try {
+    console.log('🔍 [SubjectService] Fetching subjects with params:', params);
+    
+    let allSubjects: Subject[] = [];
+    let currentParams: Record<string, any> = { ...params, page_size: 100 };
+    let nextUrl: string | null = '/api/subjects/';
+
+    while (nextUrl) {
+      const response = await api.get(nextUrl, currentParams);
       console.log('🔍 [SubjectService] Raw API response:', response);
-      
-      // api.get() returns parsed JSON directly, not wrapped in .data
+
       if (response && typeof response === 'object' && 'results' in response) {
         console.log('🔍 [SubjectService] Found results array with', response.results.length, 'subjects');
-        return response.results;
+        allSubjects = [...allSubjects, ...response.results];
+        // If there's a next page, extract just the path to avoid double base URL
+        if (response.next) {
+          const url = new URL(response.next);
+          nextUrl = url.pathname + url.search;
+          currentParams = {}; // params are already in the next URL
+        } else {
+          nextUrl = null;
+        }
       } else if (Array.isArray(response)) {
         console.log('🔍 [SubjectService] Response is direct array with', response.length, 'subjects');
-        return response;
+        allSubjects = [...allSubjects, ...response];
+        nextUrl = null;
       } else {
         console.warn('🔍 [SubjectService] Unexpected response format:', response);
-        return [];
+        nextUrl = null;
       }
-    } catch (error) {
-      console.error('🔍 [SubjectService] Error fetching subjects:', error);
-      console.warn('🔍 [SubjectService] Returning fallback subjects due to API error');
-      return this.getFallbackSubjects();
     }
+
+    console.log('🔍 [SubjectService] Total subjects fetched:', allSubjects.length);
+    return allSubjects;
+  } catch (error) {
+    console.error('🔍 [SubjectService] Error fetching subjects:', error);
+    console.warn('🔍 [SubjectService] Returning fallback subjects due to API error');
+    return this.getFallbackSubjects();
   }
+}
 
   async getSubject(id: number): Promise<Subject> {
     try {
@@ -332,7 +350,9 @@ class SubjectService {
 
   async createSubject(data: CreateSubjectData): Promise<Subject> {
     try {
+      console.log('📡 [SubjectService] createSubject called with:', JSON.stringify(data, null, 2));
       const response = await api.post('/api/subjects/', data);
+       console.log('📡 [SubjectService] createSubject raw response:', JSON.stringify(response, null, 2));
       return response.data;
     } catch (error) {
       console.error('Error creating subject:', error);

@@ -107,6 +107,7 @@ class Class(TenantMixin, models.Model):
         related_name="classes",
         help_text="Education level this class belongs to",
     )
+
     grade_level = models.ForeignKey(
         GradeLevel,
         on_delete=models.SET_NULL,

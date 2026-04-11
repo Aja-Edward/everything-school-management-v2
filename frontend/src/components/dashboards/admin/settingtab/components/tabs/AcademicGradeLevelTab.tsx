@@ -277,13 +277,13 @@ const handleEdLevelSubmit = async () => {
       </div>
       {/* Education Levels */}
 <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <div className="bg-gradient-to-r from-green-600 to-teal-600 px-6 py-4 flex items-center justify-between">
+  <div className="bg-black px-6 py-4 flex items-center justify-between">
     <h3 className="text-lg font-bold text-white">
       Education Levels ({educationLevels.length})
     </h3>
     <button
       onClick={() => setShowEdLevelModal(true)}
-      className="bg-white text-green-600 px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 hover:bg-green-50">
+      className="bg-white text-black px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 hover:bg-green-50">
       <Plus size={16}/> Add Education Level
     </button>
   </div>
@@ -300,7 +300,7 @@ const handleEdLevelSubmit = async () => {
       <div className="flex flex-wrap gap-2">
         {educationLevels.map(el => (
           <span key={el.id}
-            className="px-3 py-1.5 bg-green-100 text-green-800 rounded-lg text-sm font-medium">
+            className="px-3 py-1.5 bg-gray-800 text-gray-100 rounded-lg text-sm font-medium">
             {el.name}
           </span>
         ))}
@@ -358,7 +358,7 @@ const handleEdLevelSubmit = async () => {
           </button>
           <button
             onClick={handleEdLevelSubmit}
-            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 text-sm">
+            className="flex-1 px-4 py-2 bg-black text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 text-sm">
             <Save size={16}/> Create
           </button>
         </div>
@@ -368,13 +368,13 @@ const handleEdLevelSubmit = async () => {
 )}
       {/* Grade Levels */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 flex items-center justify-between">
+        <div className="bg-black px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <GraduationCap className="w-5 h-5 text-white"/>
             <h3 className="text-lg font-bold text-white">Grade Levels ({gradeLevels.length})</h3>
           </div>
           <button onClick={() => { resetGradeLevelForm(); setShowGradeLevelModal(true); }}
-            className="bg-white text-blue-600 px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 hover:bg-blue-50">
+            className="bg-white text-black px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 hover:bg-blue-50">
             <Plus size={16}/> Add Grade Level
           </button>
         </div>
@@ -403,25 +403,25 @@ const handleEdLevelSubmit = async () => {
                               <p className="font-medium text-gray-900">{gl.name}</p>
                               <p className="text-xs text-gray-400 mt-0.5">Order: {gl.order} • {gradeSections.length} section{gradeSections.length !== 1 ? 's' : ''}</p>
                             </div>
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${gl.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${gl.is_active ? 'bg-black text-white hover:bg-green-100 hover:text-green-600'  : 'bg-red-100 text-red-700' }`}>
                               {gl.is_active ? 'Active' : 'Inactive'}
                             </span>
                           </div>
                           <div className="flex flex-wrap gap-1 mb-3 min-h-[24px]">
                             {gradeSections.length > 0
                               ? gradeSections.map(s => (
-                                  <span key={s.id} className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs">{s.name}</span>
+                                  <span key={s.id} className="px-2 py-0.5 bg-gray-800 hover:bg-blue-100 text-white hover:text-blue-600 rounded text-xs">{s.name}</span>
                                 ))
                               : <span className="text-xs text-gray-300 italic">No sections yet</span>
                             }
                           </div>
                           <div className="flex gap-2">
                             <button onClick={() => handleEditGradeLevel(gl)}
-                              className="flex-1 py-1.5 bg-yellow-50 hover:bg-yellow-100 text-yellow-700 rounded text-xs font-medium flex items-center justify-center gap-1">
+                              className="flex-1 py-1.5 bg-gray-50 hover:bg-yellow-100 text-gray-700 hover:text-yellow-700 rounded text-xs font-medium flex items-center justify-center gap-1">
                               <Edit3 size={12}/> Edit
                             </button>
                             <button onClick={() => handleDeleteGradeLevel(gl.id)}
-                              className="flex-1 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded text-xs font-medium flex items-center justify-center gap-1">
+                              className="flex-1 py-1.5 bg-gray-50 hover:bg-red-600 text-gray-700 hover:text-white rounded text-xs font-medium flex items-center justify-center gap-1">
                               <Trash2 size={12}/> Delete
                             </button>
                           </div>
@@ -439,14 +439,14 @@ const handleEdLevelSubmit = async () => {
 
       {/* Sections */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-4 flex items-center justify-between">
+        <div className="bg-black text-white px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Layers className="w-5 h-5 text-white"/>
             <h3 className="text-lg font-bold text-white">Sections ({sections.length})</h3>
           </div>
           <button onClick={() => { resetSectionForm(); setShowSectionModal(true); }}
             disabled={gradeLevels.length === 0}
-            className="bg-white text-indigo-600 px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 hover:bg-indigo-50 disabled:opacity-40">
+            className="bg-white text-black px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 hover:bg-indigo-50 disabled:opacity-40">
             <Plus size={16}/> Add Section
           </button>
         </div>

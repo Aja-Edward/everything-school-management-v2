@@ -17,9 +17,11 @@ import {
   Award,
   Plus
 } from 'lucide-react';
-import TeacherService, { Teacher, UpdateTeacherData } from '@/services/TeacherService';
+import TeacherService from '@/services/TeacherService';
+import type {Teacher, UpdateTeacherData} from '@/types/teacher'
 import { toast } from 'react-toastify';
 import EditTeacherForm from './EditTeacherForm';
+import TeacherBulkUploadMenu from './TeacherBulkUploadMenu';
 import { useNavigate } from 'react-router-dom';
 
 const TeacherList = () => {
@@ -41,6 +43,7 @@ const TeacherList = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setMounted(true), 50);
@@ -216,7 +219,7 @@ const TeacherList = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className={`transition-all duration-500 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'}`}>
+      <div className={`transition-all duration-500 relative z-10 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'}`}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Teachers</h1>
@@ -224,13 +227,16 @@ const TeacherList = () => {
               {filteredTeachers.length} of {teachers.length} teachers
             </p>
           </div>
-          <button
-            onClick={() => navigate('/admin/teachers/add')}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Add Teacher
-          </button>
+          <div className="flex items-center gap-3 relative">
+            <button
+              onClick={() => navigate('/admin/teachers/add')}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Add Teacher
+            </button>
+            <TeacherBulkUploadMenu onOpenGuide={() => setShowGuide(true)} />
+          </div>
         </div>
       </div>
 

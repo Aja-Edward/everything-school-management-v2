@@ -43,7 +43,7 @@ const SubjectCombinationsManager: React.FC = () => {
       name: '',
       code: '',
       description: '',
-      stream_id: selectedStream,
+      stream: selectedStream,
       core_subjects: [],
       elective_subjects: [],
       cross_cutting_subjects: [],

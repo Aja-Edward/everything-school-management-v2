@@ -1,4 +1,5 @@
 import axios from 'axios';
+import {getHeaders, handleResponseError, API_BASE_URL } from '@/services/api'
 
 // Types
 export interface Stream {
@@ -6,6 +7,7 @@ export interface Stream {
   name: string;
   code: string;
   description?: string;
+  stream_type?: string;
   is_active: boolean;
   created_at?: string;
   updated_at?: string;
@@ -16,8 +18,10 @@ export interface Subject {
   name: string;
   code: string;
   description?: string;
-  education_level: string;
-  is_active: boolean;
+  education_level?: string;
+  is_active?: boolean;
+  credit_weight?: number;
+  is_compulsory?: boolean;
 }
 
 export interface StreamConfiguration {
@@ -38,8 +42,7 @@ export interface StreamConfiguration {
 
 export interface SubjectCombination {
   id: number;
-  stream_id: number;
-  stream?: Stream;
+  stream: number | Stream;  // API may return the stream ID or expanded stream object
   name: string;
   code: string;
   description?: string;
@@ -57,84 +60,154 @@ export interface SchoolStreamConfiguration {
 }
 
 class StreamConfigurationService {
-  private baseURL = '/api';
-
   // ============================================================================
   // STREAM MANAGEMENT
   // ============================================================================
 
-  /**
-   * Get all streams
-   */
+  
   async getStreams(): Promise<Stream[]> {
-    try {
-      const response = await axios.get(`${this.baseURL}/classrooms/streams/`);
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching streams:', error);
-      throw error;
+  try {
+    const headers = await getHeaders('GET');
+
+    const response = await fetch(`${API_BASE_URL}/classrooms/streams/`, {
+      method: 'GET',
+      headers,
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      await handleResponseError(response, '/classrooms/streams/', 'GET');
     }
+
+    const data = await response.json();
+
+    // Handle paginated response (important!)
+    return data.results || data;
+  } catch (error) {
+    console.error('Error fetching streams:', error);
+    throw error;
   }
+}
 
   /**
    * Get a single stream by ID
    */
-  async getStream(streamId: number): Promise<Stream> {
-    try {
-      const response = await axios.get(`${this.baseURL}/classrooms/streams/${streamId}/`);
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching stream:', error);
-      throw error;
-    }
-  }
+  
 
-  /**
-   * Create a new stream
-   */
-  async createStream(data: Partial<Stream>): Promise<Stream> {
-    try {
-      const response = await axios.post(`${this.baseURL}/classrooms/streams/`, data);
-      return response.data;
-    } catch (error: any) {
-      console.error('Error creating stream:', error);
-      if (error.response?.data) {
-        throw new Error(JSON.stringify(error.response.data));
+async getStream(streamId: number): Promise<Stream> {
+  try {
+    const headers = await getHeaders('GET');
+
+    const response = await fetch(
+      `${API_BASE_URL}/classrooms/streams/${streamId}/`,
+      {
+        method: 'GET',
+        headers,
+        credentials: 'include',
       }
-      throw error;
-    }
-  }
+    );
 
+    if (!response.ok) {
+      await handleResponseError(
+        response,
+        `/classrooms/streams/${streamId}/`,
+        'GET'
+      );
+    }
+
+    const data = await response.json();
+
+    // ✅ Single object — no pagination
+    return data;
+  } catch (error) {
+    console.error('Error fetching stream:', error);
+    throw error;
+  }
+}
+
+    async createStream(data: Partial<Stream>): Promise<Stream> {
+    const headers = await getHeaders('POST');
+
+    const response = await fetch(`${API_BASE_URL}/classrooms/streams/`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      await handleResponseError(response, '/classrooms/streams/', 'POST');
+    }
+
+    return response.json();
+  }
   /**
    * Update an existing stream
    */
   async updateStream(streamId: number, data: Partial<Stream>): Promise<Stream> {
-    try {
-      const response = await axios.put(`${this.baseURL}/classrooms/streams/${streamId}/`, data);
-      return response.data;
-    } catch (error: any) {
-      console.error('Error updating stream:', error);
-      if (error.response?.data) {
-        throw new Error(JSON.stringify(error.response.data));
+  try {
+    const headers = await getHeaders('PUT');
+
+    const response = await fetch(
+      `${API_BASE_URL}/classrooms/streams/${streamId}/`,
+      {
+        method: 'PUT',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify(data),
       }
-      throw error;
+    );
+
+    if (!response.ok) {
+      await handleResponseError(
+        response,
+        `/classrooms/streams/${streamId}/`,
+        'PUT'
+      );
     }
+
+    // ✅ Always parse safely
+    const responseData = await response.json();
+    return responseData;
+
+  } catch (error) {
+    console.error('Error updating stream:', error);
+    throw error;
   }
+}
 
   /**
    * Delete a stream
    */
   async deleteStream(streamId: number): Promise<void> {
-    try {
-      await axios.delete(`${this.baseURL}/classrooms/streams/${streamId}/`);
-    } catch (error: any) {
-      console.error('Error deleting stream:', error);
-      if (error.response?.data) {
-        throw new Error(JSON.stringify(error.response.data));
+  try {
+    const headers = await getHeaders('DELETE');
+
+    const response = await fetch(
+      `${API_BASE_URL}/classrooms/streams/${streamId}/`,
+      {
+        method: 'DELETE',
+        headers,
+        credentials: 'include',
       }
-      throw error;
+    );
+
+    if (!response.ok) {
+      await handleResponseError(
+        response,
+        `/classrooms/streams/${streamId}/`,
+        'DELETE'
+      );
     }
+
+    // DELETE usually returns 204 No Content → no JSON parsing
+    return;
+
+  } catch (error) {
+    console.error('Error deleting stream:', error);
+    throw error;
   }
+}
 
   // ============================================================================
   // STREAM CONFIGURATION MANAGEMENT
@@ -145,10 +218,29 @@ class StreamConfigurationService {
    */
   async getStreamConfigurations(): Promise<StreamConfiguration[]> {
     try {
-      const response = await axios.get(`${this.baseURL}/subjects/stream-configurations/`);
-      return response.data;
+      const headers = await getHeaders('GET');
+      const response = await fetch(`${API_BASE_URL}/subjects/stream-configurations/`,
+        {
+          method: 'GET',
+          headers,
+          credentials: 'include',
+        }
+      );
+
+      if (!response.ok) {
+        await handleResponseError(
+          response,
+          `/subjects/stream-configurations/`,
+          'GET'
+        );
+      }
+
+      const data = await response.json();
+
+      // Handle paginated response consistently
+      return data.results ?? data;
     } catch (error) {
-      console.error('Error fetching configurations:', error);
+      console.error('Error fetching stream configurations:', error);
       throw error;
     }
   }
@@ -157,80 +249,118 @@ class StreamConfigurationService {
    * Get configurations for a specific stream
    */
   async getStreamConfigurationsByStream(streamId: number): Promise<StreamConfiguration[]> {
-    try {
-      const response = await axios.get(
-        `${this.baseURL}/subjects/stream-configurations/?stream=${streamId}`
+  try {
+    const headers = await getHeaders('GET');
+
+    const response = await fetch(
+      `${API_BASE_URL}/subjects/stream-configurations/?stream=${streamId}`,
+      {
+        method: 'GET',
+        headers,
+        credentials: 'include',
+      }
+    );
+
+    if (!response.ok) {
+      await handleResponseError(
+        response,
+        `/subjects/stream-configurations/?stream=${streamId}`,
+        'GET'
       );
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching stream configurations:', error);
-      throw error;
     }
+
+    const data = await response.json();
+
+    // ✅ Handle pagination safely
+    return data.results ?? data;
+
+  } catch (error) {
+    console.error('Error fetching stream configurations:', error);
+    throw error;
   }
+}
 
   /**
    * Save or update a stream configuration
    */
   async saveStreamConfiguration(config: {
-    id?: number;
-    school_id?: number;
-    stream_id: number;
-    subject_role: 'cross_cutting' | 'core' | 'elective';
-    min_subjects_required: number;
-    max_subjects_allowed: number;
-    is_compulsory: boolean;
-    display_order: number;
-    is_active: boolean;
-  }): Promise<StreamConfiguration> {
-    try {
-      // Transform to backend format
-      const payload = {
-        school: config.school_id,
-        stream: config.stream_id,
-        subject_role: config.subject_role,
-        min_subjects_required: config.min_subjects_required,
-        max_subjects_allowed: config.max_subjects_allowed,
-        is_compulsory: config.is_compulsory,
-        display_order: config.display_order,
-        is_active: config.is_active
-      };
+  id?: number;
+  stream_id: number;
+  subject_role: 'cross_cutting' | 'core' | 'elective';
+  min_subjects_required: number;
+  max_subjects_allowed: number;
+  is_compulsory: boolean;
+  display_order: number;
+  is_active: boolean;
+}): Promise<StreamConfiguration> {
+  try {
+    const headers = await getHeaders(config.id ? 'PUT' : 'POST');
 
-      if (config.id) {
-        const response = await axios.put(
-          `${this.baseURL}/subjects/stream-configurations/${config.id}/`,
-          payload
-        );
-        return response.data;
-      } else {
-        const response = await axios.post(
-          `${this.baseURL}/subjects/stream-configurations/`,
-          payload
-        );
-        return response.data;
-      }
-    } catch (error: any) {
-      console.error('Error saving stream configuration:', error);
-      if (error.response?.data) {
-        throw new Error(JSON.stringify(error.response.data));
-      }
-      throw error;
+    const payload = {
+      stream: config.stream_id,
+      subject_role: config.subject_role,
+      min_subjects_required: config.min_subjects_required,
+      max_subjects_allowed: config.max_subjects_allowed,
+      is_compulsory: config.is_compulsory,
+      display_order: config.display_order,
+      is_active: config.is_active
+    };
+
+    const url = config.id
+      ? `${API_BASE_URL}/subjects/stream-configurations/${config.id}/`
+      : `${API_BASE_URL}/subjects/stream-configurations/`;
+
+    const method = config.id ? 'PUT' : 'POST';
+
+    const response = await fetch(url, {
+      method,
+      headers,
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      await handleResponseError(response, url, method);
     }
+
+    // ✅ Always parse JSON for both POST and PUT
+    return await response.json();
+
+  } catch (error) {
+    console.error('Error saving stream configuration:', error);
+    throw error;
   }
+}
 
   /**
    * Setup default configurations for all streams
    */
   async setupDefaultConfigurations(): Promise<void> {
-    try {
-      await axios.post(`${this.baseURL}/subjects/stream-configurations/setup_defaults/`);
-    } catch (error: any) {
-      console.error('Error setting up default configurations:', error);
-      if (error.response?.data) {
-        throw new Error(JSON.stringify(error.response.data));
+  try {
+    const headers = await getHeaders('POST');
+
+    const response = await fetch(
+      `${API_BASE_URL}/subjects/stream-configurations/setup_defaults/`,
+      {
+        method: 'POST',
+        headers,
+        credentials: 'include',
       }
-      throw error;
+    );
+
+    if (!response.ok) {
+      await handleResponseError(
+        response,
+        `/subjects/stream-configurations/setup_defaults/`,
+        'POST'
+      );
     }
+
+  } catch (error) {
+    console.error('Error setting up default configurations:', error);
+    throw error;
   }
+}
 
   // ============================================================================
   // SUBJECT MANAGEMENT
@@ -239,56 +369,88 @@ class StreamConfigurationService {
   /**
    * Get available subjects for assignment
    */
-  async getAvailableSubjects(educationLevel: string = 'SENIOR_SECONDARY'): Promise<Subject[]> {
-    try {
-      const response = await axios.get(`${this.baseURL}/subjects/`, {
-        params: {
-          education_levels: educationLevel,
-          is_active: true
-        }
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching available subjects:', error);
-      throw error;
+ async getAvailableSubjects(
+  educationLevel: string = 'SENIOR_SECONDARY'
+): Promise<Subject[]> {
+  try {
+    const headers = await getHeaders('GET');
+
+    // Request with large page size to get all results in one request
+    const url = `${API_BASE_URL}/subjects/?education_levels=${educationLevel}&is_active=true&page_size=999`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers,
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      await handleResponseError(response, '/subjects/', 'GET');
     }
+
+    const data = await response.json();
+
+    // ✅ Handle pagination
+    return data.results ?? data;
+
+  } catch (error) {
+    console.error('Error fetching available subjects:', error);
+    throw error;
   }
+}
 
   /**
    * Bulk assign subjects to a configuration
    */
   async bulkAssignSubjects(configId: number, subjectIds: number[]): Promise<void> {
-    try {
-      await axios.post(
-        `${this.baseURL}/subjects/stream-configurations/${configId}/bulk_assign_subjects/`,
-        { subject_ids: subjectIds }
-      );
-    } catch (error: any) {
-      console.error('Error bulk assigning subjects:', error);
-      if (error.response?.data) {
-        throw new Error(JSON.stringify(error.response.data));
-      }
-      throw error;
+  try {
+    const headers = await getHeaders('POST');
+
+    const url = `${API_BASE_URL}/subjects/stream-configurations/${configId}/bulk_assign_subjects/`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({ subject_ids: subjectIds }),
+    });
+
+    if (!response.ok) {
+      await handleResponseError(response, url, 'POST');
     }
+
+  } catch (error) {
+    console.error('Error bulk assigning subjects:', error);
+    throw error;
   }
+}
+
+
 
   /**
    * Remove a subject from a configuration
    */
   async removeSubjectFromConfiguration(configId: number, subjectId: number): Promise<void> {
     try {
-      await axios.post(
-        `${this.baseURL}/subjects/stream-configurations/${configId}/remove_subject/`,
-        { subject_id: subjectId }
-      );
-    } catch (error: any) {
-      console.error('Error removing subject:', error);
-      if (error.response?.data) {
-        throw new Error(JSON.stringify(error.response.data));
+      const headers = await getHeaders('POST');
+      const url = `${API_BASE_URL}/subjects/stream-configurations/${configId}/remove_subject/`;
+
+       const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify({ subject_id: subjectId }),
+      });
+      if (!response.ok) {
+        await handleResponseError(response, url, 'POST');
       }
-      throw error;
-    }
+    } catch (error) {
+    console.error('Error bulk assigning subjects:', error);
+    throw error;
   }
+}
+
+
 
   // ============================================================================
   // SUBJECT COMBINATIONS
@@ -297,58 +459,102 @@ class StreamConfigurationService {
   /**
    * Get subject combinations
    */
-  async getSubjectCombinations(streamId?: number): Promise<SubjectCombination[]> {
-    try {
-      const params = streamId ? { stream: streamId } : {};
-      const response = await axios.get(`${this.baseURL}/subjects/subject-combinations/`, { params });
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching subject combinations:', error);
-      throw error;
+async getSubjectCombinations(streamId?: number): Promise<SubjectCombination[]> {
+  try {
+    const headers = await getHeaders('GET');
+    const params = streamId ? { stream: streamId } : {};
+
+    console.log('🔄 Fetching subject combinations with params:', params);
+
+    const response = await axios.get(
+      `${API_BASE_URL}/subjects/subject-combinations/`,
+      { params, headers }
+    );
+
+    console.log('📤 Subject combinations response:', response.data);
+
+    // Backend returns { stream_id, total_combinations, combinations }
+    // Extract the combinations array
+    if (response.data && typeof response.data === 'object') {
+      const combinations = response.data.combinations || response.data;
+      console.log('✅ Extracted combinations:', combinations?.length || 0, 'items');
+      return Array.isArray(combinations) ? combinations : [];
     }
+
+    return response.data;
+
+  } catch (error: any) {
+    console.error('Error fetching subject combinations:', error);
+
+    // ✅ Log the actual backend error body
+    if (error.response) {
+      console.error('Status:', error.response.status);
+      console.error('Backend error:', error.response.data);
+    }
+
+    throw error;
   }
+}
+
 
   /**
    * Save a subject combination
    */
-  async saveSubjectCombination(combination: Partial<SubjectCombination>): Promise<SubjectCombination> {
-    try {
-      if (combination.id) {
-        const response = await axios.put(
-          `${this.baseURL}/subjects/subject-combinations/${combination.id}/`,
-          combination
-        );
-        return response.data;
-      } else {
-        const response = await axios.post(
-          `${this.baseURL}/subjects/subject-combinations/`,
-          combination
-        );
-        return response.data;
-      }
-    } catch (error: any) {
-      console.error('Error saving subject combination:', error);
-      if (error.response?.data) {
-        throw new Error(JSON.stringify(error.response.data));
-      }
-      throw error;
+  async saveSubjectCombination(
+  combination: Partial<SubjectCombination>
+): Promise<SubjectCombination> {
+  try {
+    const method = combination.id ? 'PUT' : 'POST';
+    const headers = await getHeaders(method);
+
+    if (combination.id) {
+      const response = await axios.put(
+        `${API_BASE_URL}/subjects/subject-combinations/${combination.id}/`,
+        combination,
+        { headers } // ✅ FIXED
+      );
+      return response.data;
+    } else {
+      const response = await axios.post(
+        `${API_BASE_URL}/subjects/subject-combinations/`,
+        combination,
+        { headers } // ✅ FIXED
+      );
+      return response.data;
     }
+  } catch (error: any) {
+    console.error('Error saving subject combination:', error);
+
+    if (error.response?.data) {
+      throw new Error(JSON.stringify(error.response.data));
+    }
+
+    throw error;
   }
+}
 
   /**
    * Delete a subject combination
    */
   async deleteSubjectCombination(combinationId: number): Promise<void> {
-    try {
-      await axios.delete(`${this.baseURL}/subjects/subject-combinations/${combinationId}/`);
-    } catch (error: any) {
-      console.error('Error deleting subject combination:', error);
-      if (error.response?.data) {
-        throw new Error(JSON.stringify(error.response.data));
-      }
-      throw error;
+  try {
+    const headers = await getHeaders('DELETE');
+
+    await axios.delete(
+      `${API_BASE_URL}/subjects/subject-combinations/${combinationId}/`,
+      { headers } // ✅ correct
+    );
+
+  } catch (error: any) {
+    console.error('Error deleting subject combination:', error);
+
+    if (error.response?.data) {
+      throw new Error(JSON.stringify(error.response.data));
     }
+
+    throw error;
   }
+}
 
   // ============================================================================
   // UTILITY METHODS
@@ -357,72 +563,96 @@ class StreamConfigurationService {
   /**
    * Get complete school stream configuration
    */
-  async getSchoolStreamConfiguration(): Promise<SchoolStreamConfiguration[]> {
-    try {
-      const [streams, configurations, subjects] = await Promise.all([
-        this.getStreams(),
-        this.getStreamConfigurations(),
-        this.getAvailableSubjects()
-      ]);
+ async getSchoolStreamConfiguration(): Promise<SchoolStreamConfiguration[]> {
+  try {
+    const [streams, configurations, subjects] = await Promise.all([
+      this.getStreams(),
+      this.getStreamConfigurations(),
+      this.getAvailableSubjects()
+    ]);
 
-      return streams.map(stream => ({
-        stream,
-        configurations: configurations.filter(c => c.stream_id === stream.id),
-        available_subjects: subjects
-      }));
-    } catch (error) {
-      console.error('Error fetching school stream configuration:', error);
-      throw error;
+    if (!streams || !configurations || !subjects) {
+      throw new Error('Missing required data for school stream configuration');
     }
+
+    return streams.map((stream) => {
+      const streamConfigs = configurations.filter(
+        (c) => c.stream_id === stream.id
+      );
+
+      return {
+        stream,
+        configurations: streamConfigs,
+        available_subjects: subjects,
+      };
+    });
+
+  } catch (error) {
+    console.error('Error fetching school stream configuration:', error);
+    throw error;
   }
+}
 
   /**
    * Validate subject combination
    */
-  validateCombination(
-    combination: Partial<SubjectCombination>,
-    configurations: StreamConfiguration[]
-  ): { valid: boolean; errors: string[] } {
-    const errors: string[] = [];
+ validateCombination(
+  combination: Partial<SubjectCombination>,
+  configurations: StreamConfiguration[]
+): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
 
-    // Get configurations for the stream
-    const crossCuttingConfig = configurations.find(c => c.subject_role === 'cross_cutting');
-    const coreConfig = configurations.find(c => c.subject_role === 'core');
-    const electiveConfig = configurations.find(c => c.subject_role === 'elective');
+  const crossCuttingConfig = configurations.find(c => c.subject_role === 'cross_cutting');
+  const coreConfig = configurations.find(c => c.subject_role === 'core');
+  const electiveConfig = configurations.find(c => c.subject_role === 'elective');
 
-    // Validate core subjects
-    if (coreConfig && combination.core_subjects) {
-      if (combination.core_subjects.length < coreConfig.min_subjects_required) {
-        errors.push(
-          `Minimum ${coreConfig.min_subjects_required} core subjects required, but only ${combination.core_subjects.length} selected`
-        );
-      }
-      if (combination.core_subjects.length > coreConfig.max_subjects_allowed) {
-        errors.push(
-          `Maximum ${coreConfig.max_subjects_allowed} core subjects allowed, but ${combination.core_subjects.length} selected`
-        );
-      }
+  // Core
+  if (coreConfig && combination.core_subjects) {
+    if (combination.core_subjects.length < coreConfig.min_subjects_required) {
+      errors.push(
+        `Minimum ${coreConfig.min_subjects_required} core subjects required, but only ${combination.core_subjects.length} selected`
+      );
     }
-
-    // Validate elective subjects
-    if (electiveConfig && combination.elective_subjects) {
-      if (combination.elective_subjects.length < electiveConfig.min_subjects_required) {
-        errors.push(
-          `Minimum ${electiveConfig.min_subjects_required} elective subjects required, but only ${combination.elective_subjects.length} selected`
-        );
-      }
-      if (combination.elective_subjects.length > electiveConfig.max_subjects_allowed) {
-        errors.push(
-          `Maximum ${electiveConfig.max_subjects_allowed} elective subjects allowed, but ${combination.elective_subjects.length} selected`
-        );
-      }
+    if (combination.core_subjects.length > coreConfig.max_subjects_allowed) {
+      errors.push(
+        `Maximum ${coreConfig.max_subjects_allowed} core subjects allowed, but ${combination.core_subjects.length} selected`
+      );
     }
-
-    return {
-      valid: errors.length === 0,
-      errors
-    };
   }
+
+  // Elective
+  if (electiveConfig && combination.elective_subjects) {
+    if (combination.elective_subjects.length < electiveConfig.min_subjects_required) {
+      errors.push(
+        `Minimum ${electiveConfig.min_subjects_required} elective subjects required, but only ${combination.elective_subjects.length} selected`
+      );
+    }
+    if (combination.elective_subjects.length > electiveConfig.max_subjects_allowed) {
+      errors.push(
+        `Maximum ${electiveConfig.max_subjects_allowed} elective subjects allowed, but ${combination.elective_subjects.length} selected`
+      );
+    }
+  }
+
+  // ✅ Cross-cutting (FIX)
+  if (crossCuttingConfig && combination.cross_cutting_subjects) {
+    if (combination.cross_cutting_subjects.length < crossCuttingConfig.min_subjects_required) {
+      errors.push(
+        `Minimum ${crossCuttingConfig.min_subjects_required} cross-cutting subjects required, but only ${combination.cross_cutting_subjects.length} selected`
+      );
+    }
+    if (combination.cross_cutting_subjects.length > crossCuttingConfig.max_subjects_allowed) {
+      errors.push(
+        `Maximum ${crossCuttingConfig.max_subjects_allowed} cross-cutting subjects allowed, but ${combination.cross_cutting_subjects.length} selected`
+      );
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
 }
 
 export default new StreamConfigurationService();
