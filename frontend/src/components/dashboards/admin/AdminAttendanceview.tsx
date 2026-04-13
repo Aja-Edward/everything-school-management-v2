@@ -6,7 +6,6 @@ import {
   updateAttendance,
   deleteAttendance,
   AttendanceStatusMap,
-  AttendanceRecordBackend,
   AttendanceCodeToStatusMap,
 } from '@/services/AttendanceService';
 import StudentService, { Student } from '@/services/StudentService';
@@ -18,6 +17,7 @@ interface AttendanceRecord {
   level: string;
   class: string;
   section: string;
+  results?: any;
   date: string;
   status: 'present' | 'absent' | 'late' | 'excused';
   timeIn: string;

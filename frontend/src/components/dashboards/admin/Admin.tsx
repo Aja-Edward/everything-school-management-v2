@@ -60,7 +60,7 @@ interface AdminDashboardProps {
   messageCount: number;
   onRefresh: () => void;
   currentUser?: FullUserData | null;
-  onLogout?: () => void;
+  onLogout?: () => Promise<void>;
   isAdmin?: boolean;
   adminMethods?: {
     getUsers: (params?: {
@@ -178,21 +178,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const navigationItems = buildNavigationItems();
 
   const handleLogout = async () => {
-    try {
-      if (onLogout) await onLogout();
-      else {
-        localStorage.removeItem('authToken');
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('userData');
-        localStorage.removeItem('userProfile');
-      }
-      navigate('/', { replace: true });
-    } catch (error) {
-      console.error('Logout failed:', error);
-      localStorage.clear();
-      navigate('/', { replace: true });
+  try {
+    if (onLogout) await onLogout();
+    else {
+      // onLogout from useAuth handles clearing userData/tenantSlug
+      // httpOnly cookies are cleared server-side — nothing to do here
+      localStorage.removeItem('userData');
+      localStorage.removeItem('userProfile');
     }
-  };
+    navigate('/', { replace: true });
+  } catch (error) {
+    console.error('Logout failed:', error);
+    localStorage.removeItem('userData');
+    localStorage.removeItem('userProfile');
+    localStorage.removeItem('tenantSlug');
+    navigate('/', { replace: true });
+  }
+};
 
   const handleNavigationClick = (itemName: string, path: string) => {
     setIsMobileMenuOpen(false);

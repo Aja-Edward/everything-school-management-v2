@@ -1,15 +1,34 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { API_BASE_URL } from '@/services/api';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import api from '@/services/api';
 
-// Utility function to convert hex to RGB
+// ============================================================================
+// UTILS
+// ============================================================================
+
 const hexToRgb = (hex: string) => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result ? {
-    r: parseInt(result[1], 16),
-    g: parseInt(result[2], 16),
-    b: parseInt(result[3], 16)
-  } : null;
+  return result
+    ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16),
+      }
+    : null;
 };
+
+const DEFAULT_SETTINGS: DesignSettings = {
+  primary_color: '#3B82F6',
+  theme: 'default',
+  animations_enabled: true,
+  compact_mode: false,
+  typography: 'Inter',
+  border_radius: 'rounded-lg',
+  shadow_style: 'shadow-md',
+};
+
+// ============================================================================
+// TYPES
+// ============================================================================
 
 interface DesignSettings {
   primary_color: string;
@@ -24,141 +43,109 @@ interface DesignSettings {
 interface DesignContextType {
   settings: DesignSettings | null;
   updateSettings: (settings: DesignSettings) => void;
-  applyDesignSettings: () => void;
+  applyDesignSettings: (settings: DesignSettings) => void;
 }
+
+// ============================================================================
+// CONTEXT
+// ============================================================================
 
 const DesignContext = createContext<DesignContextType | undefined>(undefined);
 
 export const useDesign = () => {
   const context = useContext(DesignContext);
-  if (context === undefined) {
-    throw new Error('useDesign must be used within a DesignProvider');
-  }
+  if (!context) throw new Error('useDesign must be used within a DesignProvider');
   return context;
 };
 
-interface DesignProviderProps {
-  children: React.ReactNode;
-}
+// ============================================================================
+// PROVIDER
+// ============================================================================
 
-export const DesignProvider: React.FC<DesignProviderProps> = ({ children }) => {
+export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [settings, setSettings] = useState<DesignSettings | null>(null);
 
-  // Apply design settings to the document
-  const applyDesignSettings = () => {
-    if (!settings) return;
-
+  // ✅ Takes settings as a parameter — no stale closure risk
+  const applyDesignSettings = useCallback((s: DesignSettings) => {
     const root = document.documentElement;
     const body = document.body;
 
-    // Apply primary color
-    root.style.setProperty('--primary-color', settings.primary_color);
-    
-    // Update derived CSS variables
-    const primaryColor = settings.primary_color;
-    const primaryColorRgb = hexToRgb(primaryColor);
-    if (primaryColorRgb) {
-      root.style.setProperty('--primary-gradient', `linear-gradient(135deg, ${primaryColor} 0%, ${primaryColor}80 100%)`);
-      root.style.setProperty('--primary-shadow', `0 10px 15px -3px ${primaryColor}25`);
+    // Primary color
+    root.style.setProperty('--primary-color', s.primary_color);
+    const rgb = hexToRgb(s.primary_color);
+    if (rgb) {
+      root.style.setProperty(
+        '--primary-gradient',
+        `linear-gradient(135deg, ${s.primary_color} 0%, ${s.primary_color}80 100%)`
+      );
+      root.style.setProperty('--primary-shadow', `0 10px 15px -3px ${s.primary_color}25`);
     }
-    
-    // Apply theme
-    body.className = body.className.replace(/theme-\w+/g, '');
-    const themeClass = settings.theme === 'default' ? 'theme-default' : `theme-${settings.theme}`;
-    body.classList.add(themeClass);
-    
-    // Also apply theme class to document root for global access
-    document.documentElement.className = document.documentElement.className.replace(/theme-\w+/g, '');
-    document.documentElement.classList.add(themeClass);
-    
-    // Apply typography globally by updating CSS variable
-    const fontFamily = `'${settings.typography}', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
-    root.style.setProperty('--font-family', fontFamily);
-    
-    // Also apply font class to body for consistency
-    const fontClass = `font-${settings.typography.toLowerCase().replace(/\s+/g, '-')}`;
-    body.className = body.className.replace(/font-\w+/g, '');
-    body.classList.add(fontClass);
-    
-    // Apply animations
-    if (settings.animations_enabled) {
-      body.classList.add('animations-enabled');
-      body.classList.remove('animations-disabled');
-    } else {
-      body.classList.add('animations-disabled');
-      body.classList.remove('animations-enabled');
-    }
-    
-    // Apply compact mode
-    if (settings.compact_mode) {
-      body.classList.add('compact-mode');
-    } else {
-      body.classList.remove('compact-mode');
-    }
-    
-    // Apply border radius
-    root.style.setProperty('--border-radius', settings.border_radius);
-    
-    // Apply shadow style
-    root.style.setProperty('--shadow-style', settings.shadow_style);
-  };
 
-  // Fetch settings from API
+    // Theme
+    const themeClass = s.theme === 'default' ? 'theme-default' : `theme-${s.theme}`;
+    body.className = body.className.replace(/theme-\w+/g, '').trim();
+    body.classList.add(themeClass);
+    root.className = root.className.replace(/theme-\w+/g, '').trim();
+    root.classList.add(themeClass);
+
+    // Typography
+    root.style.setProperty(
+      '--font-family',
+      `'${s.typography}', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`
+    );
+    const fontClass = `font-${s.typography.toLowerCase().replace(/\s+/g, '-')}`;
+    body.className = body.className.replace(/font-[\w-]+/g, '').trim();
+    body.classList.add(fontClass);
+
+    // Animations
+    body.classList.toggle('animations-enabled', s.animations_enabled);
+    body.classList.toggle('animations-disabled', !s.animations_enabled);
+
+    // Compact mode
+    body.classList.toggle('compact-mode', s.compact_mode);
+
+    // Border radius & shadow
+    root.style.setProperty('--border-radius', s.border_radius);
+    root.style.setProperty('--shadow-style', s.shadow_style);
+  }, []);
+
+  // Fetch settings on mount
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const token = localStorage.getItem('authToken');
-        const response = await fetch(`${API_BASE_URL}/school-settings/school-settings/`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setSettings({
-            primary_color: data.primary_color || '#3B82F6',
-            theme: data.theme || 'default',
-            animations_enabled: data.animations_enabled ?? true,
-            compact_mode: data.compact_mode ?? false,
-            typography: data.typography || 'Inter',
-            border_radius: data.border_radius || 'rounded-lg',
-            shadow_style: data.shadow_style || 'shadow-md'
-          });
-        }
-      } catch (err) {
-        console.error('Failed to fetch design settings:', err);
-        // Set default settings if API fails
-        setSettings({
-          primary_color: '#3B82F6',
-          theme: 'default',
-          animations_enabled: true,
-          compact_mode: false,
-          typography: 'Inter',
-          border_radius: 'rounded-lg',
-          shadow_style: 'shadow-md'
-        });
+        // ✅ Routes through api.ts — credentials + CSRF handled automatically
+        const data = await api.get('/school-settings/school-settings/');
+        const resolved: DesignSettings = {
+          primary_color: data.primary_color || DEFAULT_SETTINGS.primary_color,
+          theme: data.theme || DEFAULT_SETTINGS.theme,
+          animations_enabled: data.animations_enabled ?? DEFAULT_SETTINGS.animations_enabled,
+          compact_mode: data.compact_mode ?? DEFAULT_SETTINGS.compact_mode,
+          typography: data.typography || DEFAULT_SETTINGS.typography,
+          border_radius: data.border_radius || DEFAULT_SETTINGS.border_radius,
+          shadow_style: data.shadow_style || DEFAULT_SETTINGS.shadow_style,
+        };
+        setSettings(resolved);
+      } catch {
+        // API unavailable — fall back to defaults silently
+        setSettings(DEFAULT_SETTINGS);
       }
     };
 
     fetchSettings();
   }, []);
 
-  // Apply settings when they change
+  // Apply whenever settings change
   useEffect(() => {
-    if (settings) {
-      applyDesignSettings();
-    }
-  }, [settings]);
+    if (settings) applyDesignSettings(settings);
+  }, [settings, applyDesignSettings]);
 
-  const updateSettings = (newSettings: DesignSettings) => {
+  const updateSettings = useCallback((newSettings: DesignSettings) => {
     setSettings(newSettings);
-  };
+  }, []);
 
   return (
     <DesignContext.Provider value={{ settings, updateSettings, applyDesignSettings }}>
       {children}
     </DesignContext.Provider>
   );
-}; 
+};

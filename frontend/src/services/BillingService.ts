@@ -57,23 +57,30 @@ export const getInvoice = async (invoiceId: string): Promise<Invoice> => {
 /**
  * Download invoice PDF
  */
+/**
+ * Download invoice PDF
+ * Uses raw fetch because we need a Blob response, not JSON.
+ * api.ts handles JSON only, so we replicate its headers manually here.
+ */
 export const downloadInvoicePDF = async (invoiceId: string): Promise<Blob> => {
+  const tenantSlug = localStorage.getItem('tenantSlug') || '';
+
   const response = await fetch(
     `${API_BASE_URL}/billing/invoices/${invoiceId}/pdf/`,
     {
       credentials: 'include',
       headers: {
-        'Authorization': `Bearer ${localStorage.getItem('authToken') || ''}`,
-        'X-Tenant-Slug': localStorage.getItem('tenantSlug') || '',
+        // ✅ No Authorization header — cookie handles auth
+        ...(tenantSlug && { 'X-Tenant-Slug': tenantSlug }),
       },
     }
   );
 
   if (!response.ok) {
-    throw new Error('Failed to download PDF');
+    throw new Error(`Failed to download PDF: ${response.status} ${response.statusText}`);
   }
 
-  return await response.blob();
+  return response.blob();
 };
 
 /**

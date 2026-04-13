@@ -34,27 +34,24 @@ class WeasyPrintPDFService {
   private baseURL = '/api/results/report-generation';
 
   /**
-   * Get authentication token from storage
-   */
-  private getAuthToken(): string {
-    const token = 
-      localStorage.getItem('access_token') ||
-      localStorage.getItem('token') ||
-      sessionStorage.getItem('access_token') ||
-      sessionStorage.getItem('token');
-
-    if (!token) {
-      throw new Error('Authentication token not found. Please log in again.');
-    }
-
-    return token;
-  }
-
-  /**
    * Get base API URL from environment
    */
   private getBaseURL(): string {
     return import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  }
+
+  /**
+   * Build shared fetch headers.
+   * Auth is handled automatically via the httpOnly cookie + credentials: "include".
+   * Tenant slug is non-sensitive routing metadata kept in localStorage.
+   */
+  private getHeaders(extra?: Record<string, string>): Record<string, string> {
+    const headers: Record<string, string> = {};
+
+    const tenantSlug = localStorage.getItem('tenantSlug');
+    if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
+
+    return { ...headers, ...extra };
   }
 
   /**
@@ -135,7 +132,6 @@ class WeasyPrintPDFService {
       console.group('📥 [WeasyPrint] downloadTermReportPDF');
       console.log('Options:', options);
 
-      const authToken = this.getAuthToken();
       const baseURL = this.getBaseURL();
       
       const url = new URL(`${baseURL}${this.baseURL}/download-term-report/`);
@@ -150,10 +146,8 @@ class WeasyPrintPDFService {
 
       const response = await fetch(url.toString(), {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Accept': 'application/pdf, application/octet-stream, */*'
-        }
+        headers: this.getHeaders({ Accept: 'application/pdf, application/octet-stream, */*' }),
+        credentials: 'include',
       });
 
       console.log('📊 Response status:', response.status);
@@ -199,7 +193,6 @@ class WeasyPrintPDFService {
       console.group('📥 [WeasyPrint] downloadSessionReportPDF');
       console.log('Report ID:', reportId);
 
-      const authToken = this.getAuthToken();
       const baseURL = this.getBaseURL();
       
       const url = new URL(`${baseURL}${this.baseURL}/download-session-report/`);
@@ -209,10 +202,8 @@ class WeasyPrintPDFService {
 
       const response = await fetch(url.toString(), {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Accept': 'application/pdf, application/octet-stream, */*'
-        }
+        headers: this.getHeaders({ Accept: 'application/pdf, application/octet-stream, */*' }),
+        credentials: 'include',
       });
 
       console.log('📊 Response status:', response.status);
@@ -243,7 +234,6 @@ class WeasyPrintPDFService {
       console.log('Report IDs:', options.reportIds);
       console.log('Education Level:', options.educationLevel);
 
-      const authToken = this.getAuthToken();
       const baseURL = this.getBaseURL();
       const url = `${baseURL}${this.baseURL}/bulk-download/`;
 
@@ -251,11 +241,11 @@ class WeasyPrintPDFService {
 
       const response = await fetch(url, {
         method: 'POST',
-        headers: {
+        headers: this.getHeaders({
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
-          'Accept': 'application/zip, application/octet-stream, */*'
-        },
+          Accept: 'application/zip, application/octet-stream, */*',
+        }),
+        credentials: 'include',
         body: JSON.stringify({
           report_ids: options.reportIds,
           education_level: options.educationLevel.toUpperCase()
@@ -361,7 +351,6 @@ class WeasyPrintPDFService {
 
     console.error('❌ [WeasyPrint] Request failed:', errorMessage);
 
-    // Provide helpful error messages
     if (response.status === 404) {
       throw new Error('Report not found. Please ensure the report has been generated.');
     } else if (response.status === 403) {

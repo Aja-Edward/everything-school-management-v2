@@ -87,33 +87,24 @@ export interface ClassroomCapacityResult {
 class SettingsService {
 
   async getSettings(): Promise<SchoolSettings> {
-  try {
-    const hostname = window.location.hostname;
-    const isPlatform = hostname === 'localhost' || hostname === '127.0.0.1';
+    try {
+      const hostname = window.location.hostname;
+      const isPlatform = hostname === 'localhost' || hostname === '127.0.0.1';
 
-    if (!isPlatform) {
-      // Don't attempt protected endpoint without a token
-      const token = localStorage.getItem('authToken') || localStorage.getItem('token');
-      if (!token) {
-        console.warn('⚠️ No auth token — skipping settings fetch, returning defaults');
+      const endpoint = isPlatform ? '/api/platform/info/' : '/api/tenants/settings/current/';
+      const cacheBuster = `${Date.now()}_${Math.random()}`;
+      const response = await api.get(`${endpoint}?_=${cacheBuster}`);
+
+      if (typeof response === 'string' && response.includes('<!DOCTYPE html>')) {
         return this.getDefaultSettings();
       }
-    }
 
-    const endpoint = isPlatform ? '/api/platform/info/' : '/api/tenants/settings/current/';
-    const cacheBuster = `${Date.now()}_${Math.random()}`;
-    const response = await api.get(`${endpoint}?_=${cacheBuster}`);
-
-    if (typeof response === 'string' && response.includes('<!DOCTYPE html>')) {
+      return this.transformBackendToFrontend(response);
+    } catch (error) {
+      console.error('❌ Error fetching settings:', error);
       return this.getDefaultSettings();
     }
-
-    return this.transformBackendToFrontend(response);
-  } catch (error) {
-    console.error('❌ Error fetching settings:', error);
-    return this.getDefaultSettings();
   }
-}
 
 
 
@@ -255,7 +246,7 @@ class SettingsService {
       throw new Error(errorMessage);
     }
   }
-getClassroomEnrollment(c: Classroom): number {
+  getClassroomEnrollment(c: Classroom): number {
     return c.current_enrollment ?? c.enrollment_count ?? c.student_count ?? 0;
   }
  
@@ -269,12 +260,11 @@ getClassroomEnrollment(c: Classroom): number {
 
   async getClassrooms(): Promise<Classroom[]> {
     try {
-      const token = localStorage.getItem('authToken');
       const res = await fetch(`${API_BASE_URL}/classrooms/classrooms/`, {
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
+        credentials: 'include',
       });
       if (!res.ok) throw new Error(`Failed to load classrooms (${res.status})`);
       const data = await res.json();
@@ -289,15 +279,14 @@ getClassroomEnrollment(c: Classroom): number {
  
   async setClassroomCapacity(classroomId: number, maxCapacity: number): Promise<Classroom> {
     try {
-      const token = localStorage.getItem('authToken');
       const res = await fetch(
         `${API_BASE_URL}/api/classrooms/classrooms/${classroomId}/set-capacity/`,
         {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
+          credentials: 'include',
           body: JSON.stringify({ max_capacity: maxCapacity }),
         }
       );
@@ -323,16 +312,14 @@ getClassroomEnrollment(c: Classroom): number {
     classrooms: Classroom[],
     maxCapacity: number
   ): Promise<{ succeeded: number; failed: Array<{ name: string; error: string }> }> {
-    const token = localStorage.getItem('authToken');
- 
     const results = await Promise.allSettled(
       classrooms.map(c =>
         fetch(`${API_BASE_URL}/api/classrooms/classrooms/${c.id}/set-capacity/`, {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
+          credentials: 'include',
           body: JSON.stringify({ max_capacity: maxCapacity }),
         }).then(async res => {
           if (!res.ok) {
@@ -358,6 +345,7 @@ getClassroomEnrollment(c: Classroom): number {
  
     return { succeeded: results.length - failed.length, failed };
   }
+
   private transformBackendToFrontend(response: any): SchoolSettings {
     console.log('🔄 Transforming backend response to frontend');
     
@@ -453,117 +441,105 @@ getClassroomEnrollment(c: Classroom): number {
     };
   }
 
-  // SettingsService.ts
-
-async uploadLogo(file: File): Promise<{ logoUrl: string }> {
-  const formData = new FormData();
-  formData.append('logo', file);
-  
-  const getCsrfToken = () => {
-    const cookies = document.cookie.split(';');
-    for (const cookie of cookies) {
-      const [name, value] = cookie.trim().split('=');
-      if (name === 'csrftoken') return decodeURIComponent(value);
+  async uploadLogo(file: File): Promise<{ logoUrl: string }> {
+    const formData = new FormData();
+    formData.append('logo', file);
+    
+    const getCsrfToken = () => {
+      const cookies = document.cookie.split(';');
+      for (const cookie of cookies) {
+        const [name, value] = cookie.trim().split('=');
+        if (name === 'csrftoken') return decodeURIComponent(value);
+      }
+      return null;
+    };
+    
+    // Tenant info is non-sensitive metadata, kept in localStorage
+    const getTenantInfo = () => {
+      const tenantId = localStorage.getItem('tenantId') || sessionStorage.getItem('tenantId');
+      const tenantSlug = localStorage.getItem('tenantSlug') || sessionStorage.getItem('tenantSlug');
+      return { tenantId, tenantSlug };
+    };
+    
+    const { tenantId, tenantSlug } = getTenantInfo();
+    
+    const headers: Record<string, string> = {};
+    const csrfToken = getCsrfToken();
+    
+    if (csrfToken) headers['X-CSRFToken'] = csrfToken;
+    if (tenantId) headers['X-Tenant-ID'] = tenantId;
+    if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
+    
+    const response = await fetch(
+      `${API_BASE_URL}/tenants/settings/upload-logo/`,
+      {
+        method: 'POST',
+        headers,
+        body: formData,
+        credentials: 'include',
+      }
+    );
+    
+    if (!response.ok) {
+      const contentType = response.headers.get('content-type');
+      const errorData = contentType?.includes('application/json') 
+        ? await response.json()
+        : { error: await response.text() };
+      throw new Error(`Failed to upload logo: ${response.status} - ${JSON.stringify(errorData)}`);
     }
-    return null;
-  };
-  
-
-  
-  // Get tenant info from localStorage or sessionStorage
-  const getTenantInfo = () => {
-    const tenantId = localStorage.getItem('tenantId') || sessionStorage.getItem('tenantId');
-    const tenantSlug = localStorage.getItem('tenantSlug') || sessionStorage.getItem('tenantSlug');
-    return { tenantId, tenantSlug };
-  };
-  
-  const { tenantId, tenantSlug } = getTenantInfo();
-  
-  const headers: any = {};
-  const authToken = localStorage.getItem('authToken') || localStorage.getItem('token');
-  const csrfToken = getCsrfToken();
-  
-  if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-  if (csrfToken) headers['X-CSRFToken'] = csrfToken;
-  
-  // Add tenant headers
-  if (tenantId) headers['X-Tenant-ID'] = tenantId;
-  if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
-  
-  const response = await fetch(
-    `${API_BASE_URL}/tenants/settings/upload-logo/`,
-    {
-      method: 'POST',
-      headers,
-      body: formData,
-      credentials: 'include',
-    }
-  );
-  
-  if (!response.ok) {
-    const contentType = response.headers.get('content-type');
-    const errorData = contentType?.includes('application/json') 
-      ? await response.json()
-      : { error: await response.text() };
-    throw new Error(`Failed to upload logo: ${response.status} - ${JSON.stringify(errorData)}`);
+    
+    return await response.json();
   }
-  
-  return await response.json();
-}
 
-async uploadFavicon(file: File): Promise<{ faviconUrl: string }> {
-  const formData = new FormData();
-  formData.append('favicon', file);
-  
-  const getCsrfToken = () => {
-    const cookies = document.cookie.split(';');
-    for (const cookie of cookies) {
-      const [name, value] = cookie.trim().split('=');
-      if (name === 'csrftoken') return decodeURIComponent(value);
+  async uploadFavicon(file: File): Promise<{ faviconUrl: string }> {
+    const formData = new FormData();
+    formData.append('favicon', file);
+    
+    const getCsrfToken = () => {
+      const cookies = document.cookie.split(';');
+      for (const cookie of cookies) {
+        const [name, value] = cookie.trim().split('=');
+        if (name === 'csrftoken') return decodeURIComponent(value);
+      }
+      return null;
+    };
+    
+    // Tenant info is non-sensitive metadata, kept in localStorage
+    const getTenantInfo = () => {
+      const tenantId = localStorage.getItem('tenantId') || sessionStorage.getItem('tenantId');
+      const tenantSlug = localStorage.getItem('tenantSlug') || sessionStorage.getItem('tenantSlug');
+      return { tenantId, tenantSlug };
+    };
+    
+    const { tenantId, tenantSlug } = getTenantInfo();
+    
+    const headers: Record<string, string> = {};
+    const csrfToken = getCsrfToken();
+    
+    if (csrfToken) headers['X-CSRFToken'] = csrfToken;
+    if (tenantId) headers['X-Tenant-ID'] = tenantId;
+    if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
+    
+    const response = await fetch(
+      `${API_BASE_URL}/tenants/settings/upload-favicon/`,
+      {
+        method: 'POST',
+        headers,
+        body: formData,
+        credentials: 'include',
+      }
+    );
+    
+    if (!response.ok) {
+      const contentType = response.headers.get('content-type');
+      const errorData = contentType?.includes('application/json')
+        ? await response.json()
+        : { error: await response.text() };
+      throw new Error(`Failed to upload favicon: ${response.status} - ${JSON.stringify(errorData)}`);
     }
-    return null;
-  };
-  
-  // Get tenant info from localStorage or sessionStorage
-  const getTenantInfo = () => {
-    const tenantId = localStorage.getItem('tenantId') || sessionStorage.getItem('tenantId');
-    const tenantSlug = localStorage.getItem('tenantSlug') || sessionStorage.getItem('tenantSlug');
-    return { tenantId, tenantSlug };
-  };
-  
-  const { tenantId, tenantSlug } = getTenantInfo();
-  
-  const headers: any = {};
-  const authToken = localStorage.getItem('authToken') || localStorage.getItem('token');
-  const csrfToken = getCsrfToken();
-  
-  if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-  if (csrfToken) headers['X-CSRFToken'] = csrfToken;
-  
-  // Add tenant headers
-  if (tenantId) headers['X-Tenant-ID'] = tenantId;
-  if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
-  
-  const response = await fetch(
-    `${API_BASE_URL}/tenants/settings/upload-favicon/`,
-    {
-      method: 'POST',
-      headers,
-      body: formData,
-      credentials: 'include',
-    }
-  );
-  
-  if (!response.ok) {
-    const contentType = response.headers.get('content-type');
-    const errorData = contentType?.includes('application/json')
-      ? await response.json()
-      : { error: await response.text() };
-    throw new Error(`Failed to upload favicon: ${response.status} - ${JSON.stringify(errorData)}`);
+    
+    return await response.json();
   }
-  
-  return await response.json();
-}
   
   private getDefaultSettings(): SchoolSettings {
     return {
@@ -751,8 +727,6 @@ export interface CommunicationTestResult {
 class CommunicationSettingsService {
   async getSettings(): Promise<CommunicationSettings> {
     try {
-      // Note: This might need to be updated based on your TenantSettings model
-      // If communication settings are part of TenantSettings, you may need to adjust
       const response = await api.get('school-settings/communication-settings/');
       return response;
     } catch (error) {

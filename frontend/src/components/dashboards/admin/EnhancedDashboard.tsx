@@ -9,7 +9,6 @@ import {
   ArrowUpRight,
   Calendar,
   Clock,
-  
   RefreshCw,
   ChevronRight,
   Activity,
@@ -23,7 +22,6 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
- 
 } from 'recharts';
 import AdminDashboardService, { EnhancedDashboardStats } from '../../../services/AdminDashboardService';
 import {
@@ -32,6 +30,9 @@ import {
   ActivityFeed,
   AlertBanner
 } from './widgets';
+import GenderChart from  './widgets/Genderchart';
+import EducationLevelChart from './widgets/EducationLevelChart'; // ← NEW
+import PopulationTrendChart from './widgets/PopulationTrendChart'; // ← NEW
 
 interface EnhancedDashboardProps {
   dashboardStats: any;
@@ -48,15 +49,12 @@ interface EnhancedDashboardProps {
   activateParent?: (parentId: number) => Promise<void>;
 }
 
-// Static color map - moved outside component to prevent recreation
 const COLOR_MAP: Record<string, { bg: string; text: string; light: string }> = {
   blue: { bg: 'bg-blue-500', text: 'text-blue-600', light: 'bg-blue-50' },
   violet: { bg: 'bg-violet-500', text: 'text-violet-600', light: 'bg-violet-50' },
   amber: { bg: 'bg-amber-500', text: 'text-amber-600', light: 'bg-amber-50' },
   emerald: { bg: 'bg-emerald-500', text: 'text-emerald-600', light: 'bg-emerald-50' }
 };
-
-// Removed static dummy data - now using real data from API
 
 const QUICK_ACTIONS = [
   { label: 'Add New Student', icon: Users, color: 'blue' },
@@ -98,7 +96,6 @@ const EnhancedDashboard: React.FC<EnhancedDashboardProps> = ({
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch enhanced statistics (DASH-001)
   useEffect(() => {
     const loadEnhancedStats = async () => {
       try {
@@ -115,16 +112,11 @@ const EnhancedDashboard: React.FC<EnhancedDashboardProps> = ({
     };
 
     loadEnhancedStats();
-
-    // Refresh every 2 minutes
-    const interval = setInterval(() => {
-      loadEnhancedStats();
-    }, 120000);
-
+    const interval = setInterval(loadEnhancedStats, 120000);
     return () => clearInterval(interval);
   }, []);
 
-  // Extract arrays from paginated data - memoized to prevent recalculation
+  // ── Derived arrays ──────────────────────────────────────────────────────────
   const studentsArray = useMemo(
     () => _students?.results || (Array.isArray(_students) ? _students : []),
     [_students]
@@ -142,19 +134,14 @@ const EnhancedDashboard: React.FC<EnhancedDashboardProps> = ({
     [_classrooms]
   );
 
+  // ── Refresh ─────────────────────────────────────────────────────────────────
   const handleRefresh = async () => {
     setIsRefreshing(true);
-
     try {
-      // Refresh enhanced stats with cache clear
       AdminDashboardService.clearEnhancedStatsCache();
       const data = await AdminDashboardService.fetchEnhancedStats(true);
       setEnhancedStats(data);
-
-      // Also trigger parent refresh if available
-      if (onRefresh) {
-        onRefresh();
-      }
+      if (onRefresh) onRefresh();
     } catch (err: any) {
       console.error('Failed to refresh:', err);
     } finally {
@@ -162,7 +149,7 @@ const EnhancedDashboard: React.FC<EnhancedDashboardProps> = ({
     }
   };
 
-  // Stats - memoized to prevent recalculation on every render
+  // ── Stats ───────────────────────────────────────────────────────────────────
   const totalStudents = useMemo(
     () => _students?.count || studentsArray.length || 0,
     [_students, studentsArray]
@@ -175,10 +162,7 @@ const EnhancedDashboard: React.FC<EnhancedDashboardProps> = ({
     () => _parents?.count || parentsArray.length || 0,
     [_parents, parentsArray]
   );
-  const totalClasses = useMemo(
-    () => classroomsArray.length || 0,
-    [classroomsArray]
-  );
+  const totalClasses = useMemo(() => classroomsArray.length || 0, [classroomsArray]);
   const activeStudents = useMemo(
     () => studentsArray.filter((s: any) => s.is_active || s.user?.is_active)?.length || 0,
     [studentsArray]
@@ -188,7 +172,6 @@ const EnhancedDashboard: React.FC<EnhancedDashboardProps> = ({
     [teachersArray]
   );
 
-  // User display
   const getUserName = () => {
     if (user?.first_name) return user.first_name;
     return user?.email?.split('@')[0] || 'Admin';
@@ -201,8 +184,6 @@ const EnhancedDashboard: React.FC<EnhancedDashboardProps> = ({
     return 'Good evening';
   };
 
-
-  // Memoized stats for cards
   const stats = useMemo(() => [
     {
       title: 'Total Students',
@@ -242,9 +223,20 @@ const EnhancedDashboard: React.FC<EnhancedDashboardProps> = ({
     }
   ], [totalStudents, totalTeachers, totalParents, totalClasses, activeStudents, activeTeachers]);
 
+// Add this ABOVE the return statement, inside the component body
+useEffect(() => {
+  console.log('classroomsArray length:', classroomsArray.length);
+  console.log('classroomsArray sample:', classroomsArray.slice(0, 3).map(c => ({
+    classroom_name: c.name,
+    education_level: c.education_level,
+    current_enrollment: c.current_enrollment,
+  })));
+}, [classroomsArray]);
+
   return (
     <div className="min-h-screen bg-gray-50/50">
-      {/* Header */}
+
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className={`mb-8 transition-all duration-700 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'}`}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
@@ -272,7 +264,7 @@ const EnhancedDashboard: React.FC<EnhancedDashboardProps> = ({
         </div>
       </div>
 
-      {/* Alert Banner (DASH-001) */}
+      {/* ── Alert Banner ───────────────────────────────────────────────────── */}
       {enhancedStats?.alerts && enhancedStats.alerts.length > 0 && (
         <div className={`mb-6 transition-all duration-700 delay-50 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
           <AlertBanner
@@ -283,7 +275,7 @@ const EnhancedDashboard: React.FC<EnhancedDashboardProps> = ({
         </div>
       )}
 
-      {/* Stats Grid */}
+      {/* ── Stat Cards ─────────────────────────────────────────────────────── */}
       <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8 transition-all duration-700 delay-100 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
         {stats.map((stat, index) => (
           <div
@@ -314,32 +306,64 @@ const EnhancedDashboard: React.FC<EnhancedDashboardProps> = ({
         ))}
       </div>
 
-      {/* DASH-001 Widgets Grid */}
-      <div className={`grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 transition-all duration-700 delay-200 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-        {/* Attendance Trends Chart */}
+      {/* ── Row 1: Attendance + Grade Distribution ──────────────────────────── */}
+      {/*
+        FIX: Previously ActivityFeed was incorrectly inside the same grid as
+        AttendanceChart and GradeChart, breaking the 2-col layout. It now has
+        its own row below.
+      */}
+      <div className={`grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 transition-all duration-700 delay-200 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
         <AttendanceChart
           data={enhancedStats?.attendance_trends || null}
           loading={enhancedStatsLoading}
           chartType="area"
         />
-
-        {/* Grade Distribution Chart */}
         <GradeChart
           data={enhancedStats?.grade_distribution || null}
           loading={enhancedStatsLoading}
         />
+      </div>
 
-        {/* Activity Feed */}
+      {/* ── Row 2: Activity Feed + Gender Distribution ──────────────────────── */}
+      <div className={`grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 transition-all duration-700 delay-250 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
         <ActivityFeed
           activities={enhancedStats?.recent_activities || []}
           loading={enhancedStatsLoading}
           maxItems={10}
         />
+
+        {/*
+          GenderChart works in two modes:
+          1. If your API returns gender_distribution on enhancedStats, pass it via `apiData`.
+          2. Otherwise it derives counts automatically from studentsArray (client-side).
+          Either way it works out of the box — no backend changes required.
+        */}
+        <GenderChart
+          students={studentsArray}
+          loading={enhancedStatsLoading}
+          apiData={(enhancedStats as any)?.gender_distribution ?? null}
+        />
       </div>
 
-      {/* Second Row */}
+      {/* ── Row 3: Education Level Distribution + Population Trend ─────────── */}
+      
+      <div className={`grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 transition-all duration-700 delay-300 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+        <EducationLevelChart
+          classrooms={classroomsArray}
+          loading={enhancedStatsLoading}
+        />
+        <PopulationTrendChart
+          students={studentsArray}
+          teachers={teachersArray}
+          parents={parentsArray}
+          classrooms={classroomsArray}
+          loading={enhancedStatsLoading}
+        />
+      </div>
+
+      {/* ── Row 4: Academic Performance + Quick Actions ─────────────────────── */}
       <div className={`grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 transition-all duration-700 delay-300 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-        {/* Academic Performance - Top Subjects */}
+        {/* Academic Performance */}
         <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-6">
             <div>
@@ -349,7 +373,9 @@ const EnhancedDashboard: React.FC<EnhancedDashboardProps> = ({
             {enhancedStats?.summary?.pass_rate && (
               <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 rounded-lg">
                 <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="text-xs font-medium text-emerald-600">{enhancedStats.summary.pass_rate}% Pass Rate</span>
+                <span className="text-xs font-medium text-emerald-600">
+                  {enhancedStats.summary.pass_rate}% Pass Rate
+                </span>
               </div>
             )}
           </div>
@@ -433,9 +459,8 @@ const EnhancedDashboard: React.FC<EnhancedDashboardProps> = ({
         </div>
       </div>
 
-      {/* Bottom Row - Upcoming Events */}
-      <div className={`transition-all duration-700 delay-400 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-        {/* Upcoming Events */}
+      {/* ── Row 5: Upcoming Events ─────────────────────────────────────────── */}
+      <div className={`transition-all duration-700 delay-500 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-5">
             <h3 className="text-sm font-semibold text-gray-900">Upcoming Events</h3>
@@ -446,7 +471,10 @@ const EnhancedDashboard: React.FC<EnhancedDashboardProps> = ({
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             {UPCOMING_EVENTS.map((event, index) => (
-              <div key={index} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+              <div
+                key={index}
+                className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+              >
                 <div className="flex flex-col items-center justify-center w-12 h-12 bg-white rounded-lg border border-gray-200">
                   <span className="text-xs text-gray-500">{event.date.split(' ')[0]}</span>
                   <span className="text-sm font-semibold text-gray-900">{event.date.split(' ')[1]}</span>

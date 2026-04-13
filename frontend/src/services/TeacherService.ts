@@ -14,22 +14,20 @@ import type {
   ClassroomOption,
 } from '@/types/teacher';
 
-// ─── Shared auth helper ───────────────────────────────────────────────────────
+// ─── Shared header helper ─────────────────────────────────────────────────────
+// Auth is handled automatically via the httpOnly cookie + credentials: "include".
+// Tenant slug is non-sensitive routing metadata kept in localStorage.
 
-const getAuthHeaders = (): Record<string, string> => {
-  const token =
-    localStorage.getItem('access_token') ||
-    localStorage.getItem('authToken') ||
-    localStorage.getItem('token') ||
-    localStorage.getItem('jwt_token');
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
+const getHeaders = (contentType = false): Record<string, string> => {
+  const headers: Record<string, string> = {};
+
+  const tenantSlug = localStorage.getItem('tenantSlug');
+  if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
+
+  if (contentType) headers['Content-Type'] = 'application/json';
+
+  return headers;
 };
-
-
-
 
 // ─── TeacherService ───────────────────────────────────────────────────────────
 
@@ -44,7 +42,6 @@ class TeacherService {
     page_size?: number;
   }): Promise<{ results: Teacher[]; count: number }> {
     try {
-      // ✅ Correct
       const response = await api.get('/api/teachers/teachers/', { ...params, _t: Date.now() });
       if (response?.results && Array.isArray(response.results)) {
         return { results: response.results, count: response.count ?? response.results.length };
@@ -73,16 +70,10 @@ class TeacherService {
   async createTeacher(
     payload: CreateTeacherPayload,
   ): Promise<Teacher & { user_username?: string; user_password?: string }> {
-    const token =
-      localStorage.getItem('access_token') ||
-      localStorage.getItem('authToken') ||
-      localStorage.getItem('token');
-
-    if (!token) throw new Error('Not authenticated. Please log in again.');
-
     const res = await fetch(`${API_BASE_URL}/teachers/teachers/`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: getHeaders(true),
+      credentials: 'include',
       body: JSON.stringify(payload),
     });
 
@@ -147,7 +138,6 @@ class TeacherService {
     return api.get(`/api/teachers/teachers/${teacherId}/workload/`);
   }
 
-
   /** Form level value → GradeLevelViewSet named action path segment */
   private static readonly GRADE_ACTION: Record<string, string> = {
     nursery:          'nursery_grades',
@@ -173,7 +163,7 @@ class TeacherService {
     if (!action) throw new Error(`Unknown level: "${level}"`);
     const res = await fetch(
       `${API_BASE_URL}/classrooms/grades/${action}/`,
-      { headers: getAuthHeaders() },
+      { headers: getHeaders(), credentials: 'include' },
     );
     if (!res.ok) throw new Error(`Failed to fetch grade levels (${res.status})`);
     const data = await res.json();
@@ -186,7 +176,7 @@ class TeacherService {
   async getSectionsByGradeLevel(gradeLevelId: string | number): Promise<Section[]> {
     const res = await fetch(
       `${API_BASE_URL}/classrooms/grades/${gradeLevelId}/sections/`,
-      { headers: getAuthHeaders() },
+      { headers: getHeaders(), credentials: 'include' },
     );
     if (!res.ok) throw new Error(`Failed to fetch sections (${res.status})`);
     const data = await res.json();
@@ -194,20 +184,19 @@ class TeacherService {
   }
 
   /**
-   * GET /subjects/?education_level=<UPPERCASE_LEVEL_TYPE>
+   * GET /subjects/?education_levels=<UPPERCASE_LEVEL_TYPE>
    */
   async getSubjectsByEducationLevel(level: string): Promise<SubjectOption[]> {
-  const levelType = TeacherService.LEVEL_TYPE[level];
-  if (!levelType) throw new Error(`Unknown level: "${level}"`);
-
-  const res = await fetch(
-    `${API_BASE_URL}/subjects/?education_levels=${levelType}`,  // ← was education_level
-    { headers: getAuthHeaders() },
-  );
-  if (!res.ok) throw new Error(`Failed to fetch subjects (${res.status})`);
-  const data = await res.json();
-  return Array.isArray(data) ? data : data.results ?? [];
-}
+    const levelType = TeacherService.LEVEL_TYPE[level];
+    if (!levelType) throw new Error(`Unknown level: "${level}"`);
+    const res = await fetch(
+      `${API_BASE_URL}/subjects/?education_levels=${levelType}`,
+      { headers: getHeaders(), credentials: 'include' },
+    );
+    if (!res.ok) throw new Error(`Failed to fetch subjects (${res.status})`);
+    const data = await res.json();
+    return Array.isArray(data) ? data : data.results ?? [];
+  }
 
   /**
    * GET /classrooms/classrooms/?education_level__level_type=<UPPERCASE_LEVEL_TYPE>
@@ -217,7 +206,7 @@ class TeacherService {
     if (!levelType) throw new Error(`Unknown level: "${level}"`);
     const res = await fetch(
       `${API_BASE_URL}/classrooms/classrooms/?education_level__level_type=${levelType}`,
-      { headers: getAuthHeaders() },
+      { headers: getHeaders(), credentials: 'include' },
     );
     if (!res.ok) throw new Error(`Failed to fetch classrooms (${res.status})`);
     const data = await res.json();

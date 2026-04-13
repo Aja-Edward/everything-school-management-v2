@@ -194,11 +194,11 @@ export interface CreateStudentData {
   gender: GenderType;
 
   /** FK ID to Class */
-  student_class: number;
+  student_class: number | string;
   /** FK ID to Section — optional */
   section?: number | null;
   /** FK ID to Stream — optional, for senior secondary */
-  stream?: number | null;
+  stream?: number | string | null;
 
   admission_date?: string; // YYYY-MM-DD
   registration_number?: string;
@@ -519,6 +519,15 @@ class StudentService {
     
   }
 
+  async toggleStudentStatus(id: number): Promise<Student> {
+  try {
+    return await api.patch(`/api/students/students/${id}/toggle-active/`, {});
+  } catch (error) {
+    console.error(`Error toggling student ${id} status:`, error);
+    throw error;
+  }
+}
+
   async getStudent(id: number): Promise<Student> {
     try {
       
@@ -651,11 +660,11 @@ class StudentService {
     return api.post('/api/students/verify-result-token/', { token });
   }
 
-  async getAllResultTokens(schoolTermId: number): Promise<TokensListResponse> {
-    return api.get('/api/students/get-all-result-tokens/', {
-      params: { school_term_id: schoolTermId },
-    });
-  }
+  async getAllResultTokens(schoolTermId: number) {
+  return api.get('/api/students/get-all-result-tokens/', {
+    school_term_id: schoolTermId,  // ✅ flat object, buildUrl handles it
+  });
+}
 
   async deleteExpiredTokens(): Promise<{
     success: boolean;

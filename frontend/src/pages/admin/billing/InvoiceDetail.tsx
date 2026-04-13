@@ -73,7 +73,7 @@ const CancelModal: React.FC<CancelModalProps> = ({ isOpen, onClose, onConfirm, i
               Keep Invoice
             </Button>
             <Button
-              variant="destructive"
+              variant="danger"
               onClick={handleSubmit}
               disabled={isLoading}
             >

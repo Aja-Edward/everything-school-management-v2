@@ -61,24 +61,15 @@ _dev_secret_key = "django-insecure-dev-key-for-local-development-only-do-not-use
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "")
 
-# Allow dummy SECRET_KEY during collectstatic OR if explicitly building
-# Handle missing SECRET_KEY during build
 if not SECRET_KEY:
-    # Allow temporary key during collectstatic or on Render build
     is_collectstatic = "collectstatic" in sys.argv
-    is_render_build = os.getenv("RENDER") is not None
-
-    if is_collectstatic or is_render_build:
-        print("Using temporary SECRET_KEY for build/collectstatic")
-        SECRET_KEY = "django-insecure-temporary-key-for-build-only-not-for-production"
+    if is_collectstatic:
+        SECRET_KEY = "django-insecure-build-only-collectstatic"
     elif _is_debug:
-        # Use consistent development key for local development
-        print("Using development SECRET_KEY - DO NOT use in production!")
         SECRET_KEY = _dev_secret_key
     else:
         raise ValueError(
-            "DJANGO_SECRET_KEY environment variable is required. "
-            "Set it in Render dashboard > Environment tab."
+            "DJANGO_SECRET_KEY is required. Set it in Render > Environment."
         )
 
 DJANGO_SECRET_KEY = SECRET_KEY  # Keep as alias for compatibility
@@ -332,7 +323,11 @@ CORS_PREFLIGHT_MAX_AGE = 86400
 
 # For debugging in development - allow all origins
 if DEBUG:
-    CORS_ALLOW_ALL_ORIGINS = True
+    CORS_ALLOWED_ORIGINS += [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:5174",
+    ]
 
 # ============================================
 # TEMPLATES

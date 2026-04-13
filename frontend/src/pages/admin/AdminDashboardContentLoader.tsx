@@ -19,7 +19,6 @@ const AdminDashboardContentLoader = () => {
   const { user } = useAuth();
   const [dashboardStats, setDashboardStats] = useState<DashboardStats>({} as DashboardStats);
   const [students, setStudents] = useState<Student[]>([]);
-
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [attendanceData, setAttendanceData] = useState<AttendanceData>({} as AttendanceData);
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
@@ -74,12 +73,16 @@ const AdminDashboardContentLoader = () => {
 
       if (!isMounted.current) return;
 
-      // Fetch additional list data in parallel (only if needed for detailed views)
-      // For the main dashboard, we use counts from optimizedData
-      const [parentsRes, studentsRes, teachersRes] = await Promise.allSettled([
+      // Fetch all list data in parallel.
+      // NOTE: Classrooms are fetched directly here (not from optimizedData.classrooms)
+      // because the optimized endpoint returns lightweight classroom objects that
+      // do NOT include student_enrollments — causing enrollment counts to show 0
+      // in the Education Level Distribution chart.
+      const [parentsRes, studentsRes, teachersRes, classroomsRes] = await Promise.allSettled([
         api.get('/api/parents/', { limit: 100 }),
         api.get('/api/students/students/', { limit: 100 }),
         api.get('/api/teachers/teachers/', { limit: 100 }),
+        api.get('/api/classrooms/classrooms/', { limit: 200 }),
       ]);
 
       if (!isMounted.current) return;
@@ -94,6 +97,25 @@ const AdminDashboardContentLoader = () => {
       const processedTeachers = teachersRes.status === 'fulfilled'
         ? (teachersRes.value.results || teachersRes.value || [])
         : [];
+
+      // Use full classroom data from direct API call (includes student_enrollments).
+      // Fall back to optimizedData.classrooms if the direct call failed.
+      const processedClassrooms: Classroom[] = classroomsRes.status === 'fulfilled'
+        ? (classroomsRes.value.results || classroomsRes.value || optimizedData.classrooms)
+        : optimizedData.classrooms;
+
+      console.log(
+        `✅ Classrooms loaded: ${processedClassrooms.length} classrooms,`,
+        `enrollment sample:`,
+        processedClassrooms.slice(0, 3).map((c: any) => ({
+          name: c.name,
+          education_level: c.education_level,
+          current_enrollment: c.current_enrollment,
+          student_enrollments: Array.isArray(c.student_enrollments)
+            ? c.student_enrollments.length
+            : 'none',
+        }))
+      );
 
       // Transform optimized data to DashboardStats format
       const transformedStats: DashboardStats = {
@@ -150,7 +172,7 @@ const AdminDashboardContentLoader = () => {
         absenteeRate: 100 - optimizedData.attendance.todayRate,
         lateRate: 0,
         excusedRate: 0,
-        dailyAttendance: optimizedData.attendance.trends.map(t => ({
+        dailyAttendance: optimizedData.attendance.trends.map((t: any) => ({
           date: t.date,
           present: t.present,
           absent: t.absent,
@@ -194,7 +216,7 @@ const AdminDashboardContentLoader = () => {
       setStudents(processedStudents);
       setTeachers(processedTeachers);
       setAttendanceData(transformedAttendance);
-      setClassrooms(optimizedData.classrooms);
+      setClassrooms(processedClassrooms);   // ← now uses full classroom objects
       setDashboardStats(transformedStats);
     } catch (err: any) {
       console.error('❌ AdminDashboardContentLoader: Error fetching data:', err);
@@ -218,12 +240,10 @@ const AdminDashboardContentLoader = () => {
     };
   }, [fetchDashboardData]);
 
-  // Show skeleton loader while loading
   if (loading) {
     return <DashboardSkeleton />;
   }
 
-  // Show error state
   if (error) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">

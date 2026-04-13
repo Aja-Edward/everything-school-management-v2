@@ -38,27 +38,44 @@ const GradeChart: React.FC<GradeChartProps> = ({ data, loading = false }) => {
     );
   }
 
+  // ── DEBUG: log what the API actually returned so you can verify the shape ──
+  if (!data) {
+    console.warn('[GradeChart] data is null – check enhancedStats?.grade_distribution');
+  } else if (!data.distribution) {
+    console.warn('[GradeChart] data.distribution is missing. Received keys:', Object.keys(data));
+  } else if (data.distribution.length === 0) {
+    console.warn('[GradeChart] data.distribution is an empty array');
+  }
+  // ──────────────────────────────────────────────────────────────────────────
+
   if (!data || !data.distribution || data.distribution.length === 0) {
     return (
       <Card className="w-full">
         <CardHeader>
-          <CardTitle className="text-lg font-semibold">Grade Distribution</CardTitle>
+          <CardTitle className="text-lg font-semibold">Grade Distribution & Performance</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-gray-500 text-sm">No grade data available</p>
+          <div className="flex flex-col items-center justify-center h-40 text-center gap-2">
+            <p className="text-gray-400 text-sm">No grade data available</p>
+            {data && !data.distribution && (
+              <p className="text-xs text-red-400">
+                API returned data but <code>distribution</code> field is missing.
+                Check <code>AdminDashboardService.fetchEnhancedStats()</code> response shape.
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
     );
   }
 
-  // Grade colors mapping
   const GRADE_COLORS: Record<string, string> = {
-    'A': '#10b981', // green-500
-    'B': '#3b82f6', // blue-500
-    'C': '#f59e0b', // yellow-500
-    'D': '#f97316', // orange-500
-    'E': '#ef4444', // red-500
-    'F': '#dc2626'  // red-600
+    'A': '#10b981',
+    'B': '#3b82f6',
+    'C': '#f59e0b',
+    'D': '#f97316',
+    'E': '#ef4444',
+    'F': '#dc2626'
   };
 
   const getPassRateColor = (rate: number) => {
@@ -67,7 +84,6 @@ const GradeChart: React.FC<GradeChartProps> = ({ data, loading = false }) => {
     return 'text-red-600';
   };
 
-  // Prepare chart data
   const chartData = data.distribution.map((item) => ({
     grade: item.grade,
     count: item.count,
@@ -77,18 +93,18 @@ const GradeChart: React.FC<GradeChartProps> = ({ data, loading = false }) => {
 
   const CustomPieTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
-      const data = payload[0].payload;
+      const d = payload[0].payload;
       return (
         <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
-          <p className="font-semibold text-gray-900 mb-1">Grade {data.grade}</p>
+          <p className="font-semibold text-gray-900 mb-1">Grade {d.grade}</p>
           <div className="space-y-1 text-sm">
             <div className="flex justify-between gap-4">
               <span className="text-gray-600">Count:</span>
-              <span className="font-semibold">{data.count}</span>
+              <span className="font-semibold">{d.count}</span>
             </div>
             <div className="flex justify-between gap-4">
               <span className="text-gray-600">Percentage:</span>
-              <span className="font-semibold">{data.percentage}%</span>
+              <span className="font-semibold">{d.percentage}%</span>
             </div>
           </div>
         </div>
@@ -123,18 +139,9 @@ const GradeChart: React.FC<GradeChartProps> = ({ data, loading = false }) => {
     const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
     const x = cx + radius * Math.cos(-midAngle * RADIAN);
     const y = cy + radius * Math.sin(-midAngle * RADIAN);
-
-    if (percentage < 5) return null; // Don't show label for small slices
-
+    if (percentage < 5) return null;
     return (
-      <text
-        x={x}
-        y={y}
-        fill="white"
-        textAnchor={x > cx ? 'start' : 'end'}
-        dominantBaseline="central"
-        className="text-xs font-semibold"
-      >
+      <text x={x} y={y} fill="white" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" className="text-xs font-semibold">
         {`${percentage}%`}
       </text>
     );
@@ -148,21 +155,13 @@ const GradeChart: React.FC<GradeChartProps> = ({ data, loading = false }) => {
           <div className="flex gap-2">
             <button
               onClick={() => setChartView('pie')}
-              className={`px-3 py-1 text-xs rounded ${
-                chartView === 'pie'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
+              className={`px-3 py-1 text-xs rounded ${chartView === 'pie' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
             >
               Pie
             </button>
             <button
               onClick={() => setChartView('bar')}
-              className={`px-3 py-1 text-xs rounded ${
-                chartView === 'bar'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
+              className={`px-3 py-1 text-xs rounded ${chartView === 'bar' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
             >
               Bar
             </button>
@@ -183,7 +182,7 @@ const GradeChart: React.FC<GradeChartProps> = ({ data, loading = false }) => {
             <p className="text-xs text-red-600 font-medium">Failed</p>
             <p className="text-2xl font-bold text-red-900">{data.fail_count}</p>
             <p className="text-xs text-gray-500 mt-1">
-              {((data.fail_count / data.total_results) * 100).toFixed(1)}%
+              {data.total_results > 0 ? ((data.fail_count / data.total_results) * 100).toFixed(1) : 0}%
             </p>
           </div>
           <div className="text-center p-3 bg-blue-50 rounded-lg border border-blue-100">
@@ -205,7 +204,6 @@ const GradeChart: React.FC<GradeChartProps> = ({ data, loading = false }) => {
                   labelLine={false}
                   label={renderCustomLabel}
                   outerRadius={90}
-                  fill="#8884d8"
                   dataKey="count"
                 >
                   {chartData.map((entry, index) => (
@@ -215,14 +213,13 @@ const GradeChart: React.FC<GradeChartProps> = ({ data, loading = false }) => {
                 <Tooltip content={<CustomPieTooltip />} />
                 <Legend
                   wrapperStyle={{ fontSize: '12px' }}
-                  formatter={(value, entry: any) => `Grade ${entry.payload.grade} (${entry.payload.count})`}
+                  formatter={(_value: any, entry: any) =>
+                    `Grade ${entry.payload.grade} (${entry.payload.count})`
+                  }
                 />
               </PieChart>
             ) : (
-              <BarChart
-                data={chartData}
-                margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-              >
+              <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis
                   dataKey="grade"
@@ -236,7 +233,7 @@ const GradeChart: React.FC<GradeChartProps> = ({ data, loading = false }) => {
                   label={{ value: 'Students', angle: -90, position: 'insideLeft', fontSize: 12 }}
                 />
                 <Tooltip content={<CustomBarTooltip />} />
-                <Bar dataKey="count" fill="#3b82f6" radius={[8, 8, 0, 0]}>
+                <Bar dataKey="count" radius={[8, 8, 0, 0]}>
                   {chartData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.fill} />
                   ))}
@@ -257,11 +254,7 @@ const GradeChart: React.FC<GradeChartProps> = ({ data, loading = false }) => {
           <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
             <div
               className={`h-2 rounded-full transition-all duration-500 ${
-                data.pass_rate >= 80
-                  ? 'bg-green-500'
-                  : data.pass_rate >= 60
-                  ? 'bg-yellow-500'
-                  : 'bg-red-500'
+                data.pass_rate >= 80 ? 'bg-green-500' : data.pass_rate >= 60 ? 'bg-yellow-500' : 'bg-red-500'
               }`}
               style={{ width: `${Math.min(data.pass_rate, 100)}%` }}
             />

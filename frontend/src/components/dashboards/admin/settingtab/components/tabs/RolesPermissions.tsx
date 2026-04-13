@@ -13,8 +13,9 @@ import {
   UserPlus,
 } from 'lucide-react';
 import ToggleSwitch from '@/components/dashboards/admin/settingtab/components/ToggleSwitch';
+import api from '@/services/api'; // ✅ removed API_BASE_URL — not needed anymore
 
-// TypeScript interfaces
+// ==================== TYPE DEFINITIONS ====================
 interface Permission {
   id: number;
   module: string;
@@ -71,27 +72,18 @@ interface UserRole {
   is_active: boolean;
 }
 
-// ✅ Permission checking utilities
-const isSuperAdmin = (user: any) => {
-  return user?.role === 'superadmin' || user?.is_superuser === true;
-};
+// ==================== PERMISSION UTILITIES ====================
+const isSuperAdmin = (user: any) =>
+  user?.role === 'superadmin' || user?.is_superuser === true;
 
-const isSectionAdmin = (user: any) => {
-  return [
-    'secondary_admin',
-    'senior_secondary_admin',
-    'junior_secondary_admin',
-    'primary_admin',
-    'nursery_admin',
-  ].includes(user?.role);
-};
+const isSectionAdmin = (user: any) =>
+  ['secondary_admin', 'senior_secondary_admin', 'junior_secondary_admin', 'primary_admin', 'nursery_admin']
+    .includes(user?.role);
 
-const canManageRolesPermissions = (user: any) => {
-  return isSuperAdmin(user);
-};
+const canManageRolesPermissions = (user: any) => isSuperAdmin(user);
 
+// ==================== MAIN COMPONENT ====================
 const RolesPermissions = () => {
-  // State management
   const [activeTab, setActiveTab] = useState('roles');
   const [roles, setRoles] = useState<Role[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -100,10 +92,8 @@ const RolesPermissions = () => {
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  
-  // ✅ Current user state
   const [currentUser, setCurrentUser] = useState<any>(null);
-  
+
   // Role management
   const [showCreateRole, setShowCreateRole] = useState(false);
   const [newRole, setNewRole] = useState({
@@ -121,7 +111,7 @@ const RolesPermissions = () => {
   const [selectedPermissions, setSelectedPermissions] = useState<Record<string, Record<string, boolean>>>({});
   const [showPermissionModal, setShowPermissionModal] = useState(false);
   const [editingRolePermissions, setEditingRolePermissions] = useState<Role | null>(null);
-  
+
   // User role assignment
   const [showAssignRole, setShowAssignRole] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -139,79 +129,56 @@ const RolesPermissions = () => {
   const [roleUsers, setRoleUsers] = useState<any[]>([]);
   const [selectedRoleForUsers, setSelectedRoleForUsers] = useState<Role | null>(null);
 
-  const API_BASE_URL = import.meta.env.VITE_API_URL;
+  // ==================== HELPERS ====================
+  const showSuccess = (msg: string) => setSuccessMessage(msg);
+  const showError = (msg: string) => setErrorMessage(msg);
 
-  // ✅ Load current user first, then other data
+  useEffect(() => {
+    if (successMessage) setTimeout(() => setSuccessMessage(null), 3000);
+  }, [successMessage]);
+
+  useEffect(() => {
+    if (errorMessage) setTimeout(() => setErrorMessage(null), 5000);
+  }, [errorMessage]);
+
+  // ==================== LOAD CURRENT USER ====================
   useEffect(() => {
     loadCurrentUser();
   }, []);
 
-  // ✅ Load other data only after user is loaded
   useEffect(() => {
-    if (currentUser) {
-      if (canManageRolesPermissions(currentUser)) {
-        loadRoles();
-        loadUsers();
-        loadUserRoles();
-        loadPermissions();
-      }
+    if (currentUser && canManageRolesPermissions(currentUser)) {
+      loadRoles();
+      loadUsers();
+      loadUserRoles();
+      loadPermissions();
     }
   }, [currentUser]);
 
-  // Clear messages after timeout
-  useEffect(() => {
-    if (successMessage) {
-      setTimeout(() => setSuccessMessage(null), 3000);
-    }
-    if (errorMessage) {
-      setTimeout(() => setErrorMessage(null), 5000);
-    }
-  }, [successMessage, errorMessage]);
-
-  // ✅ Load current user
   const loadCurrentUser = async () => {
     try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/auth/profile/`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      // ✅ api.get sends HttpOnly cookie automatically
+      const userData = await api.get('/auth/profile/');
+      setCurrentUser(userData);
 
-      if (response.ok) {
-        const userData = await response.json();
-        setCurrentUser(userData);
-        
-        // If section admin, show warning
-        if (isSectionAdmin(userData)) {
-          setErrorMessage(
-            'You do not have permission to manage roles and permissions. ' +
-            'Only superadmins can access this feature.'
-          );
-        }
+      if (isSectionAdmin(userData)) {
+        showError(
+          'You do not have permission to manage roles and permissions. ' +
+          'Only superadmins can access this feature.'
+        );
       }
     } catch (error) {
       console.error('Failed to load current user:', error);
-      setErrorMessage('Failed to verify user permissions.');
+      showError('Failed to verify user permissions.');
     }
   };
 
+  // ==================== LOAD DATA ====================
   const loadRoles = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/school-settings/roles/`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setRoles(data.results || data);
-      }
+      const data = await api.get('/school-settings/roles/');
+      setRoles(data.results || data);
     } catch (error) {
       console.error('Failed to load roles:', error);
     } finally {
@@ -221,65 +188,34 @@ const RolesPermissions = () => {
 
   const loadUsers = async () => {
     try {
-      const token = localStorage.getItem('authToken');
-      
-      const response = await fetch(`${API_BASE_URL}/profiles/all_users/`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        const usersData = await response.json();
-        setUsers(usersData);
-      } else {
-        console.error('Failed to load users:', response.status, response.statusText);
-        try {
-          const teachersResponse = await fetch(`${API_BASE_URL}/teachers/teachers/`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            }
-          });
-          if (teachersResponse.ok) {
-            const teachersData = await teachersResponse.json();
-            const teachers = teachersData.results || teachersData;
-            const teachersArray = Array.isArray(teachers) ? teachers : [teachers];
-            
-            const allUsers: User[] = teachersArray.map((teacher: any) => ({
-              id: teacher.user?.id || teacher.id,
-              username: teacher.user?.username || teacher.username,
-              email: teacher.user?.email || teacher.email,
-              full_name: teacher.user?.full_name || teacher.full_name || `${teacher.first_name || ''} ${teacher.last_name || ''}`.trim(),
-              role: 'Teacher',
-              is_active: teacher.user?.is_active || teacher.is_active || true
-            }));
-            setUsers(allUsers);
-          }
-        } catch (error) {
-          console.error('Failed to load teachers as fallback:', error);
-        }
-      }
+      const usersData = await api.get('/profiles/all_users/');
+      setUsers(usersData);
     } catch (error) {
-      console.error('Failed to load users:', error);
+      // Fallback: try teachers endpoint
+      console.warn('Failed to load all_users, falling back to teachers:', error);
+      try {
+        const teachersData = await api.get('/teachers/teachers/');
+        const teachers = teachersData.results || teachersData;
+        const teachersArray = Array.isArray(teachers) ? teachers : [teachers];
+        const allUsers: User[] = teachersArray.map((teacher: any) => ({
+          id: teacher.user?.id || teacher.id,
+          username: teacher.user?.username || teacher.username,
+          email: teacher.user?.email || teacher.email,
+          full_name: teacher.user?.full_name || teacher.full_name || `${teacher.first_name || ''} ${teacher.last_name || ''}`.trim(),
+          role: 'Teacher',
+          is_active: teacher.user?.is_active ?? teacher.is_active ?? true
+        }));
+        setUsers(allUsers);
+      } catch (fallbackError) {
+        console.error('Failed to load teachers as fallback:', fallbackError);
+      }
     }
   };
 
   const loadUserRoles = async () => {
     try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/school-settings/user-roles/`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setUserRoles(data.results || data);
-      }
+      const data = await api.get('/school-settings/user-roles/');
+      setUserRoles(data.results || data);
     } catch (error) {
       console.error('Failed to load user roles:', error);
     }
@@ -287,18 +223,8 @@ const RolesPermissions = () => {
 
   const loadPermissions = async () => {
     try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/school-settings/permissions/`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setPermissions(data.results || data);
-      }
+      const data = await api.get('/school-settings/permissions/');
+      setPermissions(data.results || data);
     } catch (error) {
       console.error('Failed to load permissions:', error);
     }
@@ -306,238 +232,163 @@ const RolesPermissions = () => {
 
   const viewRoleUsers = async (role: Role) => {
     try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/school-settings/roles/${role.id}/users/`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setRoleUsers(data.users || []);
-        setSelectedRoleForUsers(role);
-        setShowUsersModal(true);
-      } else {
-        console.error('Failed to load users for role');
-      }
+      const data = await api.get(`/school-settings/roles/${role.id}/users/`);
+      setRoleUsers(data.users || []);
+      setSelectedRoleForUsers(role);
+      setShowUsersModal(true);
     } catch (error) {
       console.error('Failed to load users for role:', error);
+      showError('Failed to load users for this role.');
     }
   };
 
-  // ✅ Protected create role function
+  // ==================== CREATE ROLE ====================
   const createRole = async () => {
     if (!canManageRolesPermissions(currentUser)) {
-      setErrorMessage('You do not have permission to create roles.');
+      showError('You do not have permission to create roles.');
       return;
     }
 
     try {
       setSaving(true);
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/school-settings/roles/`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(newRole)
+      await api.post('/school-settings/roles/', newRole);
+      showSuccess('Role created successfully!');
+      setShowCreateRole(false);
+      setNewRole({
+        name: '',
+        description: '',
+        color: '#3B82F6',
+        primary_section_access: true,
+        secondary_section_access: true,
+        nursery_section_access: true,
+        permissions: []
       });
-
-      if (response.ok) {
-        setSuccessMessage('Role created successfully!');
-        setShowCreateRole(false);
-        setNewRole({
-          name: '',
-          description: '',
-          color: '#3B82F6',
-          primary_section_access: true,
-          secondary_section_access: true,
-          nursery_section_access: true,
-          permissions: []
-        });
-        loadRoles();
-      } else {
-        const errorData = await response.json();
-        setErrorMessage(errorData.error || 'Failed to create role');
-      }
+      loadRoles();
     } catch (error) {
-      setErrorMessage('Failed to create role');
+      showError(error instanceof Error ? error.message : 'Failed to create role');
     } finally {
       setSaving(false);
     }
   };
 
-  // ✅ Protected assign role function
+  // ==================== ASSIGN ROLE ====================
   const assignRoleToUser = async () => {
     if (!canManageRolesPermissions(currentUser)) {
-      setErrorMessage('You do not have permission to assign roles.');
+      showError('You do not have permission to assign roles.');
       return;
     }
-
     if (!selectedUser || !selectedRole) return;
 
     try {
       setSaving(true);
-      const token = localStorage.getItem('authToken');
-      
-      const existingUserRole = userRoles.find(ur => ur.user === selectedUser.id && ur.role === selectedRole.id);
-      
-      const method = existingUserRole ? 'PUT' : 'POST';
-      const url = existingUserRole 
-        ? `${API_BASE_URL}/school-settings/user-roles/${existingUserRole.id}/`
-        : `${API_BASE_URL}/school-settings/user-roles/`;
-      
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          user: selectedUser.id,
-          role: selectedRole.id,
-          ...userRoleAssignment
-        })
-      });
+      const existingUserRole = userRoles.find(
+        ur => ur.user === selectedUser.id && ur.role === selectedRole.id
+      );
 
-      if (response.ok) {
-        const action = existingUserRole ? 'updated' : 'assigned';
-        setSuccessMessage(`Role "${selectedRole.name}" ${action} for ${selectedUser.full_name} successfully!`);
-        setShowAssignRole(false);
-        setSelectedUser(null);
-        setSelectedRole(null);
-        setUserRoleAssignment({
-          primary_section_access: true,
-          secondary_section_access: true,
-          nursery_section_access: true,
-          expires_at: '',
-          is_active: true
-        });
-        loadUserRoles();
+      const payload = { user: selectedUser.id, role: selectedRole.id, ...userRoleAssignment };
+
+      if (existingUserRole) {
+        await api.put(`/school-settings/user-roles/${existingUserRole.id}/`, payload);
+        showSuccess(`Role "${selectedRole.name}" updated for ${selectedUser.full_name} successfully!`);
       } else {
-        const errorData = await response.json();
-        setErrorMessage(errorData.error || 'Failed to assign role');
+        await api.post('/school-settings/user-roles/', payload);
+        showSuccess(`Role "${selectedRole.name}" assigned to ${selectedUser.full_name} successfully!`);
       }
+
+      setShowAssignRole(false);
+      setSelectedUser(null);
+      setSelectedRole(null);
+      setUserRoleAssignment({
+        primary_section_access: true,
+        secondary_section_access: true,
+        nursery_section_access: true,
+        expires_at: '',
+        is_active: true
+      });
+      loadUserRoles();
     } catch (error) {
-      setErrorMessage('Failed to assign role');
+      showError(error instanceof Error ? error.message : 'Failed to assign role');
     } finally {
       setSaving(false);
     }
   };
 
-  // ✅ Protected delete role function
+  // ==================== DELETE ROLE ====================
   const deleteRole = async (roleId: number) => {
     if (!canManageRolesPermissions(currentUser)) {
-      setErrorMessage('You do not have permission to delete roles.');
+      showError('You do not have permission to delete roles.');
       return;
     }
-
     if (!confirm('Are you sure you want to delete this role?')) return;
 
     try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/school-settings/roles/${roleId}/`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        setSuccessMessage('Role deleted successfully!');
-        loadRoles();
-      } else {
-        const errorData = await response.json();
-        setErrorMessage(errorData.error || 'Failed to delete role');
-      }
+      await api.delete(`/school-settings/roles/${roleId}/`);
+      showSuccess('Role deleted successfully!');
+      loadRoles();
     } catch (error) {
-      setErrorMessage('Failed to delete role');
+      showError(error instanceof Error ? error.message : 'Failed to delete role');
     }
   };
 
+  // ==================== DUPLICATE ROLE ====================
   const duplicateRole = async (role: Role) => {
     if (!canManageRolesPermissions(currentUser)) {
-      setErrorMessage('You do not have permission to duplicate roles.');
+      showError('You do not have permission to duplicate roles.');
       return;
     }
 
     try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/school-settings/roles/${role.id}/duplicate/`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        setSuccessMessage('Role duplicated successfully!');
-        loadRoles();
-      } else {
-        const errorData = await response.json();
-        setErrorMessage(errorData.error || 'Failed to duplicate role');
-      }
+      await api.post(`/school-settings/roles/${role.id}/duplicate/`, {});
+      showSuccess('Role duplicated successfully!');
+      loadRoles();
     } catch (error) {
-      setErrorMessage('Failed to duplicate role');
+      showError(error instanceof Error ? error.message : 'Failed to duplicate role');
     }
   };
 
+  // ==================== EDIT PERMISSIONS ====================
   const editRolePermissions = (role: Role) => {
     setEditingRolePermissions(role);
     setSelectedPermissions(role.permissions_dict);
     setShowPermissionModal(true);
   };
 
-  // ✅ Protected save permissions function
   const saveRolePermissions = async () => {
     if (!canManageRolesPermissions(currentUser)) {
-      setErrorMessage('You do not have permission to modify role permissions.');
+      showError('You do not have permission to modify role permissions.');
       return;
     }
-
     if (!editingRolePermissions) return;
 
     try {
       setSaving(true);
-      const token = localStorage.getItem('authToken');
-      
-      const permissionIds: number[] = [];
-      const permissionMap = new Map();
+
+      // Build a lookup map for permissions
+      const permissionMap = new Map<string, Permission>();
       permissions.forEach(p => {
-        const keys = [
+        [
           `${p.module}:${p.permission_type}`,
           `${p.module_display}:${p.permission_type}`,
           `${p.module}:${p.permission_type_display}`,
           `${p.module_display}:${p.permission_type_display}`,
           `${p.module.toLowerCase()}:${p.permission_type.toLowerCase()}`,
           `${p.module_display.toLowerCase()}:${p.permission_type.toLowerCase()}`,
-        ];
-        keys.forEach(key => permissionMap.set(key, p));
+        ].forEach(key => permissionMap.set(key, p));
       });
-      
+
+      const permissionIds: number[] = [];
       Object.entries(selectedPermissions).forEach(([module, perms]) => {
         Object.entries(perms).forEach(([permType, granted]) => {
-          if (granted) {
-            const possibleKeys = [
-              `${module}:${permType}`,
-              `${module.toLowerCase()}:${permType.toLowerCase()}`,
-            ];
-            
-            let permission = null;
-            for (const key of possibleKeys) {
-              if (permissionMap.has(key)) {
-                permission = permissionMap.get(key);
-                break;
-              }
-            }
-            
+          if (!granted) return;
+          const keys = [
+            `${module}:${permType}`,
+            `${module.toLowerCase()}:${permType.toLowerCase()}`,
+          ];
+          for (const key of keys) {
+            const permission = permissionMap.get(key);
             if (permission) {
               permissionIds.push(permission.id);
+              break;
             }
           }
         });
@@ -554,66 +405,33 @@ const RolesPermissions = () => {
         is_active: editingRolePermissions.is_active
       };
 
-      const response = await fetch(`${API_BASE_URL}/school-settings/roles/${editingRolePermissions.id}/`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (response.ok) {
-        setSuccessMessage('Role permissions updated successfully!');
-        await loadRoles();
-        setShowPermissionModal(false);
-        setEditingRolePermissions(null);
-        setSelectedPermissions({});
-      } else {
-        let errorMessage = 'Failed to update role permissions';
-        const contentType = response.headers.get('content-type');
-        
-        if (contentType && contentType.includes('application/json')) {
-          try {
-            const errorData = await response.json();
-            if (errorData.detail) {
-              errorMessage = errorData.detail;
-            } else if (errorData.error) {
-              errorMessage = errorData.error;
-            } else if (typeof errorData === 'object') {
-              const errors = Object.entries(errorData)
-                .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
-                .join('; ');
-              errorMessage = errors || JSON.stringify(errorData);
-            }
-          } catch (e) {
-            errorMessage = `Server error (${response.status})`;
-          }
-        }
-        setErrorMessage(errorMessage);
-      }
+      await api.patch(`/school-settings/roles/${editingRolePermissions.id}/`, payload);
+      showSuccess('Role permissions updated successfully!');
+      await loadRoles();
+      setShowPermissionModal(false);
+      setEditingRolePermissions(null);
+      setSelectedPermissions({});
     } catch (error) {
-      setErrorMessage(`Failed to update role permissions: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      showError(error instanceof Error ? error.message : 'Failed to update role permissions');
     } finally {
       setSaving(false);
     }
   };
 
+  // ==================== CREATE SECONDARY ADMIN ====================
   const createSecondarySectionAdminRole = async () => {
     if (!canManageRolesPermissions(currentUser)) {
-      setErrorMessage('You do not have permission to create roles.');
+      showError('You do not have permission to create roles.');
       return;
     }
 
     try {
       setSaving(true);
-      const token = localStorage.getItem('authToken');
-      
-      const secondaryPermissions = permissions.filter(p => 
-        p.section === 'secondary' || p.section === 'all'
-      ).map(p => p.id);
+      const secondaryPermissions = permissions
+        .filter(p => p.section === 'secondary' || p.section === 'all')
+        .map(p => p.id);
 
-      const secondaryAdminRole = {
+      await api.post('/school-settings/roles/', {
         name: 'Secondary Section Admin',
         description: 'Oversees activities of teachers and students in the secondary section. Reports to the general admin.',
         color: '#8B5CF6',
@@ -621,61 +439,35 @@ const RolesPermissions = () => {
         secondary_section_access: true,
         nursery_section_access: false,
         permissions: secondaryPermissions
-      };
-
-      const response = await fetch(`${API_BASE_URL}/school-settings/roles/`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(secondaryAdminRole)
       });
 
-      if (response.ok) {
-        setSuccessMessage('Secondary Section Admin role created successfully!');
-        loadRoles();
-      } else {
-        const errorData = await response.json();
-        setErrorMessage(errorData.error || 'Failed to create Secondary Section Admin role');
-      }
+      showSuccess('Secondary Section Admin role created successfully!');
+      loadRoles();
     } catch (error) {
-      setErrorMessage('Failed to create Secondary Section Admin role');
+      showError(error instanceof Error ? error.message : 'Failed to create Secondary Section Admin role');
     } finally {
       setSaving(false);
     }
   };
 
+  // ==================== REVOKE USER ROLE ====================
   const revokeUserRole = async (userRoleId: number) => {
     if (!canManageRolesPermissions(currentUser)) {
-      setErrorMessage('You do not have permission to revoke role assignments.');
+      showError('You do not have permission to revoke role assignments.');
       return;
     }
-
     if (!confirm('Are you sure you want to revoke this role assignment?')) return;
 
     try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/school-settings/user-roles/${userRoleId}/`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        setSuccessMessage('Role assignment revoked successfully!');
-        loadUserRoles();
-      } else {
-        const errorData = await response.json();
-        setErrorMessage(errorData.error || 'Failed to revoke role assignment');
-      }
+      await api.delete(`/school-settings/user-roles/${userRoleId}/`);
+      showSuccess('Role assignment revoked successfully!');
+      loadUserRoles();
     } catch (error) {
-      setErrorMessage('Failed to revoke role assignment');
+      showError(error instanceof Error ? error.message : 'Failed to revoke role assignment');
     }
   };
 
+  // ==================== EDIT USER ROLE ====================
   const editUserRoleAssignment = (userRole: UserRole) => {
     setSelectedUser({
       id: userRole.user,
@@ -712,23 +504,13 @@ const RolesPermissions = () => {
     setShowAssignRole(true);
   };
 
-  // Clear messages after timeout
-  useEffect(() => {
-    if (successMessage) {
-      setTimeout(() => setSuccessMessage(null), 3000);
-    }
-    if (errorMessage) {
-      setTimeout(() => setErrorMessage(null), 5000);
-    }
-  }, [successMessage, errorMessage]);
-
-  // ✅ Show loading state while checking permissions
+  // ==================== LOADING STATE ====================
   if (!currentUser) {
     return (
       <div className="space-y-8">
         <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100">
           <div className="text-center py-8">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto" />
             <p className="text-slate-600 mt-2">Checking permissions...</p>
           </div>
         </div>
@@ -736,9 +518,10 @@ const RolesPermissions = () => {
     );
   }
 
+  // ==================== RENDER ====================
   return (
     <div className="space-y-8">
-      {/* Success/Error Messages */}
+      {/* Messages */}
       {successMessage && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4">
           <p className="text-green-800 text-sm">{successMessage}</p>
@@ -764,8 +547,7 @@ const RolesPermissions = () => {
               )}
             </div>
           </div>
-          
-          {/* ✅ Only show buttons for superadmins */}
+
           {isSuperAdmin(currentUser) && (
             <div className="flex gap-3">
               <button
@@ -781,15 +563,9 @@ const RolesPermissions = () => {
                 className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
               >
                 {saving ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    Creating...
-                  </>
+                  <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />Creating...</>
                 ) : (
-                  <>
-                    <Shield className="w-4 h-4" />
-                    Create Secondary Section Admin
-                  </>
+                  <><Shield className="w-4 h-4" />Create Secondary Section Admin</>
                 )}
               </button>
               <button
@@ -804,42 +580,37 @@ const RolesPermissions = () => {
         </div>
 
         <p className="text-slate-600 mb-6">
-          Manage user roles and fine-tune permissions for various modules in your system. 
+          Manage user roles and fine-tune permissions for various modules in your system.
           Create custom roles with section-specific access and assign them to users.
         </p>
 
         {/* Tab Navigation */}
         <div className="flex space-x-1 bg-slate-100 rounded-lg p-1 mb-6">
-          <button
-            onClick={() => setActiveTab('roles')}
-            className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-              activeTab === 'roles'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Shield className="w-4 h-4 inline mr-2" />
-            Roles
-          </button>
-          <button
-            onClick={() => setActiveTab('assignments')}
-            className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-              activeTab === 'assignments'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <UserCheck className="w-4 h-4 inline mr-2" />
-            Role Assignments
-          </button>
+          {[
+            { key: 'roles', icon: Shield, label: 'Roles' },
+            { key: 'assignments', icon: UserCheck, label: 'Role Assignments' }
+          ].map(({ key, icon: Icon, label }) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                activeTab === key
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Icon className="w-4 h-4 inline mr-2" />
+              {label}
+            </button>
+          ))}
         </div>
 
-        {/* Roles Tab */}
+        {/* ── Roles Tab ── */}
         {activeTab === 'roles' && (
           <div className="space-y-6">
             {loading ? (
               <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto" />
                 <p className="text-slate-600 mt-2">Loading roles...</p>
               </div>
             ) : (
@@ -848,54 +619,31 @@ const RolesPermissions = () => {
                   <div key={role.id} className="bg-slate-50 border border-slate-200 rounded-xl p-6 shadow-sm">
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center gap-3">
-                        <div 
-                          className="w-4 h-4 rounded-full"
-                          style={{ backgroundColor: role.color }}
-                        ></div>
+                        <div className="w-4 h-4 rounded-full" style={{ backgroundColor: role.color }} />
                         <div>
                           <h4 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
                             {role.name}
                             {role.is_system && (
-                              <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">
-                                System
-                              </span>
+                              <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">System</span>
                             )}
                           </h4>
                           <p className="text-slate-600 text-sm">{role.description}</p>
                         </div>
                       </div>
-                      
+
                       <div className="flex items-center gap-2">
-                        <span className="text-sm text-slate-500">
-                          {role.user_count} users
-                        </span>
-                        <button
-                          onClick={() => viewRoleUsers(role)}
-                          className="p-2 text-slate-400 hover:text-purple-600 transition-colors"
-                          title="View users"
-                        >
+                        <span className="text-sm text-slate-500">{role.user_count} users</span>
+                        <button onClick={() => viewRoleUsers(role)} className="p-2 text-slate-400 hover:text-purple-600 transition-colors" title="View users">
                           <Users className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => editRolePermissions(role)}
-                          className="p-2 text-slate-400 hover:text-green-600 transition-colors"
-                          title="Edit permissions"
-                        >
+                        <button onClick={() => editRolePermissions(role)} className="p-2 text-slate-400 hover:text-green-600 transition-colors" title="Edit permissions">
                           <Settings2 className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => duplicateRole(role)}
-                          className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
-                          title="Duplicate role"
-                        >
+                        <button onClick={() => duplicateRole(role)} className="p-2 text-slate-400 hover:text-blue-600 transition-colors" title="Duplicate role">
                           <Copy className="w-4 h-4" />
                         </button>
                         {!role.is_system && (
-                          <button
-                            onClick={() => deleteRole(role.id)}
-                            className="p-2 text-slate-400 hover:text-red-600 transition-colors"
-                            title="Delete role"
-                          >
+                          <button onClick={() => deleteRole(role.id)} className="p-2 text-slate-400 hover:text-red-600 transition-colors" title="Delete role">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         )}
@@ -906,18 +654,16 @@ const RolesPermissions = () => {
                     <div className="mb-4">
                       <h5 className="text-sm font-medium text-slate-700 mb-2">Section Access</h5>
                       <div className="flex gap-4">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-3 h-3 rounded-full ${role.primary_section_access ? 'bg-green-500' : 'bg-slate-300'}`}></div>
-                          <span className="text-sm text-slate-600">Primary</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className={`w-3 h-3 rounded-full ${role.secondary_section_access ? 'bg-green-500' : 'bg-slate-300'}`}></div>
-                          <span className="text-sm text-slate-600">Secondary</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className={`w-3 h-3 rounded-full ${role.nursery_section_access ? 'bg-green-500' : 'bg-slate-300'}`}></div>
-                          <span className="text-sm text-slate-600">Nursery</span>
-                        </div>
+                        {[
+                          { label: 'Primary', value: role.primary_section_access },
+                          { label: 'Secondary', value: role.secondary_section_access },
+                          { label: 'Nursery', value: role.nursery_section_access },
+                        ].map(({ label, value }) => (
+                          <div key={label} className="flex items-center gap-2">
+                            <div className={`w-3 h-3 rounded-full ${value ? 'bg-green-500' : 'bg-slate-300'}`} />
+                            <span className="text-sm text-slate-600">{label}</span>
+                          </div>
+                        ))}
                       </div>
                     </div>
 
@@ -934,7 +680,7 @@ const RolesPermissions = () => {
                                   key={permType}
                                   className={`w-2 h-2 rounded-full ${granted ? 'bg-green-500' : 'bg-slate-200'}`}
                                   title={`${permType}: ${granted ? 'Granted' : 'Denied'}`}
-                                ></div>
+                                />
                               ))}
                             </div>
                           </div>
@@ -953,80 +699,52 @@ const RolesPermissions = () => {
           </div>
         )}
 
-        {/* Role Assignments Tab */}
+        {/* ── Assignments Tab ── */}
         {activeTab === 'assignments' && (
           <div className="space-y-6">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200">
-                    <th className="text-left py-3 px-4 font-medium text-slate-700">User</th>
-                    <th className="text-left py-3 px-4 font-medium text-slate-700">Role</th>
-                    <th className="text-left py-3 px-4 font-medium text-slate-700">Sections</th>
-                    <th className="text-left py-3 px-4 font-medium text-slate-700">Assigned By</th>
-                    <th className="text-left py-3 px-4 font-medium text-slate-700">Status</th>
-                    <th className="text-left py-3 px-4 font-medium text-slate-700">Actions</th>
+                    {['User', 'Role', 'Sections', 'Assigned By', 'Status', 'Actions'].map(h => (
+                      <th key={h} className="text-left py-3 px-4 font-medium text-slate-700">{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {userRoles.map((userRole) => (
                     <tr key={userRole.id} className="border-b border-slate-100">
                       <td className="py-3 px-4">
-                        <div>
-                          <p className="font-medium text-slate-900">{userRole.user_name}</p>
-                          <p className="text-xs text-slate-500">{userRole.user_email}</p>
-                        </div>
+                        <p className="font-medium text-slate-900">{userRole.user_name}</p>
+                        <p className="text-xs text-slate-500">{userRole.user_email}</p>
                       </td>
                       <td className="py-3 px-4">
-                        <span 
+                        <span
                           className="px-2 py-1 rounded-full text-xs font-medium"
-                          style={{ 
-                            backgroundColor: `${userRole.role_color}20`,
-                            color: userRole.role_color
-                          }}
+                          style={{ backgroundColor: `${userRole.role_color}20`, color: userRole.role_color }}
                         >
                           {userRole.role_name}
                         </span>
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex gap-1">
-                          {userRole.primary_section_access && (
-                            <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded">Primary</span>
-                          )}
-                          {userRole.secondary_section_access && (
-                            <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded">Secondary</span>
-                          )}
-                          {userRole.nursery_section_access && (
-                            <span className="px-2 py-1 bg-orange-100 text-orange-700 text-xs rounded">Nursery</span>
-                          )}
+                          {userRole.primary_section_access && <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded">Primary</span>}
+                          {userRole.secondary_section_access && <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded">Secondary</span>}
+                          {userRole.nursery_section_access && <span className="px-2 py-1 bg-orange-100 text-orange-700 text-xs rounded">Nursery</span>}
                         </div>
                       </td>
-                      <td className="py-3 px-4 text-slate-600">
-                        {userRole.assigned_by_name}
-                      </td>
+                      <td className="py-3 px-4 text-slate-600">{userRole.assigned_by_name}</td>
                       <td className="py-3 px-4">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          userRole.is_active 
-                            ? 'bg-green-100 text-green-700' 
-                            : 'bg-red-100 text-red-700'
-                        }`}>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${userRole.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                           {userRole.is_active ? 'Active' : 'Inactive'}
                         </span>
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex gap-2">
-                          <button 
-                            onClick={() => editUserRoleAssignment(userRole)}
-                            className="p-1 text-slate-400 hover:text-green-600 transition-colors"
-                            title="Edit role assignment"
-                          >
+                          <button onClick={() => editUserRoleAssignment(userRole)} className="p-1 text-slate-400 hover:text-green-600 transition-colors" title="Edit">
                             <Edit className="w-4 h-4" />
                           </button>
-                          <button 
-                            onClick={() => revokeUserRole(userRole.id)}
-                            className="p-1 text-slate-400 hover:text-red-600 transition-colors"
-                            title="Revoke role assignment"
-                          >
+                          <button onClick={() => revokeUserRole(userRole.id)} className="p-1 text-slate-400 hover:text-red-600 transition-colors" title="Revoke">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
@@ -1040,16 +758,13 @@ const RolesPermissions = () => {
         )}
       </div>
 
-      {/* Create Role Modal */}
+      {/* ── Create Role Modal ── */}
       {showCreateRole && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-semibold text-slate-900">Create New Role</h3>
-              <button
-                onClick={() => setShowCreateRole(false)}
-                className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
-              >
+              <button onClick={() => setShowCreateRole(false)} className="p-2 text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1060,66 +775,49 @@ const RolesPermissions = () => {
                 <input
                   type="text"
                   value={newRole.name}
-                  onChange={(e) => setNewRole({...newRole, name: e.target.value})}
+                  onChange={(e) => setNewRole({ ...newRole, name: e.target.value })}
                   placeholder="Enter role name"
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all duration-200"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
                 />
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Description</label>
                 <textarea
                   value={newRole.description}
-                  onChange={(e) => setNewRole({...newRole, description: e.target.value})}
+                  onChange={(e) => setNewRole({ ...newRole, description: e.target.value })}
                   placeholder="Enter role description"
                   rows={3}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all duration-200"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
                 />
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Color</label>
                 <input
                   type="color"
                   value={newRole.color}
-                  onChange={(e) => setNewRole({...newRole, color: e.target.value})}
+                  onChange={(e) => setNewRole({ ...newRole, color: e.target.value })}
                   className="w-full h-12 rounded-xl border border-slate-200"
                 />
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Section Access</label>
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="primary-access"
-                      checked={newRole.primary_section_access}
-                      onChange={(e) => setNewRole({...newRole, primary_section_access: e.target.checked})}
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <label htmlFor="primary-access" className="text-sm text-slate-700">Primary Section</label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="secondary-access"
-                      checked={newRole.secondary_section_access}
-                      onChange={(e) => setNewRole({...newRole, secondary_section_access: e.target.checked})}
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <label htmlFor="secondary-access" className="text-sm text-slate-700">Secondary Section</label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="nursery-access"
-                      checked={newRole.nursery_section_access}
-                      onChange={(e) => setNewRole({...newRole, nursery_section_access: e.target.checked})}
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <label htmlFor="nursery-access" className="text-sm text-slate-700">Nursery Section</label>
-                  </div>
+                  {[
+                    { id: 'primary-access', field: 'primary_section_access', label: 'Primary Section' },
+                    { id: 'secondary-access', field: 'secondary_section_access', label: 'Secondary Section' },
+                    { id: 'nursery-access', field: 'nursery_section_access', label: 'Nursery Section' },
+                  ].map(({ id, field, label }) => (
+                    <div key={id} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id={id}
+                        checked={newRole[field as keyof typeof newRole] as boolean}
+                        onChange={(e) => setNewRole({ ...newRole, [field]: e.target.checked })}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <label htmlFor={id} className="text-sm text-slate-700">{label}</label>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -1130,22 +828,9 @@ const RolesPermissions = () => {
                 disabled={saving || !newRole.name.trim()}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
               >
-                {saving ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    Creating...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4" />
-                    Create Role
-                  </>
-                )}
+                {saving ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />Creating...</> : <><Save className="w-4 h-4" />Create Role</>}
               </button>
-              <button
-                onClick={() => setShowCreateRole(false)}
-                className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
-              >
+              <button onClick={() => setShowCreateRole(false)} className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
                 Cancel
               </button>
             </div>
@@ -1153,7 +838,7 @@ const RolesPermissions = () => {
         </div>
       )}
 
-      {/* Assign Role Modal */}
+      {/* ── Assign Role Modal ── */}
       {showAssignRole && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -1161,10 +846,7 @@ const RolesPermissions = () => {
               <h3 className="text-xl font-semibold text-slate-900">
                 {selectedUser && selectedRole ? 'Edit Role Assignment' : 'Assign Role to User'}
               </h3>
-              <button
-                onClick={() => setShowAssignRole(false)}
-                className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
-              >
+              <button onClick={() => setShowAssignRole(false)} className="p-2 text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1174,11 +856,8 @@ const RolesPermissions = () => {
                 <label className="block text-sm font-medium text-slate-700 mb-2">Select User</label>
                 <select
                   value={selectedUser?.id || ''}
-                  onChange={(e) => {
-                    const user = users.find(u => u.id === parseInt(e.target.value));
-                    setSelectedUser(user || null);
-                  }}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all duration-200"
+                  onChange={(e) => setSelectedUser(users.find(u => u.id === parseInt(e.target.value)) || null)}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
                 >
                   <option value="">Choose a user...</option>
                   {users.map((user) => (
@@ -1193,17 +872,12 @@ const RolesPermissions = () => {
                 <label className="block text-sm font-medium text-slate-700 mb-2">Select Role</label>
                 <select
                   value={selectedRole?.id || ''}
-                  onChange={(e) => {
-                    const role = roles.find(r => r.id === parseInt(e.target.value));
-                    setSelectedRole(role || null);
-                  }}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all duration-200"
+                  onChange={(e) => setSelectedRole(roles.find(r => r.id === parseInt(e.target.value)) || null)}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
                 >
                   <option value="">Choose a role...</option>
                   {roles.map((role) => (
-                    <option key={role.id} value={role.id}>
-                      {role.name}
-                    </option>
+                    <option key={role.id} value={role.id}>{role.name}</option>
                   ))}
                 </select>
               </div>
@@ -1211,36 +885,22 @@ const RolesPermissions = () => {
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Section Access</label>
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="user-primary-access"
-                      checked={userRoleAssignment.primary_section_access}
-                      onChange={(e) => setUserRoleAssignment({...userRoleAssignment, primary_section_access: e.target.checked})}
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <label htmlFor="user-primary-access" className="text-sm text-slate-700">Primary Section</label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="user-secondary-access"
-                      checked={userRoleAssignment.secondary_section_access}
-                      onChange={(e) => setUserRoleAssignment({...userRoleAssignment, secondary_section_access: e.target.checked})}
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <label htmlFor="user-secondary-access" className="text-sm text-slate-700">Secondary Section</label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="user-nursery-access"
-                      checked={userRoleAssignment.nursery_section_access}
-                      onChange={(e) => setUserRoleAssignment({...userRoleAssignment, nursery_section_access: e.target.checked})}
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <label htmlFor="user-nursery-access" className="text-sm text-slate-700">Nursery Section</label>
-                  </div>
+                  {[
+                    { id: 'user-primary-access', field: 'primary_section_access', label: 'Primary Section' },
+                    { id: 'user-secondary-access', field: 'secondary_section_access', label: 'Secondary Section' },
+                    { id: 'user-nursery-access', field: 'nursery_section_access', label: 'Nursery Section' },
+                  ].map(({ id, field, label }) => (
+                    <div key={id} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id={id}
+                        checked={userRoleAssignment[field as keyof typeof userRoleAssignment] as boolean}
+                        onChange={(e) => setUserRoleAssignment({ ...userRoleAssignment, [field]: e.target.checked })}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <label htmlFor={id} className="text-sm text-slate-700">{label}</label>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -1249,8 +909,8 @@ const RolesPermissions = () => {
                 <input
                   type="datetime-local"
                   value={userRoleAssignment.expires_at}
-                  onChange={(e) => setUserRoleAssignment({...userRoleAssignment, expires_at: e.target.value})}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all duration-200"
+                  onChange={(e) => setUserRoleAssignment({ ...userRoleAssignment, expires_at: e.target.value })}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
                 />
               </div>
 
@@ -1259,7 +919,7 @@ const RolesPermissions = () => {
                   type="checkbox"
                   id="user-role-active"
                   checked={userRoleAssignment.is_active}
-                  onChange={(e) => setUserRoleAssignment({...userRoleAssignment, is_active: e.target.checked})}
+                  onChange={(e) => setUserRoleAssignment({ ...userRoleAssignment, is_active: e.target.checked })}
                   className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                 />
                 <label htmlFor="user-role-active" className="text-sm text-slate-700">Active</label>
@@ -1272,22 +932,12 @@ const RolesPermissions = () => {
                 disabled={saving || !selectedUser || !selectedRole}
                 className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
               >
-                {saving ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    {selectedUser && selectedRole ? 'Updating...' : 'Assigning...'}
-                  </>
-                ) : (
-                  <>
-                    <UserPlus className="w-4 h-4" />
-                    {selectedUser && selectedRole ? 'Update Assignment' : 'Assign Role'}
-                  </>
-                )}
+                {saving
+                  ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />{selectedUser && selectedRole ? 'Updating...' : 'Assigning...'}</>
+                  : <><UserPlus className="w-4 h-4" />{selectedUser && selectedRole ? 'Update Assignment' : 'Assign Role'}</>
+                }
               </button>
-              <button
-                onClick={() => setShowAssignRole(false)}
-                className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
-              >
+              <button onClick={() => setShowAssignRole(false)} className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
                 Cancel
               </button>
             </div>
@@ -1295,7 +945,7 @@ const RolesPermissions = () => {
         </div>
       )}
 
-      {/* Permission Management Modal */}
+      {/* ── Permission Management Modal ── */}
       {showPermissionModal && editingRolePermissions && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -1303,10 +953,7 @@ const RolesPermissions = () => {
               <h3 className="text-xl font-semibold text-slate-900">
                 Edit Permissions: {editingRolePermissions.name}
               </h3>
-              <button
-                onClick={() => setShowPermissionModal(false)}
-                className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
-              >
+              <button onClick={() => setShowPermissionModal(false)} className="p-2 text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1325,10 +972,7 @@ const RolesPermissions = () => {
                           onChange={(checked) => {
                             setSelectedPermissions(prev => ({
                               ...prev,
-                              [module]: {
-                                ...prev[module],
-                                [permType]: checked
-                              }
+                              [module]: { ...prev[module], [permType]: checked }
                             }));
                           }}
                           label=""
@@ -1346,22 +990,9 @@ const RolesPermissions = () => {
                 disabled={saving}
                 className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
               >
-                {saving ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4" />
-                    Save Permissions
-                  </>
-                )}
+                {saving ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />Saving...</> : <><Save className="w-4 h-4" />Save Permissions</>}
               </button>
-              <button
-                onClick={() => setShowPermissionModal(false)}
-                className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
-              >
+              <button onClick={() => setShowPermissionModal(false)} className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
                 Cancel
               </button>
             </div>
@@ -1369,7 +1000,7 @@ const RolesPermissions = () => {
         </div>
       )}
 
-      {/* View Users Modal */}
+      {/* ── View Users Modal ── */}
       {showUsersModal && selectedRoleForUsers && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -1377,71 +1008,48 @@ const RolesPermissions = () => {
               <h3 className="text-xl font-semibold text-slate-900">
                 Users with Role: {selectedRoleForUsers.name}
               </h3>
-              <button
-                onClick={() => setShowUsersModal(false)}
-                className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
-              >
+              <button onClick={() => setShowUsersModal(false)} className="p-2 text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {roleUsers.length > 0 ? (
-              <div className="space-y-4">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-200">
-                        <th className="text-left py-3 px-4 font-medium text-slate-700">User</th>
-                        <th className="text-left py-3 px-4 font-medium text-slate-700">Email</th>
-                        <th className="text-left py-3 px-4 font-medium text-slate-700">Sections</th>
-                        <th className="text-left py-3 px-4 font-medium text-slate-700">Assigned By</th>
-                        <th className="text-left py-3 px-4 font-medium text-slate-700">Assigned Date</th>
-                        <th className="text-left py-3 px-4 font-medium text-slate-700">Expires</th>
-                        <th className="text-left py-3 px-4 font-medium text-slate-700">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {roleUsers.map((user) => (
-                        <tr key={user.id} className="border-b border-slate-100">
-                          <td className="py-3 px-4">
-                            <div>
-                              <div className="font-medium text-slate-900">{user.full_name}</div>
-                              <div className="text-xs text-slate-500">@{user.username}</div>
-                            </div>
-                          </td>
-                          <td className="py-3 px-4 text-slate-600">{user.email}</td>
-                          <td className="py-3 px-4">
-                            <div className="flex gap-2">
-                              {user.primary_section_access && (
-                                <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">Primary</span>
-                              )}
-                              {user.secondary_section_access && (
-                                <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">Secondary</span>
-                              )}
-                              {user.nursery_section_access && (
-                                <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-full">Nursery</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="py-3 px-4 text-slate-600">{user.assigned_by || 'System'}</td>
-                          <td className="py-3 px-4 text-slate-600">
-                            {new Date(user.assigned_at).toLocaleDateString()}
-                          </td>
-                          <td className="py-3 px-4 text-slate-600">
-                            {user.expires_at ? new Date(user.expires_at).toLocaleDateString() : 'Never'}
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className={`px-2 py-1 text-xs rounded-full ${
-                              user.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                            }`}>
-                              {user.is_active ? 'Active' : 'Inactive'}
-                            </span>
-                          </td>
-                        </tr>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200">
+                      {['User', 'Email', 'Sections', 'Assigned By', 'Assigned Date', 'Expires', 'Status'].map(h => (
+                        <th key={h} className="text-left py-3 px-4 font-medium text-slate-700">{h}</th>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {roleUsers.map((user) => (
+                      <tr key={user.id} className="border-b border-slate-100">
+                        <td className="py-3 px-4">
+                          <div className="font-medium text-slate-900">{user.full_name}</div>
+                          <div className="text-xs text-slate-500">@{user.username}</div>
+                        </td>
+                        <td className="py-3 px-4 text-slate-600">{user.email}</td>
+                        <td className="py-3 px-4">
+                          <div className="flex gap-2">
+                            {user.primary_section_access && <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">Primary</span>}
+                            {user.secondary_section_access && <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">Secondary</span>}
+                            {user.nursery_section_access && <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-full">Nursery</span>}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-slate-600">{user.assigned_by || 'System'}</td>
+                        <td className="py-3 px-4 text-slate-600">{new Date(user.assigned_at).toLocaleDateString()}</td>
+                        <td className="py-3 px-4 text-slate-600">{user.expires_at ? new Date(user.expires_at).toLocaleDateString() : 'Never'}</td>
+                        <td className="py-3 px-4">
+                          <span className={`px-2 py-1 text-xs rounded-full ${user.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {user.is_active ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             ) : (
               <div className="text-center py-8">
@@ -1451,10 +1059,7 @@ const RolesPermissions = () => {
             )}
 
             <div className="flex justify-end mt-6">
-              <button
-                onClick={() => setShowUsersModal(false)}
-                className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
-              >
+              <button onClick={() => setShowUsersModal(false)} className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
                 Close
               </button>
             </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, ReactNode } from 'react';
 import { Calendar, BookOpen, GraduationCap, ArrowRight, Download, Trophy, Loader2, AlertCircle } from 'lucide-react';
 import { AcademicSession, Term, EducationLevel } from '@/types/types';
+import api, {API_BASE_URL} from '@/services/api'
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -76,12 +77,6 @@ interface ResultSelectionProps {
 }
 
 // ============================================================================
-// CONSTANTS
-// ============================================================================
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-
-// ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
@@ -105,15 +100,6 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
   // ============================================================================
   // HELPER FUNCTIONS
   // ============================================================================
-
-  const getAuthToken = (): string | null => {
-    const tokenKeys = ['authToken', 'token', 'access_token', 'accessToken', 'jwt'];
-    for (const key of tokenKeys) {
-      const val = localStorage.getItem(key);
-      if (val) return val;
-    }
-    return null;
-  };
 
   const getTermDisplayName = (term: Term): string => {
     return term.name_display || term.name || 'Term';
@@ -153,14 +139,12 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
       setError(null);
 
       try {
-        const authToken = getAuthToken();
-        console.log('🔑 Auth token present:', !!authToken);
-        if (!authToken) throw new Error('No auth token found');
-
-        const headers = {
-          Authorization: `Bearer ${authToken}`,
+        const fetchOptions: RequestInit = {
+        credentials: 'include',  // ✅ Top-level fetch option
+        headers: {
           'Content-Type': 'application/json',
-        };
+        },
+      };
 
         const verifiedStudent: StudentInfo = {
           full_name: verifiedTokenData.student_name || 'Student',
@@ -174,9 +158,10 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
 
         // Fetch academic session and exam sessions in parallel
         const [sessionRes, examsRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/classrooms/academic-sessions/current/`, { headers }),
-          fetch(`${API_BASE_URL}/results/exam-sessions/`, { headers }),
+          fetch(`${API_BASE_URL}/classrooms/academic-sessions/current/`, fetchOptions),
+          fetch(`${API_BASE_URL}/results/exam-sessions/`, fetchOptions),
         ]);
+
 
         if (!sessionRes.ok) throw new Error('Failed to load current academic session');
 
@@ -186,7 +171,7 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
         // Fetch terms for current session
         const termsRes = await fetch(
           `${API_BASE_URL}/classrooms/academic-sessions/${currentSession.id}/terms/`,
-          { headers }
+          fetchOptions
         );
 
         if (!termsRes.ok) throw new Error('Failed to load terms');
@@ -194,8 +179,6 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
         const termsData: Term[] = await termsRes.json();
         const examSessionsData: ExamSession[] = examsRes.ok ? await examsRes.json() : [];
 
-        console.log('📚 Terms loaded:', termsData.length);
-        console.log('📋 Exam sessions loaded:', examSessionsData.length);
 
         // Fetch classes
         let classesData: ClassInfo[] = [];
@@ -204,10 +187,7 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
         
         try {
           // Step 1: Fetch all grade levels
-          const gradesRes = await fetch(
-            `${API_BASE_URL}/classrooms/results-portal/grades/`,
-            { headers }
-          );
+          const gradesRes = await fetch(`${API_BASE_URL}/classrooms/results-portal/grades/`, fetchOptions);
           
           if (!gradesRes.ok) {
             throw new Error(`Grades fetch failed: ${gradesRes.status}`);
@@ -238,10 +218,7 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
             console.log(`\n📌 Processing Grade: ${grade.name} (ID: ${grade.id})`);
             
             // Get sections for this grade
-            const sectionsRes = await fetch(
-              `${API_BASE_URL}/classrooms/results-portal/grades/${grade.id}/sections/`,
-              { headers }
-            );
+            const sectionsRes = await fetch(`...grades/${grade.id}/sections/`, fetchOptions);
             
             if (!sectionsRes.ok) {
               console.warn(`   ⚠️ Sections fetch failed (${sectionsRes.status})`);
@@ -257,10 +234,7 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
             for (const section of sections) {
               console.log(`      📌 Section: ${section.name} (ID: ${section.id})`);
               
-              const classroomsRes = await fetch(
-                `${API_BASE_URL}/classrooms/results-portal/sections/${section.id}/classrooms/`,
-                { headers }
-              );
+              const classroomsRes = await fetch(`...sections/${section.id}/classrooms/`, fetchOptions);
 
               if (!classroomsRes.ok) {
                 console.warn(`         ⚠️ Classrooms fetch failed (${classroomsRes.status})`);

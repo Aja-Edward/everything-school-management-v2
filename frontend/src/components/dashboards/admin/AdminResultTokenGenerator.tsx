@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { CheckCircle, AlertCircle, Loader, Key, Download, Printer, Eye, Search, Copy, Check, RefreshCw, Trash2, Calendar, Clock } from 'lucide-react';
-
+import api from '@/services/api';
 interface GenerationResult {
   success: boolean;
   message: string;
@@ -44,17 +44,6 @@ const AdminResultTokenGenerator = () => {
   const [deleting, setDeleting] = useState(false);
   const [tokenStats, setTokenStats] = useState<any>(null);
 
-  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-
-  const getAuthToken = () => {
-    const tokenKeys = ['authToken', 'token', 'access_token', 'accessToken', 'jwt'];
-    for (const key of tokenKeys) {
-      const val = localStorage.getItem(key);
-      if (val) return val;
-    }
-    return null;
-  };
-
   const generateTokens = async () => {
     if (!termId) {
       setError('Please enter Term ID');
@@ -66,12 +55,6 @@ const AdminResultTokenGenerator = () => {
       setError(null);
       setSuccess(false);
       setResult(null);
-      
-      const authToken = getAuthToken();
-      if (!authToken) {
-        setError('No authentication token found. Please log in again.');
-        return;
-      }
 
       const requestBody: any = { school_term_id: parseInt(termId) };
       
@@ -79,39 +62,7 @@ const AdminResultTokenGenerator = () => {
         requestBody.days_until_expiry = parseInt(daysUntilExpiry);
       }
 
-      const response = await fetch(`${API_BASE_URL}/students/admin/generate-result-tokens/`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody)
-      });
-
-      const contentType = response.headers.get('content-type');
-      
-      if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('Authentication failed. Please log in again.');
-        } else if (response.status === 403) {
-          throw new Error('You do not have admin privileges.');
-        } else if (response.status === 404) {
-          throw new Error('School term not found. Please check the Term ID.');
-        }
-        
-        if (contentType?.includes('application/json')) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || errorData.detail || `HTTP ${response.status}`);
-        } else {
-          throw new Error(`Server error (${response.status}). Please try again.`);
-        }
-      }
-
-      if (!contentType?.includes('application/json')) {
-        throw new Error('Invalid server response. Please contact support.');
-      }
-
-      const data = await response.json();
+      const data = await api.post('/api/students/admin/generate-result-tokens/', requestBody);
       console.log('Token generation response:', data);
       
       // Log errors if they exist
@@ -150,27 +101,13 @@ const AdminResultTokenGenerator = () => {
     try {
       setLoadingTokens(true);
       setError(null);
-      const authToken = getAuthToken();
       
-      const response = await fetch(`${API_BASE_URL}/students/admin/get-all-result-tokens/?school_term_id=${targetTermId}`, {
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
+      const data = await api.get('/api/students/admin/get-all-result-tokens/', { school_term_id: targetTermId });
         setTokens(data.tokens || []);
         setTokenStats(data.statistics || null);
-        setShowTokens(true);
+        setShowTokens(true);  
         setViewTermId(targetTermId);
-      } else if (response.status === 404) {
-        setError('No tokens found for this term. Please generate tokens first.');
-        setTokens([]);
-        setShowTokens(false);
-      } else {
-        setError('Failed to fetch tokens. Please try again.');
-      }
+      
     } catch (err) {
       setError('Failed to fetch tokens. Please try again.');
     } finally {
@@ -186,26 +123,14 @@ const AdminResultTokenGenerator = () => {
     try {
       setDeleting(true);
       setError(null);
-      const authToken = getAuthToken();
       
-      const response = await fetch(`${API_BASE_URL}/students/admin/delete-expired-tokens/`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
+      const data = await api.delete('/api/students/admin/delete-expired-tokens/');
         alert(`Successfully deleted ${data.deleted_count} expired tokens`);
         
         if (viewTermId) {
           await fetchTokens();
         }
-      } else {
-        setError('Failed to delete expired tokens');
-      }
+     
     } catch (err) {
       setError('Failed to delete expired tokens');
     } finally {
@@ -226,19 +151,12 @@ const AdminResultTokenGenerator = () => {
     try {
       setDeleting(true);
       setError(null);
-      const authToken = getAuthToken();
+    
       
-      const response = await fetch(`${API_BASE_URL}/students/admin/delete-all-tokens-for-term/`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ school_term_id: parseInt(viewTermId) })
-      });
+     const data = await api.delete('/students/admin/delete-all-tokens-for-term/', { school_term_id: parseInt(viewTermId) });
 
-      if (response.ok) {
-        const data = await response.json();
+      if (data) {
+       
         alert(data.message);
         setTokens([]);
         setShowTokens(false);

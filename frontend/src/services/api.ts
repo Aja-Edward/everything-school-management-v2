@@ -14,28 +14,8 @@ export const API_BASE_URL =
 // CSRF token cache
 let csrfToken: string | null = null;
 
-/**
- * Store tokens from response body (for development cross-origin support)
- */
-export const storeTokens = (tokens: { access: string; refresh: string }) => {
-  localStorage.setItem('authToken', tokens.access);
-  localStorage.setItem('refreshToken', tokens.refresh);
-  console.log('🔑 Tokens stored in localStorage (development mode)');
-};
-
-/**
- * Get stored access token (for development fallback)
- */
-const getStoredToken = (): string | null => {
-  return localStorage.getItem('authToken');
-};
-
-/**
- * Clear stored tokens
- */
 export const clearTokens = () => {
-  localStorage.removeItem('authToken');
-  localStorage.removeItem('refreshToken');
+  // httpOnly cookies are cleared by the server on logout — nothing to do here
 };
 
 /**
@@ -102,13 +82,7 @@ export const getHeaders = async (
     headers['X-Tenant-Slug'] = tenantSlug;
   }
 
-  // Add Authorization header as fallback (for development cross-origin)
-  const token = getStoredToken();
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  // Add CSRF token for non-GET requests
+    // Add CSRF token for non-GET requests
   if (method !== 'GET') {
     const csrf = await getCSRFToken();
     if (csrf) {
@@ -153,6 +127,7 @@ export const handleResponseError = async (
     '/tenants/register/',
     '/tenants/check-slug/',
     '/tenants/check-domain/',
+    '/students/verify-result-token/',
     
   ];
 

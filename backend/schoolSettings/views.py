@@ -73,10 +73,6 @@ class SchoolSettingsDetail(APIView):
         if not tenant and request.user.is_authenticated:
             tenant = getattr(request.user, 'tenant', None)
 
-        # Final fallback: get the first active tenant (for development/single-tenant mode)
-        if not tenant:
-            tenant = Tenant.objects.filter(is_active=True).first()
-
         return tenant
 
     def _build_settings_response(self, tenant, tenant_settings):
@@ -894,19 +890,24 @@ def test_sms_connection(request):
 
 
 class CommunicationSettingsDetail(APIView):
-    """
-    Retrieve and update communication settings
-    """
-
     permission_classes = [HasSettingsPermissionOrReadOnly]
 
-    def get(self, request):
-        """Get current communication settings"""
-        try:
-            settings = CommunicationSettings.objects.first()
-            if not settings:
-                settings = CommunicationSettings.objects.create()
+    def _get_tenant(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant and request.user.is_authenticated:
+            tenant = getattr(request.user, "tenant", None)
+        return tenant
 
+    def get(self, request):
+        try:
+            tenant = self._get_tenant(request)
+            if not tenant:
+                return Response(
+                    {"error": "No tenant found."}, status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # ✅ Scoped to tenant
+            settings, _ = CommunicationSettings.objects.get_or_create(tenant=tenant)
             serializer = CommunicationSettingsSerializer(settings)
             return Response(serializer.data)
         except Exception as e:
@@ -916,13 +917,16 @@ class CommunicationSettingsDetail(APIView):
             )
 
     def put(self, request):
-        """Update communication settings"""
         try:
-            settings = CommunicationSettings.objects.first()
-            if not settings:
-                settings = CommunicationSettings.objects.create()
+            tenant = self._get_tenant(request)
+            if not tenant:
+                return Response(
+                    {"error": "No tenant found."}, status=status.HTTP_400_BAD_REQUEST
+                )
 
-            # Remove computed fields that shouldn't be updated directly
+            # ✅ Scoped to tenant
+            settings, _ = CommunicationSettings.objects.get_or_create(tenant=tenant)
+
             data = request.data.copy()
             data.pop("id", None)
             data.pop("created_at", None)
@@ -936,8 +940,7 @@ class CommunicationSettingsDetail(APIView):
             if serializer.is_valid():
                 serializer.save(updated_by=request.user)
                 return Response(serializer.data)
-            else:
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response(
                 {"error": f"Failed to update communication settings: {str(e)}"},
@@ -969,10 +972,14 @@ def test_brevo_connection(request):
             response = requests.get(url, headers=headers, timeout=10)
             if response.status_code == 200:
                 # Update communication settings if test is successful
-                settings = CommunicationSettings.objects.first()
-                if not settings:
-                    settings = CommunicationSettings.objects.create()
-
+                tenant = getattr(request.user, "tenant", None) or getattr(
+                    request, "tenant", None
+                )
+                if not tenant:
+                    return Response(
+                        {"success": False, "message": "No tenant found."}, status=400
+                    )
+                settings, _ = CommunicationSettings.objects.get_or_create(tenant=tenant)
                 settings.brevo_api_key = api_key
                 settings.brevo_sender_email = sender_email
                 settings.brevo_configured = True
@@ -1038,9 +1045,15 @@ def test_twilio_connection(request):
 
         if success:
             # Update communication settings if test is successful
-            settings = CommunicationSettings.objects.first()
-            if not settings:
-                settings = CommunicationSettings.objects.create()
+
+            tenant = getattr(request.user, "tenant", None) or getattr(
+                request, "tenant", None
+            )
+            if not tenant:
+                return Response(
+                    {"success": False, "message": "No tenant found."}, status=400
+                )
+            settings, _ = CommunicationSettings.objects.get_or_create(tenant=tenant)
 
             settings.twilio_account_sid = account_sid
             settings.twilio_auth_token = auth_token
@@ -1548,25 +1561,27 @@ def force_migrate(request):
 
 
 class SchoolAnnouncementViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet for managing school announcements
-    """
-
     queryset = SchoolAnnouncement.objects.all()
     serializer_class = SchoolAnnouncementSerializer
     permission_classes = [HasSettingsPermissionOrReadOnly]
 
+    def _get_tenant(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant and request.user.is_authenticated:
+            tenant = getattr(request.user, "tenant", None)
+        return tenant
+
     def perform_create(self, serializer):
-        """Set the created_by field to the current user"""
-        serializer.save(created_by=self.request.user)
+        tenant = self._get_tenant(self.request)
+        # ✅ Scope new announcements to the current tenant
+        serializer.save(created_by=self.request.user, tenant=tenant)
 
     def get_queryset(self):
-        """Filter announcements based on user permissions"""
-        if self.request.user.is_superuser:
-            return SchoolAnnouncement.objects.all()
-        else:
-            # For non-superusers, only show announcements they created
-            return SchoolAnnouncement.objects.filter(created_by=self.request.user)
+        tenant = self._get_tenant(self.request)
+        if not tenant:
+            return SchoolAnnouncement.objects.none()
+        # ✅ Always filter by tenant — superusers only see their own tenant too
+        return SchoolAnnouncement.objects.filter(tenant=tenant)
 
     @action(detail=True, methods=["post"])
     def toggle_active(self, request, pk=None):

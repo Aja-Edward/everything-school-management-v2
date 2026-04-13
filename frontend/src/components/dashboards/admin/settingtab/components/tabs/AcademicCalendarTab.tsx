@@ -18,6 +18,7 @@ import {
   Calendar as CalendarIcon
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import api, {API_BASE_URL}  from '@/services/api';
 
 // TypeScript interfaces
 interface AcademicSession {
@@ -82,7 +83,7 @@ const AcademicCalendarTab: React.FC = () => {
   const [terms, setTerms] = useState<Term[]>([]);
   const [currentSession, setCurrentSession] = useState<AcademicSession | null>(null);
   const [currentTerm, setCurrentTerm] = useState<Term | null>(null);
-  const [termTypes, setTermTypes] = useState<{id: number, name: string}[]>([]);
+  const [termTypes, setTermTypes] = useState<TermType[]>([]);
 
   // Form states
   const [showSessionForm, setShowSessionForm] = useState(false);
@@ -130,17 +131,14 @@ const AcademicCalendarTab: React.FC = () => {
   };
 
   const getHeaders = (includeContentType = false): HeadersInit => {
-    const token = localStorage.getItem('authToken');
+   
     const tenantId = getTenantId();
     
-    const headers: HeadersInit = {
-      'Authorization': `Bearer ${token}`,
-    };
+    const headers: HeadersInit = {};
 
     // Add tenant header if available
     if (tenantId) {
       headers['X-Tenant-ID'] = tenantId;
-      console.log('✅ Adding tenant header:', tenantId);
     } else {
       console.warn('⚠️ No tenant ID available - request may fail');
     }
@@ -157,7 +155,8 @@ const AcademicCalendarTab: React.FC = () => {
   const fetchTermTypes = async (): Promise<TermType[]> => {
   try {
     const response = await fetch(`${API_BASE_URL}/academics/term-types/`, {
-      headers: getHeaders()
+      headers: getHeaders(),
+      credentials: 'include',
     });
     if (response.ok) return await response.json();
     console.error('Failed to fetch term types:', response.status);
@@ -195,12 +194,11 @@ const loadData = async () => {
   }, []);
 
 
-const API_BASE_URL = import.meta.env.VITE_API_URL 
-
   const fetchSessions = async (): Promise<AcademicSession[]> => {
     try {
       const response = await fetch(`${API_BASE_URL}/academics/sessions/`, {
-        headers: getHeaders() // **FIX: Using new helper with tenant header**
+        headers: getHeaders(), // **FIX: Using new helper with tenant header**
+        credentials: 'include'
       });
 
       if (response.ok) {
@@ -219,7 +217,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL
   const fetchTerms = async (): Promise<Term[]> => {
     try {
       const response = await fetch(`${API_BASE_URL}/academics/terms/`, {
-        headers: getHeaders() // **FIX: Using new helper with tenant header**
+        headers: getHeaders(), // **FIX: Using new helper with tenant header**
+        credentials: 'include'
       });
 
       if (response.ok) {
@@ -257,7 +256,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL
       const response = await fetch(`${API_BASE_URL}/academics/sessions/`, {
         method: 'POST',
         headers: getHeaders(true), // **FIX: Using new helper with tenant header**
-        body: JSON.stringify(sessionForm)
+        body: JSON.stringify(sessionForm),
+        credentials: 'include'
       });
 
       if (response.ok) {
@@ -306,7 +306,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL
       const response = await fetch(`${API_BASE_URL}/academics/sessions/${sessionId}/`, {
         method: 'PUT',
         headers: getHeaders(true), // **FIX: Using new helper with tenant header**
-        body: JSON.stringify(sessionForm)
+        body: JSON.stringify(sessionForm),
+        credentials: 'include'
       });
 
       if (response.ok) {
@@ -343,7 +344,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL
       
       const response = await fetch(`${API_BASE_URL}/academics/sessions/${sessionId}/`, {
         method: 'DELETE',
-        headers: getHeaders() // **FIX: Using new helper with tenant header**
+        headers: getHeaders(), // **FIX: Using new helper with tenant header**
+        credentials: 'include'
       });
 
       if (response.ok) {
@@ -366,7 +368,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL
       
       const response = await fetch(`${API_BASE_URL}/academics/sessions/${sessionId}/set_active/`, {
         method: 'POST',
-        headers: getHeaders() // **FIX: Using new helper with tenant header**
+        headers: getHeaders(),
+        credentials: 'include'
       });
 
       if (response.ok) {
@@ -440,7 +443,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL
       const response = await fetch(`${API_BASE_URL}/academics/terms/`, {
         method: 'POST',
         headers: getHeaders(true), // **FIX: Using new helper with tenant header**
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        credentials: 'include'
       });
 
       if (response.ok) {
@@ -509,7 +513,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL
     const response = await fetch(`${API_BASE_URL}/academics/terms/${termId}/`, {
       method: 'PATCH',
       headers: getHeaders(true),
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      credentials: 'include'
     });
 
     if (response.ok) {
@@ -543,7 +548,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL
       
       const response = await fetch(`${API_BASE_URL}/academics/terms/${termId}/`, {
         method: 'DELETE',
-        headers: getHeaders() // **FIX: Using new helper with tenant header**
+        headers: getHeaders(), // **FIX: Using new helper with tenant header**
+        credentials: 'include'
       });
 
       if (response.ok) {
@@ -566,7 +572,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL
       
       const response = await fetch(`${API_BASE_URL}/academics/terms/${termId}/set_current/`, {
         method: 'POST',
-        headers: getHeaders() // **FIX: Using new helper with tenant header**
+        headers: getHeaders(), // **FIX: Using new helper with tenant header**
+        credentials: 'include'
       });
 
       if (response.ok) {
@@ -1185,9 +1192,21 @@ const API_BASE_URL = import.meta.env.VITE_API_URL
                             return selectedSession ? `${formatDate(selectedSession.start_date)} to ${formatDate(selectedSession.end_date)}` : '';
                           })()}
                         </p>
-                        <p className="text-xs text-blue-500 dark:text-blue-400 mt-1">
-                          ⚠️ Term dates must be within this range
-                        </p>
+                        {termForm.academic_session && termForm.term_type_id && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const termType = termTypes.find(tt => tt.id === Number(termForm.term_type_id));
+                                  if (termType) {
+                                    const suggested = getSuggestedTermDates(termForm.academic_session, termType.code);
+                                    setTermForm(prev => ({ ...prev, ...suggested }));
+                                  }
+                                }}
+                                className="mt-2 w-full py-2 px-4 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                              >
+                                💡 Use Suggested Dates
+                              </button>
+                            )}
                         <p className="text-xs text-blue-500 dark:text-blue-400">
                           💡 Use the "Use Suggested Dates" button below for automatic date calculation
                         </p>

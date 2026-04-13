@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AuthService } from './../services/AuthService';
+
+import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'react-toastify';
 
 // Step 1: Role selection
@@ -70,13 +71,15 @@ const SignUpPage: React.FC = () => {
   const [errors, setErrors] = useState<any>({});
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
-  const authService = new AuthService();
+
   const [parentSearch, setParentSearch] = useState('');
   const [parentOptions, setParentOptions] = useState<any[]>([]);
   const [parentSearchLoading, setParentSearchLoading] = useState(false);
   const [selectedParent, setSelectedParent] = useState<any | null>(null);
   const [parentUsernameSearch, setParentUsernameSearch] = useState('');
   const [parentDetails, setParentDetails] = useState<any | null>(null);
+
+  const {register} = useAuth();
 
   useEffect(() => {
     if (parentSearch.length < 2) {
@@ -183,16 +186,29 @@ const SignUpPage: React.FC = () => {
   };
 
   const handleSubmit = async () => {
-    if (!validate()) return;
-    setIsLoading(true);
-    try {
-      let payload: any = {};
-      if (role === 'student') {
-        payload = {
-          user_email: student.email,
-          user_first_name: student.firstName,
+  if (!validate()) return;
+  setIsLoading(true);
+
+  try {
+    let credentials: Parameters<typeof register>[0] | null = null;
+    let emailForRedirect = '';
+
+    if (role === 'student') {
+      emailForRedirect = student.email;
+      credentials = {
+        firstName: student.firstName,
+        lastName: student.lastName,
+        email: student.email,
+        role: 'student',
+        phone: student.phoneNumber,
+        agreeToTerms: true,
+        subscribeNewsletter: false,
+        // Pass role-specific extras via the payload object that
+        // register() forwards to the backend. Since SignupCredentials
+        // doesn't have student-specific fields, spread them as extra data.
+        // Your backend's /auth/register/ endpoint receives these too.
+        ...({
           user_middle_name: student.middleName,
-          user_last_name: student.lastName,
           gender: student.gender,
           blood_group: student.bloodGroup,
           date_of_birth: student.dateOfBirth,
@@ -202,30 +218,35 @@ const SignUpPage: React.FC = () => {
           student_class: student.student_class,
           stream: student.stream || null,
           address: student.address,
-          phone_number: student.phoneNumber.startsWith('+') ? student.phoneNumber : `+${student.phoneNumber}`,
           payment_method: student.paymentMethod,
           medical_conditions: student.medicalConditions,
           special_requirements: student.specialRequirements,
-          role: 'student', // <-- Ensure role is set
-        };
-        if (parentDetails) {
-          payload.existing_parent_id = parentDetails.id;
-        } else if (selectedParent) {
-          payload.existing_parent_id = selectedParent.id;
-        } else {
-          payload.parent_first_name = parent.firstName;
-          payload.parent_last_name = parent.lastName;
-          payload.parent_email = parent.email;
-          payload.parent_contact = parent.phone.startsWith('+') ? parent.phone : `+${parent.phone}`;
-          payload.parent_address = parent.address;
-        }
-      } else if (role === 'parent') {
-        payload = {
-          user_email: parent.email,
-          user_first_name: parent.firstName,
+          // Parent fields
+          ...(parentDetails || selectedParent
+            ? { existing_parent_id: (parentDetails ?? selectedParent).id }
+            : {
+                parent_first_name: parent.firstName,
+                parent_last_name: parent.lastName,
+                parent_email: parent.email,
+                parent_contact: parent.phone.startsWith('+')
+                  ? parent.phone
+                  : `+${parent.phone}`,
+                parent_address: parent.address,
+              }),
+        } as any),
+      };
+    } else if (role === 'parent') {
+      emailForRedirect = parent.email;
+      credentials = {
+        firstName: parent.firstName,
+        lastName: parent.lastName,
+        email: parent.email,
+        role: 'parent',
+        phone: parent.phone,
+        agreeToTerms: true,
+        subscribeNewsletter: false,
+        ...({
           user_middle_name: parent.middleName,
-          user_last_name: parent.lastName,
-          phone: parent.phone,
           address: parent.address,
           students: students.map(s => ({
             user_email: s.email,
@@ -238,27 +259,53 @@ const SignUpPage: React.FC = () => {
             student_class: s.student_class,
             stream: s.stream || null,
           })),
-          role: 'parent', // <-- Ensure role is set
-        };
-      } else if (role === 'teacher') {
-        payload = { ...teacher, role: 'teacher' };
-      } else if (role === 'admin') {
-        payload = { ...admin, role: 'admin' };
-      }
-      // Use register for all roles
-      const response = await authService.register(payload);
-      if (response.success) {
-        // Redirect or show success
-        navigate('/verify-email?email=' + encodeURIComponent(payload.user_email || payload.email));
-      } else {
-        setErrors(response.errors || { general: 'Registration failed' });
-      }
-    } catch (e) {
-      setErrors({ general: 'Registration failed' });
-    } finally {
-      setIsLoading(false);
+        } as any),
+      };
+    } else if (role === 'teacher') {
+      emailForRedirect = teacher.email;
+      credentials = {
+        firstName: teacher.firstName,
+        lastName: teacher.lastName,
+        email: teacher.email,
+        role: 'teacher',
+        phone: teacher.phone,
+        agreeToTerms: true,
+        subscribeNewsletter: false,
+        ...({
+          subject: teacher.subject,
+          employee_id: teacher.employee_id,
+        } as any),
+      };
+    } else if (role === 'admin') {
+      emailForRedirect = admin.email;
+      credentials = {
+        firstName: admin.firstName,
+        lastName: admin.lastName,
+        email: admin.email,
+        role: 'admin',
+        agreeToTerms: true,
+        subscribeNewsletter: false,
+      };
     }
-  };
+
+    if (!credentials) {
+      setErrors({ general: 'Please select a role' });
+      return;
+    }
+
+    const response = await register(credentials);
+
+    if (response.success) {
+      navigate('/verify-email?email=' + encodeURIComponent(emailForRedirect));
+    } else {
+      setErrors(response.errors || { general: 'Registration failed' });
+    }
+  } catch {
+    setErrors({ general: 'Registration failed' });
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   // Stepper UI
   return (

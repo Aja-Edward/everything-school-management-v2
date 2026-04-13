@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import type {Teacher, UpdateTeacherData} from '@/types/teacher'
+import api from '@/services/api';
 
 interface EditTeacherFormProps {
   teacher: Teacher | null;
@@ -13,8 +14,6 @@ interface EditTeacherFormProps {
 const EditTeacherForm: React.FC<EditTeacherFormProps> = ({ teacher, onSave, onCancel, themeClasses, isDark }) => {
   
  
-  
-  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
   // Helper function to get initial form data
   const getInitialFormData = () => {
@@ -71,10 +70,7 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({ teacher, onSave, onCa
   // Update form data when teacher prop changes
 useEffect(() => {
   const loadSubjectsAndClassrooms = async () => {
-    console.log('🔄 Loading subjects and classrooms for level:', formData.level);
-    
     if (formData.staff_type !== 'teaching' || !formData.level) {
-      console.log('⚠️ Not teaching staff or no level');
       setSubjectOptions([]);
       setClassroomOptions([]);
       setDataLoaded(true);
@@ -82,7 +78,6 @@ useEffect(() => {
     }
 
     setLoading(true);
-    
     try {
       const levelMap: Record<string, string> = {
         nursery: 'NURSERY',
@@ -93,68 +88,35 @@ useEffect(() => {
       };
 
       const educationLevel = levelMap[formData.level];
-      
-      if (!educationLevel) {
-        setLoading(false);
-        setDataLoaded(true);
-        return;
-      }
+      if (!educationLevel) { setDataLoaded(true); return; }
 
-      // Import api service at the top of your file if not already imported
-      // import api from '@/services/api';
-      
-      // Dynamically import api service
-      const { default: api } = await import('@/services/api');
-
-      // Fetch subjects using api service (handles auth automatically)
       try {
-        console.log('🔍 Fetching subjects...');
-        const subjectData = await api.get('/api/subjects/', {
-          params: { education_level: educationLevel }
-        });
-        
+        const subjectData = await api.get('/subjects/', { education_level: educationLevel });
         const subjects = Array.isArray(subjectData) ? subjectData : (subjectData.results || []);
-        console.log('✅ Loaded subjects:', subjects);
-        setSubjectOptions(subjects.map((s: any) => ({
-          id: s.id,
-          name: s.name
-        })));
+        setSubjectOptions(subjects.map((s: any) => ({ id: s.id, name: s.name })));
       } catch (error) {
-        console.error('❌ Error fetching subjects:', error);
+        console.error('Error fetching subjects:', error);
         setSubjectOptions([]);
       }
 
-      // Fetch classrooms using api service (handles auth automatically)
       try {
-        console.log('🔍 Fetching classrooms...');
-        
-        const classroomData = await api.get('/api/classrooms/classrooms/', {
-          params: { section__grade_level__education_level: educationLevel }
+        const classroomData = await api.get('/classrooms/classrooms/', {
+          section__grade_level__education_level: educationLevel
         });
-        
-        console.log('📦 Raw classroom data:', classroomData);
-        
         const classrooms = Array.isArray(classroomData) ? classroomData : (classroomData.results || []);
-        console.log('✅ Loaded classrooms:', classrooms);
-        
-        // Merge with existing classroom options from teacher's assignments
         setClassroomOptions(prev => {
           const merged = [...prev];
           classrooms.forEach((c: any) => {
             if (!merged.find(existing => existing.id === c.id)) {
-              merged.push({
-                id: c.id,
-                name: c.name || `${c.grade_level_name || ''} ${c.section_name || ''}`
-              });
+              merged.push({ id: c.id, name: c.name || `${c.grade_level_name || ''} ${c.section_name || ''}` });
             }
           });
           return merged;
         });
       } catch (error) {
-        console.error('❌ Error fetching classrooms:', error);
-        // Don't clear existing classrooms from teacher's assignments
+        console.error('Error fetching classrooms:', error);
       }
-      
+
       setDataLoaded(true);
     } finally {
       setLoading(false);
@@ -162,7 +124,7 @@ useEffect(() => {
   };
 
   loadSubjectsAndClassrooms();
-}, [formData.staff_type, formData.level, API_BASE_URL]);
+}, [formData.staff_type, formData.level]); // API_BASE_URL removed from deps
 
 // Load teacher's assigned subjects
 useEffect(() => {
@@ -233,149 +195,7 @@ useEffect(() => {
     return `${first}${last}`.toUpperCase();
   };
 
-  // Load subjects and classrooms when level changes
-  useEffect(() => {
-    const loadData = async () => {
-      console.log('🔄 Loading data for level:', formData.level, 'staff_type:', formData.staff_type);
-      
-      if (formData.staff_type !== 'teaching' || !formData.level) {
-        console.log('⚠️ Not loading data - not teaching staff or no level');
-        setSubjectOptions([]);
-        setClassroomOptions([]);
-        setDataLoaded(true);
-        return;
-      }
-
-      setLoading(true);
-      
-      try {
-        const levelMap: Record<string, string> = {
-          nursery: 'NURSERY',
-          primary: 'PRIMARY',
-          junior_secondary: 'JUNIOR_SECONDARY',
-          senior_secondary: 'SENIOR_SECONDARY',
-          secondary: 'SECONDARY'
-        };
-
-        const educationLevel = levelMap[formData.level];
-        console.log('📚 Education level:', educationLevel);
-        
-        if (!educationLevel) {
-          setLoading(false);
-          setDataLoaded(true);
-          return;
-        }
-
-        // Get auth token from localStorage - try multiple possible keys
-        const token = localStorage.getItem('token') || 
-                     localStorage.getItem('authToken') || 
-                     localStorage.getItem('access_token') ||
-                     sessionStorage.getItem('token');
-        
-        console.log('🔑 Token found:', token ? 'Yes' : 'No');
-        console.log('🔑 Token preview:', token ? `${token.substring(0, 20)}...` : 'null');
-        
-        const headers: HeadersInit = {
-          'Content-Type': 'application/json',
-        };
-        
-        if (token) {
-          // Try both formats - some APIs use 'Token', others use 'Bearer'
-          headers['Authorization'] = `Token ${token}`;
-          console.log('🔑 Authorization header set');
-        } else {
-          console.warn('⚠️ No authentication token found in localStorage');
-        }
-
-        // Fetch subjects
-        
-        try {
-          console.log('🔍 Fetching subjects...');
-          const subjectUrl = `${API_BASE_URL}/subjects/?education_level=${educationLevel}`;
-          console.log('📍 Subject URL:', subjectUrl);
-          
-          const subjectResponse = await fetch(subjectUrl, { headers });
-          
-          console.log('📊 Subject response status:', subjectResponse.status);
-          
-          if (!subjectResponse.ok) {
-            const errorText = await subjectResponse.text();
-            console.error('❌ Subject fetch error response:', errorText);
-            throw new Error(`Subject fetch failed: ${subjectResponse.status}`);
-          }
-          
-          const subjectData = await subjectResponse.json();
-          const subjects = Array.isArray(subjectData) ? subjectData : (subjectData.results || []);
-          console.log('✅ Loaded subjects:', subjects);
-          setSubjectOptions(subjects.map((s: any) => ({
-            id: s.id,
-            name: s.name
-          })));
-        } catch (error) {
-          console.error('❌ Error fetching subjects:', error);
-          setSubjectOptions([]);
-        }
-
-        // Fetch classrooms - try multiple possible endpoints
-        try {
-          console.log('🔍 Fetching classrooms...');
-          
-          // Try different possible endpoints
-          const possibleEndpoints = [
-  `/classrooms/classrooms/?section__grade_level__education_level=${educationLevel}`,
-];
-
-          let classroomData = null;
-          let successUrl = '';
-          
-          for (const endpoint of possibleEndpoints) {
-            const classroomUrl = `${API_BASE_URL}${endpoint}`;
-            console.log('🔍 Trying classroom URL:', classroomUrl);
-            
-            try {
-              const classroomResponse = await fetch(classroomUrl, { headers });
-              console.log(`📊 Response status for ${endpoint}:`, classroomResponse.status);
-              
-              if (classroomResponse.ok) {
-                classroomData = await classroomResponse.json();
-                successUrl = classroomUrl;
-                console.log('✅ SUCCESS! Found working endpoint:', endpoint);
-                console.log('📦 Raw classroom data:', classroomData);
-                break;
-              }
-            } catch (err) {
-              console.log(`❌ Failed endpoint ${endpoint}:`, err);
-              continue;
-            }
-          }
-          
-          if (!classroomData) {
-            console.error('❌ All classroom endpoints failed');
-            setClassroomOptions([]);
-            return;
-          }
-          
-          const classrooms = Array.isArray(classroomData) ? classroomData : (classroomData.results || []);
-          console.log('✅ Loaded classrooms:', classrooms);
-          console.log('✅ Use this URL in your code:', successUrl);
-          
-          setClassroomOptions(classrooms.map((c: any) => ({
-            id: c.id,
-            name: c.name || `${c.grade_level_name} ${c.section_name}`
-          })));
-        } catch (error) {
-          console.error('❌ Error fetching classrooms:', error);
-          setClassroomOptions([]);
-        }
-        
-        setDataLoaded(true);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadData();
-  }, [formData.staff_type, formData.level, API_BASE_URL]);
+  // Load subjects and classrooms when level change
 
   // Load teacher's assigned subjects AFTER subjects are loaded
   useEffect(() => {

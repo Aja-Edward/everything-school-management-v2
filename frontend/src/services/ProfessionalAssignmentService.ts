@@ -15,367 +15,227 @@ import type {
 } from '@/types/results';
 
 export const API_BASE_URL =
-  import.meta.env.VITE_API_URL ||
-  'http://localhost:8000/api';
+  import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the CSRF token from the readable `csrftoken` cookie.
+ * Required for all mutating requests (POST/PATCH/PUT/DELETE).
+ */
+function getCsrfToken(): string | null {
+  const match = document.cookie
+    .split('; ')
+    .find((row) => row.startsWith('csrftoken='));
+  return match ? decodeURIComponent(match.split('=')[1]) : null;
+}
+
+/**
+ * Headers for mutating fetch requests.
+ * Auth flows via httpOnly cookies — no Authorization header needed.
+ */
+function buildHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+
+  const tenantSlug = localStorage.getItem('tenantSlug');
+  if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
+
+  const csrfToken = getCsrfToken();
+  if (csrfToken) headers['X-CSRFToken'] = csrfToken;
+
+  return headers;
+}
+
+/**
+ * Parse an error response body and throw a descriptive Error.
+ * Handles both JSON and plain-text error bodies.
+ */
+async function throwFromResponse(response: Response): Promise<never> {
+  const text = await response.text();
+  let detail = `HTTP ${response.status}`;
+
+  try {
+    const parsed = JSON.parse(text);
+    detail = parsed.error || parsed.detail || detail;
+  } catch {
+    if (text) detail = text;
+  }
+
+  throw new Error(detail);
+}
+
+/**
+ * Serialize a plain data object into FormData.
+ * Arrays are JSON-stringified so the backend receives them as a single field.
+ */
+function toFormData(data: Record<string, unknown>): FormData {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(data)) {
+    if (value === null || value === undefined) continue;
+    form.append(key, Array.isArray(value) ? JSON.stringify(value) : String(value));
+  }
+  return form;
+}
+
+// ---------------------------------------------------------------------------
+// Service
+// ---------------------------------------------------------------------------
 
 class ProfessionalAssignmentService {
   private baseUrl = '/api/results/professional-assignment';
   private headTeacherUrl = '/api/results/head-teacher-assignment';
 
-  /**
-   * Get all students assigned to the current teacher
-   */
+  // ── Teacher methods ────────────────────────────────────────────────────────
+
+  /** Get all students assigned to the current teacher. */
   async getAssignedStudents(filters?: StudentFilters): Promise<AssignedStudentsResponse> {
     try {
-      const data = await api.get(`${this.baseUrl}/my-students/`, filters);
-      return data;
+      return await api.get(`${this.baseUrl}/my-students/`, filters);
     } catch (error: any) {
-      console.error('Error fetching assigned students:', error.response?.data || error);
+      console.error('Error fetching assigned students:', error.response?.data ?? error);
       throw error;
     }
   }
 
-  /**
-   * Update teacher remark for a student's term report
-   */
+  /** Update teacher remark for a student's term report. */
   async updateTeacherRemark(
     data: UpdateTeacherRemarkRequest
   ): Promise<UpdateTeacherRemarkResponse> {
-    try {
-      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
-      const headers: Record<string, string> = {};
-      
-      if (token) {
-        const isJWT = token.split('.').length === 3;
-        headers['Authorization'] = isJWT ? `Bearer ${token}` : `Token ${token}`;
-      }
-      
-      // Convert JSON to FormData
-      const formData = new FormData();
-      Object.entries(data).forEach(([key, value]) => {
-        if (value !== null && value !== undefined) {
-          formData.append(key, value.toString());
-        }
-      });
-      
-      // ✅ FIXED: Use API_BASE_URL instead of hardcoded URL
-      const url = `${API_BASE_URL}${this.baseUrl}/update-remark/`;
-      console.log('🌐 POST request to:', url);
-      console.log('📤 Request data:', data);
-      console.log('📋 Request headers:', headers);
-      
-      const response = await fetch(url, {
+    const response = await fetch(
+      `${API_BASE_URL}${this.baseUrl}/update-remark/`,
+      {
         method: 'POST',
-        headers,
+        headers: buildHeaders(),
         credentials: 'include',
-        body: formData,
-      });
-      
-      console.log('📊 Response status:', response.status);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Error response:', errorText);
-        
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = { error: errorText };
-        }
-        
-        throw new Error(errorData.error || errorData.detail || `HTTP ${response.status}`);
+        body: toFormData(data as unknown as Record<string, unknown>),
       }
-      
-      return await response.json();
-    } catch (error: any) {
-      console.error('Error updating teacher remark:', error);
-      throw error;
-    }
+    );
+
+    if (!response.ok) await throwFromResponse(response);
+    return response.json();
   }
 
-  /**
-   * Upload teacher signature to Cloudinary
-   */
+  /** Upload teacher signature image to Cloudinary. */
   async uploadTeacherSignature(signatureFile: File): Promise<SignatureUploadResponse> {
-    try {
-      const formData = new FormData();
-      formData.append('signature_image', signatureFile);
-      
-      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
-      const headers: Record<string, string> = {};
-      
-      if (token) {
-        const isJWT = token.split('.').length === 3;
-        headers['Authorization'] = isJWT ? `Bearer ${token}` : `Token ${token}`;
+    const form = new FormData();
+    form.append('signature_image', signatureFile);
+
+    const response = await fetch(
+      `${API_BASE_URL}${this.baseUrl}/upload-signature/`,
+      {
+        method: 'POST',
+        headers: buildHeaders(),
+        credentials: 'include',
+        body: form,
       }
-      
-      const response = await fetch(
-        `${API_BASE_URL}${this.baseUrl}/upload-signature/`,
-        {
-          method: 'POST',
-          headers,
-          body: formData,
-          credentials: 'include',
-        }
-      );
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Upload failed');
-      }
-      
-      return await response.json();
-    } catch (error: any) {
-      console.error('Error uploading signature:', error);
-      throw error;
-    }
+    );
+
+    if (!response.ok) await throwFromResponse(response);
+    return response.json();
   }
 
-  /**
-   * Apply uploaded signature to multiple term reports
-   */
- async applySignatureToReports(
-  data: ApplySignatureRequest
-): Promise<ApplySignatureResponse> {
-  try {
-    const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
-    const headers: Record<string, string> = {};
-    
-    if (token) {
-      const isJWT = token.split('.').length === 3;
-      headers['Authorization'] = isJWT ? `Bearer ${token}` : `Token ${token}`;
-    }
-    
-    const formData = new FormData();
-    
-    // Add fields
-    formData.append('signature_url', data.signature_url);
-    formData.append('education_level', data.education_level);
-    
-    // Send array as JSON string within FormData
-    formData.append('term_report_ids', JSON.stringify(data.term_report_ids));
-    
-    const url = `${API_BASE_URL}${this.baseUrl}/apply-signature/`;
-    console.log('🌐 POST request to:', url);
-    console.log('📤 Request data:', data);
-    
-    // Debug: Log FormData contents
-    console.log('📋 FormData contents:');
-    for (let pair of formData.entries()) {
-      console.log(pair[0] + ': ' + pair[1]);
-    }
-    
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      credentials: 'include',
-      body: formData,
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('❌ Error response:', errorText);
-      
-      let errorData;
-      try {
-        errorData = JSON.parse(errorText);
-      } catch {
-        errorData = { error: errorText };
-      }
-      
-      throw new Error(errorData.error || errorData.detail || `HTTP ${response.status}`);
-    }
-    
-    return await response.json();
-  } catch (error: any) {
-    console.error('Error applying signature:', error);
-    throw error;
-  }
-}
+  /** Apply an uploaded signature to multiple term reports. */
+  async applySignatureToReports(
+    data: ApplySignatureRequest
+  ): Promise<ApplySignatureResponse> {
+    const form = new FormData();
+    form.append('signature_url', data.signature_url);
+    form.append('education_level', data.education_level);
+    form.append('term_report_ids', JSON.stringify(data.term_report_ids));
 
-  /**
-   * Get remark templates for quick insertion
-   */
+    const response = await fetch(
+      `${API_BASE_URL}${this.baseUrl}/apply-signature/`,
+      {
+        method: 'POST',
+        headers: buildHeaders(),
+        credentials: 'include',
+        body: form,
+      }
+    );
+
+    if (!response.ok) await throwFromResponse(response);
+    return response.json();
+  }
+
+  /** Get remark templates for quick insertion. */
   async getRemarkTemplates(): Promise<RemarkTemplatesResponse> {
     try {
-      const data = await api.get(`${this.baseUrl}/remark-templates/`);
-      return data;
+      return await api.get(`${this.baseUrl}/remark-templates/`);
     } catch (error: any) {
-      console.error('Error fetching remark templates:', error.response?.data || error);
+      console.error('Error fetching remark templates:', error.response?.data ?? error);
       throw error;
     }
   }
 
-  // ===== HEAD TEACHER METHODS =====
+  // ── Head teacher methods ───────────────────────────────────────────────────
 
-  /**
-   * Get all pending reviews for head teacher
-   */
+  /** Get all pending reviews for the head teacher. */
   async getPendingReviews(examSessionId?: string): Promise<PendingReviewsResponse> {
     try {
-      const data = await api.get(`${this.headTeacherUrl}/pending-reviews/`,
+      return await api.get(
+        `${this.headTeacherUrl}/pending-reviews/`,
         examSessionId ? { exam_session: examSessionId } : undefined
       );
-      return data;
     } catch (error: any) {
-      console.error('Error fetching pending reviews:', error.response?.data || error);
+      console.error('Error fetching pending reviews:', error.response?.data ?? error);
       throw error;
     }
   }
 
-  /**
-   * Update head teacher remark
-   */
+  /** Update head teacher remark for a term report. */
   async updateHeadTeacherRemark(
     data: UpdateHeadTeacherRemarkRequest
   ): Promise<UpdateHeadTeacherRemarkResponse> {
-    try {
-      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
-      const headers: Record<string, string> = {};
-
-      if (token) {
-        const isJWT = token.split('.').length === 3;
-        headers['Authorization'] = isJWT ? `Bearer ${token}` : `Token ${token}`;
-      }
-      
-      const formData = new FormData();
-      Object.entries(data).forEach(([key, value]) => {
-        if (value !== null && value !== undefined) {
-          formData.append(key, value.toString());
-        }
-      });
-      
-      // ✅ FIXED: Use API_BASE_URL instead of hardcoded URL
-      const url = `${API_BASE_URL}${this.headTeacherUrl}/update-head-remark/`;
-      console.log('🌐 POST request to:', url);
-      console.log('📤 Request data:', data);
-      
-      const response = await fetch(url, {
+    const response = await fetch(
+      `${API_BASE_URL}${this.headTeacherUrl}/update-head-remark/`,
+      {
         method: 'POST',
-        headers,
+        headers: buildHeaders(),
         credentials: 'include',
-        body: formData,
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Error response:', errorText);
-        
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = { error: errorText };
-        }
-        
-        throw new Error(errorData.error || errorData.detail || `HTTP ${response.status}`);
+        body: toFormData(data as unknown as Record<string, unknown>),
       }
-      
-      return await response.json();
-    } catch (error: any) {
-      console.error('Error updating head teacher remark:', error);
-      throw error;
-    }
+    );
+
+    if (!response.ok) await throwFromResponse(response);
+    return response.json();
   }
 
-  /**
-   * Upload head teacher signature
-   */
+  /** Upload head teacher signature image to Cloudinary. */
   async uploadHeadTeacherSignature(signatureFile: File): Promise<SignatureUploadResponse> {
-    try {
-      const formData = new FormData();
-      formData.append('signature_image', signatureFile);
-      
-      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
-      const headers: Record<string, string> = {};
-      
-      if (token) {
-        const isJWT = token.split('.').length === 3;
-        headers['Authorization'] = isJWT ? `Bearer ${token}` : `Token ${token}`;
+    const form = new FormData();
+    form.append('signature_image', signatureFile);
+
+    const response = await fetch(
+      `${API_BASE_URL}${this.headTeacherUrl}/upload-head-signature/`,
+      {
+        method: 'POST',
+        headers: buildHeaders(),
+        credentials: 'include',
+        body: form,
       }
-      
-      const response = await fetch(
-        `${API_BASE_URL}${this.headTeacherUrl}/upload-head-signature/`,
-        {
-          method: 'POST',
-          headers,
-          body: formData,
-          credentials: 'include',
-        }
-      );
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Upload failed');
-      }
-      
-      return await response.json();
-    } catch (error: any) {
-      console.error('Error uploading head signature:', error);
-      throw error;
-    }
+    );
+
+    if (!response.ok) await throwFromResponse(response);
+    return response.json();
   }
 
-  /**
-   * Apply head teacher signature to reports
-   */
-  async applyHeadSignature(
-    data: ApplySignatureRequest
-  ): Promise<ApplySignatureResponse> {
-    try {
-      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
-      const headers: Record<string, string> = {};
-      
-      if (token) {
-        const isJWT = token.split('.').length === 3;
-        headers['Authorization'] = isJWT ? `Bearer ${token}` : `Token ${token}`;
-      }
-      
-      // Convert to FormData instead of JSON
-      const formData = new FormData();
-      Object.entries(data).forEach(([key, value]) => {
-        if (value !== null && value !== undefined) {
-          if (Array.isArray(value)) {
-            formData.append(key, JSON.stringify(value));
-          } else {
-            formData.append(key, value.toString());
-          }
-        }
-      });
-      
-      // ✅ FIXED: Use API_BASE_URL instead of hardcoded URL
-      const url = `${API_BASE_URL}${this.headTeacherUrl}/apply-head-signature/`;
-      console.log('🌐 POST request to:', url);
-      console.log('📤 Request data:', data);
-      
-      const response = await fetch(url, {
+  /** Apply head teacher signature to multiple term reports. */
+  async applyHeadSignature(data: ApplySignatureRequest): Promise<ApplySignatureResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}${this.headTeacherUrl}/apply-head-signature/`,
+      {
         method: 'POST',
-        headers,
+        headers: buildHeaders(),
         credentials: 'include',
-        body: formData,
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Error response:', errorText);
-        
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = { error: errorText };
-        }
-        
-        throw new Error(errorData.error || errorData.detail || `HTTP ${response.status}`);
+        body: toFormData(data as unknown as Record<string, unknown>),
       }
-      
-      return await response.json();
-    } catch (error: any) {
-      console.error('Error applying head signature:', error);
-      throw error;
-    }
+    );
+
+    if (!response.ok) await throwFromResponse(response);
+    return response.json();
   }
 }
 
-export default new ProfessionalAssignmentService(); 
+export default new ProfessionalAssignmentService();

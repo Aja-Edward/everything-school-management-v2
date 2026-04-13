@@ -16,19 +16,11 @@ const AuthLostModal: React.FC<AuthLostModalProps> = ({
   const navigate = useNavigate();
 
   const handleRelogin = () => {
-    // Clear any stored authentication data
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
-
-    // Close modal if onClose is provided
-    if (onClose) {
-      onClose();
-    }
-
-    // Navigate to tenant's login page (stays on same subdomain)
-    navigate('/login', { replace: true });
-  };
+  // httpOnly cookies are cleared server-side
+  // userData is cleared by the auth:expired event handler in useAuth
+  if (onClose) onClose();
+  navigate('/login', { replace: true });
+};
 
   if (!isOpen) return null;
 

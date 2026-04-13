@@ -1,4 +1,4 @@
-// Academic Calendar Service for accessing session and term data throughout the app
+import api from '@/services/api';
 
 export interface AcademicSession {
   id: string;
@@ -24,118 +24,93 @@ export interface Term {
   created_at: string;
 }
 
-class AcademicCalendarService {
-  private baseUrl = '/api/fee';
+interface CalendarSummary {
+  currentSession: AcademicSession | null;
+  currentTerm: Term | null;
+  totalSessions: number;
+  totalTerms: number;
+  activeSessions: number;
+  activeTerms: number;
+}
 
-  // Get all academic sessions
+const TERM_DISPLAY_NAMES: Record<string, string> = {
+  FIRST: 'First Term',
+  SECOND: 'Second Term',
+  THIRD: 'Third Term',
+};
+
+class AcademicCalendarService {
+  private readonly base = '/fee';
+
   async getAcademicSessions(): Promise<AcademicSession[]> {
     try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`${this.baseUrl}/academic-sessions/`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (response.ok) {
-        return await response.json();
-      } else {
-        throw new Error('Failed to fetch academic sessions');
-      }
-    } catch (error) {
-      console.error('Error fetching academic sessions:', error);
+      const data = await api.get(`${this.base}/academic-sessions/`);
+      return Array.isArray(data) ? data : (data.results ?? []);
+    } catch (err) {
+      console.error('Error fetching academic sessions:', err);
       return [];
     }
   }
 
-  // Get current active academic session
   async getCurrentSession(): Promise<AcademicSession | null> {
     try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`${this.baseUrl}/academic-sessions/active/`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (response.ok) {
-        return await response.json();
-      } else {
-        return null;
-      }
-    } catch (error) {
-      console.error('Error fetching current session:', error);
+      return await api.get(`${this.base}/academic-sessions/active/`);
+    } catch (err) {
+      console.error('Error fetching current session:', err);
       return null;
     }
   }
 
-  // Get all terms
   async getTerms(): Promise<Term[]> {
     try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`${this.baseUrl}/terms/`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (response.ok) {
-        return await response.json();
-      } else {
-        throw new Error('Failed to fetch terms');
-      }
-    } catch (error) {
-      console.error('Error fetching terms:', error);
+      const data = await api.get(`${this.base}/terms/`);
+      return Array.isArray(data) ? data : (data.results ?? []);
+    } catch (err) {
+      console.error('Error fetching terms:', err);
       return [];
     }
   }
 
-  // Get current active term
   async getCurrentTerm(): Promise<Term | null> {
     try {
       const terms = await this.getTerms();
-      return terms.find(term => term.is_current) || null;
-    } catch (error) {
-      console.error('Error fetching current term:', error);
+      return terms.find((t) => t.is_current) ?? null;
+    } catch (err) {
+      console.error('Error fetching current term:', err);
       return null;
     }
   }
 
-  // Get terms for a specific academic session
   async getTermsBySession(sessionId: string): Promise<Term[]> {
     try {
       const terms = await this.getTerms();
-      return terms.filter(term => term.academic_session === sessionId);
-    } catch (error) {
-      console.error('Error fetching terms by session:', error);
+      return terms.filter((t) => t.academic_session === sessionId);
+    } catch (err) {
+      console.error('Error fetching terms by session:', err);
       return [];
     }
   }
 
-  // Check if a date falls within current term
   async isDateInCurrentTerm(date: Date): Promise<boolean> {
     try {
-      const currentTerm = await this.getCurrentTerm();
-      if (!currentTerm) return false;
-
-      const termStart = new Date(currentTerm.start_date);
-      const termEnd = new Date(currentTerm.end_date);
-
-      return date >= termStart && date <= termEnd;
-    } catch (error) {
-      console.error('Error checking date in current term:', error);
+      const term = await this.getCurrentTerm();
+      if (!term) return false;
+      const start = new Date(term.start_date);
+      const end = new Date(term.end_date);
+      return date >= start && date <= end;
+    } catch (err) {
+      console.error('Error checking date in current term:', err);
       return false;
     }
   }
 
-  // Get academic calendar summary
-  async getCalendarSummary() {
+  async getCalendarSummary(): Promise<CalendarSummary | null> {
     try {
       const [currentSession, currentTerm, allSessions, allTerms] = await Promise.all([
         this.getCurrentSession(),
         this.getCurrentTerm(),
         this.getAcademicSessions(),
-        this.getTerms()
+        this.getTerms(),
       ]);
 
       return {
@@ -143,38 +118,26 @@ class AcademicCalendarService {
         currentTerm,
         totalSessions: allSessions.length,
         totalTerms: allTerms.length,
-        activeSessions: allSessions.filter(s => s.is_active).length,
-        activeTerms: allTerms.filter(t => t.is_active).length
+        activeSessions: allSessions.filter((s) => s.is_active).length,
+        activeTerms: allTerms.filter((t) => t.is_active).length,
       };
-    } catch (error) {
-      console.error('Error fetching calendar summary:', error);
+    } catch (err) {
+      console.error('Error fetching calendar summary:', err);
       return null;
     }
   }
 
-  // Format date for display
   formatDate(dateString: string): string {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
-      day: 'numeric'
+      day: 'numeric',
     });
   }
 
-  // Get term display name
   getTermDisplayName(termName: string): string {
-    const termMap: { [key: string]: string } = {
-      'FIRST': 'First Term',
-      'SECOND': 'Second Term',
-      'THIRD': 'Third Term'
-    };
-    return termMap[termName] || termName;
+    return TERM_DISPLAY_NAMES[termName] ?? termName;
   }
 }
 
 export default new AcademicCalendarService();
-
-
-
-
-

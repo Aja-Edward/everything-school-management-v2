@@ -31,18 +31,7 @@ class DesignSettingsService {
   private cacheTimeout = 5 * 60 * 1000; // 5 minutes
   private lastFetchTime = 0;
 
-  /**
-   * Get authentication token
-   */
-  private getAuthToken(): string | null {
-    return (
-      localStorage.getItem('authToken') ||
-      localStorage.getItem('token') ||
-      sessionStorage.getItem('authToken') ||
-      sessionStorage.getItem('token')
-    );
-  }
-
+  
   /**
    * Get CSRF token from cookies
    */
@@ -66,18 +55,14 @@ class DesignSettingsService {
     }
 
     try {
-      const token = this.getAuthToken();
       const tenantSlug = this.getTenantSlug();
       const headers: any = { 'Content-Type': 'application/json' };
       
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
+      
       if (tenantSlug) {
         headers['X-Tenant-Slug'] = tenantSlug;
       }
 
-      console.log('🔄 Fetching design settings from /api/tenants/settings/current/');
       const response = await fetch(`${API_BASE_URL}/tenants/settings/current/`, {
         method: 'GET',
         headers,
@@ -126,15 +111,11 @@ class DesignSettingsService {
    */
   async updateDesignSettings(newSettings: Partial<DesignSettings>): Promise<DesignSettings> {
     try {
-      const token = this.getAuthToken();
       const csrfToken = this.getCsrfToken();
       const tenantSlug = this.getTenantSlug();
 
       const headers: any = { 'Content-Type': 'application/json' };
-      
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
+    
       if (csrfToken) {
         headers['X-CSRFToken'] = csrfToken;
       }

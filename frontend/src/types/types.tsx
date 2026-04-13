@@ -657,6 +657,62 @@ export interface UserContactInfo {
   };
 }
 
+export interface GoogleRegistrationData {
+  firstName: string;
+  lastName: string;
+  email: string;
+  role: 'student' | 'teacher' | 'parent' | 'admin';
+  phone?: string;
+  agreeToTerms: boolean;
+  subscribeNewsletter: boolean;
+  googleCredential: string;
+}
+
+export interface User {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  role: string;
+  phone?: string;
+  isEmailVerified: boolean;
+  profilePicture?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+
+
+export interface AuthState {
+  isLoading: boolean;
+  user: User | null;
+  token: string | null;
+  errors: Record<string, string>;
+  successMessage: string;
+}
+
+export interface GoogleUser {
+  id: string;
+  email: string;
+  name: string;
+  given_name: string;
+  family_name: string;
+  picture: string;
+  verified_email: boolean;
+}
+
+
+// Google Types
+export interface GoogleUserInfo {
+  email: string;
+  name: string;
+  given_name: string;
+  family_name: string;
+  picture: string;
+  email_verified: boolean;
+  sub: string;
+}
+
 export interface LoginCredentials {
   email: string;
   password: string;
@@ -1666,7 +1722,7 @@ export interface ModalProps {
 }
 
 export interface ButtonProps {
-  variant?: 'primary' | 'secondary' | 'danger' | 'success' | 'warning' | 'info' | 'ghost' | 'link';
+  variant?: 'primary' | 'secondary' | 'danger' | 'success' | 'warning' | 'info' | 'ghost' | 'link' |'destructive';
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   loading?: boolean;
   disabled?: boolean;
@@ -2281,15 +2337,15 @@ export interface ExamSession {
   id: string;
   name: string;
   exam_type: string;
-  academic_session: AcademicSession;
+  academic_session?: AcademicSession;
   term: TermChoice | string;
   start_date: string;
   end_date: string;
   result_release_date?: string;
   is_published: boolean;
   is_active: boolean;
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface SubjectInfo {
@@ -2488,13 +2544,25 @@ export interface SeniorSecondaryStandardResult extends BaseStandardResult {
   third_test_score?: number;
 }
 
+export interface SeniorSecondarySessionStandardResult extends BaseStandardResult {
+  education_level: 'SENIOR_SECONDARY';
+  breakdown: SeniorSecondarySessionStandardResultBreakdown; // first_term_score, etc.
+  stream?: {
+    id: string;
+    name: string;
+    code?: string;
+    education_level: string;
+  };
+}
+
 
 
 export type StandardResult = 
   | NurseryStandardResult 
   | PrimaryStandardResult 
   | JuniorSecondaryStandardResult 
-  | SeniorSecondaryStandardResult;
+  | SeniorSecondaryStandardResult
+  | SeniorSecondarySessionStandardResult; 
 
 
   export type TermReport = 

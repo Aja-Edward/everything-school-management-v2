@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 from django.core.validators import FileExtensionValidator
 from django.utils import timezone
 import uuid
+from tenants.models import Tenant
 
 User = get_user_model()
 
@@ -118,7 +119,13 @@ class SchoolSettings(models.Model):
 
 class CommunicationSettings(models.Model):
     """Communication settings for email and SMS providers"""
-
+    tenant = models.OneToOneField(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="communication_settings",
+        null=True,  # null during migration, then make required
+        blank=True,
+    )
     # Brevo (Email) Settings
     brevo_api_key = models.CharField(
         max_length=255,
@@ -194,12 +201,10 @@ class CommunicationSettings(models.Model):
         verbose_name_plural = "Communication Settings"
 
     def __str__(self):
-        return "Communication Settings"
+        return f"Communication Settings - {self.tenant.name if self.tenant else 'Unassigned'}"
 
     def save(self, *args, **kwargs):
-        # Ensure only one communication settings instance exists
-        if not self.pk and CommunicationSettings.objects.exists():
-            return
+        # ✅ Remove the singleton guard — each tenant gets their own row now
         super().save(*args, **kwargs)
 
 
@@ -432,6 +437,14 @@ class SchoolAnnouncement(models.Model):
         ("event", "Event"),
         ("emergency", "Emergency"),
     ]
+
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="announcements",
+        null=True,  # null during migration, then make required
+        blank=True,
+    )
 
     title = models.CharField(max_length=200)
     content = models.TextField()

@@ -1,4 +1,3 @@
-
 import api, { API_BASE_URL } from "@/services/api";
 import type {
   BulkUploadInitResponse,
@@ -9,14 +8,10 @@ import type {
 
 const STUDENTS_BASE = `${API_BASE_URL}/students`;
 
-
-
-// Reuse the same auth + tenant headers api.ts already builds
-const getHeaders = async (): Promise<Record<string, string>> => {
+// Tenant slug is non-sensitive routing metadata — kept in localStorage.
+// Auth is handled automatically via the httpOnly cookie + credentials: "include".
+const getHeaders = (): Record<string, string> => {
   const headers: Record<string, string> = {};
-
-  const token = localStorage.getItem("authToken"); // ← matches api.ts
-  if (token) headers["Authorization"] = `Bearer ${token}`;
 
   const tenantSlug = localStorage.getItem("tenantSlug");
   if (tenantSlug) headers["X-Tenant-Slug"] = tenantSlug;
@@ -33,11 +28,10 @@ export const bulkUploadService = {
     form.append("file", file);
     if (sessionId) form.append("academic_session", String(sessionId));
 
-    const headers = await getHeaders();
     // Don't set Content-Type — browser sets it with boundary for multipart
     const res = await fetch(`${STUDENTS_BASE}/bulk-upload/`, {
       method: "POST",
-      headers,
+      headers: getHeaders(),
       credentials: "include",
       body: form,
     });
@@ -45,11 +39,9 @@ export const bulkUploadService = {
     return res.json();
   },
 
-
   getStatus: async (uploadId: number): Promise<BulkUploadStatusResponse> => {
-    const headers = await getHeaders();
     const res = await fetch(`${STUDENTS_BASE}/bulk-upload/${uploadId}/status/`, {
-      headers,
+      headers: getHeaders(),
       credentials: "include",
     });
     if (!res.ok) throw await res.json();
@@ -60,12 +52,11 @@ export const bulkUploadService = {
     uploadId: number,
     format: ExportFormat = "excel"
   ): Promise<void> => {
-    const headers = await getHeaders();
     const res = await fetch(
       `${STUDENTS_BASE}/bulk-upload/${uploadId}/export-credentials/`,
       {
         method: "POST",
-        headers: { ...headers, "Content-Type": "application/json" },
+        headers: { ...getHeaders(), "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ format }),
       }
@@ -75,20 +66,18 @@ export const bulkUploadService = {
   },
 
   downloadErrorReport: async (uploadId: number): Promise<void> => {
-  const headers = await getHeaders();
-  const res = await fetch(
-    `${STUDENTS_BASE}/bulk-upload/${uploadId}/error-report/`, // ← fix URL to match Django urls.py
-    { headers, credentials: "include" }
-  );
-  if (!res.ok) throw new Error("Download failed");
-  await triggerBlobDownload(res, "upload_errors.csv");
-},
+    const res = await fetch(
+      `${STUDENTS_BASE}/bulk-upload/${uploadId}/error-report/`,
+      { headers: getHeaders(), credentials: "include" }
+    );
+    if (!res.ok) throw new Error("Download failed");
+    await triggerBlobDownload(res, "upload_errors.csv");
+  },
 
   downloadTemplate: async (format: TemplateFormat = "excel"): Promise<void> => {
-    const headers = await getHeaders();
     const res = await fetch(
       `${STUDENTS_BASE}/bulk-upload/template/?format=${format}`,
-      { headers, credentials: "include" }
+      { headers: getHeaders(), credentials: "include" }
     );
     if (!res.ok) throw new Error(`Template download failed: ${res.status}`);
     const ext = format === "excel" ? "xlsx" : "csv";

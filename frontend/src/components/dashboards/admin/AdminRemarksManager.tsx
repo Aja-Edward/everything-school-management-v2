@@ -21,6 +21,8 @@ import {
   ChevronRight
 } from 'lucide-react';
 import ProfessionalAssignmentService from '@/services/ProfessionalAssignmentService';
+import api, {API_BASE_URL} from '@/services/api'
+
 
 // Types
 type EducationLevel = 'NURSERY' | 'PRIMARY' | 'JUNIOR_SECONDARY' | 'SENIOR_SECONDARY';
@@ -81,7 +83,6 @@ interface AdminRemarksManagerProps {
   onClose?: () => void;
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
 const AdminRemarksManager: React.FC<AdminRemarksManagerProps> = () => {
   // State Management
@@ -136,18 +137,7 @@ const AdminRemarksManager: React.FC<AdminRemarksManagerProps> = () => {
   });
 
   // Helper function to get auth headers
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
-    const headers: Record<string, string> = {};
-    
-    if (token) {
-      const isJWT = token.split('.').length === 3;
-      headers['Authorization'] = isJWT ? `Bearer ${token}` : `Token ${token}`;
-    }
-    
-    return headers;
-  };
-
+  
   useEffect(() => {
     fetchExamSessions();
   }, []);
@@ -171,15 +161,9 @@ const AdminRemarksManager: React.FC<AdminRemarksManagerProps> = () => {
 
   const fetchExamSessions = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/results/exam-sessions/`, {
-        headers: getAuthHeaders()
-      });
+      const data = await api.get('/api/results/exam-sessions/');
       
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
+  
       setExamSessions(data.results || data || []);
       
       const activeSession = (data.results || data || []).find((s: ExamSession) => s.is_active);
@@ -217,7 +201,6 @@ const AdminRemarksManager: React.FC<AdminRemarksManagerProps> = () => {
         }
 
         const response = await fetch(`${endpoint}?${params.toString()}`, {
-          headers: getAuthHeaders(),
           credentials: 'include'
         });
         
@@ -457,15 +440,11 @@ const AdminRemarksManager: React.FC<AdminRemarksManagerProps> = () => {
       const formData = new FormData();
       formData.append('stamp_image', schoolStampFile);
 
-      const url = `${API_BASE_URL}/results/admin-remarks/upload-school-stamp/`;
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: formData,
-        credentials: 'include',
-      });
-
+      const response = await fetch(`${API_BASE_URL}/results/admin-remarks/upload-school-stamp/`, {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+    });
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Upload failed');
@@ -538,14 +517,11 @@ const AdminRemarksManager: React.FC<AdminRemarksManagerProps> = () => {
         formData.append('education_level', level);
         formData.append('term_report_ids', JSON.stringify(reportIds));
 
-        const url = `${API_BASE_URL}/results/admin-remarks/apply-school-stamp/`;
-
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: getAuthHeaders(),
-          credentials: 'include',
-          body: formData,
-        });
+        const response = await fetch(`${API_BASE_URL}/results/admin-remarks/apply-school-stamp/`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
 
         if (response.ok) {
           const data = await response.json();

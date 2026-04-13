@@ -104,7 +104,7 @@ const AddLessonForm: React.FC<AddLessonFormProps> = ({ onClose, onSuccess }) => 
         // Initialize available sections from loaded classrooms
         const sectionMap = new Map<number, { id: number; name: string; grade_level_name: string }>();
         const cls = Array.isArray(classroomsData?.results) ? classroomsData.results : Array.isArray(classroomsData) ? classroomsData : [];
-        cls.forEach(c => {
+        cls.forEach((c: any) => {
           const sec = c.section;
           if (sec && !sectionMap.has(sec.id)) {
             sectionMap.set(sec.id, { id: sec.id, name: sec.name, grade_level_name: sec.grade_level?.name || '' });

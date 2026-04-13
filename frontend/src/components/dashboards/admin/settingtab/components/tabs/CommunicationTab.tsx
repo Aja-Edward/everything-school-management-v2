@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { MessageSquare, Mail, Phone, Settings, Eye, EyeOff, CheckCircle, AlertCircle } from 'lucide-react';
-import { API_BASE_URL } from '@/services/api';
+import api from '@/services/api';
 
-// TypeScript interfaces
+// ==================== TYPE DEFINITIONS ====================
 interface NotificationSettings {
   emailNotifications: boolean;
   smsNotifications: boolean;
@@ -34,35 +34,34 @@ interface ToggleSwitchProps {
   description: string;
 }
 
-// Enhanced ToggleSwitch component
-const ToggleSwitch: React.FC<ToggleSwitchProps> = ({ id, checked, onChange, label, description }) => {
-  return (
-    <div className="flex items-center justify-between py-3">
-      <div className="flex-1">
-        <label htmlFor={id} className="text-sm font-medium text-slate-700 cursor-pointer">
-          {label}
-        </label>
-        <p className="text-xs text-slate-500 mt-1">{description}</p>
-      </div>
-      <button
-        id={id}
-        type="button"
-        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-          checked ? 'bg-gradient-to-r from-blue-500 to-purple-600' : 'bg-slate-200'
-        }`}
-        onClick={() => onChange(!checked)}
-      >
-        <span
-          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-lg transition-transform ${
-            checked ? 'translate-x-6' : 'translate-x-1'
-          }`}
-        />
-      </button>
+// ==================== TOGGLE SWITCH ====================
+const ToggleSwitch: React.FC<ToggleSwitchProps> = ({ id, checked, onChange, label, description }) => (
+  <div className="flex items-center justify-between py-3">
+    <div className="flex-1">
+      <label htmlFor={id} className="text-sm font-medium text-slate-700 cursor-pointer">
+        {label}
+      </label>
+      <p className="text-xs text-slate-500 mt-1">{description}</p>
     </div>
-  );
-};
+    <button
+      id={id}
+      type="button"
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+        checked ? 'bg-gradient-to-r from-blue-500 to-purple-600' : 'bg-slate-200'
+      }`}
+      onClick={() => onChange(!checked)}
+    >
+      <span
+        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-lg transition-transform ${
+          checked ? 'translate-x-6' : 'translate-x-1'
+        }`}
+      />
+    </button>
+  </div>
+);
 
-const CommunicationTab = () => {
+// ==================== MAIN COMPONENT ====================
+const CommunicationTab: React.FC = () => {
   const [settings, setSettings] = useState<NotificationSettings>({
     emailNotifications: true,
     smsNotifications: false,
@@ -95,275 +94,212 @@ const CommunicationTab = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [testPhoneNumber, setTestPhoneNumber] = useState('');
 
-  // Load communication settings on component mount
   useEffect(() => {
     loadCommunicationSettings();
   }, []);
 
+  const showSuccess = (msg: string) => {
+    setSuccessMessage(msg);
+    setTimeout(() => setSuccessMessage(null), 3000);
+  };
+
+  const showError = (msg: string) => {
+    setErrorMessage(msg);
+    setTimeout(() => setErrorMessage(null), 5000);
+  };
+
+  // ==================== LOAD ====================
   const loadCommunicationSettings = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/school-settings/communication-settings/`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
+      // ✅ api.get sends HttpOnly cookie automatically via credentials: 'include'
+      const data = await api.get('/school-settings/communication-settings/');
+
+      setSettings({
+        emailNotifications: data.email_notifications_enabled ?? true,
+        smsNotifications:   data.sms_notifications_enabled   ?? false,
+        inAppNotifications: data.in_app_notifications_enabled ?? true,
+        digestFrequency:    data.digest_frequency             ?? 'daily'
       });
 
-      if (response.ok) {
-        const data = await response.json();
+      setBrevoConfig({
+        apiKey:       data.brevo_api_key      || '',
+        senderEmail:  data.brevo_sender_email || '',
+        senderName:   data.brevo_sender_name  || '',
+        isConfigured: data.brevo_configured   || false,
+        testMode:     data.brevo_test_mode    ?? true
+      });
 
-        // Update notification settings
-        setSettings({
-          emailNotifications: data.email_notifications_enabled ?? true,
-          smsNotifications: data.sms_notifications_enabled ?? false,
-          inAppNotifications: data.in_app_notifications_enabled ?? true,
-          digestFrequency: data.digest_frequency ?? 'daily'
-        });
-
-        // Update Brevo config
-        setBrevoConfig({
-          apiKey: data.brevo_api_key || '',
-          senderEmail: data.brevo_sender_email || '',
-          senderName: data.brevo_sender_name || '',
-          isConfigured: data.brevo_configured || false,
-          testMode: data.brevo_test_mode ?? true
-        });
-
-        // Update Twilio config
-        setTwilioConfig({
-          accountSid: data.twilio_account_sid || '',
-          authToken: data.twilio_auth_token || '',
-          phoneNumber: data.twilio_phone_number || '',
-          isConfigured: data.twilio_configured || false,
-          testMode: data.twilio_test_mode ?? true
-        });
-      }
+      setTwilioConfig({
+        accountSid:   data.twilio_account_sid  || '',
+        authToken:    data.twilio_auth_token   || '',
+        phoneNumber:  data.twilio_phone_number || '',
+        isConfigured: data.twilio_configured   || false,
+        testMode:     data.twilio_test_mode    ?? true
+      });
     } catch (error) {
       console.error('Failed to load communication settings:', error);
+      showError('Failed to load communication settings');
     } finally {
       setLoading(false);
     }
   };
 
+  // ==================== SAVE ====================
   const saveCommunicationSettings = async () => {
     try {
       setSaving(true);
       setErrorMessage(null);
-      
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/school-settings/communication-settings/`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          email_notifications_enabled: settings.emailNotifications,
-          sms_notifications_enabled: settings.smsNotifications,
-          in_app_notifications_enabled: settings.inAppNotifications,
-          digest_frequency: settings.digestFrequency,
-          brevo_api_key: brevoConfig.apiKey,
-          brevo_sender_email: brevoConfig.senderEmail,
-          brevo_sender_name: brevoConfig.senderName,
-          brevo_test_mode: brevoConfig.testMode,
-          twilio_account_sid: twilioConfig.accountSid,
-          twilio_auth_token: twilioConfig.authToken,
-          twilio_phone_number: twilioConfig.phoneNumber,
-          twilio_test_mode: twilioConfig.testMode
-        })
+
+      // ✅ api.put sends HttpOnly cookie automatically
+      await api.put('/school-settings/communication-settings/', {
+        email_notifications_enabled: settings.emailNotifications,
+        sms_notifications_enabled:   settings.smsNotifications,
+        in_app_notifications_enabled: settings.inAppNotifications,
+        digest_frequency:            settings.digestFrequency,
+        brevo_api_key:               brevoConfig.apiKey,
+        brevo_sender_email:          brevoConfig.senderEmail,
+        brevo_sender_name:           brevoConfig.senderName,
+        brevo_test_mode:             brevoConfig.testMode,
+        twilio_account_sid:          twilioConfig.accountSid,
+        twilio_auth_token:           twilioConfig.authToken,
+        twilio_phone_number:         twilioConfig.phoneNumber,
+        twilio_test_mode:            twilioConfig.testMode
       });
 
-      if (response.ok) {
-        setSuccessMessage('Communication settings saved successfully!');
-        setTimeout(() => setSuccessMessage(null), 3000);
-      } else {
-        const errorData = await response.json();
-        setErrorMessage(errorData.error || 'Failed to save settings');
-        setTimeout(() => setErrorMessage(null), 5000);
-      }
+      showSuccess('Communication settings saved successfully!');
     } catch (error) {
-      setErrorMessage('Failed to save communication settings');
-      setTimeout(() => setErrorMessage(null), 5000);
+      showError(error instanceof Error ? error.message : 'Failed to save settings');
     } finally {
       setSaving(false);
     }
   };
 
-  // Test connection functions
+  // ==================== TEST BREVO ====================
   const testBrevoConnection = async () => {
     try {
       setLoading(true);
       setErrorMessage(null);
-      
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/school-settings/notifications/brevo/test/`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          apiKey: brevoConfig.apiKey,
-          senderEmail: brevoConfig.senderEmail
-        })
+
+      const data = await api.post('/school-settings/notifications/brevo/test/', {
+        apiKey:      brevoConfig.apiKey,
+        senderEmail: brevoConfig.senderEmail
       });
 
-      const data = await response.json();
-      
       if (data.success) {
-        setBrevoConfig({ ...brevoConfig, isConfigured: true });
-        setSuccessMessage('Brevo connection successful!');
-        setTimeout(() => setSuccessMessage(null), 3000);
+        setBrevoConfig(prev => ({ ...prev, isConfigured: true }));
+        showSuccess('Brevo connection successful!');
       } else {
-        setErrorMessage(data.message || 'Brevo connection failed');
-        setTimeout(() => setErrorMessage(null), 5000);
+        showError(data.message || 'Brevo connection failed');
       }
     } catch (error) {
-      setErrorMessage('Brevo connection failed. Please check your API key.');
-      setTimeout(() => setErrorMessage(null), 5000);
+      showError('Brevo connection failed. Please check your API key.');
     } finally {
       setLoading(false);
     }
   };
 
+  // ==================== TEST TWILIO ====================
   const testTwilioConnection = async () => {
     try {
       setLoading(true);
       setErrorMessage(null);
-      
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/school-settings/notifications/twilio/test/`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          accountSid: twilioConfig.accountSid,
-          authToken: twilioConfig.authToken,
-          phoneNumber: twilioConfig.phoneNumber
-        })
+
+      const data = await api.post('/school-settings/notifications/twilio/test/', {
+        accountSid:  twilioConfig.accountSid,
+        authToken:   twilioConfig.authToken,
+        phoneNumber: twilioConfig.phoneNumber
       });
 
-      const data = await response.json();
-      
       if (data.success) {
-        setTwilioConfig({ ...twilioConfig, isConfigured: true });
-        setSuccessMessage('Twilio connection successful!');
-        setTimeout(() => setSuccessMessage(null), 3000);
+        setTwilioConfig(prev => ({ ...prev, isConfigured: true }));
+        showSuccess('Twilio connection successful!');
       } else {
-        setErrorMessage(data.message || 'Twilio connection failed');
-        setTimeout(() => setErrorMessage(null), 5000);
+        showError(data.message || 'Twilio connection failed');
       }
     } catch (error) {
-      setErrorMessage('Twilio connection failed. Please check your credentials.');
-      setTimeout(() => setErrorMessage(null), 5000);
+      showError('Twilio connection failed. Please check your credentials.');
     } finally {
       setLoading(false);
     }
   };
 
+  // ==================== SEND TEST EMAIL ====================
   const sendTestEmail = async () => {
     if (!brevoConfig.isConfigured) {
-      setErrorMessage('Please configure Brevo first');
-      setTimeout(() => setErrorMessage(null), 5000);
+      showError('Please configure and test Brevo first');
       return;
     }
-    
+
     try {
       setLoading(true);
       setErrorMessage(null);
-      
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/school-settings/notifications/brevo/send-test/`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
 
-      const data = await response.json();
+      const data = await api.post('/school-settings/notifications/brevo/send-test/', {});
       
       if (data.success) {
-        setSuccessMessage(data.message || 'Test email sent successfully!');
-        setTimeout(() => setSuccessMessage(null), 3000);
+        showSuccess(data.message || 'Test email sent successfully!');
       } else {
-        setErrorMessage(data.message || 'Failed to send test email');
-        setTimeout(() => setErrorMessage(null), 5000);
+        showError(data.message || 'Failed to send test email');
       }
     } catch (error) {
-      setErrorMessage('Failed to send test email');
-      setTimeout(() => setErrorMessage(null), 5000);
+      showError('Failed to send test email');
     } finally {
       setLoading(false);
     }
   };
 
+  // ==================== SEND TEST SMS ====================
   const sendTestSMS = async () => {
     if (!twilioConfig.isConfigured) {
-      setErrorMessage('Please configure Twilio first');
-      setTimeout(() => setErrorMessage(null), 5000);
+      showError('Please configure and test Twilio first');
       return;
     }
-    
+
     if (!testPhoneNumber.trim()) {
-      setErrorMessage('Please enter a test phone number');
-      setTimeout(() => setErrorMessage(null), 5000);
+      showError('Please enter a test phone number');
       return;
     }
-    
+
     try {
       setLoading(true);
       setErrorMessage(null);
-      
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/school-settings/notifications/twilio/send-test/`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          testNumber: testPhoneNumber.trim()
-        })
+
+      const data = await api.post('/school-settings/notifications/twilio/send-test/', {
+        testNumber: testPhoneNumber.trim()
       });
 
-      const data = await response.json();
-      
       if (data.success) {
-        setSuccessMessage(data.message || 'Test SMS sent successfully!');
-        setTimeout(() => setSuccessMessage(null), 3000);
+        showSuccess(data.message || 'Test SMS sent successfully!');
       } else {
-        setErrorMessage(data.message || 'Failed to send test SMS');
-        setTimeout(() => setErrorMessage(null), 5000);
+        showError(data.message || 'Failed to send test SMS');
       }
     } catch (error) {
-      setErrorMessage('Failed to send test SMS');
-      setTimeout(() => setErrorMessage(null), 5000);
+      showError('Failed to send test SMS');
     } finally {
       setLoading(false);
     }
   };
 
+  // ==================== RENDER ====================
   return (
     <div className="space-y-8">
       {/* Success/Error Messages */}
       {successMessage && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
           <p className="text-green-800 text-sm">{successMessage}</p>
         </div>
       )}
       {errorMessage && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
           <p className="text-red-800 text-sm">{errorMessage}</p>
         </div>
       )}
 
-      {/* Header with Tabs */}
       <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100">
+        {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-xl font-semibold text-slate-900 flex items-center gap-3">
             <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-teal-600 rounded-lg flex items-center justify-center">
@@ -371,51 +307,33 @@ const CommunicationTab = () => {
             </div>
             Communication Settings
           </h3>
-          
           <button
             onClick={saveCommunicationSettings}
             disabled={saving || loading}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
           >
             {saving ? 'Saving...' : 'Save Settings'}
           </button>
         </div>
-        
+
         {/* Tab Navigation */}
         <div className="flex space-x-1 bg-slate-100 rounded-lg p-1 mb-6">
-          <button
-            onClick={() => setActiveTab('notifications')}
-            className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-              activeTab === 'notifications'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Notifications
-          </button>
-          <button
-            onClick={() => setActiveTab('email')}
-            className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-              activeTab === 'email'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Email Setup
-          </button>
-          <button
-            onClick={() => setActiveTab('sms')}
-            className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-              activeTab === 'sms'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            SMS Setup
-          </button>
+          {(['notifications', 'email', 'sms'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors capitalize ${
+                activeTab === tab
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              {tab === 'notifications' ? 'Notifications' : tab === 'email' ? 'Email Setup' : 'SMS Setup'}
+            </button>
+          ))}
         </div>
 
-        {/* Notifications Tab */}
+        {/* ── Notifications Tab ── */}
         {activeTab === 'notifications' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -425,14 +343,12 @@ const CommunicationTab = () => {
                     <Mail className="w-3 h-3 text-blue-600" />
                   </div>
                   Email Notifications
-                  {brevoConfig.isConfigured && (
-                    <CheckCircle className="w-4 h-4 text-green-500" />
-                  )}
+                  {brevoConfig.isConfigured && <CheckCircle className="w-4 h-4 text-green-500" />}
                 </h4>
                 <ToggleSwitch
                   id="email-notifications"
                   checked={settings.emailNotifications}
-                  onChange={(checked: boolean) => setSettings({...settings, emailNotifications: checked})}
+                  onChange={(checked) => setSettings({ ...settings, emailNotifications: checked })}
                   label="Enable email notifications"
                   description="Receive important updates via email using Brevo"
                 />
@@ -444,14 +360,12 @@ const CommunicationTab = () => {
                     <Phone className="w-3 h-3 text-purple-600" />
                   </div>
                   SMS Notifications
-                  {twilioConfig.isConfigured && (
-                    <CheckCircle className="w-4 h-4 text-green-500" />
-                  )}
+                  {twilioConfig.isConfigured && <CheckCircle className="w-4 h-4 text-green-500" />}
                 </h4>
                 <ToggleSwitch
                   id="sms-notifications"
                   checked={settings.smsNotifications}
-                  onChange={(checked: boolean) => setSettings({ ...settings, smsNotifications: checked })}
+                  onChange={(checked) => setSettings({ ...settings, smsNotifications: checked })}
                   label="Enable SMS notifications"
                   description="Receive urgent alerts via text message using Twilio"
                 />
@@ -468,7 +382,7 @@ const CommunicationTab = () => {
               <ToggleSwitch
                 id="in-app-notifications"
                 checked={settings.inAppNotifications}
-                onChange={(checked: boolean) => setSettings({ ...settings, inAppNotifications: checked })}
+                onChange={(checked) => setSettings({ ...settings, inAppNotifications: checked })}
                 label="Enable in-app notifications"
                 description="Show notifications within the application"
               />
@@ -476,9 +390,9 @@ const CommunicationTab = () => {
 
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">Digest Frequency</label>
-              <select 
+              <select
                 value={settings.digestFrequency}
-                onChange={(e) => setSettings({...settings, digestFrequency: e.target.value})}
+                onChange={(e) => setSettings({ ...settings, digestFrequency: e.target.value })}
                 className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all duration-200"
               >
                 <option value="realtime">Real-time</option>
@@ -490,7 +404,7 @@ const CommunicationTab = () => {
           </div>
         )}
 
-        {/* Email Setup Tab */}
+        {/* ── Email Setup Tab ── */}
         {activeTab === 'email' && (
           <div className="space-y-6">
             <div className="flex items-center gap-3 mb-4">
@@ -503,20 +417,17 @@ const CommunicationTab = () => {
               </div>
               {brevoConfig.isConfigured && (
                 <div className="ml-auto flex items-center gap-2 px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm">
-                  <CheckCircle className="w-4 h-4" />
-                  Connected
+                  <CheckCircle className="w-4 h-4" />Connected
                 </div>
               )}
             </div>
 
             <div className="grid grid-cols-1 gap-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Brevo API Key
-                </label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Brevo API Key</label>
                 <div className="relative">
                   <input
-                    type={showBrevoKey ? "text" : "password"}
+                    type={showBrevoKey ? 'text' : 'password'}
                     value={brevoConfig.apiKey}
                     onChange={(e) => setBrevoConfig({ ...brevoConfig, apiKey: e.target.value })}
                     placeholder="Enter your Brevo API key"
@@ -525,7 +436,7 @@ const CommunicationTab = () => {
                   <button
                     type="button"
                     onClick={() => setShowBrevoKey(!showBrevoKey)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                   >
                     {showBrevoKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -534,9 +445,7 @@ const CommunicationTab = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Sender Email
-                  </label>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Sender Email</label>
                   <input
                     type="email"
                     value={brevoConfig.senderEmail}
@@ -545,11 +454,8 @@ const CommunicationTab = () => {
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all duration-200"
                   />
                 </div>
-
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Sender Name
-                  </label>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Sender Name</label>
                   <input
                     type="text"
                     value={brevoConfig.senderName}
@@ -576,15 +482,15 @@ const CommunicationTab = () => {
               <div className="flex gap-3">
                 <button
                   onClick={testBrevoConnection}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                  disabled={loading || !brevoConfig.apiKey}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                 >
                   <Settings className="w-4 h-4" />
                   Test Connection
                 </button>
-                
                 <button
                   onClick={sendTestEmail}
-                  disabled={!brevoConfig.isConfigured}
+                  disabled={!brevoConfig.isConfigured || loading}
                   className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                 >
                   <Mail className="w-4 h-4" />
@@ -595,7 +501,7 @@ const CommunicationTab = () => {
           </div>
         )}
 
-        {/* SMS Setup Tab */}
+        {/* ── SMS Setup Tab ── */}
         {activeTab === 'sms' && (
           <div className="space-y-6">
             <div className="flex items-center gap-3 mb-4">
@@ -608,17 +514,14 @@ const CommunicationTab = () => {
               </div>
               {twilioConfig.isConfigured && (
                 <div className="ml-auto flex items-center gap-2 px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm">
-                  <CheckCircle className="w-4 h-4" />
-                  Connected
+                  <CheckCircle className="w-4 h-4" />Connected
                 </div>
               )}
             </div>
 
             <div className="grid grid-cols-1 gap-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Account SID
-                </label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Account SID</label>
                 <input
                   type="text"
                   value={twilioConfig.accountSid}
@@ -629,12 +532,10 @@ const CommunicationTab = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Auth Token
-                </label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Auth Token</label>
                 <div className="relative">
                   <input
-                    type={showTwilioToken ? "text" : "password"}
+                    type={showTwilioToken ? 'text' : 'password'}
                     value={twilioConfig.authToken}
                     onChange={(e) => setTwilioConfig({ ...twilioConfig, authToken: e.target.value })}
                     placeholder="Enter your Twilio Auth Token"
@@ -643,7 +544,7 @@ const CommunicationTab = () => {
                   <button
                     type="button"
                     onClick={() => setShowTwilioToken(!showTwilioToken)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                   >
                     {showTwilioToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -651,9 +552,7 @@ const CommunicationTab = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Twilio Phone Number
-                </label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Twilio Phone Number</label>
                 <input
                   type="tel"
                   value={twilioConfig.phoneNumber}
@@ -663,45 +562,43 @@ const CommunicationTab = () => {
                 />
               </div>
 
-                             <div className="flex items-center gap-2">
-                 <input
-                   type="checkbox"
-                   id="twilio-test-mode"
-                   checked={twilioConfig.testMode}
-                   onChange={(e) => setTwilioConfig({ ...twilioConfig, testMode: e.target.checked })}
-                   className="rounded border-slate-300 text-purple-600 focus:ring-purple-500"
-                 />
-                 <label htmlFor="twilio-test-mode" className="text-sm text-slate-700">
-                   Enable test mode (SMS won't be sent to actual numbers)
-                 </label>
-               </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="twilio-test-mode"
+                  checked={twilioConfig.testMode}
+                  onChange={(e) => setTwilioConfig({ ...twilioConfig, testMode: e.target.checked })}
+                  className="rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+                />
+                <label htmlFor="twilio-test-mode" className="text-sm text-slate-700">
+                  Enable test mode (SMS won't be sent to actual numbers)
+                </label>
+              </div>
 
-               <div>
-                 <label className="block text-sm font-medium text-slate-700 mb-2">
-                   Test Phone Number
-                 </label>
-                 <input
-                   type="tel"
-                   value={testPhoneNumber}
-                   onChange={(e) => setTestPhoneNumber(e.target.value)}
-                   placeholder="+1234567890"
-                   className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-purple-500 focus:ring-4 focus:ring-purple-100 transition-all duration-200"
-                 />
-                 <p className="text-xs text-slate-500 mt-1">Enter the phone number to send test SMS to</p>
-               </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Test Phone Number</label>
+                <input
+                  type="tel"
+                  value={testPhoneNumber}
+                  onChange={(e) => setTestPhoneNumber(e.target.value)}
+                  placeholder="+1234567890"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-purple-500 focus:ring-4 focus:ring-purple-100 transition-all duration-200"
+                />
+                <p className="text-xs text-slate-500 mt-1">Enter the phone number to send the test SMS to</p>
+              </div>
 
               <div className="flex gap-3">
                 <button
                   onClick={testTwilioConnection}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2"
+                  disabled={loading || !twilioConfig.accountSid || !twilioConfig.authToken}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                 >
                   <Settings className="w-4 h-4" />
                   Test Connection
                 </button>
-                
                 <button
                   onClick={sendTestSMS}
-                  disabled={!twilioConfig.isConfigured}
+                  disabled={!twilioConfig.isConfigured || loading}
                   className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                 >
                   <Phone className="w-4 h-4" />
@@ -712,7 +609,7 @@ const CommunicationTab = () => {
 
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
               <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-yellow-600 mt-0.5" />
+                <AlertCircle className="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" />
                 <div>
                   <h5 className="font-medium text-yellow-800">Important Notes</h5>
                   <ul className="text-sm text-yellow-700 mt-2 space-y-1">

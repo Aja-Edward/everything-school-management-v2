@@ -5,15 +5,15 @@ import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'react-toastify';
 import { useTranslation } from 'react-i18next';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
-import { AuthService } from '@/services/AuthService';
+
 import type { LoginCredentials } from '@/types/types';
 import { UserRole } from '@/types/types';
 
-const authService = new AuthService();
+
 
 const AdminLoginPage: React.FC = () => {
   const navigate = useNavigate();
-  const { login } = useAuth();
+const { login, googleLogin } = useAuth();
   const { t } = useTranslation();
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -101,22 +101,14 @@ const AdminLoginPage: React.FC = () => {
       setIsLoading(true);
       setErrors({});
       try {
-        const result = await authService.googleSignIn();
-        if (result.success) {
-          toast.success(t('login.success', 'Google login successful!'));
+       const loggedInUser = await googleLogin();
 
-          // Get user data to determine navigation
-          const userData = localStorage.getItem('userData');
-          if (userData) {
-            const user = JSON.parse(userData);
-            navigateByRole(user.role as UserRole);
-          } else {
-            navigate('/admin/dashboard');
-          }
-        } else {
-          setErrors(result.errors || { google: result.message });
-          toast.error(result.message || 'Google login failed. Please try again.');
-        }
+         if (!loggedInUser) {
+           throw new Error('Google login failed: No user data returned');
+         }
+       
+          toast.success(t('login.success', 'Google login successful!'));
+          navigateByRole(loggedInUser.role as UserRole);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Google login failed';
         setErrors({ google: errorMessage });
