@@ -1,10 +1,22 @@
-import DashboardMainContent from '../../components/dashboards/admin/DashboardMainContent';
-import DashboardSkeleton from '../../components/dashboards/admin/DashboardSkeleton';
-import { Student, Teacher, Classroom, AttendanceData, DashboardStats, Parent, TrendDirection } from '../../types/types';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '../../hooks/useAuth';
-import AdminDashboardService, { clearDashboardCache } from '@/services/AdminDashboardService';
+import AdminDashboardService, {
+  clearDashboardCache,
+  ActivityItem,
+} from '@/services/AdminDashboardService';
 import api from '@/services/api';
+
+import DashboardMainContent from '../../components/dashboards/admin/DashboardMainContent';
+import DashboardSkeleton from '../../components/dashboards/admin/DashboardSkeleton';
+import {
+  Student,
+  Teacher,
+  Classroom,
+  AttendanceData,
+  DashboardStats,
+  Parent,
+  TrendDirection,
+} from '../../types/types';
 
 /**
  * AdminDashboardContentLoader
@@ -17,107 +29,70 @@ import api from '@/services/api';
  */
 const AdminDashboardContentLoader = () => {
   const { user } = useAuth();
+
   const [dashboardStats, setDashboardStats] = useState<DashboardStats>({} as DashboardStats);
+  const [gradeDistribution, setGradeDistribution] = useState<any[]>([]);
+  const [recentActivities, setRecentActivities] = useState<ActivityItem[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [attendanceData, setAttendanceData] = useState<AttendanceData>({} as AttendanceData);
-  const [classrooms, setClassrooms] = useState<Classroom[]>([]);
   const [parents, setParents] = useState<Parent[]>([]);
+  const [classrooms, setClassrooms] = useState<Classroom[]>([]);
+  const [attendanceData, setAttendanceData] = useState<AttendanceData>({} as AttendanceData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
   const isMounted = useRef(true);
 
-  // Refresh function - clears cache and refetches
-  const handleRefresh = useCallback(() => {
-    console.log('🔄 AdminDashboardContentLoader: Refresh triggered');
-    clearDashboardCache();
-    fetchDashboardData(true);
-  }, []);
+  // ─── Data Fetching ────────────────────────────────────────────────────────
 
-  // Handle user status updates (optimistic update)
-  const handleUserStatusUpdate = useCallback((userId: number, userType: 'student' | 'teacher' | 'parent', isActive: boolean) => {
-    const updateUserInArray = (users: any[]) => {
-      return users.map(user => {
-        const userToCheck = user.user?.id || user.user_id || user.id;
-        if (userToCheck === userId) {
-          return {
-            ...user,
-            user: user.user ? { ...user.user, is_active: isActive } : undefined,
-            is_active: isActive
-          };
-        }
-        return user;
-      });
-    };
-
-    if (userType === 'student') {
-      setStudents(prev => updateUserInArray(prev));
-    } else if (userType === 'teacher') {
-      setTeachers(prev => updateUserInArray(prev));
-    } else if (userType === 'parent') {
-      setParents(prev => updateUserInArray(prev));
-    }
-  }, []);
-
-  // Main data fetching function
   const fetchDashboardData = useCallback(async (forceRefresh = false) => {
     if (!isMounted.current) return;
 
     setLoading(true);
     setError(null);
-    console.log('🔄 AdminDashboardContentLoader: Starting optimized data fetch...');
 
     try {
-      // Use optimized service for dashboard data (with caching and deduplication)
-      const optimizedData = await AdminDashboardService.fetchOptimizedDashboard(forceRefresh);
+      // Fetch optimized summary + enhanced stats (activities, grade distribution) in parallel
+      const [optimizedData, enhancedStats] = await Promise.all([
+        AdminDashboardService.fetchOptimizedDashboard(forceRefresh),
+        AdminDashboardService.fetchEnhancedStats(forceRefresh),
+      ]);
 
       if (!isMounted.current) return;
 
-      // Fetch all list data in parallel.
-      // NOTE: Classrooms are fetched directly here (not from optimizedData.classrooms)
-      // because the optimized endpoint returns lightweight classroom objects that
-      // do NOT include student_enrollments — causing enrollment counts to show 0
-      // in the Education Level Distribution chart.
+      // Fetch list data in parallel.
+      // Classrooms are fetched directly (not from optimizedData.classrooms) because
+      // the optimized endpoint returns lightweight objects without student_enrollments.
       const [parentsRes, studentsRes, teachersRes, classroomsRes] = await Promise.allSettled([
         api.get('/api/parents/', { limit: 100 }),
         api.get('/api/students/students/', { limit: 100 }),
         api.get('/api/teachers/teachers/', { limit: 100 }),
         api.get('/api/classrooms/classrooms/', { limit: 200 }),
       ]);
-
+      console.log('enhancedStats raw:', JSON.stringify(enhancedStats, null, 2));
       if (!isMounted.current) return;
 
-      // Process list data
-      const processedParents = parentsRes.status === 'fulfilled'
-        ? (parentsRes.value.results || parentsRes.value || [])
-        : [];
-      const processedStudents = studentsRes.status === 'fulfilled'
-        ? (studentsRes.value.results || studentsRes.value || [])
-        : [];
-      const processedTeachers = teachersRes.status === 'fulfilled'
-        ? (teachersRes.value.results || teachersRes.value || [])
+      // ─── Process list responses ───────────────────────────────────────────
+
+      const processedParents: Parent[] = parentsRes.status === 'fulfilled'
+        ? (parentsRes.value.results ?? parentsRes.value ?? [])
         : [];
 
-      // Use full classroom data from direct API call (includes student_enrollments).
-      // Fall back to optimizedData.classrooms if the direct call failed.
+      const processedStudents: Student[] = studentsRes.status === 'fulfilled'
+        ? (studentsRes.value.results ?? studentsRes.value ?? [])
+        : [];
+
+      const processedTeachers: Teacher[] = teachersRes.status === 'fulfilled'
+        ? (teachersRes.value.results ?? teachersRes.value ?? [])
+        : [];
+
+      // Prefer full classroom data; fall back to optimized payload if call failed
       const processedClassrooms: Classroom[] = classroomsRes.status === 'fulfilled'
-        ? (classroomsRes.value.results || classroomsRes.value || optimizedData.classrooms)
+        ? (classroomsRes.value.results ?? classroomsRes.value ?? optimizedData.classrooms)
         : optimizedData.classrooms;
 
-      console.log(
-        `✅ Classrooms loaded: ${processedClassrooms.length} classrooms,`,
-        `enrollment sample:`,
-        processedClassrooms.slice(0, 3).map((c: any) => ({
-          name: c.name,
-          education_level: c.education_level,
-          current_enrollment: c.current_enrollment,
-          student_enrollments: Array.isArray(c.student_enrollments)
-            ? c.student_enrollments.length
-            : 'none',
-        }))
-      );
+      // ─── Transform to DashboardStats ─────────────────────────────────────
 
-      // Transform optimized data to DashboardStats format
       const transformedStats: DashboardStats = {
         overview: {
           total_students: optimizedData.stats.totalStudents,
@@ -129,12 +104,20 @@ const AdminDashboardContentLoader = () => {
         },
         totalStudents: optimizedData.stats.totalStudents,
         totalTeachers: optimizedData.stats.totalTeachers,
+        activeStudents: optimizedData.stats.activeStudents,
+        activeTeachers: optimizedData.stats.activeTeachers,
         totalClasses: optimizedData.stats.totalClasses,
         totalParents: optimizedData.stats.totalParents,
-        totalUsers: optimizedData.stats.totalStudents + optimizedData.stats.totalTeachers + optimizedData.stats.totalParents,
-        activeUsers: optimizedData.stats.activeStudents + optimizedData.stats.activeTeachers,
-        inactiveUsers: (optimizedData.stats.totalStudents - optimizedData.stats.activeStudents) +
-                       (optimizedData.stats.totalTeachers - optimizedData.stats.activeTeachers),
+        totalUsers:
+          optimizedData.stats.totalStudents +
+          optimizedData.stats.totalTeachers +
+          optimizedData.stats.totalParents,
+        activeUsers:
+          optimizedData.stats.activeStudents + optimizedData.stats.activeTeachers,
+        inactiveUsers:
+          optimizedData.stats.totalStudents -
+          optimizedData.stats.activeStudents +
+          (optimizedData.stats.totalTeachers - optimizedData.stats.activeTeachers),
         pendingVerifications: 0,
         recentRegistrations: 0,
         recent_activities: [],
@@ -159,7 +142,8 @@ const AdminDashboardContentLoader = () => {
         ],
       };
 
-      // Transform attendance data
+      // ─── Transform to AttendanceData ──────────────────────────────────────
+
       const transformedAttendance: AttendanceData = {
         totalPresent: 0,
         totalAbsent: 0,
@@ -179,7 +163,7 @@ const AdminDashboardContentLoader = () => {
           late: 0,
           excused: 0,
           totalExpected: t.present + t.absent,
-          attendanceRate: t.rate
+          attendanceRate: t.rate,
         })),
         weeklyAttendance: [],
         monthlyAttendance: [],
@@ -194,7 +178,7 @@ const AdminDashboardContentLoader = () => {
           currentPeriod: { startDate: '', endDate: '', attendanceRate: 0 },
           previousPeriod: { startDate: '', endDate: '', attendanceRate: 0 },
           change: 0,
-          changeType: 'stable' as any
+          changeType: 'stable' as any,
         },
         gradeComparison: [],
         reportPeriod: {
@@ -202,47 +186,71 @@ const AdminDashboardContentLoader = () => {
           endDate: new Date().toISOString(),
           totalDays: 0,
           schoolDays: 0,
-          holidays: 0
+          holidays: 0,
         },
         lastUpdated: optimizedData.lastUpdated,
         generatedBy: 'Dashboard Service',
         insights: [],
-        recommendations: []
+        recommendations: [],
       };
 
-      console.log('✅ AdminDashboardContentLoader: Data loaded successfully');
+      // ─── Commit state ─────────────────────────────────────────────────────
 
+      setDashboardStats(transformedStats);
+      setAttendanceData(transformedAttendance);
       setParents(processedParents);
       setStudents(processedStudents);
       setTeachers(processedTeachers);
-      setAttendanceData(transformedAttendance);
-      setClassrooms(processedClassrooms);   // ← now uses full classroom objects
-      setDashboardStats(transformedStats);
+      setClassrooms(processedClassrooms);
+
+      // Grade distribution and activities come from the enhanced endpoint
+      // so they have the correct shape expected by their child components
+      setGradeDistribution(enhancedStats.grade_distribution?.distribution ?? []);
+      setRecentActivities(enhancedStats.recent_activities ?? []);
     } catch (err: any) {
       console.error('❌ AdminDashboardContentLoader: Error fetching data:', err);
       if (isMounted.current) {
         setError(err.message || 'Failed to load dashboard data');
       }
     } finally {
-      if (isMounted.current) {
-        setLoading(false);
-      }
+      if (isMounted.current) setLoading(false);
     }
   }, []);
 
-  // Initial data fetch
+  // ─── Handlers ─────────────────────────────────────────────────────────────
+
+  const handleRefresh = useCallback(() => {
+    clearDashboardCache();
+    fetchDashboardData(true);
+  }, [fetchDashboardData]);
+
+  const handleUserStatusUpdate = useCallback(
+    (userId: number, userType: 'student' | 'teacher' | 'parent', isActive: boolean) => {
+      const patch = (users: any[]) =>
+        users.map((u) => {
+          const id = u.user?.id ?? u.user_id ?? u.id;
+          if (id !== userId) return u;
+          return { ...u, user: u.user ? { ...u.user, is_active: isActive } : undefined, is_active: isActive };
+        });
+
+      if (userType === 'student') setStudents((prev) => patch(prev));
+      else if (userType === 'teacher') setTeachers((prev) => patch(prev));
+      else if (userType === 'parent') setParents((prev) => patch(prev));
+    },
+    []
+  );
+
+  // ─── Lifecycle ────────────────────────────────────────────────────────────
+
   useEffect(() => {
     isMounted.current = true;
     fetchDashboardData();
-
-    return () => {
-      isMounted.current = false;
-    };
+    return () => { isMounted.current = false; };
   }, [fetchDashboardData]);
 
-  if (loading) {
-    return <DashboardSkeleton />;
-  }
+  // ─── Render ───────────────────────────────────────────────────────────────
+
+  if (loading) return <DashboardSkeleton />;
 
   if (error) {
     return (
@@ -250,13 +258,18 @@ const AdminDashboardContentLoader = () => {
         <div className="text-center max-w-sm">
           <div className="w-12 h-12 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
             <svg className="w-6 h-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+              />
             </svg>
           </div>
           <h3 className="text-base font-semibold text-gray-900 mb-2">Failed to load dashboard</h3>
           <p className="text-sm text-gray-500 mb-4">{error}</p>
           <button
-            onClick={() => handleRefresh()}
+            onClick={handleRefresh}
             className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
           >
             Try again
@@ -271,9 +284,11 @@ const AdminDashboardContentLoader = () => {
       dashboardStats={dashboardStats}
       students={students}
       teachers={teachers}
+      parents={parents}
       attendanceData={attendanceData}
       classrooms={classrooms}
-      parents={parents}
+      gradeDistribution={gradeDistribution}
+      recentActivities={recentActivities}
       onRefresh={handleRefresh}
       onUserStatusUpdate={handleUserStatusUpdate}
       user={user}

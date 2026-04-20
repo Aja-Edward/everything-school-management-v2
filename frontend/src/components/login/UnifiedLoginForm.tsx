@@ -54,7 +54,7 @@ const UnifiedLoginForm: React.FC<LoginProps> = ({
 
   const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState<LoginCredentials>({
-    username: '',
+    email: '',
     password: '',
     role: userType as UserRole,
     rememberMe: false,
@@ -71,8 +71,8 @@ const UnifiedLoginForm: React.FC<LoginProps> = ({
 
   const validateForm = useCallback(() => {
     const newErrors: Record<string, string> = {};
-    if (!form.username.trim()) {
-      newErrors.username = 'Username is required';
+    if (!form.email.trim()) {
+      newErrors.email = 'Email is required';
     }
     if (!form.password) {
       newErrors.password = 'Password is required';
@@ -81,7 +81,7 @@ const UnifiedLoginForm: React.FC<LoginProps> = ({
     }
     setInternalErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  }, [form.username, form.password]);
+  }, [form.email, form.password]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,7 +107,7 @@ const UnifiedLoginForm: React.FC<LoginProps> = ({
     if (internalErrors[field]) {
       setInternalErrors((prev) => ({ ...prev, [field]: '' }));
     }
-    if (internalErrors.general && (field === 'username' || field === 'password')) {
+    if (internalErrors.general && (field === 'email' || field === 'password')) {
       setInternalErrors((prev) => ({ ...prev, general: '' }));
     }
   };
@@ -193,18 +193,18 @@ const UnifiedLoginForm: React.FC<LoginProps> = ({
                 </label>
                 <input
                   type="text"
-                  value={form.username}
-                  onChange={(e) => handleInputChange('username', e.target.value)}
-                  placeholder="Enter your username"
+                  value={form.email}
+                  onChange={(e) => handleInputChange('email', e.target.value)}
+                  placeholder="Enter your email"
                   className={`w-full px-3.5 py-2.5 text-sm rounded-lg border bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 transition-all ${
-                    errors.username
+                    errors.email
                       ? 'border-red-300 dark:border-red-700 focus:ring-red-200 dark:focus:ring-red-800'
                       : 'border-gray-200 dark:border-gray-800 focus:ring-blue-100 dark:focus:ring-blue-900 focus:border-blue-500'
                   }`}
                   disabled={isLoading}
                 />
-                {errors.username && (
-                  <p className="mt-1.5 text-xs text-red-600 dark:text-red-400">{errors.username}</p>
+                {errors.email && (
+                  <p className="mt-1.5 text-xs text-red-600 dark:text-red-400">{errors.email}</p>
                 )}
               </div>
 

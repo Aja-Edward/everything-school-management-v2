@@ -1,446 +1,648 @@
+# result/signals.py
+"""
+Signal handlers for the result app.
 
+Design principles:
+  1. Signals are LIGHTWEIGHT. They only:
+       - Create the bare term report shell (get_or_create, no metrics)
+       - Link the result to its term report
+     They do NOT call bulk_recalculate_class, calculate_metrics,
+     or calculate_class_position. Those are expensive and belong in
+     explicit service calls (RecalculateView, bulk_create pipeline, etc.)
 
-from django.db.models.signals import post_save
+  2. ONE receiver per model. The old code had two post_save receivers
+     per model (one for recalc, one for term report generation), causing
+     every save to trigger both. Merged into a single slim receiver.
+
+  3. NurseryResult uses transaction.on_commit so the term report is
+     created after the outer transaction commits (avoids nested atomic
+     blocks from NurseryTermReport.save() calling super().save() twice).
+
+  4. _skip_signals must be set on the INSTANCE, not the class. The old
+     code used `SeniorSecondaryResult._skip_signals = False` as a class
+     attribute — that means setting it True on one instance affects all
+     instances. Use `instance._skip_signals = True` before saving.
+
+  5. All signal code lives here. The signal blocks at the bottom of
+     models.py have been removed to prevent double-firing.
+"""
+
+import logging
+from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.db import transaction
-import logging
 
 logger = logging.getLogger(__name__)
 
 
-# ===== AUTO-GENERATION SIGNALS FOR ALL LEVELS =====
-
-@receiver(post_save, sender='result.NurseryResult')
-def auto_generate_nursery_term_report(sender, instance, created, **kwargs):
-    """Auto-generate NurseryTermReport when NurseryResult is approved/published"""
-    
-    if instance.status not in ['APPROVED', 'PUBLISHED']:
-        return
-    
-    from .models import NurseryTermReport
-    
-    _auto_generate_term_report(
-        instance, 
-        NurseryTermReport, 
-        'Nursery'
-    )
+# ---------------------------------------------------------------------------
+# SENIOR SECONDARY
+# ---------------------------------------------------------------------------
 
 
-@receiver(post_save, sender='result.PrimaryResult')
-def auto_generate_primary_term_report(sender, instance, created, **kwargs):
-    """Auto-generate PrimaryTermReport when PrimaryResult is approved/published"""
-    
-    if instance.status not in ['APPROVED', 'PUBLISHED']:
-        return
-    
-    from .models import PrimaryTermReport
-    
-    _auto_generate_term_report(
-        instance, 
-        PrimaryTermReport, 
-        'Primary'
-    )
-
-
-@receiver(post_save, sender='result.JuniorSecondaryResult')
-def auto_generate_junior_secondary_term_report(sender, instance, created, **kwargs):
-    """Auto-generate JuniorSecondaryTermReport when JuniorSecondaryResult is approved/published"""
-    
-    if instance.status not in ['APPROVED', 'PUBLISHED']:
-        return
-    
-    from .models import JuniorSecondaryTermReport
-    
-    _auto_generate_term_report(
-        instance, 
-        JuniorSecondaryTermReport, 
-        'Junior Secondary'
-    )
-
-
-@receiver(post_save, sender='result.SeniorSecondaryResult')
-def auto_generate_senior_secondary_term_report(sender, instance, created, **kwargs):
-    """Auto-generate SeniorSecondaryTermReport when SeniorSecondaryResult is approved/published"""
-    
-    if instance.status not in ['APPROVED', 'PUBLISHED']:
-        return
-    
-    from .models import SeniorSecondaryTermReport
-    
-    _auto_generate_term_report(
-        instance, 
-        SeniorSecondaryTermReport, 
-        'Senior Secondary'
-    )
-
-
-# ===== SHARED GENERATION LOGIC =====
-
-def _auto_generate_term_report(result_instance, ReportModel, level_name):
+@receiver(post_save, sender="result.SeniorSecondaryResult")
+def handle_senior_secondary_result_save(sender, instance, created, **kwargs):
     """
-    Internal function to handle term report generation for any education level.
-    
-    Args:
-        result_instance: The result object (NurseryResult, PrimaryResult, etc.)
-        ReportModel: The term report model class
-        level_name: Human-readable name for logging
+    Slim handler: only creates/links the SeniorSecondaryTermReport shell.
+    No recalculation — call RecalculateView explicitly after bulk operations.
     """
-    student = result_instance.student
-    exam_session = result_instance.exam_session
-    
-    try:
-        with transaction.atomic():
-            # Get or create the term report
-            defaults = {
-                'status': 'DRAFT',
-                'is_published': False,
-            }
-            
-            # For Senior Secondary, include stream if available
-            if level_name == 'Senior Secondary' and hasattr(result_instance, 'stream'):
-                defaults['stream'] = result_instance.stream
-            
-            term_report, created = ReportModel.objects.get_or_create(
-                student=student,
-                exam_session=exam_session,
-                defaults=defaults
+    if kwargs.get("raw", False):
+        return
+    if getattr(instance, "_skip_signals", False):
+        return
+    if instance.status not in ("APPROVED", "PUBLISHED"):
+        return
+
+    _ensure_term_report(
+        instance=instance,
+        report_model_path="result.SeniorSecondaryTermReport",
+        extra_defaults=_senior_stream_defaults(instance),
+        level_name="SeniorSecondary",
+    )
+
+
+@receiver(post_delete, sender="result.SeniorSecondaryResult")
+def handle_senior_secondary_result_delete(sender, instance, **kwargs):
+    """
+    On deletion, recalculate the remaining subject stats and term report
+    metrics for the affected class.  We use on_commit so the deleted row
+    is gone before we re-aggregate.
+    """
+    exam_session_id = instance.exam_session_id
+    subject_id = instance.subject_id
+    student_class_id = instance.student.student_class_id
+    education_level = instance.student.education_level
+    term_report_id = instance.term_report_id
+
+    def _recalc():
+        try:
+            from result.models import SeniorSecondaryResult, SeniorSecondaryTermReport
+            from classroom.models import Class as StudentClass
+            from result.models import ExamSession
+            from subject.models import Subject
+
+            exam_session = ExamSession.objects.get(id=exam_session_id)
+            subject = Subject.objects.get(id=subject_id)
+            student_class = StudentClass.objects.get(id=student_class_id)
+
+            SeniorSecondaryResult.bulk_recalculate_class(
+                exam_session, subject, student_class, education_level
             )
-            
+            if term_report_id:
+                try:
+                    report = SeniorSecondaryTermReport.objects.get(id=term_report_id)
+                    report.calculate_metrics()
+                    report.calculate_class_position()
+                except SeniorSecondaryTermReport.DoesNotExist:
+                    pass
+        except Exception as e:
+            logger.error(
+                f"Error recalculating after SeniorSecondaryResult delete: {e}",
+                exc_info=True,
+            )
+
+    transaction.on_commit(_recalc)
+
+
+# ---------------------------------------------------------------------------
+# JUNIOR SECONDARY
+# ---------------------------------------------------------------------------
+
+
+@receiver(post_save, sender="result.JuniorSecondaryResult")
+def handle_junior_secondary_result_save(sender, instance, created, **kwargs):
+    """
+    Slim handler: only creates/links the JuniorSecondaryTermReport shell.
+    """
+    if kwargs.get("raw", False):
+        return
+    if getattr(instance, "_skip_signals", False):
+        return
+    if instance.status not in ("APPROVED", "PUBLISHED"):
+        return
+
+    _ensure_term_report(
+        instance=instance,
+        report_model_path="result.JuniorSecondaryTermReport",
+        extra_defaults={},
+        level_name="JuniorSecondary",
+    )
+
+
+@receiver(post_delete, sender="result.JuniorSecondaryResult")
+def handle_junior_secondary_result_delete(sender, instance, **kwargs):
+
+    exam_session_id = instance.exam_session_id
+    subject_id = instance.subject_id
+    student_class_id = instance.student.student_class_id
+    education_level = instance.student.education_level
+    term_report_id = instance.term_report_id
+
+    def _recalc():
+        try:
+            from result.models import JuniorSecondaryResult, JuniorSecondaryTermReport
+            from classroom.models import Class as StudentClass
+            from result.models import ExamSession
+            from subject.models import Subject
+
+            exam_session = ExamSession.objects.get(id=exam_session_id)
+            subject = Subject.objects.get(id=subject_id)
+            student_class = StudentClass.objects.get(id=student_class_id)
+
+            JuniorSecondaryResult.bulk_recalculate_class(
+                exam_session, subject, student_class, education_level
+            )
+            if term_report_id:
+                try:
+                    report = JuniorSecondaryTermReport.objects.get(id=term_report_id)
+                    report.calculate_metrics()
+                    report.calculate_class_position()
+                except JuniorSecondaryTermReport.DoesNotExist:
+                    pass
+        except Exception as e:
+            logger.error(
+                f"Error recalculating after JuniorSecondaryResult delete: {e}",
+                exc_info=True,
+            )
+
+    transaction.on_commit(_recalc)
+
+
+# ---------------------------------------------------------------------------
+# PRIMARY
+# ---------------------------------------------------------------------------
+
+
+@receiver(post_save, sender="result.PrimaryResult")
+def handle_primary_result_save(sender, instance, created, **kwargs):
+    """
+    Slim handler: only creates/links the PrimaryTermReport shell.
+    """
+    if kwargs.get("raw", False):
+        return
+    if getattr(instance, "_skip_signals", False):
+        return
+    if instance.status not in ("APPROVED", "PUBLISHED"):
+        return
+
+    _ensure_term_report(
+        instance=instance,
+        report_model_path="result.PrimaryTermReport",
+        extra_defaults={},
+        level_name="Primary",
+    )
+
+
+@receiver(post_delete, sender="result.PrimaryResult")
+def handle_primary_result_delete(sender, instance, **kwargs):
+    exam_session_id = instance.exam_session_id
+    subject_id = instance.subject_id
+    student_class_id = instance.student.student_class_id
+    education_level = instance.student.education_level
+    term_report_id = instance.term_report_id
+
+    def _recalc():
+        try:
+            from result.models import PrimaryResult, PrimaryTermReport, ExamSession
+            from classroom.models import Class as StudentClass
+            from subject.models import Subject
+
+            exam_session = ExamSession.objects.get(id=exam_session_id)
+            subject = Subject.objects.get(id=subject_id)
+            student_class = StudentClass.objects.get(id=student_class_id)
+
+            PrimaryResult.bulk_recalculate_class(
+                exam_session,
+                subject,
+                student_class,
+                education_level,  # ✅ object, not ID
+            )
+
+            if term_report_id:
+                try:
+                    report = PrimaryTermReport.objects.get(id=term_report_id)
+                    report.calculate_metrics()
+                    report.calculate_class_position()
+                except PrimaryTermReport.DoesNotExist:
+                    pass
+        except Exception as e:
+            logger.error(
+                f"Error recalculating after PrimaryResult delete: {e}", exc_info=True
+            )
+
+    transaction.on_commit(_recalc)
+
+
+# ---------------------------------------------------------------------------
+# NURSERY
+# ---------------------------------------------------------------------------
+
+
+@receiver(post_save, sender="result.NurseryResult")
+def handle_nursery_result_save(sender, instance, created, **kwargs):
+    """
+    Slim handler: only creates/links the NurseryTermReport shell.
+    Uses on_commit because NurseryTermReport.save() has a double-save
+    pattern internally — deferring avoids nested transaction conflicts.
+    """
+    if kwargs.get("raw", False):
+        return
+    if getattr(instance, "_skip_signals", False):
+        return
+    if instance.status not in ("APPROVED", "PUBLISHED"):
+        return
+
+    # Capture primitive values before the closure — never capture ORM
+    # objects in on_commit closures; the session may have closed.
+    student_id = instance.student_id
+    exam_session_id = instance.exam_session_id
+    result_id = instance.id
+
+    def _create_report():
+        try:
+            from result.models import NurseryResult, NurseryTermReport
+            from students.models import Student
+            from result.models import ExamSession
+
+            student = Student.objects.get(id=student_id)
+            exam_session = ExamSession.objects.get(id=exam_session_id)
+
+            with transaction.atomic():
+                term_report, created = NurseryTermReport.objects.get_or_create(
+                    student=student,
+                    exam_session=exam_session,
+                    defaults={"status": "DRAFT", "is_published": False},
+                )
+                # Link the result to its term report if not already linked
+                NurseryResult.objects.filter(
+                    id=result_id, term_report__isnull=True
+                ).update(term_report=term_report)
+
+                if created:
+                    logger.info(
+                        f"Created NurseryTermReport {term_report.id} "
+                        f"for student {student_id}"
+                    )
+        except Exception as e:
+            logger.error(
+                f"Error creating NurseryTermReport for student {student_id}: {e}",
+                exc_info=True,
+            )
+
+    transaction.on_commit(_create_report)
+
+
+@receiver(post_delete, sender="result.NurseryResult")
+def handle_nursery_result_delete(sender, instance, **kwargs):
+    exam_session_id = instance.exam_session_id
+    subject_id = instance.subject_id
+    student_class_id = instance.student.student_class_id
+    education_level = (
+        instance.student.education_level
+    )  # @property, returns string — safe
+    term_report_id = instance.term_report_id  # capture primitive, not the object
+
+    def _recalc():
+        try:
+            from result.models import NurseryResult, NurseryTermReport, ExamSession
+            from classroom.models import Class as StudentClass
+            from subject.models import Subject
+
+            exam_session = ExamSession.objects.get(id=exam_session_id)
+            subject = Subject.objects.get(id=subject_id)
+            student_class = StudentClass.objects.get(id=student_class_id)
+
+            NurseryResult.bulk_recalculate_class(
+                exam_session,
+                subject,
+                student_class,
+                education_level,  # ✅ object, not ID
+            )
+
+            if term_report_id:
+                try:
+                    report = NurseryTermReport.objects.get(id=term_report_id)
+                    report.calculate_metrics()
+                    report.calculate_class_position()
+                except NurseryTermReport.DoesNotExist:
+                    pass
+        except Exception as e:
+            logger.error(
+                f"Error recalculating after NurseryResult delete: {e}", exc_info=True
+            )
+
+    transaction.on_commit(_recalc)
+
+
+# ---------------------------------------------------------------------------
+# SENIOR SECONDARY SESSION RESULT
+# ---------------------------------------------------------------------------
+
+
+@receiver(post_save, sender="result.SeniorSecondarySessionResult")
+def handle_senior_session_result_save(sender, instance, created, **kwargs):
+    """
+    Slim handler for session results: only creates/links the
+    SeniorSecondarySessionReport shell. Position and stats recalculation
+    is deferred to on_commit to avoid recursive saves.
+    """
+    if kwargs.get("raw", False):
+        return
+    if getattr(instance, "_skip_signals", False):
+        return
+    if instance.status not in ("APPROVED", "PUBLISHED"):
+        return
+
+    student_id = instance.student_id
+    academic_session_id = instance.academic_session_id
+    result_id = instance.id
+    stream_id = instance.stream_id
+
+    def _create_session_report():
+        try:
+            from result.models import (
+                SeniorSecondarySessionResult,
+                SeniorSecondarySessionReport,
+            )
+            from students.models import Student
+            from academics.models import AcademicSession
+
+            student = Student.objects.get(id=student_id)
+            academic_session = AcademicSession.objects.get(id=academic_session_id)
+
+            with transaction.atomic():
+                defaults = {"status": "DRAFT", "is_published": False}
+                if stream_id:
+                    defaults["stream"] = stream_id
+
+                session_report, created = (
+                    SeniorSecondarySessionReport.objects.get_or_create(
+                        student=student,
+                        academic_session=academic_session,
+                        defaults=defaults,
+                    )
+                )
+                SeniorSecondarySessionResult.objects.filter(
+                    id=result_id, session_report__isnull=True
+                ).update(session_report=session_report)
+
+                if created:
+                    logger.info(
+                        f"Created SeniorSecondarySessionReport {session_report.id} "
+                        f"for student {student_id}"
+                    )
+        except Exception as e:
+            logger.error(
+                f"Error creating SeniorSecondarySessionReport for student {student_id}: {e}",
+                exc_info=True,
+            )
+
+    transaction.on_commit(_create_session_report)
+
+
+# ---------------------------------------------------------------------------
+# SHARED HELPERS
+# ---------------------------------------------------------------------------
+
+
+def _senior_stream_defaults(instance):
+    """Return stream default for SeniorSecondary term reports."""
+    stream = getattr(instance, "stream", None)
+    return {"stream": stream} if stream else {}
+
+
+def _ensure_term_report(instance, report_model_path, extra_defaults, level_name):
+    """
+    Synchronously get_or_create the term report and link the result.
+    Called directly (not via on_commit) for Senior/Junior/Primary because
+    their term report models don't have the double-save issue.
+
+    Uses queryset.update() to link the result, which bypasses save()
+    and avoids re-triggering this signal.
+    """
+    app_label, model_name = report_model_path.split(".")
+    try:
+        from django.apps import apps
+
+        ReportModel = apps.get_model(app_label, model_name)
+        ResultModel = type(instance)
+
+        defaults = {"status": "DRAFT", "is_published": False}
+        defaults.update(extra_defaults)
+
+        with transaction.atomic():
+            (
+                term_report,
+                created,
+            ) = ReportModel.objects.select_for_update().get_or_create(
+                student=instance.student,
+                exam_session=instance.exam_session,
+                defaults=defaults,
+            )
+            # Link using update() — avoids triggering another post_save on the result
+            ResultModel.objects.filter(id=instance.id, term_report__isnull=True).update(
+                term_report=term_report
+            )
+
             if created:
                 logger.info(
-                    f"✅ Auto-created {level_name} TermReport for {student.full_name} "
-                    f"- {exam_session.get_term_display()} {exam_session.academic_session.name}"
+                    f"Created {level_name} TermReport {term_report.id} "
+                    f"for student {instance.student_id}"
                 )
-            
-            # Recalculate metrics
-            term_report.calculate_metrics()
-            term_report.calculate_class_position()
-            
-            logger.info(
-                f"✅ Updated metrics for {level_name} TermReport {term_report.id}"
-            )
-            
     except Exception as e:
         logger.error(
-            f"❌ Failed to auto-generate {level_name} term report for {student.full_name}: {e}",
-            exc_info=True
+            f"Error in _ensure_term_report for {level_name} "
+            f"(student={instance.student_id}): {e}",
+            exc_info=True,
         )
 
 
-# ===== BULK GENERATION FOR ALL LEVELS =====
+# ---------------------------------------------------------------------------
+# MANAGEMENT UTILITIES  (callable from shell / management commands)
+# ---------------------------------------------------------------------------
+
 
 def bulk_generate_all_missing_reports(exam_session=None):
     """
-    Generate missing term reports for ALL education levels at once.
-    
+    Generate missing term reports for ALL education levels.
+
     Usage:
         from result.models import ExamSession
         from result.signals import bulk_generate_all_missing_reports
-        
-        # For specific session
+
         session = ExamSession.objects.get(id=123)
-        bulk_generate_all_missing_reports(session)
-        
-        # For all sessions
-        bulk_generate_all_missing_reports()
+        bulk_generate_all_missing_reports(session)   # one session
+        bulk_generate_all_missing_reports()           # all sessions
     """
-    
-    from .models import ExamSession
-    
-    if exam_session:
-        sessions = [exam_session]
-    else:
-        sessions = ExamSession.objects.all()
-    
-    print(f"\n{'='*70}")
-    print(f"🚀 BULK TERM REPORT GENERATION - ALL EDUCATION LEVELS")
-    print(f"{'='*70}")
-    print(f"Processing {len(sessions)} exam session(s)...")
-    print(f"{'='*70}\n")
-    
+    from result.models import ExamSession
+
+    sessions = [exam_session] if exam_session else list(ExamSession.objects.all())
+    levels = ("NURSERY", "PRIMARY", "JUNIOR_SECONDARY", "SENIOR_SECONDARY")
     total_created = 0
-    
+
     for session in sessions:
-        print(f"\n📚 Processing: {session}")
-        print(f"{'-'*70}")
-        
-        # Generate for each education level
-        for level in ['NURSERY', 'PRIMARY', 'JUNIOR_SECONDARY', 'SENIOR_SECONDARY']:
-            count = bulk_generate_missing_term_reports(session, level)
-            total_created += count
-    
-    print(f"\n{'='*70}")
-    print(f"✅ ALL LEVELS COMPLETE")
-    print(f"{'='*70}")
-    print(f"Total term reports created: {total_created}")
-    print(f"{'='*70}\n")
-    
+        for level in levels:
+            total_created += _bulk_generate_for_level(session, level)
+
+    logger.info(f"bulk_generate_all_missing_reports: created {total_created} reports")
     return total_created
 
 
-def bulk_generate_missing_term_reports(exam_session, education_level='NURSERY'):
+def _bulk_generate_for_level(exam_session, education_level):
     """
-    Generate missing term reports for a specific education level.
-    
-    Usage:
-        from result.models import ExamSession
-        from result.signals import bulk_generate_missing_term_reports
-        
-        session = ExamSession.objects.get(id=123)
-        
-        # Generate for specific level
-        bulk_generate_missing_term_reports(session, 'NURSERY')
-        bulk_generate_missing_term_reports(session, 'PRIMARY')
-        bulk_generate_missing_term_reports(session, 'JUNIOR_SECONDARY')
-        bulk_generate_missing_term_reports(session, 'SENIOR_SECONDARY')
+    Create missing term reports for one education level / exam session pair.
+    Metrics are calculated once per report — not once per subject result.
     """
-    
-    # Map education level to models
-    model_mapping = {
-        'NURSERY': ('NurseryResult', 'NurseryTermReport'),
-        'PRIMARY': ('PrimaryResult', 'PrimaryTermReport'),
-        'JUNIOR_SECONDARY': ('JuniorSecondaryResult', 'JuniorSecondaryTermReport'),
-        'SENIOR_SECONDARY': ('SeniorSecondaryResult', 'SeniorSecondaryTermReport'),
+    _MODEL_MAP = {
+        "NURSERY": ("NurseryResult", "NurseryTermReport"),
+        "PRIMARY": ("PrimaryResult", "PrimaryTermReport"),
+        "JUNIOR_SECONDARY": ("JuniorSecondaryResult", "JuniorSecondaryTermReport"),
+        "SENIOR_SECONDARY": ("SeniorSecondaryResult", "SeniorSecondaryTermReport"),
     }
-    
-    if education_level not in model_mapping:
+    if education_level not in _MODEL_MAP:
         raise ValueError(f"Invalid education level: {education_level}")
-    
-    result_model_name, report_model_name = model_mapping[education_level]
-    
-    # Import models dynamically
-    from . import models as result_models
-    ResultModel = getattr(result_models, result_model_name)
-    ReportModel = getattr(result_models, report_model_name)
-    
-    # Get all students with result in this session
-    students_with_results = ResultModel.objects.filter(
-        exam_session=exam_session,
-        status__in=['APPROVED', 'PUBLISHED']
-    ).values_list('student_id', flat=True).distinct()
-    
-    # Get students who already have term reports
-    students_with_reports = ReportModel.objects.filter(
-        exam_session=exam_session
-    ).values_list('student_id', flat=True)
-    
-    # Find students missing term reports
-    missing_students = set(students_with_results) - set(students_with_reports)
-    
-    print(f"\n  📊 {education_level}:")
-    print(f"     Students with result: {len(students_with_results)}")
-    print(f"     Students with reports: {len(students_with_reports)}")
-    print(f"     Missing reports: {len(missing_students)}")
-    
-    if not missing_students:
-        print(f"     ✅ All students already have term reports!")
+
+    from django.apps import apps
+
+    result_name, report_name = _MODEL_MAP[education_level]
+    ResultModel = apps.get_model("result", result_name)
+    ReportModel = apps.get_model("result", report_name)
+
+    students_with_results = set(
+        ResultModel.objects.filter(
+            exam_session=exam_session,
+            status__in=("APPROVED", "PUBLISHED"),
+        ).values_list("student_id", flat=True)
+    )
+    students_with_reports = set(
+        ReportModel.objects.filter(
+            exam_session=exam_session,
+        ).values_list("student_id", flat=True)
+    )
+    missing = students_with_results - students_with_reports
+
+    if not missing:
         return 0
-    
+
+    from students.models import Student
+
     created_count = 0
-    errors = []
-    
-    for student_id in missing_students:
+
+    for student_id in missing:
         try:
             with transaction.atomic():
-                from students.models import Student
                 student = Student.objects.get(id=student_id)
-                
-                # Create term report
-                defaults = {
-                    'status': 'DRAFT',
-                    'is_published': False,
-                }
-                
-                # For Senior Secondary, try to get stream from result
+                defaults = {"status": "DRAFT", "is_published": False}
+
                 if education_level == 'SENIOR_SECONDARY':
-                    result_with_stream = ResultModel.objects.filter(
+                    first_result = ResultModel.objects.filter(
                         student=student,
                         exam_session=exam_session,
-                        status__in=['APPROVED', 'PUBLISHED']
+                        status__in=("APPROVED", "PUBLISHED"),
                     ).first()
-                    
-                    if result_with_stream and hasattr(result_with_stream, 'stream') and result_with_stream.stream:
-                        defaults['stream'] = result_with_stream.stream
-                
+                    if first_result and getattr(first_result, "stream", None):
+                        defaults["stream"] = first_result.stream
+
                 term_report = ReportModel.objects.create(
                     student=student,
                     exam_session=exam_session,
-                    **defaults
+                    **defaults,
                 )
-                
-                # Calculate metrics
                 term_report.calculate_metrics()
-                term_report.calculate_class_position()
-                
                 created_count += 1
-                print(f"     ✅ Created for {student.full_name}")
-                
         except Exception as e:
-            error_msg = f"❌ Failed for student {student_id}: {str(e)}"
-            print(f"     {error_msg}")
-            errors.append(error_msg)
-            logger.error(error_msg, exc_info=True)
-    
-    if created_count > 0:
-        print(f"     ✅ Created {created_count} term report(s)")
-    
-    if errors:
-        print(f"     ⚠️ {len(errors)} error(s) occurred")
-    
+            logger.error(
+                f"_bulk_generate_for_level: failed for student {student_id} "
+                f"({education_level}): {e}",
+                exc_info=True,
+            )
+
+    logger.info(
+        f"_bulk_generate_for_level: {education_level} session={exam_session.id} "
+        f"created={created_count}"
+    )
     return created_count
 
 
-def fix_specific_student_report(student_id, exam_session_id, education_level='NURSERY'):
+def fix_specific_student_report(student_id, exam_session_id, education_level):
     """
-    Generate term report for a specific student.
-    
+    Create or recalculate the term report for one student.
+
     Usage:
         from result.signals import fix_specific_student_report
-        
         fix_specific_student_report(
-            student_id=123,
-            exam_session_id=456,
-            education_level='NURSERY'  # or PRIMARY, JUNIOR_SECONDARY, SENIOR_SECONDARY
+            student_id='<uuid>',
+            exam_session_id='<uuid>',
+            education_level='NURSERY',   # NURSERY | PRIMARY | JUNIOR_SECONDARY | SENIOR_SECONDARY
         )
     """
-    
-    from students.models import Student
-    from .models import ExamSession
-    
-    # Map education level to models
-    model_mapping = {
-        'NURSERY': ('NurseryResult', 'NurseryTermReport'),
-        'PRIMARY': ('PrimaryResult', 'PrimaryTermReport'),
-        'JUNIOR_SECONDARY': ('JuniorSecondaryResult', 'JuniorSecondaryTermReport'),
-        'SENIOR_SECONDARY': ('SeniorSecondaryResult', 'SeniorSecondaryTermReport'),
+    _MODEL_MAP = {
+        "NURSERY": ("NurseryResult", "NurseryTermReport"),
+        "PRIMARY": ("PrimaryResult", "PrimaryTermReport"),
+        "JUNIOR_SECONDARY": ("JuniorSecondaryResult", "JuniorSecondaryTermReport"),
+        "SENIOR_SECONDARY": ("SeniorSecondaryResult", "SeniorSecondaryTermReport"),
     }
-    
-    if education_level not in model_mapping:
+    if education_level not in _MODEL_MAP:
         raise ValueError(f"Invalid education level: {education_level}")
-    
-    result_model_name, report_model_name = model_mapping[education_level]
-    
-    # Import models dynamically
-    from . import models as result_models
-    ResultModel = getattr(result_models, result_model_name)
-    ReportModel = getattr(result_models, report_model_name)
-    
+
+    from django.apps import apps
+    from students.models import Student
+    from result.models import ExamSession
+
+    result_name, report_name = _MODEL_MAP[education_level]
+    ResultModel = apps.get_model("result", result_name)
+    ReportModel = apps.get_model("result", report_name)
+
     try:
         student = Student.objects.get(id=student_id)
         exam_session = ExamSession.objects.get(id=exam_session_id)
-        
-        print(f"\n{'='*60}")
-        print(f"🔧 FIXING TERM REPORT")
-        print(f"{'='*60}")
-        print(f"Student: {student.full_name} (ID: {student_id})")
-        print(f"Session: {exam_session}")
-        print(f"Level: {education_level}")
-        print(f"{'='*60}\n")
-        
-        # Check if student has result
-        result = ResultModel.objects.filter(
-            student=student,
-            exam_session=exam_session,
-            status__in=['APPROVED', 'PUBLISHED']
+    except (Student.DoesNotExist, ExamSession.DoesNotExist) as e:
+        logger.error(f"fix_specific_student_report: {e}")
+        return None
+
+    existing = ReportModel.objects.filter(
+        student=student, exam_session=exam_session
+    ).first()
+
+    if existing:
+        existing.calculate_metrics()
+        if hasattr(existing, "calculate_class_position"):
+            existing.calculate_class_position()
+        logger.info(
+            f"fix_specific_student_report: recalculated existing report {existing.id}"
         )
-        
-        print(f"Found {result.count()} result(s) for this student")
-        
-        if not result.exists():
-            print("❌ No approved/published result found for this student!")
-            return None
-        
-        # Check if report already exists
-        existing_report = ReportModel.objects.filter(
-            student=student,
-            exam_session=exam_session
-        ).first()
-        
-        if existing_report:
-            print(f"⚠️ Term report already exists (ID: {existing_report.id})")
-            print("Recalculating metrics...")
-            existing_report.calculate_metrics()
-            existing_report.calculate_class_position()
-            print("✅ Metrics updated!")
-            return existing_report
-        
-        # Create new report
-        with transaction.atomic():
-            defaults = {
-                'status': 'DRAFT',
-                'is_published': False,
-            }
-            
-            # For Senior Secondary, get stream from result
-            if education_level == 'SENIOR_SECONDARY':
-                result_with_stream = result.first()
-                if hasattr(result_with_stream, 'stream') and result_with_stream.stream:
-                    defaults['stream'] = result_with_stream.stream
-            
-            term_report = ReportModel.objects.create(
+        return existing
+
+    has_results = ResultModel.objects.filter(
+        student=student,
+        exam_session=exam_session,
+        status__in=("APPROVED", "PUBLISHED"),
+    ).exists()
+
+    if not has_results:
+        logger.warning(
+            f"fix_specific_student_report: no approved results for "
+            f"student {student_id} in session {exam_session_id}"
+        )
+        return None
+
+    with transaction.atomic():
+        defaults = {"status": "DRAFT", "is_published": False}
+        if education_level == "SENIOR_SECONDARY":
+            first_result = ResultModel.objects.filter(
                 student=student,
                 exam_session=exam_session,
-                **defaults
-            )
-            
-            # Calculate metrics
-            term_report.calculate_metrics()
+                status__in=("APPROVED", "PUBLISHED"),
+            ).first()
+            if first_result and getattr(first_result, "stream", None):
+                defaults["stream"] = first_result.stream
+
+        term_report = ReportModel.objects.create(
+            student=student, exam_session=exam_session, **defaults
+        )
+        term_report.calculate_metrics()
+        if hasattr(term_report, "calculate_class_position"):
             term_report.calculate_class_position()
-            
-            print(f"✅ Created new term report (ID: {term_report.id})")
-            print(f"   Total Score: {getattr(term_report, 'total_score', 'N/A')}")
-            print(f"   Average: {getattr(term_report, 'average_score', 'N/A')}")
-            
-            # Get position info
-            if hasattr(term_report, 'class_position'):
-                total = getattr(term_report, 'total_students', 0) or getattr(term_report, 'total_students_in_class', 0)
-                print(f"   Position: {term_report.class_position}/{total}")
-            
-            print(f"{'='*60}\n")
-            
-            return term_report
-            
-    except Student.DoesNotExist:
-        print(f"❌ Student with ID {student_id} not found!")
-        return None
-    except ExamSession.DoesNotExist:
-        print(f"❌ ExamSession with ID {exam_session_id} not found!")
-        return None
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        logger.error(f"Error fixing student report: {e}", exc_info=True)
-        return None
 
-
-# ===== CONVENIENCE FUNCTION =====
-
-def generate_reports_for_current_term():
-    """
-    Generate missing reports for the current active term across all levels.
-    
-    Usage:
-        from result.signals import generate_reports_for_current_term
-        generate_reports_for_current_term()
-    """
-    
-    from .models import ExamSession
-    
-    try:
-        # Find current exam session
-        current_session = ExamSession.objects.filter(is_current=True).first()
-        
-        if not current_session:
-            print("❌ No current exam session found!")
-            print("   Set is_current=True on an ExamSession first.")
-            return 0
-        
-        print(f"\n{'='*70}")
-        print(f"📅 CURRENT TERM: {current_session}")
-        print(f"{'='*70}\n")
-        
-        return bulk_generate_all_missing_reports(current_session)
-        
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        logger.error(f"Error generating reports for current term: {e}", exc_info=True)
-        return 0
+    logger.info(f"fix_specific_student_report: created report {term_report.id}")
+    return term_report

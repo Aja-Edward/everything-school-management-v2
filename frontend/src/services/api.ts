@@ -8,8 +8,8 @@
  * development workflow without HTTPS.
  */
 
-export const API_BASE_URL =
-  import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+// api.ts
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 // CSRF token cache
 let csrfToken: string | null = null;
@@ -206,12 +206,14 @@ const handleAuthenticationFailure = () => {
  */
 const attemptTokenRefresh = async (): Promise<boolean> => {
   try {
+    const tenantSlug = localStorage.getItem('tenantSlug');
     const response = await fetch(`${API_BASE_URL}/auth/refresh/`, {
       method: 'POST',
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRFToken': (await getCSRFToken()) || '',
+         ...(tenantSlug ? { 'X-Tenant-Slug': tenantSlug } : {}),
       },
     });
 
@@ -280,7 +282,7 @@ const makeRequest = async (
   const options: RequestInit = {
     method,
     headers,
-    credentials: 'include', // Always include cookies
+    credentials: 'include',
   };
 
   if (data && method !== 'GET') {
@@ -294,21 +296,17 @@ const makeRequest = async (
       await handleResponseError(response, endpoint, method);
     }
 
-    // Handle empty responses
-    if (response.status === 204) {
-      return null;
-    }
+    if (response.status === 204) return null;
 
     const text = await response.text();
-    if (!text.trim()) {
-      return null;
-    }
+    if (!text.trim()) return null;
 
     return JSON.parse(text);
   } catch (error: any) {
-    // Retry once if token was refreshed
     if (error.shouldRetry && retryCount < 1) {
       console.log('🔄 Retrying request after token refresh...');
+      // Wait for browser to process the Set-Cookie header
+      await new Promise(resolve => setTimeout(resolve, 100));
       return makeRequest(method, endpoint, data, params, retryCount + 1);
     }
     throw error;

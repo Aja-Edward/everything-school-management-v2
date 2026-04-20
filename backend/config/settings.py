@@ -11,6 +11,7 @@ from datetime import timedelta
 import dj_database_url
 import cloudinary
 
+
 ENV = os.getenv("ENV", "dev")
 # Build paths
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -50,6 +51,9 @@ else:
     print(f"Using LOCAL database: {LOCAL_DATABASE_URL[:30]}...")
 
 
+SUPABASE_SECRET_KEY = os.getenv("SUPABASE_SECRET_KEY")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_PUBLISHABLE_KEY = os.getenv("SUPABASE_PUBLISHABLE_KEY")
 # ============================================
 # SECURITY SETTINGS
 # ============================================
@@ -255,13 +259,19 @@ CORS_ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
         "CORS_ALLOWED_ORIGINS",
-        "http://localhost:3000,http://localhost:5173,http://localhost:5174,"
-        "https://www.al-qolamulmuwaffaq.com,"
-        "https://al-qolamulmuwaffaq.com,"
-        "https://school-project-with-edward.vercel.app",
+        "http://localhost:3000,http://localhost:5173,http://localhost:5174,",
     ).split(",")
     if origin.strip()
 ]
+
+
+# For debugging in development - allow all origins
+if DEBUG:
+    CORS_ALLOWED_ORIGINS += [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:5174",
+    ]
 
 # Allow subdomain patterns for multi-tenant support
 CORS_ALLOWED_ORIGIN_REGEXES = [
@@ -270,9 +280,6 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     # Production: allow any subdomain of schoolplatform.com
     r"^https://[\w-]+\.schoolplatform\.com$",
 ]
-
-print(" CORS Allowed Origins:", CORS_ALLOWED_ORIGINS)
-print(" CORS Allowed Origin Regexes:", CORS_ALLOWED_ORIGIN_REGEXES)
 
 # Celery + Redis
 CELERY_BROKER_URL = "redis://127.0.0.1:6379/0"
@@ -321,13 +328,6 @@ CORS_ALLOW_METHODS = [
 # Ensure CORS headers are added to all responses including errors
 CORS_PREFLIGHT_MAX_AGE = 86400
 
-# For debugging in development - allow all origins
-if DEBUG:
-    CORS_ALLOWED_ORIGINS += [
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://localhost:5174",
-    ]
 
 # ============================================
 # TEMPLATES
@@ -439,18 +439,14 @@ AUTHENTICATION_BACKENDS = [
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "authentication.cookie_auth.CookieJWTAuthentication",  # Cookie-based JWT (primary)
-        "rest_framework_simplejwt.authentication.JWTAuthentication",  # Header-based JWT (fallback)
+        "authentication.cookie_auth.CookieJWTAuthentication",
+        "authentication.supabase_backend.SupabaseJWTAuthentication",
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
-    # CRITICAL FIX: Don't require authentication by default
-    # Individual views will specify their own permission classes
-    "DEFAULT_PERMISSION_CLASSES": (
-        "rest_framework.permissions.AllowAny",  # Changed from IsAuthenticated
-    ),
+    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.AllowAny",),
     "DEFAULT_FILTER_BACKENDS": ["django_filters.rest_framework.DjangoFilterBackend"],
-    # Add exception handler to provide better error messages
-    "EXCEPTION_HANDLER": "rest_framework.views.exception_handler",
-    # Ensure unauthenticated users get proper responses
+    # ✅ Use your custom handler (only if it's working properly)
+    "EXCEPTION_HANDLER": "authentication.exceptions.ratelimit_exception_handler",
     "UNAUTHENTICATED_USER": "django.contrib.auth.models.AnonymousUser",
 }
 
@@ -490,7 +486,7 @@ AUTH_COOKIE_HTTP_ONLY = True  # Prevents JavaScript access (XSS protection)
 AUTH_COOKIE_SECURE = not DEBUG  # Only send over HTTPS in production
 AUTH_COOKIE_SAMESITE = "None" if not DEBUG else "Lax"  # None for cross-origin in production
 AUTH_COOKIE_PATH = "/"
-AUTH_COOKIE_DOMAIN = None
+AUTH_COOKIE_DOMAIN = ".localhost" if DEBUG else os.getenv("COOKIE_DOMAIN", None)
 
 # Access token cookie max age (in seconds) - matches ACCESS_TOKEN_LIFETIME
 AUTH_COOKIE_ACCESS_MAX_AGE = 60 * 60  # 1 hour

@@ -193,21 +193,27 @@ class PublicTenantView(APIView):
 
     def get(self, request, slug):
         try:
-            tenant = Tenant.objects.get(slug=slug)
+            tenant = Tenant.objects.select_related("settings").get(slug=slug)
         except Tenant.DoesNotExist:
             return Response(
-                {'error': 'School not found'},
-                status=status.HTTP_404_NOT_FOUND
+                {"error": "School not found"}, status=status.HTTP_404_NOT_FOUND
             )
 
-        # Return tenant info and settings (limited fields for public view)
         settings_obj = getattr(tenant, 'settings', None)
         settings_data = None
 
         if settings_obj:
+            # Handle both CloudinaryField objects and plain string URLs
+            def safe_url(field):
+                if not field:
+                    return None
+                return str(
+                    field
+                )  # str() works on both CloudinaryField and plain strings
+
             settings_data = {
-                "logo": settings_obj.logo.url if settings_obj.logo else None,
-                "favicon": settings_obj.favicon.url if settings_obj.favicon else None,
+                "logo": safe_url(settings_obj.logo),
+                "favicon": safe_url(settings_obj.favicon),
                 "primary_color": settings_obj.primary_color,
                 "secondary_color": settings_obj.secondary_color,
                 "school_motto": settings_obj.school_motto,
@@ -403,10 +409,13 @@ class CurrentTenantView(APIView):
         if not tenant:
             return Response({'error': 'No tenant context'}, status=404)
 
-        return Response({
-            'tenant': TenantSerializer(tenant).data,
-            'settings': TenantSettingsSerializer(tenant.settings).data if hasattr(tenant, 'settings') else None,
-        })
+        try:
+            settings_data = TenantSettingsSerializer(tenant.settings).data
+        except Exception:
+            settings_data = None
+        return Response(
+            {"tenant": TenantSerializer(tenant).data, "settings": settings_data}
+        )
 
 
 # ============ Service Management ============
@@ -544,9 +553,8 @@ class DomainManagementViewSet(viewsets.ViewSet):
     """Manage custom domain for tenant."""
     permission_classes = [IsAuthenticated, IsTenantOwner]
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=["get", "patch"])
     def current(self, request):
-        """Get current domain settings."""
         tenant = getattr(request, 'tenant', None)
         if not tenant:
             return Response({'error': 'No tenant context'}, status=400)
@@ -559,20 +567,25 @@ class DomainManagementViewSet(viewsets.ViewSet):
             )
             if serializer.is_valid():
                 serializer.save()
-                # ← Clear the cache so GET returns fresh data
                 cache.delete(f"tenant_settings_{tenant.id}")
                 return Response(serializer.data)
             return Response(serializer.errors, status=400)
 
-        return Response(TenantSettingsSerializer(settings_obj).data)
-
-        return Response({
-            'subdomain': tenant.slug,
-            'subdomain_url': tenant.subdomain_url,
-            'custom_domain': tenant.custom_domain,
-            'custom_domain_verified': tenant.custom_domain_verified,
-            'verification_token': tenant.domain_verification_token if not tenant.custom_domain_verified else None,
-        })
+        # GET — return both domain info and settings
+        return Response(
+            {
+                "subdomain": tenant.slug,
+                "subdomain_url": tenant.subdomain_url,
+                "custom_domain": tenant.custom_domain,
+                "custom_domain_verified": tenant.custom_domain_verified,
+                "verification_token": (
+                    tenant.domain_verification_token
+                    if not tenant.custom_domain_verified
+                    else None
+                ),
+                "settings": TenantSettingsSerializer(settings_obj).data,
+            }
+        )
 
     @action(detail=False, methods=['post'])
     def set_custom_domain(self, request):

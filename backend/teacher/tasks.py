@@ -11,7 +11,6 @@ import logging
 import secrets
 import string
 from datetime import date
-
 from celery import shared_task
 from django.db import transaction
 
@@ -21,10 +20,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _make_password(length=10):
-    alphabet = string.ascii_letters + string.digits
-    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 def _compute_age(dob):
@@ -134,6 +129,7 @@ def _validate_row(row_num, row, tenant_id):
     # ---- Email uniqueness ----
     email = row["email"].strip()
     from users.models import CustomUser
+
     if CustomUser.objects.filter(email=email).exists():
         errors.append(
             f"Row {row_num}: Email '{email}' is already in use."
@@ -170,9 +166,9 @@ def _create_teacher_from_cleaned(tenant, cleaned):
     """
     from users.models import CustomUser
     from teacher.models import Teacher
-    from utils import generate_unique_username
+    from utils import generate_unique_username, generate_temp_password
 
-    password = _make_password()
+    password = generate_temp_password()
     username = generate_unique_username(
         role="teacher",
         employee_id=cleaned["employee_id"],

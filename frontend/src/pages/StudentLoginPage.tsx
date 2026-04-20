@@ -5,14 +5,14 @@ import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'react-toastify';
 import { useTranslation } from 'react-i18next';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
-import { AuthService } from '@/services/AuthService';
+// import { AuthService } from '@/services/AuthService';
 import type { LoginCredentials } from '@/types/types';
 
-const authService = new AuthService();
+
 
 const StudentLoginPage: React.FC = () => {
   const navigate = useNavigate();
-  const { login } = useAuth();
+ const { login, googleLogin } = useAuth();
   const { t } = useTranslation();
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -59,14 +59,14 @@ const StudentLoginPage: React.FC = () => {
       setIsLoading(true);
       setErrors({});
       try {
-        const result = await authService.googleSignIn();
-        if (result.success) {
+        const loggedInUser = await googleLogin();
+
+        if (!loggedInUser) {
+           throw new Error('Google login failed: No user data returned');
+         }
           toast.success(t('login.success', 'Google login successful!'));
           navigate('/student/dashboard');
-        } else {
-          setErrors(result.errors || { google: result.message });
-          toast.error(result.message || 'Google login failed. Please try again.');
-        }
+        
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Google login failed';
         setErrors({ google: errorMessage });

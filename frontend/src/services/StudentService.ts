@@ -620,9 +620,9 @@ class StudentService {
   // --------------------------------------------------------------------------
 
   async getDashboard(): Promise<StudentDashboard> {
-    return api.get('/api/students/students/dashboard/');
-  }
-
+  const response = await api.get('/api/students/students/dashboard/');
+  return response.data;
+}
   /** @deprecated use getDashboard */
   async getDashboardData(): Promise<StudentDashboard> {
     return this.getDashboard();

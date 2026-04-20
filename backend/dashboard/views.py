@@ -1287,6 +1287,44 @@ def admin_dashboard_enhanced_stats(request):
 
         activities.sort(key=lambda x: x['timestamp'], reverse=True)
 
+        # Recent teacher onboarding
+        recent_teachers = (
+            Teacher.objects.filter(created_at__date__gte=last_7_days)
+            .select_related("user")
+            .order_by("-created_at")[:5]
+        )
+
+        for teacher in recent_teachers:
+            activities.append(
+                {
+                    "type": "enrollment",
+                    "icon": "👨‍🏫",
+                    "title": "New Teacher Onboarded",
+                    "description": f"{teacher.user.first_name} {teacher.user.last_name} was added as a teacher",
+                    "timestamp": teacher.created_at.isoformat(),
+                    "priority": "normal",
+                }
+            )
+
+        # Recent parent registrations
+        recent_parents = (
+            ParentProfile.objects.filter(created_at__date__gte=last_7_days)
+            .select_related("user")
+            .order_by("-created_at")[:5]
+        )
+
+        for parent in recent_parents:
+            activities.append(
+                {
+                    "type": "enrollment",
+                    "icon": "👨‍👩‍👧",
+                    "title": "New Parent Registered",
+                    "description": f"{parent.user.first_name} {parent.user.last_name} was registered as a parent",
+                    "timestamp": parent.created_at.isoformat(),
+                    "priority": "normal",
+                }
+            )
+
         # ============================================
         # ⚠️ ALERTS & NOTIFICATIONS
         # ============================================

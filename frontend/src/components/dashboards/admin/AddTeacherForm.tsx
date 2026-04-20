@@ -4,9 +4,8 @@ import axios from 'axios';
 import { toast } from 'react-toastify';
 import teacherService from '@/services/TeacherService';
 
-import type {FormData, GradeLevel, Section, SubjectOption, ClassroomOption, CreateTeacherPayload, PrimaryAssignmentPayload, SecondaryAssignmentPayload, AssignmentRow
+import type {FormData, GradeLevel, LevelType, SubjectOption, ClassroomOption, CreateTeacherPayload, PrimaryAssignmentPayload, SecondaryAssignmentPayload, AssignmentRow
 } from '@/types/teacher'
-
 
 interface AddTeacherFormProps {
   onTeacherAdded?: () => void;
@@ -36,11 +35,18 @@ const AddTeacherForm: React.FC<AddTeacherFormProps> = ({ onTeacherAdded }) => {
   const [uploading, setUploading]       = useState(false);
 
   const [form, setForm] = useState<FormData>({
-    firstName: '', lastName: '', middleName: '',
-    email: '', phoneNumber: '',
-    staffType: 'teaching', level: '',
-    employeeId: '', hireDate: '', qualification: '',
-    subjects: [], assignments: [],
+    firstName: '', 
+    lastName: '', 
+    middleName: '',
+    email: '', 
+    phoneNumber: '',
+    staffType: 'teaching',
+    level: undefined,
+    employeeId: '', 
+    hireDate: '', 
+    qualification: '',
+    subjects: [], 
+    assignments: [],
   });
 
   // Dropdown data — all fetched via TeacherService
@@ -256,11 +262,18 @@ const AddTeacherForm: React.FC<AddTeacherFormProps> = ({ onTeacherAdded }) => {
 
       // Reset form
       setForm({
-        firstName: '', lastName: '', middleName: '',
-        email: '', phoneNumber: '',
-        staffType: 'teaching', level: '',
-        employeeId: '', hireDate: '', qualification: '',
-        subjects: [], assignments: [],
+        firstName: '', 
+        lastName: '', 
+        middleName: '',
+        email: '', 
+        phoneNumber: '',
+        staffType: 'teaching', 
+        level: undefined,
+        employeeId: '', 
+        hireDate: '', 
+        qualification: '',
+        subjects: [], 
+        assignments: [],
       });
       setPhotoPreview(null);
       setPhotoUrl(null);
@@ -422,10 +435,10 @@ const AddTeacherForm: React.FC<AddTeacherFormProps> = ({ onTeacherAdded }) => {
                   <label className={lbl}>Staff Type <span className="text-rose-500">*</span></label>
                   <select className={sel} value={form.staffType}
                     onChange={e => {
-                      set('staffType', e.target.value);
-                      set('level', '');
+                      set('staffType', e.target.value as 'teaching' | 'non-teaching');
+                      set('level', undefined);   // ← not ''
                       set('subjects', []);
-                      set('assignments', []);
+                      set('assignments', [])
                     }}>
                     <option value="teaching">Teaching</option>
                     <option value="non-teaching">Non-Teaching</option>
@@ -439,7 +452,7 @@ const AddTeacherForm: React.FC<AddTeacherFormProps> = ({ onTeacherAdded }) => {
                       <label className={lbl}>Education Level <span className="text-rose-500">*</span></label>
                       <select className={sel} value={form.level}
                         onChange={e => {
-                          set('level', e.target.value);
+                          set('level', e.target.value as LevelType || undefined);  // ← coerce '' to undefined
                           set('subjects', []);
                           set('assignments', []);
                         }}>

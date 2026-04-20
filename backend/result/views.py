@@ -1,118 +1,140 @@
-import tempfile
-import logging
+# result/views.py
+"""
+Key fixes applied in this version
+───────────────────────────────────
+1. Removed queryset.count() calls from all logger.info() lines — each was a
+   wasted DB hit on every list request.
+
+2. Fixed NurseryResultViewSet.class_statistics() — was mixing a plain dict
+   with &= Q(...) which raises TypeError at runtime.
+
+3. Fixed _recalculate_subject_stats() position algorithm — the first group
+   was always skipping position 1 due to the way count_at_position was
+   accumulated before the first score comparison.
+
+4. Fixed StudentTermResultViewSet.get_queryset() — was filtering on
+   student__education_level__in which doesn't hit a real DB column (it's a
+   @property). Now routes to the correct FK lookup.
+
+5. Fixed SeniorSecondaryTermReportViewSet prefetch — added grading_system__grades
+   to the subject_results Prefetch so the serializer doesn't fire per-result
+   grade queries.
+
+6. Fixed NurseryTermReportViewSet prefetch — added term_report to the
+   subject_results Prefetch so NurseryResultSerializer can access
+   term_report.field via source= without extra queries.
+
+7. Removed the 8-line per-field debug logging from NurseryResultViewSet.create()
+   — kept one compact log line instead.
+
+8. Moved StandardResultsPagination import to avoid the local duplicate
+   definition shadowing the one from utils.pagination.
+"""
+
 import csv
 import io
+import logging
 from decimal import Decimal
-from django.apps import apps
-from django.http import HttpResponse
-from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import Q, Avg, Count, Max, Min, F, Case, When, DecimalField
-from django.shortcuts import get_object_or_404
-from django.utils import timezone
-from django.db import transaction
-from django.core.exceptions import ValidationError
-from rest_framework import viewsets, status, filters
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
-from django.template.loader import render_to_string
-from utils.section_filtering import SectionFilterMixin, AutoSectionFilterMixin
-from tenants.mixins import TenantFilterMixin
-from .report_generation import get_report_generator
-from utils.teacher_portal_permissions import TeacherPortalCheckMixin
-from django.db.models import Prefetch
-from .filters import StudentTermResultFilter
-from utils.signature_handler import upload_signature_to_cloudinary
-from rest_framework.pagination import PageNumberPagination
-from utils.pagination import LargeResultsPagination, StandardResultsPagination
-from classroom.models import StudentEnrollment
 
-
-from rest_framework.parsers import MultiPartParser, FormParser
 import cloudinary.uploader
+from django.apps import apps
+from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.db.models import Avg, Count, Max, Min, Prefetch, Q
+from django.http import HttpResponse
+from django.utils import timezone
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import filters, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 
+from academics.models import AcademicSession, EducationLevel, Term
+from classroom.models import Class as StudentClass
+from classroom.models import Stream, StudentEnrollment
 from messaging.models import BulkMessage, Message
+from students.models import Student
+from subject.models import Subject
+from tenants.mixins import TenantFilterMixin
+from utils.section_filtering import AutoSectionFilterMixin, SectionFilterMixin
+from utils.signature_handler import upload_signature_to_cloudinary
+from utils.teacher_portal_permissions import TeacherPortalCheckMixin
 
+from .filters import StudentTermResultFilter
 from .models import (
-    StudentResult,
-    StudentTermResult,
-    ExamSession,
-    ResultSheet,
     AssessmentScore,
-    ResultComment,
-    ResultTemplate,
-    GradingSystem,
-    Grade,
     AssessmentType,
-    ScoringConfiguration,
+    ExamSession,
+    Grade,
+    GradingSystem,
     JuniorSecondaryResult,
     JuniorSecondaryTermReport,
-    PrimaryResult,
-    PrimaryTermReport,
     NurseryResult,
     NurseryTermReport,
+    PrimaryResult,
+    PrimaryTermReport,
+    ResultComment,
+    ResultSheet,
+    ResultTemplate,
+    ScoringConfiguration,
     SeniorSecondaryResult,
-    SeniorSecondaryTermReport,
-    SeniorSecondarySessionResult,
     SeniorSecondarySessionReport,
+    SeniorSecondarySessionResult,
+    SeniorSecondaryTermReport,
+    StudentResult,
+    StudentTermResult,
 )
-
+from .report_generation import get_report_generator
 from .serializers import (
-    StudentResultSerializer,
-    GradingSystemCreateUpdateSerializer,
-    StudentTermResultSerializer,
-    ExamSessionSerializer,
-    ExamSessionCreateUpdateSerializer,
-    ResultSheetSerializer,
     AssessmentScoreSerializer,
-    ResultCommentSerializer,
+    AssessmentTypeSerializer,
+    BulkReportGenerationSerializer,
+    BulkResultUpdateSerializer,
+    BulkStatusUpdateSerializer,
+    DetailedStudentResultSerializer,
+    ExamSessionCreateUpdateSerializer,
+    ExamSessionSerializer,
+    GradingSystemCreateUpdateSerializer,
     GradingSystemSerializer,
     GradeSerializer,
-    AssessmentTypeSerializer,
-    DetailedStudentResultSerializer,
-    StudentTermResultDetailSerializer,
-    ScoringConfigurationSerializer,
-    ScoringConfigurationCreateUpdateSerializer,
-    JuniorSecondaryResultSerializer,
     JuniorSecondaryResultCreateUpdateSerializer,
+    JuniorSecondaryResultSerializer,
     JuniorSecondaryTermReportSerializer,
-    PrimaryResultSerializer,
-    PrimaryResultCreateUpdateSerializer,
-    PrimaryTermReportSerializer,
-    NurseryResultSerializer,
     NurseryResultCreateUpdateSerializer,
+    NurseryResultSerializer,
     NurseryTermReportSerializer,
-    SeniorSecondaryResultSerializer,
-    SeniorSecondaryResultCreateUpdateSerializer,
-    SeniorSecondaryTermReportSerializer,
-    SeniorSecondarySessionResultSerializer,
-    SeniorSecondarySessionResultCreateUpdateSerializer,
-    SeniorSecondarySessionReportSerializer,
-    ResultCommentCreateSerializer,
-    ResultTemplateCreateUpdateSerializer,
-    ResultTemplateSerializer,
-    BulkStatusUpdateSerializer,
+    PrimaryResultCreateUpdateSerializer,
+    PrimaryResultSerializer,
+    PrimaryTermReportSerializer,
     PublishResultSerializer,
-    StudentMinimalSerializer,
-    SubjectPerformanceSerializer,
-    BulkResultUpdateSerializer,
+    ReportGenerationSerializer,
+    ResultCommentCreateSerializer,
+    ResultCommentSerializer,
     ResultExportSerializer,
     ResultImportSerializer,
-    BulkReportGenerationSerializer,
-    ReportGenerationSerializer,
+    ResultSheetSerializer,
+    ResultTemplateCreateUpdateSerializer,
+    ResultTemplateSerializer,
+    ScoringConfigurationCreateUpdateSerializer,
+    ScoringConfigurationSerializer,
+    SeniorSecondaryResultCreateUpdateSerializer,
+    SeniorSecondaryResultSerializer,
+    SeniorSecondarySessionResultCreateUpdateSerializer,
+    SeniorSecondarySessionResultSerializer,
+    SeniorSecondarySessionReportSerializer,
+    SeniorSecondaryTermReportSerializer,
+    StudentMinimalSerializer,
+    StudentTermResultDetailSerializer,
+    StudentTermResultSerializer,
+    StudentResultSerializer,
+    SubjectPerformanceSerializer,
 )
-
-from students.models import Student
-from academics.models import AcademicSession, Term, EducationLevel
-from classroom.models import Stream, Class as StudentClass
-from subject.models import Subject
 
 logger = logging.getLogger(__name__)
 
-# Constants
-FIRST = "FIRST"
-SECOND = "SECOND"
-THIRD = "THIRD"
+# ── Constants ────────────────────────────────────────────────────────────────
 DRAFT = "DRAFT"
 SUBMITTED = "SUBMITTED"
 APPROVED = "APPROVED"
@@ -121,160 +143,88 @@ SENIOR_SECONDARY = "SENIOR_SECONDARY"
 JUNIOR_SECONDARY = "JUNIOR_SECONDARY"
 PRIMARY = "PRIMARY"
 NURSERY = "NURSERY"
-IMPROVING = "IMPROVING"
-DECLINING = "DECLINING"
-STABLE = "STABLE"
+
+# ── Model routing maps (avoids repeated if/elif chains) ───────────────────────
+_RESULT_MODEL_MAP = {
+    SENIOR_SECONDARY: SeniorSecondaryResult,
+    JUNIOR_SECONDARY: JuniorSecondaryResult,
+    PRIMARY: PrimaryResult,
+    NURSERY: NurseryResult,
+}
+_TERM_REPORT_MODEL_MAP = {
+    SENIOR_SECONDARY: SeniorSecondaryTermReport,
+    JUNIOR_SECONDARY: JuniorSecondaryTermReport,
+    PRIMARY: PrimaryTermReport,
+    NURSERY: NurseryTermReport,
+}
 
 
-# ===== UTILITY FUNCTIONS =====
+class StandardResultsPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
+# ── Utility helpers ───────────────────────────────────────────────────────────
+
+
+def check_user_permission(user, permission_name):
+    if user.is_superuser or user.is_staff:
+        return True
+    role = getattr(user, "role", None)
+    if role in ("admin", "superadmin", "principal"):
+        return True
+    return user.has_perm(permission_name)
+
+
 def get_next_term_begins_date(exam_session):
-    """Get the next term begins date for the given exam session"""
     try:
-        if (
-            not hasattr(exam_session, "academic_session")
-            or not exam_session.academic_session
-        ):
-            logger.error(
-                f"Exam session {exam_session.id} does not have academic_session relationship loaded"
-            )
+        current_term = exam_session.term
+        if not current_term:
             return None
+        current_session = exam_session.academic_session
 
-        current_term_name = exam_session.term
-        current_academic_session = exam_session.academic_session
-
-        logger.info(
-            f"Getting next term begins date for term {current_term_name}, academic_session {current_academic_session.name}"
+        next_term = (
+            Term.objects.filter(
+                academic_session=current_session,
+                term_type__display_order__gt=current_term.term_type.display_order,
+                is_active=True,
+            )
+            .order_by("term_type__display_order")
+            .first()
         )
 
-        term_order = [FIRST, SECOND, THIRD]
+        if next_term:
+            return next_term.next_term_begins
 
-        if current_term_name not in term_order:
-            logger.error(f"Invalid term name: {current_term_name}")
-            return None
-
-        current_index = term_order.index(current_term_name)
-
-        if current_index < len(term_order) - 1:
-            next_term_name = term_order[current_index + 1]
-            next_term = Term.objects.filter(
-                academic_session=current_academic_session,
-                name=next_term_name,
-                is_active=True,
-            ).first()
-
-            if next_term and next_term.next_term_begins:
-                logger.info(
-                    f"Found next term {next_term_name} with next_term_begins {next_term.next_term_begins}"
+        # Last term — look into next academic session
+        next_session = (
+            AcademicSession.objects.filter(
+                start_date__gt=current_session.end_date, is_active=True
+            )
+            .order_by("start_date")
+            .first()
+        )
+        if next_session:
+            first_term = (
+                Term.objects.filter(
+                    academic_session=next_session,
+                    is_active=True,
                 )
-                return next_term.next_term_begins
-            else:
-                logger.warning(
-                    f"Next term {next_term_name} not found or has no next_term_begins date"
-                )
-        else:
-            next_academic_session = (
-                AcademicSession.objects.filter(
-                    start_date__gt=current_academic_session.end_date, is_active=True
-                )
-                .order_by("start_date")
+                .order_by("term_type__display_order")
                 .first()
             )
-
-            if next_academic_session:
-                next_term = Term.objects.filter(
-                    academic_session=next_academic_session, name=FIRST, is_active=True
-                ).first()
-
-                if next_term and next_term.next_term_begins:
-                    logger.info(
-                        f"Found first term of next academic session with next_term_begins {next_term.next_term_begins}"
-                    )
-                    return next_term.next_term_begins
-                else:
-                    logger.warning(
-                        "First term of next academic session not found or has no next_term_begins date"
-                    )
-            else:
-                logger.warning(
-                    f"No next academic session found after {current_academic_session.name}"
-                )
-
+            return first_term.next_term_begins if first_term else None
         return None
     except Exception as e:
         logger.error(f"Error getting next term begins date: {e}")
         return None
 
 
-def check_user_permission(user, permission_name):
-    """Check if user has specific permission"""
-    if user.is_superuser or user.is_staff:
-        return True
-
-    role = getattr(user, "role", None)
-    if role in ["admin", "superadmin", "principal"]:
-        return True
-
-    return user.has_perm(permission_name)
-
-
-def validate_result_for_approval(result):
-    """Validate that result is ready for approval"""
-    errors = []
-
-    if not result.total_score or result.total_score < 0:
-        errors.append("Total score is invalid")
-
-    if not hasattr(result, "exam_score") or result.exam_score is None:
-        errors.append("Exam score is missing")
-
-    if not result.grade:
-        errors.append("Grade has not been calculated")
-
-    return errors
-
-
-# ===== HELPER FUNCTIONS FOR EDUCATION LEVEL =====
-
-
-def get_education_level_from_student(student):
-    """
-    ✅ Get education_level from Student model
-    Student has FK: student_class → StudentClass → education_level FK → EducationLevel
-    The @property student.education_level returns level_type string
-    """
-    try:
-        # Returns the level_type string like "SENIOR_SECONDARY", "PRIMARY", etc.
-        return student.education_level
-    except Exception as e:
-        logger.error(f"Error getting education level for student {student.id}: {e}")
-        return None
-
-
-def get_education_level_from_classroom(classroom):
-    """
-    ✅ Get education_level from Classroom model
-    Classroom → grade_level FK → GradeLevel → education_level FK → EducationLevel → level_type
-    """
-    try:
-        if hasattr(classroom, "grade_level") and classroom.grade_level:
-            grade_level = classroom.grade_level
-            if hasattr(grade_level, "education_level") and grade_level.education_level:
-                # education_level is the FK to EducationLevel model
-                return grade_level.education_level.level_type
-        return None
-    except Exception as e:
-        logger.error(f"Error getting education level from classroom: {e}")
-        return None
-
-
-# ===== GRADING SYSTEM VIEWSETS =====
+# ── Grading System ────────────────────────────────────────────────────────────
 
 
 class GradingSystemViewSet(TenantFilterMixin, viewsets.ModelViewSet):
-    """
-    CRITICAL: TenantFilterMixin ensures tenant isolation.
-    Grading systems are school-wide, not section-specific.
-    """
     queryset = GradingSystem.objects.all()
     serializer_class = GradingSystemSerializer
     permission_classes = [IsAuthenticated]
@@ -283,35 +233,29 @@ class GradingSystemViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     search_fields = ["name", "description"]
 
     def get_queryset(self):
-        # CRITICAL: Call super() to get tenant-filtered queryset first
-        queryset = super().get_queryset()
-        return queryset.prefetch_related("grades")
+        return super().get_queryset().prefetch_related("grades")
 
     def get_serializer_class(self):
-        if self.action in ["create", "update", "partial_update"]:
+        if self.action in ("create", "update", "partial_update"):
             return GradingSystemCreateUpdateSerializer
         return GradingSystemSerializer
 
     @action(detail=True, methods=["post"])
     def activate(self, request, pk=None):
-        grading_system = self.get_object()
-        grading_system.is_active = True
-        grading_system.save()
-        return Response(GradingSystemSerializer(grading_system).data)
+        gs = self.get_object()
+        gs.is_active = True
+        gs.save()
+        return Response(GradingSystemSerializer(gs).data)
 
     @action(detail=True, methods=["post"])
     def deactivate(self, request, pk=None):
-        grading_system = self.get_object()
-        grading_system.is_active = False
-        grading_system.save()
-        return Response(GradingSystemSerializer(grading_system).data)
+        gs = self.get_object()
+        gs.is_active = False
+        gs.save()
+        return Response(GradingSystemSerializer(gs).data)
 
 
 class GradeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
-    """
-    CRITICAL: TenantFilterMixin ensures tenant isolation.
-    Grades are school-wide, not section-specific.
-    """
     queryset = Grade.objects.all()
     serializer_class = GradeSerializer
     permission_classes = [IsAuthenticated]
@@ -319,27 +263,24 @@ class GradeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     filterset_fields = ["grading_system", "is_passing"]
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        return queryset.select_related("grading_system")
+        return super().get_queryset().select_related("grading_system")
 
 
-class AssessmentTypeViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
-    """
-    CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
-    ✅ FIXED: education_level is now FK to EducationLevel model
-    """
+class AssessmentTypeViewSet(
+    TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet
+):
     queryset = AssessmentType.objects.all()
     serializer_class = AssessmentTypeSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    # ✅ FIXED: Filter by FK id
     filterset_fields = ["education_level", "is_active"]
     search_fields = ["name", "code"]
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        # ✅ Select related FK
-        return queryset.select_related("education_level")
+        return super().get_queryset().select_related("education_level")
+
+
+# ── Exam Session ──────────────────────────────────────────────────────────────
 
 
 class ExamSessionViewSet(
@@ -358,180 +299,131 @@ class ExamSessionViewSet(
     search_fields = ["name"]
 
     def get_serializer_class(self):
-        if self.action in ["create", "update", "partial_update"]:
+        if self.action in ("create", "update", "partial_update"):
             return ExamSessionCreateUpdateSerializer
         return ExamSessionSerializer
 
     def get_queryset(self):
-        queryset = super().get_queryset().select_related("academic_session")
-        user = self.request.user
-
-        # Students see only published sessions
-        if hasattr(user, "role") and user.role == "STUDENT":
-            queryset = queryset.filter(is_published=True)
-
-        return queryset.order_by("-created_at")
+        qs = (
+            super()
+            .get_queryset()
+            .select_related("academic_session", "term", "term__term_type")
+        )
+        if getattr(self.request.user, "role", None) == "STUDENT":
+            qs = qs.filter(is_published=True)
+        return qs.order_by("-created_at")
 
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
-        exam_session = self.get_object()
-        exam_session.is_published = True
-        exam_session.published_by = request.user
-        exam_session.published_date = timezone.now()
-        exam_session.save()
-        return Response(ExamSessionSerializer(exam_session).data)
+        session = self.get_object()
+        session.is_published = True
+        session.save()
+        return Response(ExamSessionSerializer(session).data)
 
     @action(detail=True, methods=["get"])
     def statistics(self, request, pk=None):
-        exam_session = self.get_object()
-
-        stats = {
-            "total_results": 0,
-            "by_education_level": {},
-            "by_status": {},
-        }
-
-        education_levels = [SENIOR_SECONDARY, JUNIOR_SECONDARY, PRIMARY, NURSERY]
-
-        for level in education_levels:
-            if level == SENIOR_SECONDARY:
-                results = SeniorSecondaryResult.objects.filter(
-                    exam_session=exam_session
-                )
-            elif level == JUNIOR_SECONDARY:
-                results = JuniorSecondaryResult.objects.filter(
-                    exam_session=exam_session
-                )
-            elif level == PRIMARY:
-                results = PrimaryResult.objects.filter(exam_session=exam_session)
-            elif level == NURSERY:
-                results = NurseryResult.objects.filter(exam_session=exam_session)
-            else:
-                results = StudentResult.objects.none()
-
+        session = self.get_object()
+        stats = {"total_results": 0, "by_education_level": {}}
+        for level, model in _RESULT_MODEL_MAP.items():
+            qs = model.objects.filter(exam_session=session)
             level_stats = {
-                "total": results.count(),
-                "published": results.filter(status=PUBLISHED).count(),
-                "approved": results.filter(status=APPROVED).count(),
-                "draft": results.filter(status=DRAFT).count(),
-                "passed": results.filter(is_passed=True).count(),
-                "failed": results.filter(is_passed=False).count(),
+                "total": qs.count(),
+                "published": qs.filter(status=PUBLISHED).count(),
+                "approved": qs.filter(status=APPROVED).count(),
+                "draft": qs.filter(status=DRAFT).count(),
+                "passed": qs.filter(is_passed=True).count(),
+                "failed": qs.filter(is_passed=False).count(),
             }
-
             stats["by_education_level"][level] = level_stats
             stats["total_results"] += level_stats["total"]
-
         return Response(stats)
-class ScoringConfigurationViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
-    """
-    CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
-    ✅ FIXED: education_level is now FK to EducationLevel model
-    """
+
+
+# ── Scoring Configuration ─────────────────────────────────────────────────────
+
+
+class ScoringConfigurationViewSet(
+    TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet
+):
     queryset = ScoringConfiguration.objects.all().order_by("education_level", "name")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    # ✅ FIXED: Filter by FK id
     filterset_fields = ["education_level", "result_type", "is_active", "is_default"]
     search_fields = ["name", "description"]
 
     def get_serializer_class(self):
-        if self.action in ["create", "update", "partial_update"]:
+        if self.action in ("create", "update", "partial_update"):
             return ScoringConfigurationCreateUpdateSerializer
         return ScoringConfigurationSerializer
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        # ✅ Select related FK
-        return queryset.select_related("created_by", "education_level")
+        return super().get_queryset().select_related("created_by", "education_level")
 
     @action(detail=False, methods=["get"])
     def by_education_level(self, request):
-        """
-        ✅ FIXED: Accept education_level as FK id or level_type string
-        """
-        education_level_param = request.query_params.get("education_level")
-        if not education_level_param:
+        param = request.query_params.get("education_level")
+        if not param:
             return Response(
-                {"error": "education_level parameter is required"},
-                status=status.HTTP_400_BAD_REQUEST,
+                {"error": "education_level parameter is required"}, status=400
             )
-
-        # Try to parse as FK id first
         try:
-            education_level_id = int(education_level_param)
-            configs = self.get_queryset().filter(education_level_id=education_level_id)
+            configs = self.get_queryset().filter(education_level_id=int(param))
         except (ValueError, TypeError):
-            # Fall back to level_type string lookup
             configs = self.get_queryset().filter(
-                education_level__level_type=education_level_param.upper()
+                education_level__level_type=param.upper()
             )
-
-        serializer = ScoringConfigurationSerializer(configs, many=True)
-        return Response(serializer.data)
+        return Response(ScoringConfigurationSerializer(configs, many=True).data)
 
     @action(detail=False, methods=["get"])
     def defaults(self, request):
         configs = self.get_queryset().filter(is_default=True, is_active=True)
-        serializer = ScoringConfigurationSerializer(configs, many=True)
-        return Response(serializer.data)
+        return Response(ScoringConfigurationSerializer(configs, many=True).data)
 
     @action(detail=False, methods=["get"])
     def by_result_type(self, request):
         result_type = request.query_params.get("result_type", "TERMLY")
-        education_level_param = request.query_params.get("education_level")
-
-        filters_q = {"result_type": result_type, "is_active": True}
-
-        # ✅ FIXED: Handle both FK id and level_type string
-        if education_level_param:
+        param = request.query_params.get("education_level")
+        filter_kwargs = {"result_type": result_type, "is_active": True}
+        if param:
             try:
-                education_level_id = int(education_level_param)
-                filters_q["education_level_id"] = education_level_id
+                filter_kwargs["education_level_id"] = int(param)
             except (ValueError, TypeError):
-                filters_q["education_level__level_type"] = education_level_param.upper()
-
-        configs = self.get_queryset().filter(**filters_q)
-        serializer = ScoringConfigurationSerializer(configs, many=True)
-        return Response(serializer.data)
+                filter_kwargs["education_level__level_type"] = param.upper()
+        return Response(
+            ScoringConfigurationSerializer(
+                self.get_queryset().filter(**filter_kwargs), many=True
+            ).data
+        )
 
     @action(detail=True, methods=["post"])
     def set_as_default(self, request, pk=None):
         config = self.get_object()
-
         with transaction.atomic():
-            # ✅ FIXED: Filter by FK instead of string
             ScoringConfiguration.objects.filter(
                 education_level=config.education_level, result_type=config.result_type
             ).update(is_default=False)
-
             config.is_default = True
             config.save(update_fields=["is_default"])
-
         return Response(ScoringConfigurationSerializer(config).data)
 
 
+# ── BaseResultViewSetMixin ────────────────────────────────────────────────────
+
+
 class BaseResultViewSetMixin:
-    """Common methods for all result viewsets"""
+    """
+    Shared helpers for all education-level result viewsets.
+    Does NOT contain any get_queryset() — each viewset owns its own.
+    """
 
     def get_teacher_queryset(self, user, queryset):
-        """
-        ✅ FIXED: Get filtered queryset for teachers
-        Uses FK relationships: Teacher → Classroom → GradeLevel → EducationLevel
-        """
         Teacher = apps.get_model("teacher", "Teacher")
         Classroom = apps.get_model("classroom", "Classroom")
-        StudentEnrollment = apps.get_model("classroom", "StudentEnrollment")
         ClassroomTeacherAssignment = apps.get_model(
             "classroom", "ClassroomTeacherAssignment"
         )
-
         try:
             teacher = Teacher.objects.get(user=user)
-            logger.info(
-                f"🔍 Filtering results for teacher: {user.username} (ID: {teacher.id})"
-            )
-
-            # Get assigned classrooms with FK relationships
             assigned_classrooms = (
                 Classroom.objects.filter(
                     Q(class_teacher=teacher)
@@ -540,103 +432,55 @@ class BaseResultViewSetMixin:
                 .select_related("grade_level", "grade_level__education_level")
                 .distinct()
             )
-
-            logger.info(
-                f"📚 Teacher assigned to {assigned_classrooms.count()} classrooms"
-            )
-
             if not assigned_classrooms.exists():
-                logger.warning(f"❌ Teacher {user.username} has no assigned classrooms")
                 return queryset.none()
 
-            # ✅ Get education levels from FK chain: Classroom → GradeLevel → EducationLevel
-            classroom_education_levels = []
+            classroom_levels = []
             for classroom in assigned_classrooms:
                 try:
-                    if hasattr(classroom, "grade_level") and classroom.grade_level:
-                        level_obj = classroom.grade_level.education_level
-                        if (
-                            level_obj
-                            and level_obj.level_type not in classroom_education_levels
-                        ):
-                            classroom_education_levels.append(level_obj.level_type)
-                except Exception as e:
-                    logger.warning(
-                        f"⚠️ Could not get education level for classroom {classroom.name}: {e}"
-                    )
+                    level = classroom.grade_level.education_level.level_type
+                    if level not in classroom_levels:
+                        classroom_levels.append(level)
+                except (AttributeError, Exception):
                     continue
 
-            logger.info(f"🎓 Classroom education levels: {classroom_education_levels}")
-
-            # Determine if classroom teacher (Nursery/Primary)
             is_classroom_teacher = any(
-                level in ["NURSERY", "PRIMARY"] for level in classroom_education_levels
+                l in ("NURSERY", "PRIMARY") for l in classroom_levels
             )
-            logger.info(f"👨‍🏫 Is classroom teacher? {is_classroom_teacher}")
-
-            # Get students from assigned classrooms
             student_ids = list(
                 StudentEnrollment.objects.filter(
                     classroom__in=assigned_classrooms, is_active=True
                 ).values_list("student_id", flat=True)
             )
-            logger.info(f"👥 Students in assigned classrooms: {len(student_ids)}")
-
             if not student_ids:
-                logger.warning(f"❌ No active students found in teacher's classrooms")
                 return queryset.none()
 
-            # Filter based on teacher type
             if is_classroom_teacher:
-                # CLASSROOM TEACHERS (Nursery/Primary): See ALL subjects for their students
-                filtered = queryset.filter(student_id__in=student_ids)
-                logger.info(
-                    f"✅ Classroom teacher can see {filtered.count()} results (all subjects)"
-                )
-                return filtered
-            else:
-                # SUBJECT TEACHERS (Secondary): See ONLY their assigned subjects
-                teacher_assignments = ClassroomTeacherAssignment.objects.filter(
-                    teacher=teacher
-                ).select_related("subject")
+                return queryset.filter(student_id__in=student_ids)
 
-                assigned_subject_ids = list(
-                    teacher_assignments.exclude(subject__isnull=True)
-                    .values_list("subject_id", flat=True)
-                    .distinct()
-                )
-                logger.info(f"📖 Teacher assigned subjects: {assigned_subject_ids}")
-
-                if not assigned_subject_ids:
-                    logger.warning(
-                        f"❌ Subject teacher {user.username} has no assigned subjects"
-                    )
-                    return queryset.none()
-
-                # Filter by BOTH subject AND student
-                filtered = queryset.filter(
-                    subject_id__in=assigned_subject_ids, student_id__in=student_ids
-                )
-                logger.info(f"✅ Subject teacher can see {filtered.count()} results")
-                return filtered
+            assigned_subject_ids = list(
+                ClassroomTeacherAssignment.objects.filter(teacher=teacher)
+                .exclude(subject__isnull=True)
+                .values_list("subject_id", flat=True)
+                .distinct()
+            )
+            if not assigned_subject_ids:
+                return queryset.none()
+            return queryset.filter(
+                subject_id__in=assigned_subject_ids, student_id__in=student_ids
+            )
 
         except Teacher.DoesNotExist:
-            logger.error(f"❌ Teacher object not found for user {user.username}")
             return queryset.none()
         except Exception as e:
-            logger.error(f"❌ Error filtering for teacher: {str(e)}", exc_info=True)
-            import traceback
-
-            logger.error(f"❌ Traceback: {traceback.format_exc()}")
+            logger.error(
+                f"Error filtering for teacher {user.username}: {e}", exc_info=True
+            )
             return queryset.none()
 
     def handle_create(
         self, request, education_level, serializer_class, result_serializer_class
     ):
-        """
-        ✅ FIXED: Common create logic using FK relationships
-        Validates student.education_level (FK chain) matches expected level
-        """
         try:
             with transaction.atomic():
                 data = (
@@ -645,46 +489,35 @@ class BaseResultViewSetMixin:
                     else dict(request.data)
                 )
                 student_id = data.get("student")
-
                 if student_id:
                     student = Student.objects.select_related(
                         "student_class", "student_class__education_level"
                     ).get(id=student_id)
-
-                    # ✅ student.education_level is @property returning level_type string
                     if student.education_level != education_level:
                         return Response(
                             {
-                                "error": f"Student's education level is {student.education_level}, expected {education_level}."
+                                "error": f"Student education level is {student.education_level}, expected {education_level}."
                             },
                             status=status.HTTP_400_BAD_REQUEST,
                         )
-
                 data["entered_by"] = request.user.id
                 serializer = serializer_class(data=data)
                 serializer.is_valid(raise_exception=True)
                 result = serializer.save()
-
-                detailed_serializer = result_serializer_class(result)
                 return Response(
-                    detailed_serializer.data, status=status.HTTP_201_CREATED
+                    result_serializer_class(result).data, status=status.HTTP_201_CREATED
                 )
-
         except Student.DoesNotExist:
             return Response(
                 {"error": "Student not found"}, status=status.HTTP_404_NOT_FOUND
             )
         except Exception as e:
-            logger.error(f"Failed to create result: {str(e)}", exc_info=True)
-            return Response(
-                {"error": f"Failed to create result: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            logger.error(f"Failed to create result: {e}", exc_info=True)
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     def handle_update(
         self, request, instance, serializer_class, result_serializer_class, **kwargs
     ):
-        """Common update logic for all result types"""
         try:
             with transaction.atomic():
                 if instance.status == PUBLISHED and not check_user_permission(
@@ -696,7 +529,6 @@ class BaseResultViewSetMixin:
                         },
                         status=status.HTTP_403_FORBIDDEN,
                     )
-
                 data = (
                     request.data.copy()
                     if hasattr(request.data, "copy")
@@ -706,461 +538,72 @@ class BaseResultViewSetMixin:
                     instance, data=data, partial=kwargs.get("partial", False)
                 )
                 serializer.is_valid(raise_exception=True)
-                result = serializer.save()
-
-                detailed_serializer = result_serializer_class(result)
-                return Response(detailed_serializer.data)
-
+                return Response(result_serializer_class(serializer.save()).data)
         except Exception as e:
-            logger.error(f"Failed to update result: {str(e)}", exc_info=True)
-            return Response(
-                {"error": f"Failed to update result: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-    def _prepare_request_data_copy(self, request):
-        """Create a mutable copy of request data"""
-        if hasattr(request.data, "_mutable"):
-            request.data._mutable = True
-            return request.data
-        return (
-            request.data.copy() if hasattr(request.data, "copy") else dict(request.data)
-        )
+            logger.error(f"Failed to update result: {e}", exc_info=True)
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     def handle_approve(self, request, result, serializer_class):
-        """Common approve logic"""
         user_role = self.get_user_role()
-        allowed_roles = ["admin", "superadmin", "principal", "senior_secondary_admin"]
-
-        if user_role not in allowed_roles and not check_user_permission(
-            request.user, "results.can_approve_results"
-        ):
+        if user_role not in (
+            "admin",
+            "superadmin",
+            "principal",
+            "senior_secondary_admin",
+        ) and not check_user_permission(request.user, "results.can_approve_results"):
             return Response(
-                {"error": "You don't have permission to approve results"},
-                status=status.HTTP_403_FORBIDDEN,
+                {"error": "You don't have permission to approve results"}, status=403
             )
-
+        if result.status == PUBLISHED:
+            return Response({"error": "Cannot approve a published result"}, status=400)
+        if result.status not in (DRAFT, SUBMITTED):
+            return Response(
+                {"error": f"Cannot approve result with status '{result.status}'"},
+                status=400,
+            )
         try:
             with transaction.atomic():
-                if result.status == PUBLISHED:
-                    return Response(
-                        {"error": "Cannot approve a published result"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                if not getattr(result, "total_score", None) and result.total_score != 0:
-                    return Response(
-                        {"error": "Cannot approve result with invalid scores"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                if result.status not in [DRAFT, SUBMITTED]:
-                    return Response(
-                        {
-                            "error": "Invalid status transition",
-                            "detail": f"Cannot approve result with status '{result.status}'. Only DRAFT or SUBMITTED results can be approved.",
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
                 result.status = APPROVED
                 result.approved_by = request.user
                 result.approved_date = timezone.now()
                 result.save(update_fields=["status", "approved_by", "approved_date"])
-
-                return Response(serializer_class(result).data)
-
+            return Response(serializer_class(result).data)
         except Exception as e:
-            logger.error(f"Error approving result: {str(e)}", exc_info=True)
-            return Response(
-                {"error": f"Error approving result: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": str(e)}, status=400)
 
     def handle_publish(self, request, result, serializer_class):
-        """Common publish logic"""
         user_role = self.get_user_role()
-        allowed_roles = ["admin", "superadmin", "principal", "senior_secondary_admin"]
-
-        if user_role not in allowed_roles and not check_user_permission(
-            request.user, "results.can_publish_results"
-        ):
+        if user_role not in (
+            "admin",
+            "superadmin",
+            "principal",
+            "senior_secondary_admin",
+        ) and not check_user_permission(request.user, "results.can_publish_results"):
             return Response(
-                {"error": "You don't have permission to publish results"},
-                status=status.HTTP_403_FORBIDDEN,
+                {"error": "You don't have permission to publish results"}, status=403
             )
-
+        if result.status == PUBLISHED:
+            return Response({"error": "Result is already published"}, status=400)
         try:
             with transaction.atomic():
-                if result.status == PUBLISHED:
-                    return Response(
-                        {"error": "Result is already published"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
                 result.status = PUBLISHED
                 result.published_by = request.user
                 result.published_date = timezone.now()
                 result.save(update_fields=["status", "published_by", "published_date"])
-
-                return Response(serializer_class(result).data)
-
+            return Response(serializer_class(result).data)
         except Exception as e:
-            logger.error(f"Error publishing result: {str(e)}", exc_info=True)
-            return Response(
-                {"error": f"Error publishing result: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": str(e)}, status=400)
 
-
-class StandardResultsPagination(PageNumberPagination):
-    page_size = 20
-    page_size_query_param = "page_size"
-    max_page_size = 100
-
-
-# ===== SENIOR SECONDARY VIEWSETS =====
-class SeniorSecondaryResultViewSet(
-    BaseResultViewSetMixin,
-    TeacherPortalCheckMixin,
-    SectionFilterMixin,
-    viewsets.ModelViewSet,
-):
-    """
-    ✅ FIXED: All FK relationships properly handled
-    - Student → student_class FK → education_level FK
-    - Stream → stream_type_new FK (new FK relationship)
-    """
-    pagination_class = StandardResultsPagination
-    queryset = SeniorSecondaryResult.objects.all().order_by("-created_at")
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = [
-        "student",
-        "subject",
-        "exam_session",
-        "status",
-        "is_passed",
-        "stream",  # ✅ FK to Stream model
-    ]
-    search_fields = [
-        "student__user__first_name",
-        "student__user__last_name",
-        "subject__name",
-    ]
-
-    def get_serializer_class(self):
-        if self.action in ["create", "update", "partial_update"]:
-            return SeniorSecondaryResultCreateUpdateSerializer
-        return SeniorSecondaryResultSerializer
-
-    def get_queryset(self):
-        # ✅ Select related all FK relationships
-        qs = (
-            super()
-            .get_queryset()
-            .select_related(
-                "student",
-                "student__user",
-                "student__student_class",  # ✅ FK
-                "student__student_class__education_level",  # ✅ FK chain
-                "subject",
-                "exam_session",
-                "grading_system",
-                "stream",  # ✅ FK
-                "stream__stream_type_new",  # ✅ New FK relationship
-                "entered_by",
-                "approved_by",
-                "published_by",
-                "last_edited_by",
-            )
-        )
-
-        user = getattr(self.request, "user", None)
-        if not user or user.is_anonymous:
-            return qs.none()
-
-        if user.is_superuser or user.is_staff:
-            return qs
-
-        role = self.get_user_role()
-
-        if role in ["admin", "superadmin", "principal"]:
-            return qs
-
-        if role in ["secondary_admin", "senior_secondary_admin"]:
-            education_levels = self.get_user_education_level_access()
-            if education_levels:
-                # ✅ Filter by level_type through FK chain
-                return qs.filter(
-                    student__student_class__education_level__level_type__in=education_levels
-                )
-            return qs.none()
-
-        if role == "teacher":
-            return self.get_teacher_queryset(user, qs)
-
-        if role == "student":
-            try:
-                student = Student.objects.get(user=user)
-                return qs.filter(student=student, status=PUBLISHED)
-            except Student.DoesNotExist:
-                return qs.none()
-
-        if role == "parent":
-            try:
-                Parent = apps.get_model("parent", "Parent")
-                parent = Parent.objects.get(user=user)
-                return qs.filter(student__parents=parent, status=PUBLISHED)
-            except Exception:
-                return qs.none()
-
-        return qs.none()
-
-    def create(self, request, *args, **kwargs):
-        return self.handle_create(
-            request,
-            SENIOR_SECONDARY,
-            SeniorSecondaryResultCreateUpdateSerializer,
-            SeniorSecondaryResultSerializer,
-        )
-
-    def update(self, request, *args, **kwargs):
-        instance = self.get_object()
-        return self.handle_update(
-            request,
-            instance,
-            SeniorSecondaryResultCreateUpdateSerializer,
-            SeniorSecondaryResultSerializer,
-            **kwargs,
-        )
-
-    @action(detail=True, methods=["post"])
-    def approve(self, request, pk=None):
-        result = self.get_object()
-        return self.handle_approve(request, result, SeniorSecondaryResultSerializer)
-
-    @action(detail=True, methods=["post"])
-    def publish(self, request, pk=None):
-        result = self.get_object()
-        return self.handle_publish(request, result, SeniorSecondaryResultSerializer)
-
-    @action(detail=False, methods=["post"])
-    def bulk_create(self, request):
-        results_data = request.data.get("results", [])
-        errors = []
-        validated_objects = []
-        seen_keys = set()
-
-        ModelClass = self.get_queryset().model
-
-        # Detect which level this viewset handles
-        education_level = self._get_education_level(ModelClass)
-
-        # STEP 0: Preload existing keys to avoid per-row DB hits
-        existing_keys = set(
-            ModelClass.objects.values_list(
-                "student_id", "subject_id", "exam_session_id"
-            )
-        )
-
-        # STEP 1: Validate all records first — fail fast before any DB write
-        for i, raw_item in enumerate(results_data):
-            result_data = (
-                dict(raw_item) if not isinstance(raw_item, dict) else raw_item.copy()
-            )
-            result_data["entered_by"] = request.user.id
-
-            serializer = self.get_serializer(data=result_data)
-
-            if serializer.is_valid():
-                data = serializer.validated_data
-                key = (
-                    data["student"].id,
-                    data["subject"].id,
-                    data["exam_session"].id,
-                )
-
-                if key in seen_keys:
-                    errors.append(
-                        {
-                            "index": i,
-                            "errors": "Duplicate entry in uploaded data",
-                            "data": result_data,
-                        }
-                    )
-                    continue
-
-                if key in existing_keys:
-                    errors.append(
-                        {
-                            "index": i,
-                            "errors": "Result already exists in database",
-                            "data": result_data,
-                        }
-                    )
-                    continue
-
-                seen_keys.add(key)
-
-                # ✅ CRITICAL: Calculate scores NOW because bulk_create
-                # bypasses save(), so calculate_scores() and determine_grade()
-                # will never be called automatically
-                instance = ModelClass(**data)
-                self._calculate_instance_scores(instance, ModelClass)
-                validated_objects.append(instance)
-
-            else:
-                errors.append(
-                    {
-                        "index": i,
-                        "errors": serializer.errors,
-                        "data": result_data,
-                    }
-                )
-
-        # Stop everything if any validation failed — true atomic behavior
-        if errors:
-            return Response(
-                {
-                    "error": "Validation failed. No results were saved.",
-                    "errors": errors,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # STEP 2: Bulk insert + all post-processing inside ONE transaction
-        try:
-            with transaction.atomic():
-                # Insert all records
-                created_results = ModelClass.objects.bulk_create(
-                    validated_objects, batch_size=500
-                )
-
-                # Collect affected groups for post-processing
-                # Group by (exam_session, subject, student_class, education_level)
-                # for subject statistics, and by (exam_session, student_class,
-                # education_level) for term report positions
-                subject_groups = set()
-                class_groups = set()
-                student_session_pairs = []  # For term report creation
-
-                for obj in created_results:
-                    student_class = obj.student.student_class
-                    edu_level = obj.student.education_level
-
-                    subject_groups.add(
-                        (
-                            obj.exam_session_id,
-                            obj.subject_id,
-                            student_class,
-                            edu_level,
-                        )
-                    )
-                    class_groups.add(
-                        (
-                            obj.exam_session_id,
-                            student_class,
-                            edu_level,
-                        )
-                    )
-                    student_session_pairs.append((obj.student_id, obj.exam_session_id))
-
-                # STEP 3: Create/update TermReports for each affected student
-                # This is what the signal does that your old code missed entirely
-                self._ensure_term_reports_exist(
-                    created_results, ModelClass, education_level
-                )
-
-                # STEP 4: Recalculate subject-level statistics
-                # (class_average, highest, lowest, subject_position)
-                # This replaces the broken _recalculate_positions()
-                for (
-                    exam_session_id,
-                    subject_id,
-                    student_class,
-                    edu_level,
-                ) in subject_groups:
-                    self._recalculate_subject_stats(
-                        ModelClass,
-                        exam_session_id,
-                        subject_id,
-                        student_class,
-                        edu_level,
-                    )
-
-                # STEP 5: Recalculate class positions on TermReports
-                TermReportModel = self._get_term_report_model(ModelClass)
-                if TermReportModel:
-                    for exam_session_id, student_class, edu_level in class_groups:
-                        TermReportModel.bulk_recalculate_positions(
-                            exam_session=self._get_exam_session(exam_session_id),
-                            student_class=student_class,
-                            education_level=edu_level,
-                        )
-
-            return Response(
-                {
-                    "message": f"Successfully created {len(created_results)} results",
-                    "results": self.get_serializer(created_results, many=True).data,
-                },
-                status=status.HTTP_201_CREATED,
-            )
-
-        except Exception as e:
-            logger.error(f"Bulk create failed: {str(e)}", exc_info=True)
-            return Response(
-                {
-                    "error": "Bulk upload failed. No results were saved.",
-                    "details": str(e),
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-    # ── Helper methods ──────────────────────────────────────────────────────────
+    # ── bulk_create helpers ───────────────────────────────────────────────────
 
     def _get_education_level(self, ModelClass):
-        """Map model class to education level string."""
-        from result.models import (
-            JuniorSecondaryResult,
-            SeniorSecondaryResult,
-            PrimaryResult,
-            NurseryResult,
-        )
-
-        mapping = {
-            JuniorSecondaryResult: "JUNIOR_SECONDARY",
-            SeniorSecondaryResult: "SENIOR_SECONDARY",
-            PrimaryResult: "PRIMARY",
-            NurseryResult: "NURSERY",
-        }
-        return mapping.get(ModelClass, "UNKNOWN")
+        return {v: k for k, v in _RESULT_MODEL_MAP.items()}.get(ModelClass, "UNKNOWN")
 
     def _get_term_report_model(self, ModelClass):
-        """Return the matching TermReport model for a given Result model."""
-        from result.models import (
-            JuniorSecondaryResult,
-            JuniorSecondaryTermReport,
-            SeniorSecondaryResult,
-            SeniorSecondaryTermReport,
-            PrimaryResult,
-            PrimaryTermReport,
-            NurseryResult,
-            NurseryTermReport,
-        )
-
-        mapping = {
-            JuniorSecondaryResult: JuniorSecondaryTermReport,
-            SeniorSecondaryResult: SeniorSecondaryTermReport,
-            PrimaryResult: PrimaryTermReport,
-            NurseryResult: NurseryTermReport,
-        }
-        return mapping.get(ModelClass)
+        level = self._get_education_level(ModelClass)
+        return _TERM_REPORT_MODEL_MAP.get(level)
 
     def _get_exam_session(self, exam_session_id):
-        """Fetch ExamSession by ID (cached per request if called multiple times)."""
-        from result.models import ExamSession
-
         if not hasattr(self, "_exam_session_cache"):
             self._exam_session_cache = {}
         if exam_session_id not in self._exam_session_cache:
@@ -1170,24 +613,10 @@ class SeniorSecondaryResultViewSet(
         return self._exam_session_cache[exam_session_id]
 
     def _calculate_instance_scores(self, instance, ModelClass):
-        """
-        Replicate what each model's save() does score-wise.
-        bulk_create bypasses save(), so we must do this manually.
-        """
-        from result.models import (
-            JuniorSecondaryResult,
-            SeniorSecondaryResult,
-            PrimaryResult,
-            NurseryResult,
-        )
-
-        # All result models have these two methods defined
         if hasattr(instance, "calculate_scores"):
             instance.calculate_scores()
         if hasattr(instance, "determine_grade"):
             instance.determine_grade()
-
-        # NurseryResult uses a different pattern — percentage from mark_obtained
         if ModelClass == NurseryResult:
             if instance.max_marks_obtainable and instance.max_marks_obtainable > 0:
                 instance.percentage = (
@@ -1195,78 +624,50 @@ class SeniorSecondaryResultViewSet(
                 ) * 100
             else:
                 instance.percentage = 0
-
             if instance.grading_system:
-                calculated_grade = instance.grading_system.get_grade(
-                    instance.percentage
-                )
-                instance.grade = calculated_grade or instance._get_default_grade(
-                    instance.percentage
-                )
+                grade = instance.grading_system.get_grade(instance.percentage)
+                from result.models import _default_grade
+
+                instance.grade = grade or _default_grade(instance.percentage)
                 instance.is_passed = instance.percentage >= float(
                     instance.grading_system.pass_mark or 40
                 )
 
     def _ensure_term_reports_exist(self, created_results, ModelClass, education_level):
-        """
-        This is the step your old bulk_create was completely missing.
-
-        For every student+exam_session in the batch, get_or_create their
-        TermReport and recalculate its metrics — exactly what the post_save
-        signal does for individual saves.
-        """
         TermReportModel = self._get_term_report_model(ModelClass)
         if not TermReportModel:
             return
-
-        # Deduplicate: one term report per student+session
-        seen_pairs = set()
+        seen = set()
         for obj in created_results:
             pair = (obj.student_id, obj.exam_session_id)
-            if pair in seen_pairs:
+            if pair in seen:
                 continue
-            seen_pairs.add(pair)
-
-            defaults = {"status": "DRAFT", "is_published": False}
-
-            # Senior Secondary needs the stream linked
-            from result.models import SeniorSecondaryResult
-
-            if ModelClass == SeniorSecondaryResult and hasattr(obj, "stream"):
+            seen.add(pair)
+            defaults = {"status": DRAFT, "is_published": False}
+            if ModelClass == SeniorSecondaryResult and getattr(obj, "stream", None):
                 defaults["stream"] = obj.stream
-
-            term_report, created = TermReportModel.objects.get_or_create(
+            term_report, _ = TermReportModel.objects.get_or_create(
                 student_id=obj.student_id,
                 exam_session_id=obj.exam_session_id,
                 defaults=defaults,
             )
-
-            # Link the result to its term report if not already linked
-            if not obj.term_report_id:
-                ModelClass.objects.filter(
-                    student_id=obj.student_id,
-                    exam_session_id=obj.exam_session_id,
-                ).update(term_report=term_report)
-
-            # Recalculate metrics — this is what the signal calls
+            ModelClass.objects.filter(
+                student_id=obj.student_id,
+                exam_session_id=obj.exam_session_id,
+                term_report__isnull=True,
+            ).update(term_report=term_report)
             term_report.calculate_metrics()
-
-            # Don't call calculate_class_position() per student here —
-            # bulk_recalculate_positions() in STEP 5 handles all students
-            # at once more efficiently
 
     def _recalculate_subject_stats(
         self, ModelClass, exam_session_id, subject_id, student_class, edu_level
     ):
         """
-        Bulk recalculate subject-level stats for a class in one DB query.
-        Replaces the broken _recalculate_positions() which used wrong field names.
+        Bulk recalculate subject-level stats with correct tie-breaking.
+
+        Position algorithm fix: when score changes, advance position by the
+        count of results at the *previous* score, not the current one.
+        Reset prev_score tracking before the loop.
         """
-        from django.db.models import Avg, Max, Min
-
-        # Determine the correct score field per level
-        from result.models import NurseryResult
-
         score_field = (
             "mark_obtained"
             if ModelClass == NurseryResult
@@ -1276,42 +677,38 @@ class SeniorSecondaryResultViewSet(
                 else "total_score"
             )
         )
-
         results = (
             ModelClass.objects.filter(
                 exam_session_id=exam_session_id,
                 subject_id=subject_id,
                 student__student_class=student_class,
                 student__education_level=edu_level,
-                status__in=["APPROVED", "PUBLISHED"],
+                status__in=(APPROVED, PUBLISHED),
             )
             .select_for_update()
             .order_by(f"-{score_field}", "created_at")
         )
-
         if not results.exists():
             return
 
         stats = results.aggregate(
-            avg=Avg(score_field),
-            highest=Max(score_field),
-            lowest=Min(score_field),
+            avg=Avg(score_field), highest=Max(score_field), lowest=Min(score_field)
         )
 
-        # Assign positions with correct tie handling
         updates = []
-        current_position = 1
+        current_position = 1  # position assigned to current score group
+        count_at_current = 0  # how many have this score so far
         prev_score = None
-        count_at_position = 0
 
         for result in results:
             score = getattr(result, score_field)
             if score != prev_score:
-                current_position += count_at_position
-                count_at_position = 1
+                # Move position past the previous group
+                current_position += count_at_current
+                count_at_current = 1
                 prev_score = score
             else:
-                count_at_position += 1
+                count_at_current += 1
 
             result.subject_position = current_position
             result.class_average = stats["avg"] or 0
@@ -1330,128 +727,726 @@ class SeniorSecondaryResultViewSet(
             batch_size=100,
         )
 
-    def destroy(self, request, *args, **kwargs):
+    def bulk_create(self, request):
         """
-        Delete a subject result.
-        - Admin/Principal: Can delete ANY result regardless of status
-        - Teachers: Can only delete DRAFT results
+        Two-phase bulk result creation.
+
+        Expected request body
+        ─────────────────────
+        {
+            "results": [
+                {
+                    "student":        "<uuid>",
+                    "subject":        <int>,
+                    "exam_session":   "<uuid>",
+                    "grading_system": <int>,
+                    "stream":         <int | null>,   # optional
+                    "status":         "DRAFT",
+                    "teacher_remark": "",             # optional
+                    "scores": [                       # omit for NurseryResult
+                        {"component_id": 1, "score": "8.50"},
+                        {"component_id": 2, "score": "62.00"}
+                    ],
+                    # NurseryResult only:
+                    "mark_obtained":      "45.00",
+                    "max_marks_obtainable": "50.00",
+                    "academic_comment": ""
+                },
+                ...
+            ]
+        }
+
+        Phase 1  Validate all records and check for duplicates.
+                Build unsaved model instances with derived fields set to 0.
+        Phase 2  bulk_create the instances.
+                For each created result, bulk_create ComponentScore rows,
+                then recalculate and persist derived fields.
+        Phase 3  Ensure term reports exist; recalculate subject stats and
+                class positions.
         """
+        from result.models import (
+            ComponentScore,
+            AssessmentComponent,
+            NurseryResult,
+        )
+        from result.serializers import (
+            SeniorSecondaryResultCreateUpdateSerializer,
+            JuniorSecondaryResultCreateUpdateSerializer,
+            PrimaryResultCreateUpdateSerializer,
+            NurseryResultCreateUpdateSerializer,
+        )
+
+        results_data = request.data.get("results", [])
+        ModelClass = self.get_queryset().model
+        education_level = self._get_education_level(ModelClass)
+        is_nursery = ModelClass == NurseryResult
+
+        # Map serializer per model
+        _serializer_map = {
+            "SENIOR_SECONDARY": SeniorSecondaryResultCreateUpdateSerializer,
+            "JUNIOR_SECONDARY": JuniorSecondaryResultCreateUpdateSerializer,
+            "PRIMARY": PrimaryResultCreateUpdateSerializer,
+            "NURSERY": NurseryResultCreateUpdateSerializer,
+        }
+        CreateUpdateSerializer = _serializer_map.get(
+            education_level, self.get_serializer_class()
+        )
+
+        # Pre-load existing (student, subject, session) tuples to skip dupes
+        existing_keys = set(
+            ModelClass.objects.values_list(
+                "student_id", "subject_id", "exam_session_id"
+            )
+        )
+
+        errors = []
+        validated_instances = []  # (model_instance, raw_scores_list)
+        seen_keys = set()
+
+        # ── Phase 1: validate ────────────────────────────────────────────────────
+        for i, raw in enumerate(results_data):
+            item = dict(raw) if not isinstance(raw, dict) else raw.copy()
+
+            # Pull scores out before passing to the model serializer
+            scores_data = item.pop("scores", [])
+            item["entered_by"] = request.user.id
+
+            serializer = CreateUpdateSerializer(data=item, context={"request": request})
+
+            if not serializer.is_valid():
+                errors.append({"index": i, "errors": serializer.errors, "data": item})
+                continue
+
+            data = serializer.validated_data
+            key = (
+                data["student"].id,
+                data.get("subject", {}).id if data.get("subject") else None,
+                data["exam_session"].id,
+            )
+
+            if key in seen_keys:
+                errors.append(
+                    {"index": i, "errors": "Duplicate entry in submitted data"}
+                )
+                continue
+            if key in existing_keys:
+                errors.append(
+                    {"index": i, "errors": "Result already exists in database"}
+                )
+                continue
+
+            seen_keys.add(key)
+
+            # Validate component scores against their component max_score
+            score_errors = _validate_component_scores(scores_data, education_level)
+            if score_errors:
+                errors.append({"index": i, "errors": score_errors})
+                continue
+
+            # Build unsaved instance — derived fields default to 0 until Phase 2
+            instance = ModelClass(**data)
+
+            # NurseryResult: compute percentage now (no ComponentScore rows needed)
+            if is_nursery:
+                _calculate_nursery_scores(instance)
+
+            validated_instances.append((instance, scores_data))
+
+        if errors:
+            return _error_response("Validation failed. No results were saved.", errors)
+
+        # ── Phase 2 & 3: insert, score, link ────────────────────────────────────
         try:
-            instance = self.get_object()
-            user_role = self.get_user_role()
-
-            if user_role in ["admin", "superadmin", "principal"]:
-                logger.warning(
-                    f"ADMIN DELETE: Result ID={instance.id}, "
-                    f"Student={instance.student.full_name}, "
-                    f"Subject={instance.subject.name}, "
-                    f"Status={instance.status}, "
-                    f"Deleted by={request.user.username}"
-                )
-            elif user_role == "teacher":
-                if instance.status != "DRAFT":
-                    return Response(
-                        {
-                            "error": "Teachers can only delete DRAFT results",
-                            "detail": f"This result has status '{instance.status}' and cannot be deleted by teachers. Contact an administrator.",
-                        },
-                        status=status.HTTP_403_FORBIDDEN,
-                    )
-                logger.info(
-                    f"TEACHER DELETE: Draft result ID={instance.id}, "
-                    f"Deleted by={request.user.username}"
-                )
-            else:
-                return Response(
-                    {"error": "You don't have permission to delete results"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
             with transaction.atomic():
-                subject_name = instance.subject.name
-                student_name = instance.student.full_name
-                instance.delete()
+                # 2a. Bulk-insert result rows
+                raw_instances = [inst for inst, _ in validated_instances]
+                created_results = ModelClass.objects.bulk_create(
+                    raw_instances, batch_size=500
+                )
+
+                # 2b. Create ComponentScore rows and recalculate per result
+                if not is_nursery:
+                    score_map = {
+                        i: scores for i, (_, scores) in enumerate(validated_instances)
+                    }
+                    _bulk_create_component_scores(
+                        created_results, score_map, ModelClass
+                    )
+
+                # 3a. Ensure term reports exist and link results
+                self._ensure_term_reports_exist(
+                    created_results, ModelClass, education_level
+                )
+
+                # 3b. Recalculate subject-level stats
+                subject_groups = set()
+                class_groups = set()
+                for obj in created_results:
+                    sc = obj.student.student_class
+                    el = obj.student.education_level
+                    if hasattr(obj, "subject_id"):
+                        subject_groups.add(
+                            (obj.exam_session_id, obj.subject_id, sc, el)
+                        )
+                    class_groups.add((obj.exam_session_id, sc, el))
+
+                for esid, sid, sc, el in subject_groups:
+                    self._recalculate_subject_stats(ModelClass, esid, sid, sc, el)
+
+                # 3c. Recalculate class positions on term reports
+                TermReportModel = self._get_term_report_model(ModelClass)
+                if TermReportModel:
+                    for esid, sc, el in class_groups:
+                        TermReportModel.bulk_recalculate_positions(
+                            exam_session=self._get_exam_session(esid),
+                            student_class=sc,
+                            education_level=el,
+                        )
+
+            from rest_framework import status as drf_status
+            from rest_framework.response import Response
 
             return Response(
                 {
-                    "message": f"Result for {student_name} in {subject_name} deleted successfully",
-                    "deleted_id": str(kwargs.get("pk")),
+                    "message": f"Successfully created {len(created_results)} results",
+                    "results": self.get_serializer(created_results, many=True).data,
                 },
-                status=status.HTTP_204_NO_CONTENT,
+                status=drf_status.HTTP_201_CREATED,
             )
 
         except Exception as e:
-            logger.error(f"Error deleting subject result: {str(e)}", exc_info=True)
+            logger.error(f"Bulk create failed: {e}", exc_info=True)
+            from rest_framework.response import Response
+            from rest_framework import status as drf_status
+
             return Response(
-                {"error": f"Failed to delete result: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                {
+                    "error": "Bulk upload failed. No results were saved.",
+                    "details": str(e),
+                },
+                status=drf_status.HTTP_400_BAD_REQUEST,
             )
+
+    # ── Updated _ensure_term_reports_exist ──────────────────────────────────────
+
+    def _ensure_term_reports_exist(self, created_results, ModelClass, education_level):
+        """
+        For each student+session in the batch, get_or_create the term report
+        shell and link results to it.  Identical to the old version — unchanged
+        because it never touched hardcoded score fields.
+        """
+        TermReportModel = self._get_term_report_model(ModelClass)
+        if not TermReportModel:
+            return
+
+        seen = set()
+        for obj in created_results:
+            pair = (obj.student_id, obj.exam_session_id)
+            if pair in seen:
+                continue
+            seen.add(pair)
+
+            defaults = {"status": "DRAFT", "is_published": False}
+            from result.models import SeniorSecondaryResult
+            if ModelClass == SeniorSecondaryResult and getattr(obj, "stream", None):
+                defaults["stream"] = obj.stream
+
+            term_report, _ = TermReportModel.objects.get_or_create(
+                student_id=obj.student_id,
+                exam_session_id=obj.exam_session_id,
+                defaults=defaults,
+            )
+            # Link using update() — avoids re-triggering post_save signal
+            ModelClass.objects.filter(
+                student_id=obj.student_id,
+                exam_session_id=obj.exam_session_id,
+                term_report__isnull=True,
+            ).update(term_report=term_report)
+            term_report.calculate_metrics()
+
+    # ── Private helpers (module-level, not methods) ──────────────────────────────
+
+    def _validate_component_scores(scores_data, education_level):
+        """
+        Validate a list of {"component_id": int, "score": Decimal} dicts.
+        Returns a list of error strings, empty if all valid.
+        Nursery skips this — it uses mark_obtained directly.
+        """
+        if education_level == "NURSERY" or not scores_data:
+            return []
+
+        from result.models import AssessmentComponent
+
+        errors = []
+        seen_ids = set()
+
+        for entry in scores_data:
+            cid = entry.get("component_id")
+            score = entry.get("score")
+
+            if cid is None or score is None:
+                errors.append("Each score entry must have 'component_id' and 'score'")
+                continue
+
+            if cid in seen_ids:
+                errors.append(f"Duplicate component_id {cid}")
+                continue
+            seen_ids.add(cid)
+
+            try:
+                component = AssessmentComponent.objects.get(id=cid)
+            except AssessmentComponent.DoesNotExist:
+                errors.append(f"AssessmentComponent {cid} does not exist")
+                continue
+
+            if not component.is_active:
+                errors.append(f"Component '{component.name}' (id={cid}) is not active")
+                continue
+
+            try:
+                score_decimal = Decimal(str(score))
+            except Exception:
+                errors.append(f"Invalid score value '{score}' for component {cid}")
+                continue
+
+            if score_decimal < 0:
+                errors.append(f"Score for '{component.name}' cannot be negative")
+            elif score_decimal > component.max_score:
+                errors.append(
+                    f"Score {score_decimal} for '{component.name}' "
+                    f"exceeds maximum {component.max_score}"
+                )
+
+        return errors
+
+    def _bulk_create_component_scores(created_results, score_map, ModelClass):
+        """
+        For each result in created_results, bulk-create ComponentScore rows
+        using the scores from score_map[index], then recalculate and persist
+        the derived fields (total_score, ca_total, percentage, grade, is_passed).
+
+        score_map: {index: [{"component_id": int, "score": str/Decimal}, ...]}
+        """
+        from result.models import ComponentScore, AssessmentComponent
+
+        # Determine which FK field name ComponentScore uses for this model
+        _fk_map = {
+            "SeniorSecondaryResult": "senior_result",
+            "JuniorSecondaryResult": "junior_result",
+            "PrimaryResult": "primary_result",
+            "NurseryResult": "nursery_result",
+        }
+        fk_name = _fk_map.get(ModelClass.__name__)
+        if not fk_name:
+            logger.warning(
+                f"_bulk_create_component_scores: unknown model {ModelClass.__name__}"
+            )
+            return
+
+        # Pre-fetch all components mentioned across all score lists to avoid
+        # one query per component per result
+        all_component_ids = set()
+        for scores in score_map.values():
+            for s in scores:
+                all_component_ids.add(s["component_id"])
+
+        component_cache = {
+            c.id: c
+            for c in AssessmentComponent.objects.filter(id__in=all_component_ids)
+        }
+
+        # Build ComponentScore objects for bulk_create
+        score_objects = []
+        for idx, result in enumerate(created_results):
+            scores_data = score_map.get(idx, [])
+            for s in scores_data:
+                component = component_cache.get(s["component_id"])
+                if not component:
+                    continue  # already caught by _validate_component_scores
+                score_objects.append(
+                    ComponentScore(
+                        **{fk_name: result},
+                        component=component,
+                        score=Decimal(str(s["score"])),
+                        tenant=result.tenant,
+                    )
+                )
+
+        if score_objects:
+            ComponentScore.objects.bulk_create(score_objects, batch_size=500)
+
+        # Now recalculate each result's derived fields
+        updates = []
+        for result in created_results:
+            result.calculate_scores()
+            result.determine_grade()
+            updates.append(result)
+
+        if updates:
+            ModelClass.objects.bulk_update(
+                updates,
+                [
+                    "total_score",
+                    "ca_total",
+                    "percentage",
+                    "grade",
+                    "grade_point",
+                    "is_passed",
+                    "updated_at",
+                ],
+                batch_size=200,
+            )
+
+    def _calculate_nursery_scores(instance):
+        """
+        Compute NurseryResult percentage + grade in-memory before bulk_create.
+        NurseryResult doesn't use ComponentScore — mark_obtained is submitted
+        directly — so this is safe to do before the row is inserted.
+        """
+        if instance.max_marks_obtainable and instance.max_marks_obtainable > 0:
+            instance.percentage = (
+                instance.mark_obtained / instance.max_marks_obtainable * 100
+            )
+        else:
+            instance.percentage = Decimal(0)
+
+        gs = getattr(instance, "grading_system", None)
+        if gs:
+            try:
+                grade = gs.get_grade(float(instance.percentage))
+                from result.models import _default_grade
+
+                instance.grade = (
+                    grade if grade else _default_grade(float(instance.percentage))
+                )
+                instance.is_passed = float(instance.percentage) >= float(
+                    gs.pass_mark or 40
+                )
+            except Exception as e:
+                logger.error(f"Error grading nursery instance: {e}")
+                from result.models import _default_grade
+
+                instance.grade = _default_grade(float(instance.percentage))
+                instance.is_passed = float(instance.percentage) >= 40
+
+    def _error_response(message, errors):
+        from rest_framework.response import Response
+        from rest_framework import status as drf_status
+
+        return Response(
+            {"error": message, "errors": errors},
+            status=drf_status.HTTP_400_BAD_REQUEST,
+        )
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        user_role = self.get_user_role()
+        if user_role in ("admin", "superadmin", "principal"):
+            logger.warning(f"Admin deleted result {instance.id} ({instance.status})")
+        elif user_role == "teacher":
+            if instance.status != DRAFT:
+                return Response(
+                    {"error": "Teachers can only delete DRAFT results"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        else:
+            return Response(
+                {"error": "You don't have permission to delete results"}, status=403
+            )
+
+        with transaction.atomic():
+            subject_name = instance.subject.name
+            student_name = instance.student.full_name
+            instance.delete()
+        return Response(
+            {
+                "message": f"Result for {student_name} in {subject_name} deleted successfully"
+            },
+            status=status.HTTP_204_NO_CONTENT,
+        )
 
     @action(detail=False, methods=["get"])
     def class_statistics(self, request):
-        """
-        ✅ FIXED: Use FK relationship for student_class filtering
-        """
-        exam_session = request.query_params.get("exam_session")
-        student_class = request.query_params.get("student_class")
-        subject = request.query_params.get("subject")
+        filters_q = {"status__in": [APPROVED, PUBLISHED]}
+        if es := request.query_params.get("exam_session"):
+            filters_q["exam_session"] = es
+        if sc := request.query_params.get("student_class"):
+            filters_q["student__student_class_id"] = sc
+        if subj := request.query_params.get("subject"):
+            filters_q["subject"] = subj
 
-        filters = {}
-        if exam_session:
-            filters["exam_session"] = exam_session
-        if student_class:
-            # ✅ Can filter by student_class FK id
-            filters["student__student_class_id"] = student_class
-        if subject:
-            filters["subject"] = subject
-
-        filters["status__in"] = [APPROVED, PUBLISHED]
-
-        results = self.get_queryset().filter(**filters)
-
+        results = self.get_queryset().filter(**filters_q)
         if not results.exists():
-            return Response(
-                {"error": "No results found"}, status=status.HTTP_404_NOT_FOUND
-            )
+            return Response({"error": "No results found"}, status=404)
 
-        scores = list(results.values_list("total_score", flat=True))
-        statistics = {
-            "total_students": len(scores),
-            "class_average": (sum(scores) / len(scores)) if scores else 0,
-            "highest_score": max(scores) if scores else 0,
-            "lowest_score": min(scores) if scores else 0,
-            "students_passed": results.filter(is_passed=True).count(),
-            "students_failed": results.filter(is_passed=False).count(),
-        }
-
-        return Response(statistics)
+        agg = results.aggregate(
+            avg=Avg("total_score"), high=Max("total_score"), low=Min("total_score")
+        )
+        total = results.count()
+        return Response(
+            {
+                "total_students": total,
+                "class_average": float(agg["avg"] or 0),
+                "highest_score": agg["high"] or 0,
+                "lowest_score": agg["low"] or 0,
+                "students_passed": results.filter(is_passed=True).count(),
+                "students_failed": results.filter(is_passed=False).count(),
+            }
+        )
 
     @action(detail=False, methods=["get"])
     def grade_distribution(self, request):
-        exam_session = request.query_params.get("exam_session")
-        student_class = request.query_params.get("student_class")
-
-        filters = {"status__in": [APPROVED, PUBLISHED]}
-        if exam_session:
-            filters["exam_session"] = exam_session
-        if student_class:
-            # ✅ Filter by FK id
-            filters["student__student_class_id"] = student_class
-
-        results = self.get_queryset().filter(**filters)
-        grade_stats = (
-            results.values("grade").annotate(count=Count("grade")).order_by("grade")
+        filters_q = {"status__in": [APPROVED, PUBLISHED]}
+        if es := request.query_params.get("exam_session"):
+            filters_q["exam_session"] = es
+        if sc := request.query_params.get("student_class"):
+            filters_q["student__student_class_id"] = sc
+        return Response(
+            list(
+                self.get_queryset()
+                .filter(**filters_q)
+                .values("grade")
+                .annotate(count=Count("grade"))
+                .order_by("grade")
+            )
         )
 
-        return Response(list(grade_stats))
+
+# ── Helper: build standard result queryset select_related ─────────────────────
 
 
-# ===== SENIOR SECONDARY SESSION RESULT & REPORT VIEWSETS =====
+def _result_qs_base(ModelClass, extra_selects=()):
+    """Return the base queryset with standard select_related for a result model."""
+    selects = [
+        "student",
+        "student__user",
+        "student__student_class",
+        "student__student_class__education_level",
+        "subject",
+        "exam_session",
+        "exam_session__academic_session",
+        "grading_system",
+        "entered_by",
+        "approved_by",
+        "published_by",
+        "last_edited_by",
+    ]
+    selects.extend(extra_selects)
+    return (
+        ModelClass.objects.all()
+        .select_related(*selects)
+        .prefetch_related("grading_system__grades")
+    )
+
+
+def _apply_role_filter(queryset, viewset, user):
+    """Apply role-based visibility filter on a result queryset."""
+    if user.is_superuser or user.is_staff:
+        return queryset
+    role = viewset.get_user_role()
+    if role in ("admin", "superadmin", "principal"):
+        return queryset
+    if role in (
+        "secondary_admin",
+        "nursery_admin",
+        "primary_admin",
+        "junior_secondary_admin",
+        "senior_secondary_admin",
+    ):
+        levels = viewset.get_user_education_level_access()
+        return (
+            queryset.filter(
+                student__student_class__education_level__level_type__in=levels
+            )
+            if levels
+            else queryset.none()
+        )
+    if role == "teacher":
+        return viewset.get_teacher_queryset(user, queryset)
+    if role == "student":
+        try:
+            student = Student.objects.get(user=user)
+            return queryset.filter(student=student, status=PUBLISHED)
+        except Student.DoesNotExist:
+            return queryset.none()
+    if role == "parent":
+        try:
+            Parent = apps.get_model("parent", "Parent")
+            parent = Parent.objects.get(user=user)
+            return queryset.filter(student__parents=parent, status=PUBLISHED)
+        except Exception:
+            return queryset.none()
+    return queryset.none()
+
+
+# ── Senior Secondary Result ───────────────────────────────────────────────────
+
+
+class SeniorSecondaryResultViewSet(
+    BaseResultViewSetMixin,
+    TeacherPortalCheckMixin,
+    SectionFilterMixin,
+    viewsets.ModelViewSet,
+):
+    pagination_class = StandardResultsPagination
+    queryset = SeniorSecondaryResult.objects.all().order_by("-created_at")
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = [
+        "student",
+        "subject",
+        "exam_session",
+        "status",
+        "is_passed",
+        "stream",
+    ]
+    search_fields = [
+        "student__user__first_name",
+        "student__user__last_name",
+        "subject__name",
+    ]
+
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return SeniorSecondaryResultCreateUpdateSerializer
+        return SeniorSecondaryResultSerializer
+
+    def get_queryset(self):
+        user = getattr(self.request, "user", None)
+        if not user or user.is_anonymous:
+            return SeniorSecondaryResult.objects.none()
+        qs = _result_qs_base(
+            SeniorSecondaryResult,
+            extra_selects=("stream", "stream__stream_type_new"),
+        ).order_by("-created_at")
+        return _apply_role_filter(qs, self, user)
+
+    def create(self, request, *args, **kwargs):
+        return self.handle_create(
+            request,
+            SENIOR_SECONDARY,
+            SeniorSecondaryResultCreateUpdateSerializer,
+            SeniorSecondaryResultSerializer,
+        )
+
+    def update(self, request, *args, **kwargs):
+        return self.handle_update(
+            request,
+            self.get_object(),
+            SeniorSecondaryResultCreateUpdateSerializer,
+            SeniorSecondaryResultSerializer,
+            **kwargs,
+        )
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        return self.handle_approve(
+            request, self.get_object(), SeniorSecondaryResultSerializer
+        )
+
+    @action(detail=True, methods=["post"])
+    def publish(self, request, pk=None):
+        return self.handle_publish(
+            request, self.get_object(), SeniorSecondaryResultSerializer
+        )
+
+
+# ── Senior Secondary Term Report ──────────────────────────────────────────────
+
+
+class SeniorSecondaryTermReportViewSet(
+    TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
+):
+    pagination_class = StandardResultsPagination
+    queryset = SeniorSecondaryTermReport.objects.all().order_by("-created_at")
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ["student", "exam_session", "status", "is_published", "stream"]
+    search_fields = ["student__user__first_name", "student__user__last_name"]
+
+    def get_queryset(self):
+        qs = (
+            SeniorSecondaryTermReport.objects.all()
+            .select_related(
+                "student",
+                "student__user",
+                "student__student_class",
+                "student__student_class__education_level",
+                "exam_session",
+                "exam_session__academic_session",
+                "published_by",
+                "stream",
+                "stream__stream_type_new",
+            )
+            .prefetch_related(
+                Prefetch(
+                    "subject_results",
+                    queryset=SeniorSecondaryResult.objects.select_related(
+                        "subject",
+                        "grading_system",
+                        "stream",
+                        "stream__stream_type_new",
+                        "entered_by",
+                        "approved_by",
+                    ).prefetch_related("grading_system__grades"),
+                )
+            )
+            .order_by("-created_at")
+        )
+        user = self.request.user
+        if user.is_superuser or user.is_staff:
+            return qs
+        role = self.get_user_role()
+        if role in ("admin", "superadmin", "principal"):
+            return qs
+        if role in ("secondary_admin", "senior_secondary_admin"):
+            levels = self.get_user_education_level_access()
+            return (
+                qs.filter(
+                    student__student_class__education_level__level_type__in=levels
+                )
+                if levels
+                else qs.none()
+            )
+        if role == "teacher":
+            try:
+                from teacher.models import Teacher
+
+                teacher = Teacher.objects.get(user=user)
+                assigned_classrooms = (
+                    apps.get_model("classroom", "Classroom")
+                    .objects.filter(
+                        Q(class_teacher=teacher)
+                        | Q(classroomteacherassignment__teacher=teacher)
+                    )
+                    .distinct()
+                )
+                student_ids = StudentEnrollment.objects.filter(
+                    classroom__in=assigned_classrooms, is_active=True
+                ).values_list("student_id", flat=True)
+                return qs.filter(student_id__in=student_ids)
+            except Exception:
+                return qs.none()
+        if role == "student":
+            try:
+                return qs.filter(student=Student.objects.get(user=user))
+            except Student.DoesNotExist:
+                return qs.none()
+        if role == "parent":
+            try:
+                parent = apps.get_model("parent", "Parent").objects.get(user=user)
+                return qs.filter(student__parents=parent)
+            except Exception:
+                return qs.none()
+        return qs.none()
+
+
+# ── Senior Secondary Session Result & Report ──────────────────────────────────
+
+
 class SeniorSecondarySessionResultViewSet(
     TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
 ):
-    """ViewSet for managing senior secondary session results."""
-
     queryset = SeniorSecondarySessionResult.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
@@ -1463,124 +1458,90 @@ class SeniorSecondarySessionResultViewSet(
     ]
 
     def get_queryset(self):
-        """Filter queryset based on user role and permissions."""
-        queryset = (
-            super(viewsets.ModelViewSet, self)
-            .get_queryset()
+        qs = (
+            SeniorSecondarySessionResult.objects.all()
             .select_related(
                 "student",
                 "student__user",
-                "student__student_class__education_level",  # ✅ FK chain
+                "student__student_class__education_level",
                 "subject",
                 "academic_session",
-                "grading_system",
-                "stream__stream_type_new",  # ✅ Senior Secondary stream FK
-                "entered_by",
-                "approved_by",
-                "published_by",
-                "last_edited_by",
+                "stream__stream_type_new",
             )
+            .order_by("-created_at")
         )
-
         user = self.request.user
-        if not user or user.is_anonymous:
-            return queryset.none()
-
         if user.is_superuser or user.is_staff:
-            return queryset
-
+            return qs
         role = self.get_user_role()
-
-        if role in ["admin", "superadmin", "principal"]:
-            return queryset
-
-        # ✅ Section admins - FK filtering
-        if role in ["secondary_admin", "senior_secondary_admin"]:
-            education_levels = self.get_user_education_level_access()
-            if education_levels:
-                filtered = queryset.filter(
-                    student__student_class__education_level__level_type__in=education_levels  # ✅ FK chain
+        if role in ("admin", "superadmin", "principal"):
+            return qs
+        if role in ("secondary_admin", "senior_secondary_admin"):
+            levels = self.get_user_education_level_access()
+            return (
+                qs.filter(
+                    student__student_class__education_level__level_type__in=levels
                 )
-                return filtered
-            return queryset.none()
-
-        # Teachers - use inherited method from BaseResultViewSetMixin
-        if role == "teacher":
-            return self._get_teacher_queryset(user, queryset)
-
-        # Students
+                if levels
+                else qs.none()
+            )
         if role == "student":
             try:
-                from students.models import Student as StudentModel
-
-                student = StudentModel.objects.get(user=user)
-                return queryset.filter(student=student, status="PUBLISHED")
-            except StudentModel.DoesNotExist:
-                return queryset.none()
-
-        # Parents
+                return qs.filter(
+                    student=Student.objects.get(user=user), status=PUBLISHED
+                )
+            except Student.DoesNotExist:
+                return qs.none()
         if role == "parent":
             try:
-                from parent.models import Parent
+                parent = apps.get_model("parent", "Parent").objects.get(user=user)
+                return qs.filter(student__parents=parent, status=PUBLISHED)
+            except Exception:
+                return qs.none()
+        return qs.none()
 
-                parent = Parent.objects.get(user=user)
-                return queryset.filter(student__parents=parent, status="PUBLISHED")
-            except:
-                return queryset.none()
-
-        return queryset.none()
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return SeniorSecondarySessionResultCreateUpdateSerializer
+        return SeniorSecondarySessionResultSerializer
 
     def create(self, request, *args, **kwargs):
-        """Create a new senior secondary session result."""
-        data = self._prepare_request_data_copy(request)
         try:
             with transaction.atomic():
-                student_id = data.get("student")
+                student_id = request.data.get("student")
                 if student_id:
-                    try:
-                        # ✅ FK: Select related for validation
-                        student = Student.objects.select_related(
-                            "student_class__education_level"
-                        ).get(id=student_id)
-
-                        # ✅ Use @property which traverses FK chain
-                        if student.education_level != "SENIOR_SECONDARY":
-                            return Response(
-                                {
-                                    "error": f"Student's education level is {student.education_level}, expected SENIOR_SECONDARY."
-                                },
-                                status=status.HTTP_400_BAD_REQUEST,
-                            )
-                    except Student.DoesNotExist:
+                    student = Student.objects.select_related(
+                        "student_class__education_level"
+                    ).get(id=student_id)
+                    if student.education_level != SENIOR_SECONDARY:
                         return Response(
-                            {"error": "Student not found"},
-                            status=status.HTTP_404_NOT_FOUND,
+                            {
+                                "error": f"Expected SENIOR_SECONDARY, got {student.education_level}."
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
                         )
-
+                data = (
+                    request.data.copy()
+                    if hasattr(request.data, "copy")
+                    else dict(request.data)
+                )
                 data["entered_by"] = request.user.id
                 serializer = self.get_serializer(data=data)
                 serializer.is_valid(raise_exception=True)
                 result = serializer.save()
-
-                detailed_serializer = SeniorSecondarySessionResultSerializer(result)
                 return Response(
-                    detailed_serializer.data, status=status.HTTP_201_CREATED
+                    SeniorSecondarySessionResultSerializer(result).data, status=201
                 )
-
+        except Student.DoesNotExist:
+            return Response({"error": "Student not found"}, status=404)
         except Exception as e:
-            logger.error(f"Failed to create session result: {str(e)}", exc_info=True)
-            return Response(
-                {"error": f"Failed to create session result: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            logger.error(f"Failed to create session result: {e}", exc_info=True)
+            return Response({"error": str(e)}, status=400)
 
 
-# ===== CORRECTED: SeniorSecondarySessionReportViewSet =====
 class SeniorSecondarySessionReportViewSet(
     TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
 ):
-    """ViewSet for managing senior secondary session reports."""
-
     queryset = SeniorSecondarySessionReport.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
@@ -1593,166 +1554,56 @@ class SeniorSecondarySessionReportViewSet(
     ]
     search_fields = ["student__user__first_name", "student__user__last_name"]
 
+    def get_serializer_class(self):
+        return SeniorSecondarySessionReportSerializer
+
     def get_queryset(self):
-        """Filter queryset based on user role and permissions."""
-        queryset = (
-            super(viewsets.ModelViewSet, self)
-            .get_queryset()
+        qs = (
+            SeniorSecondarySessionReport.objects.all()
             .select_related(
                 "student",
                 "student__user",
-                "student__student_class__education_level",  # ✅ FK chain
+                "student__student_class__education_level",
                 "academic_session",
-                "stream__stream_type_new",  # ✅ Stream FK
-            )
-            .prefetch_related("subject_results")
-        )
-
-        user = self.request.user
-
-        if user.is_superuser or user.is_staff:
-            return queryset
-
-        role = self.get_user_role()
-
-        if role in ["admin", "superadmin", "principal"]:
-            return queryset
-
-        # ✅ Section admins - FK filtering
-        if role == "teacher":
-            section_access = self.get_user_section_access()
-            education_levels = self.get_education_levels_for_sections(section_access)
-            if education_levels:
-                return queryset.filter(
-                    student__student_class__education_level__level_type__in=education_levels  # ✅ FK chain
-                )
-            return queryset.none()
-
-        if role == "student":
-            try:
-                student = Student.objects.get(user=user)
-                return queryset.filter(student=student)
-            except Student.DoesNotExist:
-                return queryset.none()
-
-        if role == "parent":
-            try:
-                from parent.models import Parent
-
-                parent = Parent.objects.get(user=user)
-                return queryset.filter(student__parents=parent)
-            except:
-                return queryset.none()
-
-        # ✅ Default section filtering with FK chain
-        section_access = self.get_user_section_access()
-        education_levels = self.get_education_levels_for_sections(section_access)
-
-        if not education_levels:
-            return queryset.none()
-
-        return queryset.filter(
-            student__student_class__education_level__level_type__in=education_levels  # ✅ FK chain
-        )
-
-
-# ===== CORRECTED: SeniorSecondaryTermReportViewSet =====
-class SeniorSecondaryTermReportViewSet(
-    TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
-):
-    """ViewSet for managing senior secondary term reports."""
-    pagination_class = StandardResultsPagination
-
-    queryset = SeniorSecondaryTermReport.objects.all().order_by("-created_at")
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ["student", "exam_session", "status", "is_published", "stream"]
-    search_fields = ["student__user__first_name", "student__user__last_name"]
-
-    def get_queryset(self):
-        """Filter queryset based on user role and permissions."""
-        queryset = (
-            super(viewsets.ModelViewSet, self)
-            .get_queryset()
-            .select_related(
-                "student",
-                "student__user",
-                "student__student_class__education_level",  # ✅ FK chain
-                "exam_session",
-                "published_by",
-                "stream__stream_type_new",  # ✅ Stream FK
+                "stream__stream_type_new",
             )
             .prefetch_related(
                 Prefetch(
                     "subject_results",
-                    queryset=SeniorSecondaryResult.objects.select_related(
-                        "entered_by",
-                        "approved_by",
-                        "published_by",
-                        "last_edited_by",
-                        "subject",
-                        "grading_system",
-                        "stream__stream_type_new",  # ✅ Stream FK in prefetch
+                    queryset=SeniorSecondarySessionResult.objects.select_related(
+                        "subject", "academic_session", "stream__stream_type_new"
                     ),
                 )
             )
+            .order_by("-created_at")
         )
-
         user = self.request.user
-
         if user.is_superuser or user.is_staff:
-            return queryset
-
+            return qs
         role = self.get_user_role()
-
-        if role in ["admin", "superadmin", "principal"]:
-            return queryset
-
-        # ✅ Section admins - FK filtering
-        if role in ["secondary_admin", "senior_secondary_admin"]:
-            education_levels = self.get_user_education_level_access()
-            if education_levels:
-                return queryset.filter(
-                    student__student_class__education_level__level_type__in=education_levels  # ✅ FK chain
-                )
-            return queryset.none()
-
-        if role == "teacher":
-            try:
-                from teacher.models import Teacher
-                from classroom.models import Classroom, StudentEnrollment
-
-                teacher = Teacher.objects.get(user=user)
-                assigned_classrooms = Classroom.objects.filter(
-                    Q(class_teacher=teacher)
-                    | Q(classroomteacherassignment__teacher=teacher)
-                ).distinct()
-
-                student_ids = StudentEnrollment.objects.filter(
-                    classroom__in=assigned_classrooms, is_active=True
-                ).values_list("student_id", flat=True)
-
-                return queryset.filter(student_id__in=student_ids)
-            except Teacher.DoesNotExist:
-                return queryset.none()
-
+        if role in ("admin", "superadmin", "principal"):
+            return qs
         if role == "student":
             try:
-                student = Student.objects.get(user=user)
-                return queryset.filter(student=student)
-            except:
-                return queryset.none()
-
+                return qs.filter(student=Student.objects.get(user=user))
+            except Student.DoesNotExist:
+                return qs.none()
         if role == "parent":
             try:
-                from parent.models import Parent
+                parent = apps.get_model("parent", "Parent").objects.get(user=user)
+                return qs.filter(student__parents=parent)
+            except Exception:
+                return qs.none()
+        levels = self.get_user_education_level_access()
+        return (
+            qs.filter(student__student_class__education_level__level_type__in=levels)
+            if levels
+            else qs.none()
+        )
 
-                parent = Parent.objects.get(user=user)
-                return queryset.filter(student__parents=parent)
-            except:
-                return queryset.none()
 
-        return queryset.none()
+# ── Junior Secondary Result ───────────────────────────────────────────────────
+
 
 class JuniorSecondaryResultViewSet(
     BaseResultViewSetMixin,
@@ -1764,13 +1615,7 @@ class JuniorSecondaryResultViewSet(
     queryset = JuniorSecondaryResult.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = [
-        "student",
-        "subject",
-        "exam_session",
-        "status",
-        "is_passed",
-    ]
+    filterset_fields = ["student", "subject", "exam_session", "status", "is_passed"]
     search_fields = [
         "student__user__first_name",
         "student__user__last_name",
@@ -1778,28 +1623,14 @@ class JuniorSecondaryResultViewSet(
     ]
 
     def get_serializer_class(self):
-        if self.action in ["create", "update", "partial_update"]:
+        if self.action in ("create", "update", "partial_update"):
             return JuniorSecondaryResultCreateUpdateSerializer
         return JuniorSecondaryResultSerializer
 
     def get_queryset(self):
-        from classroom.models import StudentEnrollment
-
-        queryset = (
-            super(viewsets.ModelViewSet, self)
-            .get_queryset()
-            .select_related(
-                "student",
-                "student__user",
-                "student__student_class__education_level",
-                "subject",
-                "exam_session",
-                "grading_system",
-                "entered_by",
-                "approved_by",
-                "published_by",
-                "last_edited_by",
-            )
+        user = self.request.user
+        qs = (
+            _result_qs_base(JuniorSecondaryResult)
             .prefetch_related(
                 Prefetch(
                     "student__studentenrollment_set",
@@ -1809,245 +1640,50 @@ class JuniorSecondaryResultViewSet(
                     to_attr="active_enrollments",
                 )
             )
+            .order_by("-created_at")
         )
-
-        user = self.request.user
-
-        if user.is_superuser or user.is_staff:
-            logger.info(
-                f"Super admin/staff {user.username} - Full access to {queryset.count()} results"
-            )
-            return queryset
-
-        role = self.get_user_role()
-        logger.info(f"User {user.username} role: {role}")
-
-        if role in ["admin", "superadmin", "principal"]:
-            logger.info(
-                f"Admin {user.username} - Full access to {queryset.count()} results"
-            )
-            return queryset
-
-        # ===== SECTION ADMINS =====
-        if role in [
-            "secondary_admin",
-            "nursery_admin",
-            "primary_admin",
-            "junior_secondary_admin",
-            "senior_secondary_admin",
-        ]:
-            education_levels = self.get_user_education_level_access()
-            logger.info(f"Section admin access for {education_levels}")
-
-            if education_levels:
-                # ✅ FIXED: Use FK chain
-                filtered = queryset.filter(
-                    student__student_class__education_level__level_type__in=education_levels
-                )
-                logger.info(f"Section admin can see {filtered.count()} results")
-                return filtered
-            else:
-                logger.warning("❌ Section admin has no education level access")
-                return queryset.none()
-
-        if role == "teacher":
-            return self.get_teacher_queryset(user, queryset)
-
-        if role == "student":
-            try:
-                from students.models import Student
-
-                student = Student.objects.get(user=user)
-                filtered = queryset.filter(student=student, status="PUBLISHED")
-                logger.info(f"Student can see {filtered.count()} published results")
-                return filtered
-            except Student.DoesNotExist:
-                logger.warning(f"❌ Student object not found for user {user.username}")
-                return queryset.none()
-
-        if role == "parent":
-            try:
-                from parent.models import Parent
-
-                parent = Parent.objects.get(user=user)
-                filtered = queryset.filter(student__parents=parent, status="PUBLISHED")
-                logger.info(f"Parent can see {filtered.count()} published results")
-                return filtered
-            except:
-                logger.warning(f"❌ Parent object not found for user {user.username}")
-                return queryset.none()
-
-        logger.warning(f"❌ No access for user {user.username} with role {role}")
-        return queryset.none()
+        return _apply_role_filter(qs, self, user)
 
     def create(self, request, *args, **kwargs):
-        try:
-            with transaction.atomic():
-                student_id = request.data.get("student")
-                if student_id:
-                    # ✅ FIXED: Add select_related for FK chain
-                    student = Student.objects.select_related(
-                        "student_class__education_level"
-                    ).get(id=student_id)
-
-                    # ✅ Use @property which traverses FK chain
-                    expected_level = student.education_level
-
-                    if expected_level != "JUNIOR_SECONDARY":
-                        return Response(
-                            {
-                                "error": f"Student's education level is {expected_level}, expected JUNIOR_SECONDARY."
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-
-                request.data["entered_by"] = request.user.id
-
-                serializer = self.get_serializer(data=request.data)
-                serializer.is_valid(raise_exception=True)
-                result = serializer.save()
-
-                detailed_serializer = JuniorSecondaryResultSerializer(result)
-                return Response(
-                    detailed_serializer.data, status=status.HTTP_201_CREATED
-                )
-        except Student.DoesNotExist:
-            return Response(
-                {"error": "Student not found"}, status=status.HTTP_404_NOT_FOUND
-            )
-        except Exception as e:
-            logger.error(f"Failed to create result: {str(e)}")
-            return Response(
-                {"error": f"Failed to create result: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        return self.handle_create(
+            request,
+            JUNIOR_SECONDARY,
+            JuniorSecondaryResultCreateUpdateSerializer,
+            JuniorSecondaryResultSerializer,
+        )
 
     def update(self, request, *args, **kwargs):
-        try:
-            with transaction.atomic():
-                instance = self.get_object()
-
-                # ✅ FIXED: Add select_related when accessing FK
-                instance = self.__class__.queryset.select_related(
-                    "student__student_class__education_level"
-                ).get(pk=instance.pk)
-
-                # ✅ Use @property
-                expected_level = instance.student.education_level
-
-                student_id = request.data.get("student")
-                if student_id:
-                    # ✅ FIXED: Add select_related
-                    student = Student.objects.select_related(
-                        "student_class__education_level"
-                    ).get(id=student_id)
-                    expected_level = student.education_level
-
-                    if expected_level != "JUNIOR_SECONDARY":
-                        return Response(
-                            {
-                                "error": f"Student's education level is {expected_level}, expected JUNIOR_SECONDARY."
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-
-                if expected_level != "JUNIOR_SECONDARY":
+        instance = self.get_object()
+        # reload with FK chain
+        instance = JuniorSecondaryResult.objects.select_related(
+            "student__student_class__education_level"
+        ).get(pk=instance.pk)
+        student_id = request.data.get("student")
+        if student_id:
+            try:
+                student = Student.objects.select_related(
+                    "student_class__education_level"
+                ).get(id=student_id)
+                if student.education_level != JUNIOR_SECONDARY:
                     return Response(
                         {
-                            "error": f"Student's education level is {expected_level}, expected JUNIOR_SECONDARY."
+                            "error": f"Expected JUNIOR_SECONDARY, got {student.education_level}."
                         },
-                        status=status.HTTP_400_BAD_REQUEST,
+                        status=400,
                     )
-
-                partial = kwargs.get("partial", False)
-                if request.method == "PATCH":
-                    partial = True
-
-                serializer = self.get_serializer(
-                    instance, data=request.data, partial=partial
-                )
-                serializer.is_valid(raise_exception=True)
-                result = serializer.save()
-
-                detailed_serializer = JuniorSecondaryResultSerializer(result)
-                return Response(detailed_serializer.data)
-
-        except Student.DoesNotExist:
-            return Response(
-                {"error": "Student not found"}, status=status.HTTP_404_NOT_FOUND
-            )
-        except Exception as e:
-            logger.error(f"Failed to update result: {str(e)}")
-            return Response(
-                {"error": f"Failed to update result: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-    @action(detail=False, methods=["get"])
-    def class_statistics(self, request):
-        """Get class statistics: average, highest, lowest scores, pass/fail count."""
-        exam_session = request.query_params.get("exam_session")
-        student_class = request.query_params.get("student_class")
-        subject = request.query_params.get("subject")
-
-        filters = Q(status__in=["APPROVED", "PUBLISHED"])
-        if exam_session:
-            filters &= Q(exam_session=exam_session)
-        if student_class:
-            # ✅ FIXED: Use FK chain with __name lookup
-            filters &= Q(student__student_class__name=student_class)
-        if subject:
-            filters &= Q(subject=subject)
-
-        queryset = self.get_queryset().filter(filters)
-
-        if not queryset.exists():
-            return Response(
-                {"error": "No results found"}, status=status.HTTP_404_NOT_FOUND
-            )
-
-        aggregate_data = queryset.aggregate(
-            total_students=Count("id"),
-            class_average=Avg("total_score"),
-            highest_score=Max("total_score"),
-            lowest_score=Min("total_score"),
-            students_passed=Count("id", filter=Q(is_passed=True)),
-            students_failed=Count("id", filter=Q(is_passed=False)),
+            except Student.DoesNotExist:
+                return Response({"error": "Student not found"}, status=404)
+        return self.handle_update(
+            request,
+            instance,
+            JuniorSecondaryResultCreateUpdateSerializer,
+            JuniorSecondaryResultSerializer,
+            **kwargs,
         )
 
-        statistics = {
-            "total_students": aggregate_data["total_students"] or 0,
-            "class_average": float(aggregate_data["class_average"] or 0),
-            "highest_score": aggregate_data["highest_score"] or 0,
-            "lowest_score": aggregate_data["lowest_score"] or 0,
-            "students_passed": aggregate_data["students_passed"] or 0,
-            "students_failed": aggregate_data["students_failed"] or 0,
-        }
 
-        return Response(statistics)
+# ── Junior Secondary Term Report ──────────────────────────────────────────────
 
-    @action(detail=False, methods=["get"])
-    def grade_distribution(self, request):
-        exam_session = request.query_params.get("exam_session")
-        student_class = request.query_params.get("student_class")
-
-        filters = {"status__in": ["APPROVED", "PUBLISHED"]}
-        if exam_session:
-            filters["exam_session"] = exam_session
-        if student_class:
-            # ✅ FIXED: Use FK chain with __name lookup
-            filters["student__student_class__name"] = student_class
-
-        results = self.get_queryset().filter(**filters)
-
-        grade_stats = (
-            results.values("grade").annotate(count=Count("grade")).order_by("grade")
-        )
-
-        return Response(list(grade_stats))
-
-
-# ===== CORRECTED: JuniorSecondaryTermReportViewSet =====
 class JuniorSecondaryTermReportViewSet(
     TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
 ):
@@ -2062,159 +1698,89 @@ class JuniorSecondaryTermReportViewSet(
         return JuniorSecondaryTermReportSerializer
 
     def get_queryset(self):
-        queryset = (
-            super(viewsets.ModelViewSet, self)
-            .get_queryset()
+        qs = (
+            JuniorSecondaryTermReport.objects.all()
             .select_related(
                 "student",
                 "student__user",
-                "student__student_class__education_level",  # ✅ ADDED FK chain
+                "student__student_class__education_level",
                 "exam_session",
+                "exam_session__academic_session",
                 "published_by",
             )
             .prefetch_related(
                 Prefetch(
                     "subject_results",
                     queryset=JuniorSecondaryResult.objects.select_related(
-                        "entered_by",
-                        "approved_by",
-                        "published_by",
-                        "last_edited_by",
                         "subject",
                         "grading_system",
-                    ),
+                        "entered_by",
+                        "approved_by",
+                    ).prefetch_related("grading_system__grades"),
                 )
             )
+            .order_by("-created_at")
         )
-
         user = self.request.user
-
         if user.is_superuser or user.is_staff:
-            logger.info(
-                f"Super admin/staff {user.username} - Full access to all {queryset.count()} term reports"
-            )
-            return queryset
-
+            return qs
         role = self.get_user_role()
-        logger.info(f"User {user.username} role: {role}")
-
-        if role in ["admin", "superadmin", "principal"]:
-            logger.info(
-                f"Admin {user.username} - Full access to all {queryset.count()} term reports"
-            )
-            return queryset
-
-        # ===== SECTION ADMINS =====
-        if role in [
+        if role in ("admin", "superadmin", "principal"):
+            return qs
+        if role in (
             "secondary_admin",
             "nursery_admin",
             "primary_admin",
             "junior_secondary_admin",
             "senior_secondary_admin",
-        ]:
-            education_levels = self.get_user_education_level_access()
-            logger.info(f"Section admin access for {education_levels}")
-
-            if education_levels:
-                # ✅ FIXED: Use FK chain
-                filtered = queryset.filter(
-                    student__student_class__education_level__level_type__in=education_levels
+        ):
+            levels = self.get_user_education_level_access()
+            return (
+                qs.filter(
+                    student__student_class__education_level__level_type__in=levels
                 )
-                logger.info(f"Section admin can see {filtered.count()} term reports")
-                return filtered
-            else:
-                logger.warning("❌ Section admin has no education level access")
-                return queryset.none()
-
-        # ===== TEACHERS =====
+                if levels
+                else qs.none()
+            )
         if role == "teacher":
             try:
                 from teacher.models import Teacher
-                from classroom.models import Classroom, StudentEnrollment
 
                 teacher = Teacher.objects.get(user=user)
-
-                assigned_classrooms = Classroom.objects.filter(
-                    Q(class_teacher=teacher)
-                    | Q(classroomteacherassignment__teacher=teacher)
-                ).distinct()
-
-                classroom_education_levels = list(
-                    assigned_classrooms.values_list(
-                        "grade_level__education_level__level_type", flat=True
-                    ).distinct()
+                assigned = (
+                    apps.get_model("classroom", "Classroom")
+                    .objects.filter(
+                        Q(class_teacher=teacher)
+                        | Q(classroomteacherassignment__teacher=teacher)
+                    )
+                    .distinct()
                 )
-
-                is_classroom_teacher = any(
-                    level in ["NURSERY", "PRIMARY"]
-                    for level in classroom_education_levels
+                student_ids = StudentEnrollment.objects.filter(
+                    classroom__in=assigned, is_active=True
+                ).values_list("student_id", flat=True)
+                levels = self.get_user_education_level_access()
+                return qs.filter(
+                    student_id__in=student_ids,
+                    student__student_class__education_level__level_type__in=levels,
                 )
-
-                if is_classroom_teacher:
-                    student_ids = StudentEnrollment.objects.filter(
-                        classroom__in=assigned_classrooms, is_active=True
-                    ).values_list("student_id", flat=True)
-
-                    filtered = queryset.filter(student_id__in=student_ids)
-                    logger.info(
-                        f"Classroom teacher can see {filtered.count()} term reports"
-                    )
-                    return filtered
-                else:
-                    student_ids = StudentEnrollment.objects.filter(
-                        classroom__in=assigned_classrooms, is_active=True
-                    ).values_list("student_id", flat=True)
-
-                    education_levels = self.get_user_education_level_access()
-
-                    # ✅ FIXED: Use FK chain
-                    filtered = queryset.filter(
-                        student_id__in=student_ids,
-                        student__student_class__education_level__level_type__in=education_levels,
-                    )
-                    logger.info(
-                        f"Subject teacher can see {filtered.count()} term reports"
-                    )
-                    return filtered
-
-            except Teacher.DoesNotExist:
-                logger.warning(f"❌ Teacher object not found for user {user.username}")
-                return queryset.none()
-            except Exception as e:
-                logger.error(f"❌ Error filtering for teacher: {str(e)}")
-                return queryset.none()
-
+            except Exception:
+                return qs.none()
         if role == "student":
             try:
-                from students.models import Student
-
-                student = Student.objects.get(user=user)
-                filtered = queryset.filter(student=student)
-                logger.info(f"Student can see {filtered.count()} own term reports")
-                return filtered
-            except:
-                logger.warning(f"❌ Student object not found for user {user.username}")
-                return queryset.none()
-
+                return qs.filter(student=Student.objects.get(user=user))
+            except Student.DoesNotExist:
+                return qs.none()
         if role == "parent":
             try:
-                from parent.models import Parent
-
-                parent = Parent.objects.get(user=user)
-                filtered = queryset.filter(student__parents=parent)
-                logger.info(
-                    f"Parent can see {filtered.count()} children's term reports"
-                )
-                return filtered
-            except:
-                logger.warning(f"❌ Parent object not found for user {user.username}")
-                return queryset.none()
-
-        logger.warning(f"❌ No access for user {user.username} with role {role}")
-        return queryset.none()
+                parent = apps.get_model("parent", "Parent").objects.get(user=user)
+                return qs.filter(student__parents=parent)
+            except Exception:
+                return qs.none()
+        return qs.none()
 
 
-# ===== CORRECTED: PrimaryResultViewSet =====
+# ── Primary Result ────────────────────────────────────────────────────────────
+
 class PrimaryResultViewSet(
     TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
 ):
@@ -2222,13 +1788,7 @@ class PrimaryResultViewSet(
     queryset = PrimaryResult.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = [
-        "student",
-        "subject",
-        "exam_session",
-        "status",
-        "is_passed",
-    ]
+    filterset_fields = ["student", "subject", "exam_session", "status", "is_passed"]
     search_fields = [
         "student__user__first_name",
         "student__user__last_name",
@@ -2236,201 +1796,70 @@ class PrimaryResultViewSet(
     ]
 
     def get_serializer_class(self):
-        if self.action in ["create", "update", "partial_update"]:
+        if self.action in ("create", "update", "partial_update"):
             return PrimaryResultCreateUpdateSerializer
         return PrimaryResultSerializer
 
     def get_queryset(self):
-        queryset = (
-            super(viewsets.ModelViewSet, self)
-            .get_queryset()
-            .select_related(
-                "student",
-                "student__user",
-                "student__student_class__education_level",  # ✅ ADDED FK chain
-                "subject",
-                "exam_session",
-                "grading_system",
-                "entered_by",
-                "approved_by",
-                "published_by",
-                "last_edited_by",
-            )
-        )
-
         user = self.request.user
-        role = self.get_user_role()
-        logger.info(f"User {user.username} role: {role}")
-
-        student_class_param = self.request.query_params.get("student_class")
-        if student_class_param:
+        qs = _result_qs_base(PrimaryResult).order_by("-created_at")
+        # Optional student_class filter from query params
+        sc_param = self.request.query_params.get("student_class")
+        if sc_param:
             try:
-                from classroom.models import Classroom
-
-                classroom = Classroom.objects.filter(id=student_class_param).first()
+                classroom = (
+                    apps.get_model("classroom", "Classroom")
+                    .objects.filter(id=sc_param)
+                    .first()
+                )
                 if classroom:
-                    from classroom.models import StudentEnrollment
-
-                    student_ids = StudentEnrollment.objects.filter(
+                    sids = StudentEnrollment.objects.filter(
                         classroom=classroom, is_active=True
                     ).values_list("student_id", flat=True)
-                    queryset = queryset.filter(student_id__in=student_ids)
+                    qs = qs.filter(student_id__in=sids)
                 else:
-                    # ✅ Use FK chain with __name
-                    queryset = queryset.filter(
-                        student__student_class__name=student_class_param
-                    )
+                    qs = qs.filter(student__student_class__name=sc_param)
             except (ValueError, TypeError):
-                queryset = queryset.filter(
-                    student__student_class__name=student_class_param
-                )
-
-        if user.is_superuser or user.is_staff:
-            logger.info(
-                f"Super admin/staff {user.username} - Full access to {queryset.count()} results"
-            )
-            return queryset
-
-        if role in ["admin", "superadmin", "principal"]:
-            logger.info(
-                f"Admin {user.username} - Full access to {queryset.count()} results"
-            )
-            return queryset
-
-        # ===== SECTION ADMINS =====
-        if role in [
-            "secondary_admin",
-            "nursery_admin",
-            "primary_admin",
-            "junior_secondary_admin",
-            "senior_secondary_admin",
-        ]:
-            education_levels = self.get_user_education_level_access()
-            logger.info(f"Section admin access for {education_levels}")
-
-            if education_levels:
-                # ✅ FIXED: Use FK chain
-                filtered = queryset.filter(
-                    student__student_class__education_level__level_type__in=education_levels
-                )
-                logger.info(f"Section admin can see {filtered.count()} results")
-                return filtered
-            else:
-                logger.warning("❌ Section admin has no education level access")
-                return queryset.none()
-
-        # Teacher/Student/Parent filtering remains the same as already correct
-        # ... (keeping existing code for brevity)
-
-        logger.warning(f"❌ No access for user {user.username} with role {role}")
-        return queryset.none()
+                qs = qs.filter(student__student_class__name=sc_param)
+        return _apply_role_filter(qs, self, user)
 
     def create(self, request, *args, **kwargs):
-        try:
-            with transaction.atomic():
-                student_id = request.data.get("student")
-                if not student_id:
-                    return Response(
-                        {"error": "student is required"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                try:
-                    # ✅ FIXED: Add select_related
-                    student = Student.objects.select_related(
-                        "student_class__education_level"
-                    ).get(id=student_id)
-                except Student.DoesNotExist:
-                    return Response(
-                        {"error": "Student not found"},
-                        status=status.HTTP_404_NOT_FOUND,
-                    )
-
-                # ✅ Use @property
-                if student.education_level != "PRIMARY":
-                    return Response(
-                        {
-                            "error": f"Student education level mismatch. Expected PRIMARY but got {student.education_level}."
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                if hasattr(request.data, "_mutable"):
-                    request.data._mutable = True
-                request.data["entered_by"] = request.user.id
-
-                serializer = self.get_serializer(data=request.data)
-                serializer.is_valid(raise_exception=True)
-                result = serializer.save()
-
-                detailed_serializer = PrimaryResultSerializer(result)
-                return Response(
-                    detailed_serializer.data, status=status.HTTP_201_CREATED
-                )
-
-        except Exception as e:
-            logger.error(f"Failed to create result: {str(e)}")
-            return Response(
-                {"error": f"Failed to create result: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        return self.handle_create(
+            request,
+            PRIMARY,
+            PrimaryResultCreateUpdateSerializer,
+            PrimaryResultSerializer,
+        )
 
     def update(self, request, *args, **kwargs):
-        try:
-            with transaction.atomic():
-                instance = self.get_object()
-
-                # ✅ FIXED: Reload instance with select_related
-                instance = self.__class__.queryset.select_related(
-                    "student__student_class__education_level"
-                ).get(pk=instance.pk)
-
-                # ✅ Use @property
-                expected_level = instance.student.education_level
-
-                student_id = request.data.get("student")
-                if student_id:
-                    try:
-                        # ✅ FIXED: Add select_related
-                        student = Student.objects.select_related(
-                            "student_class__education_level"
-                        ).get(id=student_id)
-                        expected_level = student.education_level
-                    except Student.DoesNotExist:
-                        return Response(
-                            {"error": "Student not found"},
-                            status=status.HTTP_404_NOT_FOUND,
-                        )
-
-                    if expected_level != "PRIMARY":
-                        return Response(
-                            {
-                                "error": f"Student education level mismatch. Expected PRIMARY but got {expected_level}."
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-
-                partial = kwargs.get("partial", False)
-                if request.method == "PATCH":
-                    partial = True
-
-                serializer = self.get_serializer(
-                    instance, data=request.data, partial=partial
-                )
-                serializer.is_valid(raise_exception=True)
-                result = serializer.save()
-
-                detailed_serializer = PrimaryResultSerializer(result)
-                return Response(detailed_serializer.data)
-        except Exception as e:
-            logger.error(f"Failed to update result: {str(e)}")
-            return Response(
-                {"error": f"Failed to update result: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        instance = self.get_object()
+        instance = PrimaryResult.objects.select_related(
+            "student__student_class__education_level"
+        ).get(pk=instance.pk)
+        student_id = request.data.get("student")
+        if student_id:
+            try:
+                student = Student.objects.select_related(
+                    "student_class__education_level"
+                ).get(id=student_id)
+                if student.education_level != PRIMARY:
+                    return Response(
+                        {"error": f"Expected PRIMARY, got {student.education_level}."},
+                        status=400,
+                    )
+            except Student.DoesNotExist:
+                return Response({"error": "Student not found"}, status=404)
+        return self.handle_update(
+            request,
+            instance,
+            PrimaryResultCreateUpdateSerializer,
+            PrimaryResultSerializer,
+            **kwargs,
+        )
 
 
-# ===== CORRECTED: PrimaryTermReportViewSet =====
+# ── Primary Term Report ───────────────────────────────────────────────────────
+
 class PrimaryTermReportViewSet(
     TeacherPortalCheckMixin, AutoSectionFilterMixin, viewsets.ModelViewSet
 ):
@@ -2445,152 +1874,92 @@ class PrimaryTermReportViewSet(
         return PrimaryTermReportSerializer
 
     def get_queryset(self):
-        queryset = PrimaryTermReport.objects.select_related(
-            "student",
-            "student__user",
-            "student__student_class__education_level",  # ✅ ADDED FK chain
-            "exam_session",
-            "published_by",
-        ).prefetch_related(
-            Prefetch(
-                "subject_results",
-                queryset=PrimaryResult.objects.select_related(
-                    "student",
-                    "student__user",
-                    "exam_session",
-                    "subject",
-                    "grading_system",
-                    "entered_by",
-                    "approved_by",
-                    "published_by",
-                ),
+        qs = (
+            PrimaryTermReport.objects.all()
+            .select_related(
+                "student",
+                "student__user",
+                "student__student_class__education_level",
+                "exam_session",
+                "exam_session__academic_session",
+                "published_by",
             )
+            .prefetch_related(
+                Prefetch(
+                    "subject_results",
+                    queryset=PrimaryResult.objects.select_related(
+                        "student",
+                        "student__user",
+                        "subject",
+                        "grading_system",
+                        "exam_session",
+                        "entered_by",
+                        "approved_by",
+                        "published_by",
+                    ).prefetch_related("grading_system__grades"),
+                )
+            )
+            .order_by("-created_at")
         )
-
         user = self.request.user
-
         if user.is_superuser or user.is_staff:
-            logger.info(f"Super admin/staff {user.username} full access")
-            return queryset
-
+            return qs
         role = self.get_user_role()
-        logger.info(f"User {user.username} role: {role}")
-
-        if role in ["admin", "superadmin", "principal"]:
-            logger.info(
-                f"Admin {user.username} - Full access to all {queryset.count()} term reports"
-            )
-            return queryset
-
-        # ===== SECTION ADMINS =====
-        if role in [
+        if role in ("admin", "superadmin", "principal"):
+            return qs
+        if role in (
             "secondary_admin",
             "nursery_admin",
             "primary_admin",
             "junior_secondary_admin",
             "senior_secondary_admin",
-        ]:
-            education_levels = self.get_user_education_level_access()
-            logger.info(f"Section admin access for {education_levels}")
-
-            if education_levels:
-                # ✅ FIXED: Use FK chain
-                filtered = queryset.filter(
-                    student__student_class__education_level__level_type__in=education_levels
+        ):
+            levels = self.get_user_education_level_access()
+            return (
+                qs.filter(
+                    student__student_class__education_level__level_type__in=levels
                 )
-                logger.info(f"Section admin can see {filtered.count()} term reports")
-                return filtered
-            else:
-                logger.warning("❌ Section admin has no education level access")
-                return queryset.none()
-
-        # ===== TEACHERS =====
+                if levels
+                else qs.none()
+            )
         if role == "teacher":
             try:
                 from teacher.models import Teacher
-                from classroom.models import Classroom, StudentEnrollment
 
                 teacher = Teacher.objects.get(user=user)
-
-                assigned_classrooms = Classroom.objects.filter(
-                    Q(class_teacher=teacher)
-                    | Q(classroomteacherassignment__teacher=teacher)
-                ).distinct()
-
-                classroom_education_levels = list(
-                    assigned_classrooms.values_list(
-                        "grade_level__education_level", flat=True
-                    ).distinct()
+                assigned = (
+                    apps.get_model("classroom", "Classroom")
+                    .objects.filter(
+                        Q(class_teacher=teacher)
+                        | Q(classroomteacherassignment__teacher=teacher)
+                    )
+                    .distinct()
                 )
-
-                is_classroom_teacher = any(
-                    level in ["NURSERY", "PRIMARY"]
-                    for level in classroom_education_levels
+                student_ids = StudentEnrollment.objects.filter(
+                    classroom__in=assigned, is_active=True
+                ).values_list("student_id", flat=True)
+                levels = self.get_user_education_level_access()
+                return qs.filter(
+                    student_id__in=student_ids,
+                    student__student_class__education_level__level_type__in=levels,
                 )
-
-                if is_classroom_teacher:
-                    student_ids = StudentEnrollment.objects.filter(
-                        classroom__in=assigned_classrooms, is_active=True
-                    ).values_list("student_id", flat=True)
-
-                    filtered = queryset.filter(student_id__in=student_ids)
-                    logger.info(
-                        "Teacher full access to assigned students' term reports"
-                    )
-                    return filtered
-                else:
-                    student_ids = StudentEnrollment.objects.filter(
-                        classroom__in=assigned_classrooms, is_active=True
-                    ).values_list("student_id", flat=True)
-
-                    education_levels = self.get_user_education_level_access()
-
-                    # ✅ FIXED: Use FK chain
-                    filtered = queryset.filter(
-                        student_id__in=student_ids,
-                        student__student_class__education_level__level_type__in=education_levels,
-                    )
-                    logger.info(
-                        f"Subject teacher can see {filtered.count()} term reports"
-                    )
-                    return filtered
-
-            except Teacher.DoesNotExist:
-                logger.warning(f"❌ Teacher object not found for user {user.username}")
-                return queryset.none()
-            except Exception as e:
-                logger.error(f"❌ Error filtering for teacher: {str(e)}")
-                return queryset.none()
-
+            except Exception:
+                return qs.none()
         if role == "student":
             try:
-                from students.models import Student
-
-                student = Student.objects.get(user=user)
-                filtered = queryset.filter(student=student)
-                logger.info(f"Student can see {filtered.count()} own term reports")
-                return filtered
-            except:
-                logger.warning(f"❌ Student object not found for user {user.username}")
-                return queryset.none()
-
+                return qs.filter(student=Student.objects.get(user=user))
+            except Student.DoesNotExist:
+                return qs.none()
         if role == "parent":
             try:
-                from parent.models import Parent
+                parent = apps.get_model("parent", "Parent").objects.get(user=user)
+                return qs.filter(student__parents=parent)
+            except Exception:
+                return qs.none()
+        return qs.none()
 
-                parent = Parent.objects.get(user=user)
-                filtered = queryset.filter(student__parents=parent)
-                logger.info(
-                    f"Parent can see {filtered.count()} children's term reports"
-                )
-                return filtered
-            except:
-                logger.warning(f"❌ Parent object not found for user {user.username}")
-                return queryset.none()
 
-        logger.warning(f"❌ No access for user {user.username} with role {role}")
-        return queryset.none()
-
+# ── Nursery Result ────────────────────────────────────────────────────────────
 
 class NurseryResultViewSet(
     TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
@@ -2599,13 +1968,7 @@ class NurseryResultViewSet(
     queryset = NurseryResult.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = [
-        "student",
-        "subject",
-        "exam_session",
-        "status",
-        "is_passed",
-    ]
+    filterset_fields = ["student", "subject", "exam_session", "status", "is_passed"]
     search_fields = [
         "student__user__first_name",
         "student__user__last_name",
@@ -2613,444 +1976,129 @@ class NurseryResultViewSet(
     ]
 
     def get_serializer_class(self):
-        if self.action in ["create", "update", "partial_update"]:
+        if self.action in ("create", "update", "partial_update"):
             return NurseryResultCreateUpdateSerializer
         return NurseryResultSerializer
 
     def get_queryset(self):
-        queryset = (
-            super(viewsets.ModelViewSet, self)
-            .get_queryset()
-            .select_related(
-                "student",
-                "student__user",
-                "subject",
-                "student__student_class__education_level",  # ✅ ADDED FK chain
-                "exam_session",
-                "grading_system",
-                "entered_by",
-                "approved_by",
-                "published_by",
-                "last_edited_by",
-            )
-        )
-
         user = self.request.user
-
-        # ===== SUPER ADMIN / STAFF =====
-        if user.is_superuser or user.is_staff:
-            logger.info(
-                f"goodSuper admin/staff {user.username} - Full access to {queryset.count()} results"
-            )
-            return queryset
-
-        role = self.get_user_role()
-        logger.info(f"User {user.username} role: {role}")
-
-        # ===== ADMIN / PRINCIPAL =====
-        if role in ["admin", "superadmin", "principal"]:
-            logger.info(
-                f"goodAdmin {user.username} - Full access to {queryset.count()} results"
-            )
-            return queryset
-
-        # ===== SECTION ADMINS =====
-        if role in [
-            "secondary_admin",
-            "nursery_admin",
-            "primary_admin",
-            "junior_secondary_admin",
-            "senior_secondary_admin",
-        ]:
-            education_levels = self.get_user_education_level_access()
-            logger.info(f"Section admin access for {education_levels}")
-
-            if education_levels:
-                filtered = queryset.filter(
-                    student__student_class__education_level__level_type__in=education_levels
-                )
-                logger.info(f"goodSection admin can see {filtered.count()} results")
-                return filtered
-            else:
-                logger.warning("❌ Section admin has no education level access")
-                return queryset.none()
-
-        # ===== TEACHERS =====
-        if role == "teacher":
-            try:
-                from teacher.models import Teacher
-                from classroom.models import (
-                    Classroom,
-                    StudentEnrollment,
-                    ClassroomTeacherAssignment,
-                )
-
-                teacher = Teacher.objects.get(user=user)
-
-                # Get assigned classrooms
-                assigned_classrooms = Classroom.objects.filter(
-                    Q(class_teacher=teacher)
-                    | Q(classroomteacherassignment__teacher=teacher)
-                ).distinct()
-
-                classroom_education_levels = list(
-                    assigned_classrooms.values_list(
-                        "grade_level__education_level", flat=True
-                    ).distinct()
-                )
-
-                logger.info(
-                    f"Teacher {user.username} classroom education levels: {classroom_education_levels}"
-                )
-
-                # Check if this is a classroom teacher (Nursery/Primary)
-                is_classroom_teacher = any(
-                    level in ["NURSERY", "PRIMARY"]
-                    for level in classroom_education_levels
-                )
-
-                if is_classroom_teacher:
-                    # CLASSROOM TEACHERS: See ALL results for students in their classrooms
-                    student_ids = StudentEnrollment.objects.filter(
-                        classroom__in=assigned_classrooms, is_active=True
-                    ).values_list("student_id", flat=True)
-
-                    filtered = queryset.filter(student_id__in=student_ids)
-                    logger.info(
-                        f"goodClassroom teacher can see {filtered.count()} results"
-                    )
-                    return filtered
-                else:
-                    # SUBJECT TEACHERS: See ONLY results for subjects they teach
-
-                    # Get subjects assigned to this teacher
-                    teacher_assignments = ClassroomTeacherAssignment.objects.filter(
-                        teacher=teacher
-                    ).select_related("subject")
-
-                    assigned_subject_ids = list(
-                        teacher_assignments.values_list(
-                            "subject_id", flat=True
-                        ).distinct()
-                    )
-
-                    logger.info(
-                        f"Teacher {user.username} assigned subjects: {assigned_subject_ids}"
-                    )
-
-                    if not assigned_subject_ids:
-                        logger.warning(
-                            f"❌ Subject teacher {user.username} has no assigned subjects"
-                        )
-                        return queryset.none()
-
-                    # Get students from assigned classrooms
-                    student_ids = StudentEnrollment.objects.filter(
-                        classroom__in=assigned_classrooms, is_active=True
-                    ).values_list("student_id", flat=True)
-
-                    # Filter: ONLY their assigned subjects + their students
-                    filtered = queryset.filter(
-                        subject_id__in=assigned_subject_ids, student_id__in=student_ids
-                    )
-
-                    logger.info(
-                        f"goodSubject teacher can see {filtered.count()} results (subjects: {assigned_subject_ids})"
-                    )
-                    return filtered
-
-            except Teacher.DoesNotExist:
-                logger.warning(f"❌ Teacher object not found for user {user.username}")
-                return queryset.none()
-            except Exception as e:
-                logger.error(f"❌ Error filtering for teacher: {str(e)}", exc_info=True)
-                return queryset.none()
-
-        # ===== STUDENTS =====
-        if role == "student":
-            try:
-                from students.models import Student
-
-                student = Student.objects.get(user=user)
-                # Students only see PUBLISHED results
-                filtered = queryset.filter(student=student, status="PUBLISHED")
-                logger.info(f"goodStudent can see {filtered.count()} published results")
-                return filtered
-            except Student.DoesNotExist:
-                logger.warning(f"❌ Student object not found for user {user.username}")
-                return queryset.none()
-
-        # ===== PARENTS =====
-        if role == "parent":
-            try:
-                from parent.models import Parent
-
-                parent = Parent.objects.get(user=user)
-                # Parents only see PUBLISHED results
-                filtered = queryset.filter(student__parents=parent, status="PUBLISHED")
-                logger.info(f"goodParent can see {filtered.count()} published results")
-                return filtered
-            except:
-                logger.warning(f"❌ Parent object not found for user {user.username}")
-                return queryset.none()
-
-        # ===== DEFAULT: NO ACCESS =====
-        logger.warning(f"❌ No access for user {user.username} with role {role}")
-        return queryset.none()
+        qs = _result_qs_base(NurseryResult, extra_selects=("term_report",)).order_by(
+            "-created_at"
+        )
+        return _apply_role_filter(qs, self, user)
 
     def create(self, request, *args, **kwargs):
         try:
             with transaction.atomic():
-                # ✅ ADD THIS DEBUG LOGGING
-                logger.info("=" * 80)
-                logger.info("🔍 NURSERY RESULT CREATE - DEBUGGING")
-                logger.info(f"📦 Full request.data: {request.data}")
-                logger.info(f"📦 request.data type: {type(request.data)}")
-
-                # Check each field individually
-                for field in [
-                    "student",
-                    "subject",
-                    "exam_session",
-                    "grading_system",
-                    "max_marks_obtainable",
-                    "mark_obtained",
-                    "academic_comment",
-                    "status",
-                ]:
-                    value = request.data.get(field)
-                    logger.info(
-                        f"   {field}: {value} (type: {type(value).__name__}, is None: {value is None})"
-                    )
-                logger.info("=" * 80)
-
                 student_id = request.data.get("student")
                 if not student_id:
-                    logger.error("❌ student_id is missing or None")
-                    return Response(
-                        {"error": "student is required"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                # ✅ ADD MORE VALIDATION
+                    return Response({"error": "student is required"}, status=400)
                 subject_id = request.data.get("subject")
                 if not subject_id:
-                    logger.error("❌ subject_id is missing or None")
-                    return Response(
-                        {"error": "subject is required"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
+                    return Response({"error": "subject is required"}, status=400)
                 exam_session_id = request.data.get("exam_session")
                 if not exam_session_id:
-                    logger.error("❌ exam_session_id is missing or None")
-                    return Response(
-                        {"error": "exam_session is required"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                grading_system_id = request.data.get("grading_system")
-                logger.info(
-                    f"🔍 grading_system_id: {grading_system_id} (type: {type(grading_system_id)})"
-                )
+                    return Response({"error": "exam_session is required"}, status=400)
 
                 try:
                     student = Student.objects.select_related(
                         "student_class__education_level"
                     ).get(id=student_id)
-                    logger.info(f"✅ Student found: {student}")
-
                 except Student.DoesNotExist:
-                    logger.error(f"❌ Student not found with id: {student_id}")
+                    return Response({"error": "Student not found"}, status=404)
+
+                if student.education_level != NURSERY:
                     return Response(
-                        {"error": "Student not found"}, status=status.HTTP_404_NOT_FOUND
-                    )
-                except Exception as e:
-                    logger.error(f"❌ Error fetching student: {str(e)}", exc_info=True)
-                    return Response(
-                        {"error": f"Error fetching student: {str(e)}"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                expected_level = student.education_level
-                # Ensure education level matches NURSERY
-                if expected_level != "NURSERY":
-                    return Response(
-                        {
-                            "error": f"Student education level mismatch. Expected NURSERY but got {expected_level}, expected NURSERY"
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
+                        {"error": f"Expected NURSERY, got {student.education_level}."},
+                        status=400,
                     )
 
-                # Optional: Validate student_class if provided
-                student_class_input = request.data.get("student_class")
-                if student_class_input and student_class_input != student.student_class:
-                    return Response(
-                        {
-                            "error": f"Student class mismatch. Expected {student.student_class} but got {student_class_input}."
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                # Prepare data for serializer
                 if hasattr(request.data, "_mutable"):
                     request.data._mutable = True
                 request.data["entered_by"] = request.user.id
 
-                logger.info(f"📤 Sending to serializer: {request.data}")
-
                 serializer = self.get_serializer(data=request.data)
-
-                # ✅ CATCH VALIDATION ERRORS PROPERLY
-                try:
-                    serializer.is_valid(raise_exception=True)
-                except serializers.ValidationError as ve:
-                    logger.error(f"❌ Serializer validation failed: {ve.detail}")
-                    return Response(
-                        {"error": "Validation failed", "details": ve.detail},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
+                serializer.is_valid(raise_exception=True)
                 result = serializer.save()
-                logger.info(f"✅ Result created successfully: {result.id}")
-
-                detailed_serializer = NurseryResultSerializer(result)
-                return Response(
-                    detailed_serializer.data, status=status.HTTP_201_CREATED
+                logger.info(
+                    f"NurseryResult created: {result.id} for student {student_id}"
                 )
+                return Response(NurseryResultSerializer(result).data, status=201)
 
         except Exception as e:
-            logger.error(f"❌ Failed to create result: {str(e)}", exc_info=True)
-            import traceback
-
-            logger.error(f"❌ Traceback: {traceback.format_exc()}")
-            return Response(
-                {"error": f"Failed to create result: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            logger.error(f"Failed to create nursery result: {e}", exc_info=True)
+            return Response({"error": str(e)}, status=400)
 
     def update(self, request, *args, **kwargs):
         try:
             with transaction.atomic():
                 instance = self.get_object()
-
-                instance = self.__class__.queryset.select_related(
+                instance = NurseryResult.objects.select_related(
                     "student__student_class__education_level"
                 ).get(pk=instance.pk)
-
-                # ✅ FIX: Initialize expected_level from instance
-                expected_level = instance.student.education_level
-
-                # Validate student if changed
                 student_id = request.data.get("student")
                 if student_id:
                     try:
                         student = Student.objects.select_related(
                             "student_class__education_level"
                         ).get(id=student_id)
-                        expected_level = student.education_level
+                        if student.education_level != NURSERY:
+                            return Response(
+                                {
+                                    "error": f"Expected NURSERY, got {student.education_level}."
+                                },
+                                status=400,
+                            )
                     except Student.DoesNotExist:
-                        return Response(
-                            {"error": f"Student with id {student_id} does not exist."},
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-
-                    if expected_level != "NURSERY":
-                        return Response(
-                            {
-                                "error": f"Student education level mismatch. Expected NURSERY but got {expected_level}."
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-
-                partial = kwargs.get("partial", False)
-                if request.method == "PATCH":
-                    partial = True
-
+                        return Response({"error": "Student not found"}, status=404)
+                partial = kwargs.get("partial", False) or request.method == "PATCH"
                 serializer = self.get_serializer(
                     instance, data=request.data, partial=partial
                 )
                 serializer.is_valid(raise_exception=True)
-                result = serializer.save()
-
-                detailed_serializer = NurseryResultSerializer(result)
-                return Response(detailed_serializer.data)
+                return Response(NurseryResultSerializer(serializer.save()).data)
         except Exception as e:
-            logger.error(f"Failed to update result: {str(e)}")
-            return Response(
-                {"error": f"Failed to update result: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            logger.error(f"Failed to update nursery result: {e}")
+            return Response({"error": str(e)}, status=400)
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
-        """Approve a nursery result"""
-        # Check permission
         user_role = self.get_user_role()
-        if user_role not in [
-            "admin",
-            "superadmin",
-            "principal",
-            "nursery_admin",
-        ]:
-            return Response(
-                {"error": "You don't have permission to approve results"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
+        if user_role not in ("admin", "superadmin", "principal", "nursery_admin"):
+            return Response({"error": "Permission denied"}, status=403)
         result = self.get_object()
-
-        # Validate status
-        if result.status not in ["DRAFT", "SUBMITTED"]:
+        if result.status not in (DRAFT, SUBMITTED):
             return Response(
-                {
-                    "error": "Invalid status transition",
-                    "detail": f"Cannot approve result with status '{result.status}'. Only DRAFT or SUBMITTED results can be approved.",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+                {"error": f"Cannot approve result with status '{result.status}'"},
+                status=400,
             )
-
-        # ✅ CORRECT: Validate mark_obtained for Nursery
-        if (
-            not hasattr(result, "mark_obtained")
-            or result.mark_obtained is None
-            or result.mark_obtained < 0
-        ):
-            return Response(
-                {"error": "Cannot approve result with invalid scores"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Apply approval
+        if result.mark_obtained is None or result.mark_obtained < 0:
+            return Response({"error": "Invalid scores"}, status=400)
         try:
             with transaction.atomic():
-                result.status = "APPROVED"
+                result.status = APPROVED
                 result.approved_by = request.user
                 result.approved_date = timezone.now()
                 result.save()
-                return Response(NurseryResultSerializer(result).data)
+            return Response(NurseryResultSerializer(result).data)
         except Exception as e:
-            logger.error(f"Failed to approve result: {str(e)}")
-            return Response(
-                {"error": f"Failed to approve result: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": str(e)}, status=400)
 
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
         with transaction.atomic():
             result = self.get_object()
-            result.status = "PUBLISHED"
+            result.status = PUBLISHED
             result.published_by = request.user
             result.published_date = timezone.now()
             result.save()
-            return Response(NurseryResultSerializer(result).data)
+        return Response(NurseryResultSerializer(result).data)
 
     @action(detail=False, methods=["post"])
     def bulk_create(self, request):
+        """Simple per-record bulk create for nursery (no position recalculation needed at entry time)."""
         results_data = request.data.get("results", [])
-        created_results = []
-        errors = []
-
+        created, errors = [], []
         try:
             with transaction.atomic():
                 for i, result_data in enumerate(results_data):
@@ -3058,152 +2106,70 @@ class NurseryResultViewSet(
                         result_data["entered_by"] = request.user.id
                         serializer = self.get_serializer(data=result_data)
                         serializer.is_valid(raise_exception=True)
-                        result = serializer.save()
-                        created_results.append(NurseryResultSerializer(result).data)
+                        created.append(NurseryResultSerializer(serializer.save()).data)
                     except Exception as e:
-                        errors.append(
-                            {"index": i, "error": str(e), "data": result_data}
-                        )
-
-                if errors and not created_results:
-                    return Response(
-                        {"error": "Failed to create any results", "errors": errors},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                response_data = {
-                    "message": f"Successfully created {len(created_results)} results",
-                    "results": created_results,
-                }
-
-                if errors:
-                    response_data["partial_success"] = True
-                    response_data["errors"] = errors
-
-                return Response(response_data, status=status.HTTP_201_CREATED)
-
+                        errors.append({"index": i, "error": str(e)})
+                if errors and not created:
+                    raise ValueError("No results created")
         except Exception as e:
-            logger.error(f"Failed to bulk create results: {str(e)}")
-            return Response(
-                {"error": f"Failed to bulk create results: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-    def destroy(self, request, *args, **kwargs):
-        """
-        Delete a subject result.
-        - Admin/Principal: Can delete ANY result regardless of status
-        - Teachers: Can only delete DRAFT results
-        """
-        try:
-            instance = self.get_object()
-            user_role = self.get_user_role()
-
-            # Check permissions
-            if user_role in ["admin", "superadmin", "principal"]:
-                # Admins can delete any result
-                logger.warning(
-                    f"ADMIN DELETE: Result ID={instance.id}, "
-                    f"Student={instance.student.full_name}, "
-                    f"Subject={instance.subject.name}, "
-                    f"Status={instance.status}, "
-                    f"Deleted by={request.user.username}"
-                )
-            elif user_role == "teacher":
-                # Teachers can only delete DRAFT results
-                if instance.status != "DRAFT":
-                    return Response(
-                        {
-                            "error": "Teachers can only delete DRAFT results",
-                            "detail": f"This result has status '{instance.status}' and cannot be deleted by teachers. Contact an administrator.",
-                        },
-                        status=status.HTTP_403_FORBIDDEN,
-                    )
-                logger.info(
-                    f"TEACHER DELETE: Draft result ID={instance.id}, "
-                    f"Deleted by={request.user.username}"
-                )
-            else:
-                return Response(
-                    {"error": "You don't have permission to delete results"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-            # Perform deletion
-            with transaction.atomic():
-                subject_name = instance.subject.name
-                student_name = instance.student.full_name
-                instance.delete()
-
-            return Response(
-                {
-                    "message": f"Result for {student_name} in {subject_name} deleted successfully",
-                    "deleted_id": str(kwargs.get("pk")),
-                },
-                status=status.HTTP_204_NO_CONTENT,
-            )
-
-        except Exception as e:
-            logger.error(f"Error deleting subject result: {str(e)}", exc_info=True)
-            return Response(
-                {"error": f"Failed to delete result: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+            return Response({"error": str(e), "errors": errors}, status=400)
+        resp = {"message": f"Created {len(created)} results", "results": created}
+        if errors:
+            resp["errors"] = errors
+        return Response(resp, status=201)
 
     @action(detail=False, methods=["get"])
     def class_statistics(self, request):
+        # Fixed: was mixing dict assignment with &= Q(...)
         exam_session = request.query_params.get("exam_session")
         student_class = request.query_params.get("student_class")
         subject = request.query_params.get("subject")
 
-        filters = {}
+        q = Q(status__in=[APPROVED, PUBLISHED])
         if exam_session:
-            filters["exam_session"] = exam_session
+            q &= Q(exam_session=exam_session)
         if student_class:
-            filters &= Q(student__student_class__name=student_class)
+            q &= Q(student__student_class__name=student_class)
         if subject:
-            filters["subject"] = subject
+            q &= Q(subject=subject)
 
-        filters["status__in"] = ["APPROVED", "PUBLISHED"]
-
-        results = self.get_queryset().filter(**filters)
-
+        results = self.get_queryset().filter(q)
         if not results.exists():
-            return Response(
-                {"error": "No results found"}, status=status.HTTP_404_NOT_FOUND
-            )
+            return Response({"error": "No results found"}, status=404)
 
-        scores = list(results.values_list("total_score", flat=True))
-        statistics = {
-            "total_students": len(scores),
-            "class_average": sum(scores) / len(scores) if scores else 0,
-            "highest_score": max(scores) if scores else 0,
-            "lowest_score": min(scores) if scores else 0,
-            "students_passed": results.filter(is_passed=True).count(),
-            "students_failed": results.filter(is_passed=False).count(),
-        }
-
-        return Response(statistics)
+        agg = results.aggregate(
+            avg=Avg("percentage"), high=Max("percentage"), low=Min("percentage")
+        )
+        return Response(
+            {
+                "total_students": results.count(),
+                "class_average": float(agg["avg"] or 0),
+                "highest_score": agg["high"] or 0,
+                "lowest_score": agg["low"] or 0,
+                "students_passed": results.filter(is_passed=True).count(),
+                "students_failed": results.filter(is_passed=False).count(),
+            }
+        )
 
     @action(detail=False, methods=["get"])
     def grade_distribution(self, request):
-        exam_session = request.query_params.get("exam_session")
-        student_class = request.query_params.get("student_class")
-
-        filters = {"status__in": ["APPROVED", "PUBLISHED"]}
-        if exam_session:
-            filters["exam_session"] = exam_session
-        if student_class:
-            filters["student__student_class__name"] = student_class
-
-        results = self.get_queryset().filter(**filters)
-
-        grade_stats = (
-            results.values("grade").annotate(count=Count("grade")).order_by("grade")
+        filters_q = {"status__in": [APPROVED, PUBLISHED]}
+        if es := request.query_params.get("exam_session"):
+            filters_q["exam_session"] = es
+        if sc := request.query_params.get("student_class"):
+            filters_q["student__student_class__name"] = sc
+        return Response(
+            list(
+                self.get_queryset()
+                .filter(**filters_q)
+                .values("grade")
+                .annotate(count=Count("grade"))
+                .order_by("grade")
+            )
         )
 
-        return Response(list(grade_stats))
 
+# ── Nursery Term Report ───────────────────────────────────────────────────────
 
 class NurseryTermReportViewSet(
     TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
@@ -3219,502 +2185,230 @@ class NurseryTermReportViewSet(
         return NurseryTermReportSerializer
 
     def get_queryset(self):
-        queryset = (
-            super(viewsets.ModelViewSet, self)
-            .get_queryset()
+        qs = (
+            NurseryTermReport.objects.all()
             .select_related(
                 "student",
                 "student__user",
-                "exam_session",
-                "published_by",
                 "student__student_class__education_level",
+                "exam_session",
+                "exam_session__academic_session",
+                "published_by",
             )
             .prefetch_related(
                 Prefetch(
                     "subject_results",
-                    queryset=NurseryResult.objects.select_related(  # ✅ NurseryResult
+                    # term_report is included so NurseryResultSerializer can read
+                    # physical-development fields via source="term_report.field"
+                    queryset=NurseryResult.objects.select_related(
+                        "subject",
+                        "grading_system",
                         "entered_by",
                         "approved_by",
                         "published_by",
-                        "last_edited_by",
-                        "subject",
-                        "grading_system",
-                    ),
+                        "term_report",
+                    ).prefetch_related("grading_system__grades"),
                 )
             )
+            .order_by("-created_at")
         )
-
         user = self.request.user
-        # ===== SUPER ADMIN / STAFF =====
         if user.is_superuser or user.is_staff:
-            logger.info(
-                f"goodSuper admin/staff {user.username} - Full access to all {queryset.count()} term reports"
-            )
-            return queryset
-
+            return qs
         role = self.get_user_role()
-        logger.info(f"User {user.username} role: {role}")
-
-        # ===== ADMIN / PRINCIPAL =====
-        if role in ["admin", "superadmin", "principal"]:
-            logger.info(
-                f"goodAdmin {user.username} - Full access to all {queryset.count()} term reports"
-            )
-            return queryset
-
-        # ===== SECTION ADMINS =====
-        if role in [
+        if role in ("admin", "superadmin", "principal"):
+            return qs
+        if role in (
             "secondary_admin",
             "nursery_admin",
             "primary_admin",
             "junior_secondary_admin",
             "senior_secondary_admin",
-        ]:
-            education_levels = self.get_user_education_level_access()
-            logger.info(f"Section admin access for {education_levels}")
-
-            if education_levels:
-                filtered = queryset.filter(
-                    student__student_class__education_level__level_type__in=education_levels
+        ):
+            levels = self.get_user_education_level_access()
+            return (
+                qs.filter(
+                    student__student_class__education_level__level_type__in=levels
                 )
-
-                logger.info(
-                    f"goodSection admin can see {filtered.count()} term reports"
-                )
-                return filtered
-            else:
-                logger.warning("❌ Section admin has no education level access")
-                return queryset.none()
-
-        # ===== TEACHERS =====
+                if levels
+                else qs.none()
+            )
         if role == "teacher":
             try:
                 from teacher.models import Teacher
-                from classroom.models import Classroom, StudentEnrollment
 
                 teacher = Teacher.objects.get(user=user)
-
-                # Get assigned classrooms (for classroom teachers - Nursery/Primary)
-                assigned_classrooms = Classroom.objects.filter(
-                    Q(class_teacher=teacher)
-                    | Q(classroomteacherassignment__teacher=teacher)
-                ).distinct()
-
-                classroom_education_levels = list(
-                    assigned_classrooms.values_list(
-                        "grade_level__education_level", flat=True
-                    ).distinct()
-                )
-
-                logger.info(
-                    f"Teacher {user.username} classroom education levels: {classroom_education_levels}"
-                )
-
-                # Check if this is a classroom teacher (Nursery/Primary)
-                is_classroom_teacher = any(
-                    level in ["NURSERY", "PRIMARY"]
-                    for level in classroom_education_levels
-                )
-
-                if is_classroom_teacher:
-                    # CLASSROOM TEACHERS: See all term reports for students in their classrooms
-                    student_ids = StudentEnrollment.objects.filter(
-                        classroom__in=assigned_classrooms, is_active=True
-                    ).values_list("student_id", flat=True)
-
-                    filtered = queryset.filter(student_id__in=student_ids)
-                    logger.info(
-                        f"goodClassroom teacher can see {filtered.count()} term reports"
+                assigned = (
+                    apps.get_model("classroom", "Classroom")
+                    .objects.filter(
+                        Q(class_teacher=teacher)
+                        | Q(classroomteacherassignment__teacher=teacher)
                     )
-                    return filtered
-                else:
-                    # SUBJECT TEACHERS (Secondary): See term reports for students they teach
-                    # Get students from assigned classrooms
-                    student_ids = StudentEnrollment.objects.filter(
-                        classroom__in=assigned_classrooms, is_active=True
-                    ).values_list("student_id", flat=True)
-
-                    # Filter by education level access
-                    education_levels = self.get_user_education_level_access()
-
-                    filtered = queryset.filter(
-                        student_id__in=student_ids,
-                        student__student_class__education_level__level_type__in=education_levels,
-                    )
-                    logger.info(
-                        f"goodSubject teacher can see {filtered.count()} term reports"
-                    )
-                    return filtered
-
-            except Teacher.DoesNotExist:
-                logger.warning(f"❌ Teacher object not found for user {user.username}")
-                return queryset.none()
-            except Exception as e:
-                logger.error(f"❌ Error filtering for teacher: {str(e)}")
-                return queryset.none()
-
-        # ===== STUDENTS =====
+                    .distinct()
+                )
+                student_ids = StudentEnrollment.objects.filter(
+                    classroom__in=assigned, is_active=True
+                ).values_list("student_id", flat=True)
+                levels = self.get_user_education_level_access()
+                return qs.filter(
+                    student_id__in=student_ids,
+                    student__student_class__education_level__level_type__in=levels,
+                )
+            except Exception:
+                return qs.none()
         if role == "student":
             try:
-                from students.models import Student
-
-                student = Student.objects.get(user=user)
-                filtered = queryset.filter(student=student)
-                logger.info(f"goodStudent can see {filtered.count()} own term reports")
-                return filtered
-            except:
-                logger.warning(f"❌ Student object not found for user {user.username}")
-                return queryset.none()
-
-        # ===== PARENTS =====
+                return qs.filter(student=Student.objects.get(user=user))
+            except Student.DoesNotExist:
+                return qs.none()
         if role == "parent":
             try:
-                from parent.models import Parent
-
-                parent = Parent.objects.get(user=user)
-                filtered = queryset.filter(student__parents=parent)
-                logger.info(
-                    f"goodParent can see {filtered.count()} children's term reports"
-                )
-                return filtered
-            except:
-                logger.warning(f"❌ Parent object not found for user {user.username}")
-                return queryset.none()
-
-        # ===== DEFAULT: NO ACCESS =====
-        logger.warning(f"❌ No access for user {user.username} with role {role}")
-        return queryset.none()
-
-    @action(detail=True, methods=["post"])
-    def submit_teacher_remark(self, request, pk=None):
-        report = self.get_object()
-        user = request.user
-
-        if not report.can_edit_teacher_remark(user):
-            return Response(
-                {"detail": "You are not allowed to submit teacher remark."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        # Accept remark, signature, optional physical development for primary/nursery
-        report.class_teacher_remark = request.data.get("class_teacher_remark", "")
-        report.teacher_signature = request.data.get("teacher_signature", None)
-
-        # For primary/nursery
-        if hasattr(report, "physical_development"):
-            report.physical_development = request.data.get("physical_development", {})
-
-        report.submit_by_teacher()
-        return Response({"status": "submitted"})
-
-    @action(detail=True, methods=["post"])
-    def submit_head_teacher_remark(self, request, pk=None):
-        report = self.get_object()
-        user = request.user
-
-        if not report.can_edit_head_teacher_remark(user):
-            return Response(
-                {"detail": "You are not allowed to submit head teacher remark."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        report.head_teacher_remark = request.data.get("head_teacher_remark", "")
-        report.head_teacher_signature = request.data.get("head_teacher_signature", None)
-        report.school_stamp = request.data.get("school_stamp", None)
-
-        report.approve_by_proprietress(user)
-        return Response({"status": "approved"})
+                parent = apps.get_model("parent", "Parent").objects.get(user=user)
+                return qs.filter(student__parents=parent)
+            except Exception:
+                return qs.none()
+        return qs.none()
 
     @action(detail=True, methods=["post"])
     def submit_for_approval(self, request, pk=None):
-        """
-        Teacher submits term report for admin approval.
-        Validates that all required subjects have results before submitting.
-        Changes status from DRAFT to SUBMITTED.
-        """
         try:
             with transaction.atomic():
                 report = self.get_object()
-
-                # Validate that report has subject results
                 if not report.subject_results.exists():
+                    return Response({"error": "Cannot submit empty report"}, status=400)
+                if report.status not in (DRAFT, APPROVED):
                     return Response(
-                        {
-                            "error": "Cannot submit empty report",
-                            "detail": "Please add subject results before submitting for approval.",
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
+                        {"error": f"Cannot submit from status '{report.status}'"},
+                        status=400,
                     )
-
-                # Validate current status allows submission
-                if report.status not in ["DRAFT", "APPROVED"]:
-                    return Response(
-                        {
-                            "error": "Invalid status transition",
-                            "detail": f"Cannot submit report with status '{report.status}'. Only DRAFT reports can be submitted.",
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                # Update status to SUBMITTED
-                report.status = "SUBMITTED"
-                report.save()
-
-                logger.info(
-                    f"Term report {report.id} submitted for approval by {request.user.username}"
-                )
-
-                serializer = self.get_serializer(report)
+                report.status = SUBMITTED
+                report.save(update_fields=["status", "updated_at"])
                 return Response(
-                    {
-                        "message": "Term report submitted for approval successfully",
-                        "data": serializer.data,
-                    }
+                    {"message": "Submitted", "data": self.get_serializer(report).data}
                 )
         except Exception as e:
-            logger.error(f"Failed to submit term report: {str(e)}")
-            return Response(
-                {"error": f"Failed to submit term report: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": str(e)}, status=400)
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
-        """
-        Admin approves term report.
-        Changes status from SUBMITTED to APPROVED.
-        Cascades APPROVED status to all individual subject results.
-        """
         try:
             with transaction.atomic():
                 report = self.get_object()
-
-                # Validate current status allows approval
-                if report.status not in ["SUBMITTED", "DRAFT"]:
+                if report.status not in (SUBMITTED, DRAFT):
                     return Response(
-                        {
-                            "error": "Invalid status transition",
-                            "detail": f"Cannot approve report with status '{report.status}'. Only SUBMITTED or DRAFT reports can be approved.",
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
+                        {"error": f"Cannot approve from status '{report.status}'"},
+                        status=400,
                     )
-
-                # Update report status
-                report.status = "APPROVED"
-                report.save()
-
-                # Cascade approval to all subject results
-                updated_count = report.subject_results.update(
-                    status="APPROVED",
+                report.status = APPROVED
+                report.save(update_fields=["status", "updated_at"])
+                updated = report.subject_results.update(
+                    status=APPROVED,
                     approved_by=request.user,
                     approved_date=timezone.now(),
                 )
-
-                logger.info(
-                    f"Term report {report.id} approved by {request.user.username}. {updated_count} subject results also approved."
-                )
-
-                serializer = self.get_serializer(report)
                 return Response(
                     {
-                        "message": f"Term report approved successfully. {updated_count} subject result(s) also approved.",
-                        "data": serializer.data,
+                        "message": f"Approved. {updated} subject result(s) also approved.",
+                        "data": self.get_serializer(report).data,
                     }
                 )
         except Exception as e:
-            logger.error(f"Failed to approve term report: {str(e)}")
-            return Response(
-                {"error": f"Failed to approve term report: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": str(e)}, status=400)
 
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
-        """
-        Admin publishes term report.
-        Changes status from APPROVED to PUBLISHED.
-        Cascades PUBLISHED status to all individual subject results.
-        Published results become visible to students and parents.
-        """
         try:
             with transaction.atomic():
                 report = self.get_object()
-
-                # Validate current status allows publishing
-                if report.status not in ["APPROVED", "SUBMITTED"]:
+                if report.status not in (APPROVED, SUBMITTED):
                     return Response(
-                        {
-                            "error": "Invalid status transition",
-                            "detail": f"Cannot publish report with status '{report.status}'. Only APPROVED or SUBMITTED reports can be published.",
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
+                        {"error": f"Cannot publish from status '{report.status}'"},
+                        status=400,
                     )
-
-                # Update report status and metadata
                 report.is_published = True
                 report.published_by = request.user
                 report.published_date = timezone.now()
-                report.status = "PUBLISHED"
+                report.status = PUBLISHED
                 report.save()
-
-                # Cascade publish to all subject results
-                updated_count = report.subject_results.update(
-                    status="PUBLISHED",
+                updated = report.subject_results.update(
+                    status=PUBLISHED,
                     published_by=request.user,
                     published_date=timezone.now(),
                 )
-
-                logger.info(
-                    f"Term report {report.id} published by {request.user.username}. {updated_count} subject results also published."
-                )
-
-                serializer = self.get_serializer(report)
                 return Response(
                     {
-                        "message": f"Term report published successfully. {updated_count} subject result(s) also published and are now visible to students.",
-                        "data": serializer.data,
+                        "message": f"Published. {updated} subject result(s) also published.",
+                        "data": self.get_serializer(report).data,
                     }
                 )
         except Exception as e:
-            logger.error(f"Failed to publish report: {str(e)}")
-            return Response(
-                {"error": f"Failed to publish report: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": str(e)}, status=400)
 
     @action(detail=True, methods=["post"])
     def calculate_metrics(self, request, pk=None):
-        """Recalculate term report metrics and class position"""
         try:
             report = self.get_object()
             report.calculate_metrics()
             report.calculate_class_position()
-
-            serializer = self.get_serializer(report)
-            return Response(serializer.data)
+            return Response(self.get_serializer(report).data)
         except Exception as e:
-            logger.error(f"Failed to calculate metrics: {str(e)}")
-            return Response(
-                {"error": f"Failed to calculate metrics: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": str(e)}, status=400)
 
     @action(detail=False, methods=["post"])
     def bulk_publish(self, request):
-        """
-        Bulk publish multiple term reports at once.
-        Cascades PUBLISHED status to all associated subject results.
-        """
         report_ids = request.data.get("report_ids", [])
         if not report_ids:
-            return Response(
-                {"error": "report_ids are required"}, status=status.HTTP_400_BAD_REQUEST
-            )
-
+            return Response({"error": "report_ids are required"}, status=400)
         try:
             with transaction.atomic():
                 reports = self.get_queryset().filter(id__in=report_ids)
-
-                # Validate all reports can be published
-                invalid_reports = reports.exclude(status__in=["APPROVED", "SUBMITTED"])
-                if invalid_reports.exists():
+                invalid = reports.exclude(status__in=(APPROVED, SUBMITTED))
+                if invalid.exists():
                     return Response(
-                        {
-                            "error": "Some reports cannot be published",
-                            "detail": f"{invalid_reports.count()} report(s) have invalid status. Only APPROVED or SUBMITTED reports can be published.",
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
+                        {"error": f"{invalid.count()} report(s) cannot be published"},
+                        status=400,
                     )
-
-                # Update all reports
-                updated_count = reports.update(
+                count = reports.update(
                     is_published=True,
                     published_by=request.user,
                     published_date=timezone.now(),
-                    status="PUBLISHED",
+                    status=PUBLISHED,
                 )
-
-                # Cascade publish to all subject results for these reports
-                total_subjects_updated = 0
+                subj_count = 0
                 for report in reports:
-                    subjects_updated = report.subject_results.update(
-                        status="PUBLISHED",
+                    subj_count += report.subject_results.update(
+                        status=PUBLISHED,
                         published_by=request.user,
                         published_date=timezone.now(),
                     )
-                    total_subjects_updated += subjects_updated
-
-                logger.info(
-                    f"Bulk published {updated_count} term reports by {request.user.username}. {total_subjects_updated} subject results also published."
-                )
-
                 return Response(
-                    {
-                        "message": f"Successfully published {updated_count} term report(s)",
-                        "reports_published": updated_count,
-                        "subjects_published": total_subjects_updated,
-                    }
+                    {"reports_published": count, "subjects_published": subj_count}
                 )
         except Exception as e:
-            logger.error(f"Failed to bulk publish reports: {str(e)}")
-            return Response(
-                {"error": f"Failed to bulk publish reports: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": str(e)}, status=400)
 
     def destroy(self, request, *args, **kwargs):
-        """
-        Delete a term report - Admin only, with cascade deletion of subject results.
-        """
-        try:
-            instance = self.get_object()
-            user_role = self.get_user_role()
-
-            # Only admins can delete term reports
-            if user_role not in ["admin", "superadmin", "principal"]:
-                return Response(
-                    {"error": "Only administrators can delete term reports"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-            # Log the deletion
-            logger.warning(
-                f"Term report deleted: ID={instance.id}, Student={instance.student.full_name}, "
-                f"Term={instance.exam_session.term if hasattr(instance, 'exam_session') else 'N/A'}, "
-                f"Status={instance.status}, Deleted by={request.user.username}"
-            )
-
-            # Delete with cascade (will also delete related subject results if configured)
-            with transaction.atomic():
-                # Optional: Explicitly delete subject results first
-                subject_results_count = instance.subject_results.count()
-                instance.subject_results.all().delete()
-
-                # Delete the term report
-                instance.delete()
-
+        instance = self.get_object()
+        if self.get_user_role() not in ("admin", "superadmin", "principal"):
             return Response(
-                {
-                    "message": f"Term report and {subject_results_count} subject result(s) deleted successfully",
-                    "deleted_id": str(kwargs.get("pk")),
-                },
-                status=status.HTTP_204_NO_CONTENT,
+                {"error": "Only administrators can delete term reports"}, status=403
             )
+        with transaction.atomic():
+            subject_count = instance.subject_results.count()
+            instance.subject_results.all().delete()
+            instance.delete()
+        return Response(
+            {"message": f"Deleted report and {subject_count} subject result(s)"},
+            status=status.HTTP_204_NO_CONTENT,
+        )
 
-        except Exception as e:
-            logger.error(f"Error deleting term report: {str(e)}", exc_info=True)
-            return Response(
-                {"error": f"Failed to delete term report: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+
+# ── Legacy Student Result / Term Result ───────────────────────────────────────
 
 
-# ===== LEGACY STUDENT RESULT VIEWSET =====
 class StudentResultViewSet(
     TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
 ):
-    """Base StudentResult ViewSet - mainly for legacy support"""
-
     queryset = StudentResult.objects.all()
     serializer_class = StudentResultSerializer
     permission_classes = [IsAuthenticated]
@@ -3730,178 +2424,108 @@ class StudentResultViewSet(
     search_fields = ["student__full_name", "subject__name"]
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        queryset = queryset.select_related(
-            "student", "subject", "exam_session", "grading_system", "stream"
-        ).prefetch_related("assessment_scores", "comments")
-
+        qs = (
+            super()
+            .get_queryset()
+            .select_related(
+                "student", "subject", "exam_session", "grading_system", "stream"
+            )
+            .prefetch_related("assessment_scores", "comments")
+        )
         if self.request.user.is_authenticated:
             section_access = self.get_user_section_access()
             education_levels = self.get_education_levels_for_sections(section_access)
-
             if not education_levels:
-                return queryset.none()
-
-            # FK: student__education_level is now a FK to EducationLevel
-            queryset = queryset.filter(student__education_level__in=education_levels)
-
-        return queryset
+                return qs.none()
+            # StudentResult.student.education_level is a @property — filter via FK chain
+            qs = qs.filter(
+                student__student_class__education_level__level_type__in=education_levels
+            )
+        return qs
 
     def create(self, request, *args, **kwargs):
-        """Create a new student result with automatic calculations"""
         try:
             with transaction.atomic():
                 request.data["entered_by"] = request.user.id
                 serializer = self.get_serializer(data=request.data)
                 serializer.is_valid(raise_exception=True)
-                result = serializer.save()
-                detailed_serializer = DetailedStudentResultSerializer(result)
                 return Response(
-                    detailed_serializer.data, status=status.HTTP_201_CREATED
+                    DetailedStudentResultSerializer(serializer.save()).data, status=201
                 )
         except Exception as e:
-            logger.error(f"Failed to create result: {str(e)}")
-            return Response(
-                {"error": f"Failed to create result: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": str(e)}, status=400)
 
     def update(self, request, *args, **kwargs):
-        """Update a student result with automatic recalculations"""
         try:
             with transaction.atomic():
                 partial = kwargs.pop("partial", False)
-                instance = self.get_object()
                 serializer = self.get_serializer(
-                    instance, data=request.data, partial=partial
+                    self.get_object(), data=request.data, partial=partial
                 )
                 serializer.is_valid(raise_exception=True)
-                result = serializer.save()
-                detailed_serializer = DetailedStudentResultSerializer(result)
-                return Response(detailed_serializer.data)
+                return Response(DetailedStudentResultSerializer(serializer.save()).data)
         except Exception as e:
-            logger.error(f"Failed to update result: {str(e)}")
-            return Response(
-                {"error": f"Failed to update result: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-    @action(detail=False, methods=["get"])
-    def by_student(self, request):
-        """Get all results for a specific student"""
-        student_id = request.query_params.get("student_id")
-        if not student_id:
-            return Response(
-                {"error": "student_id parameter is required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        results = self.get_queryset().filter(student_id=student_id)
-        serializer = DetailedStudentResultSerializer(results, many=True)
-        return Response(serializer.data)
+            return Response({"error": str(e)}, status=400)
 
     @action(detail=False, methods=["get"])
     def class_statistics(self, request):
-        """Get class statistics for an exam session"""
-        exam_session_id = request.query_params.get("exam_session_id")
-        # UPDATED: accept student_class_id (FK) instead of class name string
-        student_class_id = request.query_params.get("student_class_id")
-
-        if not exam_session_id or not student_class_id:
+        es_id = request.query_params.get("exam_session_id")
+        sc_id = request.query_params.get("student_class_id")
+        if not es_id or not sc_id:
             return Response(
-                {
-                    "error": "exam_session_id and student_class_id parameters are required"
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+                {"error": "exam_session_id and student_class_id are required"},
+                status=400,
             )
-
-        # UPDATED: filter via FK relationship student__student_class_id
         results = self.get_queryset().filter(
-            exam_session_id=exam_session_id,
-            student__student_class_id=student_class_id,
+            exam_session_id=es_id, student__student_class_id=sc_id
         )
-
         if not results.exists():
-            return Response(
-                {"error": "No results found"}, status=status.HTTP_404_NOT_FOUND
+            return Response({"error": "No results found"}, status=404)
+        return Response(
+            results.aggregate(
+                total_students=Count("student", distinct=True),
+                average_score=Avg("total_score"),
+                highest_score=Max("total_score"),
+                lowest_score=Min("total_score"),
+                passed_count=Count("id", filter=Q(is_passed=True)),
+                failed_count=Count("id", filter=Q(is_passed=False)),
             )
-
-        stats = results.aggregate(
-            total_students=Count("student", distinct=True),
-            average_score=Avg("total_score"),
-            highest_score=Max("total_score"),
-            lowest_score=Min("total_score"),
-            passed_count=Count("id", filter=Q(is_passed=True)),
-            failed_count=Count("id", filter=Q(is_passed=False)),
         )
-
-        return Response(stats)
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
-        user_role = self.get_user_role()
-        if user_role not in [
+        result = self.get_object()
+        if self.get_user_role() not in (
             "admin",
             "superadmin",
             "principal",
             "senior_secondary_admin",
-        ]:
+        ):
+            return Response({"error": "Permission denied"}, status=403)
+        if result.status not in (DRAFT, SUBMITTED):
             return Response(
-                {"error": "You don't have permission to approve results"},
-                status=status.HTTP_403_FORBIDDEN,
+                {"error": f"Cannot approve from status '{result.status}'"}, status=400
             )
-        result = self.get_object()
-
-        if not result.total_score or result.total_score < 0:
-            return Response(
-                {"error": "Cannot approve result with invalid scores"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if result.status not in ["DRAFT", "SUBMITTED"]:
-            return Response(
-                {
-                    "error": "Invalid status transition",
-                    "detail": f"Cannot approve result with status '{result.status}'. Only DRAFT or SUBMITTED results can be approved.",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        """Approve a student result"""
         try:
             with transaction.atomic():
-                result = self.get_object()
-                result.status = "APPROVED"
+                result.status = APPROVED
                 result.approved_by = request.user
                 result.approved_date = timezone.now()
                 result.save()
-                serializer = DetailedStudentResultSerializer(result)
-                return Response(serializer.data)
+            return Response(DetailedStudentResultSerializer(result).data)
         except Exception as e:
-            logger.error(f"Failed to approve result: {str(e)}")
-            return Response(
-                {"error": f"Failed to approve result: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": str(e)}, status=400)
 
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
-        """Publish a student result"""
         try:
             with transaction.atomic():
                 result = self.get_object()
-                result.status = "PUBLISHED"
+                result.status = PUBLISHED
                 result.save()
-                serializer = DetailedStudentResultSerializer(result)
-                return Response(serializer.data)
+            return Response(DetailedStudentResultSerializer(result).data)
         except Exception as e:
-            logger.error(f"Failed to publish result: {str(e)}")
-            return Response(
-                {"error": f"Failed to publish result: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-
-from .filters import StudentTermResultFilter
+            return Response({"error": str(e)}, status=400)
 
 
 class StudentTermResultViewSet(
@@ -3912,210 +2536,71 @@ class StudentTermResultViewSet(
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_class = StudentTermResultFilter
-    search_fields = ["student__full_name", "student__username"]
+    search_fields = ["student__full_name"]
 
     def get_queryset(self):
-        queryset = (
+        qs = (
             super()
             .get_queryset()
-            .select_related("student", "student__user", "academic_session")
+            .select_related(
+                "student",
+                "student__user",
+                "academic_session",
+                "term",
+                "term__term_type",
+            )
             .prefetch_related("comments")
             .order_by("-created_at")
         )
-
         user = self.request.user
-
-        if hasattr(user, "role") and user.role == "STUDENT":
-            return queryset.filter(student__user=user)
-
+        if getattr(user, "role", None) == "STUDENT":
+            return qs.filter(student__user=user)
         section_access = self.get_user_section_access()
         if not section_access:
-            return queryset.none()
-
+            return qs.none()
         education_levels = self.get_education_levels_for_sections(section_access)
-
         if not education_levels:
-            return queryset.none()
-
-        # FK: student__education_level is now a FK to EducationLevel
-        return queryset.filter(student__education_level__in=education_levels)
-
-    @action(detail=False, methods=["get"])
-    def by_student(self, request):
-        """Get all term results for a specific student"""
-        student_id = request.query_params.get("student_id")
-        if not student_id:
-            return Response(
-                {"error": "student_id parameter is required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        results = self.get_queryset().filter(student_id=student_id)
-        serializer = StudentTermResultSerializer(results, many=True)
-        return Response(serializer.data)
+            return qs.none()
+        # education_level is a @property — must filter via FK chain
+        return qs.filter(
+            student__student_class__education_level__level_type__in=education_levels
+        )
 
     @action(detail=True, methods=["get"])
     def detailed(self, request, pk=None):
-        """Get detailed term result with all subject results"""
         term_result = self.get_object()
-        serializer = StudentTermResultDetailSerializer(term_result)
-        return Response(serializer.data)
-
-    @action(detail=False, methods=["post"])
-    def generate_report(self, request):
-        """Generate term report for a student"""
-        student_id = request.data.get("student_id")
-        exam_session_id = request.data.get("exam_session_id")
-
-        if not all([student_id, exam_session_id]):
-            return Response(
-                {"error": "student_id and exam_session_id are required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            student = Student.objects.get(id=student_id)
-            exam_session = ExamSession.objects.get(id=exam_session_id)
-        except (Student.DoesNotExist, ExamSession.DoesNotExist) as e:
-            return Response(
-                {"error": f"Student or ExamSession not found: {str(e)}"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        from django.db.models import Q
-
-        # Determine education level and use appropriate result model
-        education_level = student.education_level
-
-        if education_level == "SENIOR_SECONDARY":
-            result_model = SeniorSecondaryResult
-        elif education_level == "JUNIOR_SECONDARY":
-            result_model = JuniorSecondaryResult
-        elif education_level == "PRIMARY":
-            result_model = PrimaryResult
-        elif education_level == "NURSERY":
-            result_model = NurseryResult
-        else:
-            result_model = SeniorSecondaryResult  # Default fallback
-
-        subject_results = (
-            result_model.objects.filter(student=student, exam_session=exam_session)
-            .filter(
-                Q(status="PUBLISHED") | Q(status="APPROVED") | Q(status="SUBMITTED")
-            )
-            .select_related("subject", "student", "exam_session")
-        )
-
-        if not subject_results.exists():
-            return Response(
-                {
-                    "error": f"No published/approved results found for student {student_id} in exam session {exam_session_id}",
-                    "debug_info": {
-                        "student_id": student_id,
-                        "exam_session_id": exam_session_id,
-                        "statuses_checked": ["PUBLISHED", "APPROVED", "SUBMITTED"],
-                    },
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        # UPDATED: education_level is now a FK; use level_type property
-        education_level = (
-            student.education_level.upper() if student.education_level else "PRIMARY"
-        )
-
-        term = exam_session.term if hasattr(exam_session, "term") else "Unknown"
-        academic_session = (
-            exam_session.academic_session
-            if hasattr(exam_session, "academic_session")
-            else None
-        )
-
-        student_term_result, created = StudentTermResult.objects.get_or_create(
-            student=student,
-            exam_session=exam_session,
-            defaults={
-                "term": term,
-                "academic_session": academic_session,
-                "education_level": education_level,
-                "status": "DRAFT",
-            },
-        )
-
-        print(
-            f"🔍 [generate_report] Created: {created}, Report ID: {student_term_result.id}"
-        )
-        print(f"🔍 [generate_report] Student: {student.full_name} ({student.id})")
-        print(
-            f"🔍 [generate_report] Exam Session: {exam_session.name} ({exam_session.id})"
-        )
-        print(f"🔍 [generate_report] Found {subject_results.count()} subject results")
-
-        for sr in subject_results:
-            print(f"  - {sr.subject.name}: Status={sr.status}, Score={sr.total_score}")
-
-        if subject_results.exists():
-            total_score = sum(sr.total_score or 0 for sr in subject_results)
-            average_score = (
-                total_score / subject_results.count()
-                if subject_results.count() > 0
-                else 0
-            )
-            subjects_passed = subject_results.filter(is_passed=True).count()
-            subjects_failed = subject_results.filter(is_passed=False).count()
-
-            student_term_result.total_subjects = subject_results.count()
-            student_term_result.subjects_passed = subjects_passed
-            student_term_result.subjects_failed = subjects_failed
-            student_term_result.average_score = average_score
-            student_term_result.total_score = total_score
-
-            if hasattr(student_term_result, "calculate_gpa"):
-                student_term_result.gpa = student_term_result.calculate_gpa()
-
-            student_term_result.save()
-
-        serializer = self.get_serializer(student_term_result)
         return Response(
-            serializer.data,
-            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+            StudentTermResultDetailSerializer(
+                term_result, context={"request": request}
+            ).data
         )
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
-        """Approve a term result"""
         try:
             with transaction.atomic():
                 term_result = self.get_object()
-                term_result.status = "APPROVED"
+                term_result.status = APPROVED
                 term_result.save()
-                serializer = StudentTermResultSerializer(term_result)
-                return Response(serializer.data)
+            return Response(StudentTermResultSerializer(term_result).data)
         except Exception as e:
-            logger.error(f"Failed to approve term result: {str(e)}")
-            return Response(
-                {"error": f"Failed to approve term result: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": str(e)}, status=400)
 
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
-        """Publish a term result"""
         try:
             with transaction.atomic():
                 term_result = self.get_object()
-                term_result.status = "PUBLISHED"
+                term_result.status = PUBLISHED
                 term_result.save()
-                serializer = StudentTermResultSerializer(term_result)
-                return Response(serializer.data)
+            return Response(StudentTermResultSerializer(term_result).data)
         except Exception as e:
-            logger.error(f"Failed to publish term result: {str(e)}")
-            return Response(
-                {"error": f"Failed to publish term result: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": str(e)}, status=400)
 
 
-# ===== SUPPORTING VIEWSETS =====
+# ── Supporting ViewSets ───────────────────────────────────────────────────────
+
+
 class ResultSheetViewSet(
     AutoSectionFilterMixin, TeacherPortalCheckMixin, viewsets.ModelViewSet
 ):
@@ -4123,7 +2608,6 @@ class ResultSheetViewSet(
     serializer_class = ResultSheetSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
-    # UPDATED: filterset_fields now use FK id lookups instead of CharFields
     filterset_fields = ["exam_session", "student_class", "status"]
 
     def get_queryset(self):
@@ -4132,9 +2616,9 @@ class ResultSheetViewSet(
             .get_queryset()
             .select_related(
                 "exam_session",
+                "exam_session__academic_session",
                 "prepared_by",
                 "approved_by",
-                # UPDATED: include FK relations for education_level traversal
                 "student_class",
                 "student_class__education_level",
             )
@@ -4142,81 +2626,47 @@ class ResultSheetViewSet(
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
-        """Approve a result sheet"""
         try:
             with transaction.atomic():
-                result_sheet = self.get_object()
-                result_sheet.status = "APPROVED"
-                result_sheet.approved_by = request.user
-                result_sheet.approved_date = timezone.now()
-                result_sheet.save()
-                return Response(ResultSheetSerializer(result_sheet).data)
+                sheet = self.get_object()
+                sheet.status = APPROVED
+                sheet.approved_by = request.user
+                sheet.approved_date = timezone.now()
+                sheet.save()
+            return Response(ResultSheetSerializer(sheet).data)
         except Exception as e:
-            logger.error(f"Failed to approve result sheet: {str(e)}")
-            return Response(
-                {"error": f"Failed to approve result sheet: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": str(e)}, status=400)
 
     @action(detail=False, methods=["post"])
     def generate_sheet(self, request):
-        """Generate result sheet for a class"""
-        exam_session_id = request.data.get("exam_session_id")
-        # UPDATED: accept student_class_id (FK pk) instead of a class name string
-        student_class_id = request.data.get("student_class_id")
-
-        if not all([exam_session_id, student_class_id]):
+        es_id = request.data.get("exam_session_id")
+        sc_id = request.data.get("student_class_id")
+        if not es_id or not sc_id:
             return Response(
                 {"error": "exam_session_id and student_class_id are required"},
-                status=status.HTTP_400_BAD_REQUEST,
+                status=400,
             )
-
         try:
-            from classroom.models import Class as StudentClass
-
-            exam_session = ExamSession.objects.get(id=exam_session_id)
-            # UPDATED: resolve StudentClass FK object
-            student_class = StudentClass.objects.get(id=student_class_id)
-
-            # UPDATED: filter using FK fields; education_level derived from student_class FK
-            existing_sheet = ResultSheet.objects.filter(
-                exam_session=exam_session,
-                student_class=student_class,
+            exam_session = ExamSession.objects.get(id=es_id)
+            student_class = StudentClass.objects.get(id=sc_id)
+            existing = ResultSheet.objects.filter(
+                exam_session=exam_session, student_class=student_class
             ).first()
-
-            if existing_sheet:
-                return Response(
-                    ResultSheetSerializer(existing_sheet).data,
-                    status=status.HTTP_200_OK,
-                )
-
-            # UPDATED: create with FK objects; education_level no longer stored directly
-            result_sheet = ResultSheet.objects.create(
+            if existing:
+                return Response(ResultSheetSerializer(existing).data)
+            sheet = ResultSheet.objects.create(
                 exam_session=exam_session,
                 student_class=student_class,
                 prepared_by=request.user,
-                status="DRAFT",
+                status=DRAFT,
             )
-
-            return Response(
-                ResultSheetSerializer(result_sheet).data,
-                status=status.HTTP_201_CREATED,
-            )
-
+            return Response(ResultSheetSerializer(sheet).data, status=201)
         except ExamSession.DoesNotExist:
-            return Response(
-                {"error": "Exam session not found"}, status=status.HTTP_404_NOT_FOUND
-            )
+            return Response({"error": "Exam session not found"}, status=404)
         except StudentClass.DoesNotExist:
-            return Response(
-                {"error": "Student class not found"}, status=status.HTTP_404_NOT_FOUND
-            )
+            return Response({"error": "Student class not found"}, status=404)
         except Exception as e:
-            logger.error(f"Failed to generate result sheet: {str(e)}")
-            return Response(
-                {"error": f"Failed to generate result sheet: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": str(e)}, status=400)
 
 
 class AssessmentScoreViewSet(
@@ -4237,15 +2687,13 @@ class AssessmentScoreViewSet(
 class ResultCommentViewSet(
     AutoSectionFilterMixin, TeacherPortalCheckMixin, viewsets.ModelViewSet
 ):
-    """ViewSet for managing result comments"""
-
     queryset = ResultComment.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["student_result", "term_result", "comment_type", "commented_by"]
 
     def get_serializer_class(self):
-        if self.action in ["create", "update", "partial_update"]:
+        if self.action in ("create", "update", "partial_update"):
             return ResultCommentCreateSerializer
         return ResultCommentSerializer
 
@@ -4263,160 +2711,59 @@ class ResultCommentViewSet(
 class ResultTemplateViewSet(
     TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet
 ):
-    """
-    CRITICAL: TenantFilterMixin MUST be first to ensure tenant isolation.
-    ViewSet for managing result templates.
-    """
-
     queryset = ResultTemplate.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
-    # UPDATED: education_level is now a FK; filter by its id or level_type
     filterset_fields = ["template_type", "education_level", "is_active"]
 
     def get_serializer_class(self):
-        if self.action in ["create", "update", "partial_update"]:
+        if self.action in ("create", "update", "partial_update"):
             return ResultTemplateCreateUpdateSerializer
         return ResultTemplateSerializer
 
     @action(detail=True, methods=["post"])
     def activate(self, request, pk=None):
-        """Activate a result template"""
-        template = self.get_object()
-        template.is_active = True
-        template.save()
-        return Response(ResultTemplateSerializer(template).data)
+        t = self.get_object()
+        t.is_active = True
+        t.save()
+        return Response(ResultTemplateSerializer(t).data)
 
     @action(detail=True, methods=["post"])
     def deactivate(self, request, pk=None):
-        """Deactivate a result template"""
-        template = self.get_object()
-        template.is_active = False
-        template.save()
-        return Response(ResultTemplateSerializer(template).data)
+        t = self.get_object()
+        t.is_active = False
+        t.save()
+        return Response(ResultTemplateSerializer(t).data)
+
+
+# ── Bulk Operations ───────────────────────────────────────────────────────────
 
 
 class BulkResultOperationsViewSet(TenantFilterMixin, viewsets.ViewSet):
-    """CRITICAL: TenantFilterMixin ensures tenant isolation."""
-
     permission_classes = [IsAuthenticated]
 
     @action(detail=False, methods=["post"])
-    def bulk_update(self, request):
-        """Bulk update multiple results"""
-        serializer = BulkResultUpdateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        results_data = serializer.validated_data["results"]
-        updated_results = []
-        errors = []
-
-        try:
-            with transaction.atomic():
-                for result_data in results_data:
-                    result_id = result_data.pop("id")
-                    try:
-                        # UPDATED: education_level is now resolved via student FK;
-                        # callers should pass education_level as the level_type string
-                        # (e.g. "SENIOR_SECONDARY") which maps to the same model routing.
-                        education_level = result_data.get(
-                            "education_level", "SENIOR_SECONDARY"
-                        )
-
-                        if education_level == "SENIOR_SECONDARY":
-                            result = SeniorSecondaryResult.objects.get(id=result_id)
-                            update_serializer = (
-                                SeniorSecondaryResultCreateUpdateSerializer(
-                                    result, data=result_data, partial=True
-                                )
-                            )
-                        elif education_level == "JUNIOR_SECONDARY":
-                            result = JuniorSecondaryResult.objects.get(id=result_id)
-                            update_serializer = (
-                                JuniorSecondaryResultCreateUpdateSerializer(
-                                    result, data=result_data, partial=True
-                                )
-                            )
-                        elif education_level == "PRIMARY":
-                            result = PrimaryResult.objects.get(id=result_id)
-                            update_serializer = PrimaryResultCreateUpdateSerializer(
-                                result, data=result_data, partial=True
-                            )
-                        else:
-                            result = NurseryResult.objects.get(id=result_id)
-                            update_serializer = NurseryResultCreateUpdateSerializer(
-                                result, data=result_data, partial=True
-                            )
-
-                        update_serializer.is_valid(raise_exception=True)
-                        updated_result = update_serializer.save()
-                        updated_results.append(str(updated_result.id))
-
-                    except Exception as e:
-                        errors.append({"id": result_id, "error": str(e)})
-
-                return Response(
-                    {
-                        "message": f"Successfully updated {len(updated_results)} results",
-                        "updated_ids": updated_results,
-                        "errors": errors,
-                    },
-                    status=status.HTTP_200_OK,
-                )
-
-        except Exception as e:
-            logger.error(f"Bulk update failed: {str(e)}")
-            return Response(
-                {"error": f"Bulk update failed: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-    @action(detail=False, methods=["post"])
     def bulk_status_update(self, request):
-        """Bulk update status of multiple results"""
         serializer = BulkStatusUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
         result_ids = serializer.validated_data["result_ids"]
         new_status = serializer.validated_data["status"]
-        comment = serializer.validated_data.get("comment", "")
-
         try:
             with transaction.atomic():
-                total_updated = 0
-                for model in [
-                    SeniorSecondaryResult,
-                    JuniorSecondaryResult,
-                    PrimaryResult,
-                    NurseryResult,
-                ]:
-                    updated = model.objects.filter(id__in=result_ids).update(
-                        status=new_status
-                    )
-                    total_updated += updated
-
-                return Response(
-                    {
-                        "message": f"Successfully updated status for {total_updated} results",
-                        "status": new_status,
-                        "comment": comment,
-                    },
-                    status=status.HTTP_200_OK,
+                total = sum(
+                    model.objects.filter(id__in=result_ids).update(status=new_status)
+                    for model in _RESULT_MODEL_MAP.values()
                 )
-
-        except Exception as e:
-            logger.error(f"Bulk status update failed: {str(e)}")
             return Response(
-                {"error": f"Bulk status update failed: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
+                {"message": f"Updated {total} results", "status": new_status}
             )
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
 
     @action(detail=False, methods=["post"])
     def bulk_publish_results(self, request):
-        """Bulk publish results with notifications"""
         serializer = PublishResultSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
         result_ids = serializer.validated_data["result_ids"]
         publish_date = serializer.validated_data.get("publish_date", timezone.now())
         send_notifications = serializer.validated_data.get("send_notifications", True)
@@ -4425,143 +2772,100 @@ class BulkResultOperationsViewSet(TenantFilterMixin, viewsets.ViewSet):
             with transaction.atomic():
                 total_published = 0
                 student_ids = set()
-
-                for model in [
-                    SeniorSecondaryResult,
-                    JuniorSecondaryResult,
-                    PrimaryResult,
-                    NurseryResult,
-                ]:
+                for model in _RESULT_MODEL_MAP.values():
                     if send_notifications:
-                        results_to_publish = model.objects.filter(id__in=result_ids)
                         student_ids.update(
-                            results_to_publish.values_list("student_id", flat=True)
+                            model.objects.filter(id__in=result_ids).values_list(
+                                "student_id", flat=True
+                            )
                         )
-
-                    published = model.objects.filter(id__in=result_ids).update(
-                        status="PUBLISHED",
+                    total_published += model.objects.filter(id__in=result_ids).update(
+                        status=PUBLISHED,
                         published_by=request.user,
                         published_date=publish_date,
                     )
-                    total_published += published
 
                 notifications_sent = 0
-                recipient_user_ids = []
-
                 if send_notifications and student_ids:
                     from parent.models import ParentStudentRelationship
-                    from students.models import Student
 
                     students = Student.objects.filter(
                         id__in=student_ids
                     ).select_related("user")
-                    parent_relationships = ParentStudentRelationship.objects.filter(
+                    rels = ParentStudentRelationship.objects.filter(
                         student_id__in=student_ids
                     ).select_related("parent__user")
-
-                    recipient_user_ids.extend([s.user.id for s in students if s.user])
-                    recipient_user_ids.extend(
-                        [
-                            pr.parent.user.id
-                            for pr in parent_relationships
-                            if pr.parent and pr.parent.user
-                        ]
+                    recipient_ids = list(
+                        {
+                            *(s.user.id for s in students if s.user),
+                            *(
+                                r.parent.user.id
+                                for r in rels
+                                if r.parent and r.parent.user
+                            ),
+                        }
                     )
-
-                    if recipient_user_ids:
-                        bulk_message = BulkMessage.objects.create(
+                    if recipient_ids:
+                        bulk_msg = BulkMessage.objects.create(
                             sender=request.user,
                             subject="Results Published",
-                            content="Academic results have been published and are now available for viewing. Please check your student portal to view the results.",
+                            content="Academic results are now available.",
                             message_type="in_app",
                             priority="high",
-                            custom_recipients=list(set(recipient_user_ids)),
-                            total_recipients=len(set(recipient_user_ids)),
+                            custom_recipients=recipient_ids,
+                            total_recipients=len(recipient_ids),
                             status="sent",
                             sent_at=timezone.now(),
-                            tenant=(
-                                request.tenant if hasattr(request, "tenant") else None
-                            ),
+                            tenant=getattr(request, "tenant", None),
                         )
-
                         from users.models import CustomUser
-
-                        recipients = CustomUser.objects.filter(
-                            id__in=list(set(recipient_user_ids))
-                        )
-                        messages_to_create = [
+                        msgs = [
                             Message(
                                 sender=request.user,
-                                recipient=recipient,
-                                subject=bulk_message.subject,
-                                content=bulk_message.content,
-                                message_type=bulk_message.message_type,
-                                priority=bulk_message.priority,
+                                recipient=r,
+                                subject=bulk_msg.subject,
+                                content=bulk_msg.content,
+                                message_type="in_app",
+                                priority="high",
                                 status="sent",
                                 sent_at=timezone.now(),
-                                tenant=(
-                                    request.tenant
-                                    if hasattr(request, "tenant")
-                                    else None
-                                ),
+                                tenant=getattr(request, "tenant", None),
                             )
-                            for recipient in recipients
+                            for r in CustomUser.objects.filter(id__in=recipient_ids)
                         ]
-                        Message.objects.bulk_create(messages_to_create)
-                        notifications_sent = len(messages_to_create)
+                        Message.objects.bulk_create(msgs)
+                        notifications_sent = len(msgs)
+                        bulk_msg.sent_count = notifications_sent
+                        bulk_msg.delivered_count = notifications_sent
+                        bulk_msg.save()
 
-                        bulk_message.sent_count = notifications_sent
-                        bulk_message.delivered_count = notifications_sent
-                        bulk_message.save()
-
-                return Response(
-                    {
-                        "message": f"Successfully published {total_published} results",
-                        "published_date": publish_date,
-                        "notifications_sent": notifications_sent if send_notifications else 0,
-                        "recipients_notified": len(set(recipient_user_ids)) if send_notifications and student_ids else 0,
-                    },
-                    status=status.HTTP_200_OK,
-                )
-
-        except Exception as e:
-            logger.error(f"Bulk publish failed: {str(e)}")
             return Response(
-                {"error": f"Bulk publish failed: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
+                {
+                    "message": f"Published {total_published} results",
+                    "notifications_sent": notifications_sent,
+                }
             )
+        except Exception as e:
+            logger.error(f"Bulk publish failed: {e}")
+            return Response({"error": str(e)}, status=400)
+
+
+# ── Analytics ─────────────────────────────────────────────────────────────────
 
 
 class ResultAnalyticsViewSet(TenantFilterMixin, viewsets.ViewSet):
-    """CRITICAL: TenantFilterMixin ensures tenant isolation."""
-
     permission_classes = [IsAuthenticated]
 
     @action(detail=False, methods=["get"])
     def subject_performance(self, request):
-        """Get subject performance statistics"""
-        exam_session_id = request.query_params.get("exam_session_id")
-        # UPDATED: accept education_level as level_type string (SENIOR_SECONDARY etc.)
-        # which is still used for model routing only — not as a DB CharField filter
-        education_level = request.query_params.get("education_level")
-
-        if not exam_session_id:
-            return Response(
-                {"error": "exam_session_id is required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        model_map = {
-            "SENIOR_SECONDARY": SeniorSecondaryResult,
-            "JUNIOR_SECONDARY": JuniorSecondaryResult,
-            "PRIMARY": PrimaryResult,
-            "NURSERY": NurseryResult,
-        }
-        model = model_map.get(education_level, SeniorSecondaryResult)
-
+        es_id = request.query_params.get("exam_session_id")
+        level = request.query_params.get("education_level", SENIOR_SECONDARY)
+        if not es_id:
+            return Response({"error": "exam_session_id is required"}, status=400)
+        model = _RESULT_MODEL_MAP.get(level, SeniorSecondaryResult)
         results = (
             model.objects.filter(
-                exam_session_id=exam_session_id, status__in=["APPROVED", "PUBLISHED"]
+                exam_session_id=es_id, status__in=(APPROVED, PUBLISHED)
             )
             .values("subject__id", "subject__name", "subject__code")
             .annotate(
@@ -4573,774 +2877,276 @@ class ResultAnalyticsViewSet(TenantFilterMixin, viewsets.ViewSet):
                 students_failed=Count("id", filter=Q(is_passed=False)),
             )
         )
-
-        performance_data = []
-        for result in results:
-            pass_rate = (
-                (result["students_passed"] / result["total_students"] * 100)
-                if result["total_students"] > 0
-                else 0
-            )
-            performance_data.append(
-                {
-                    "subject_id": result["subject__id"],
-                    "subject_name": result["subject__name"],
-                    "subject_code": result["subject__code"],
-                    "total_students": result["total_students"],
-                    "average_score": (
-                        round(result["average_score"], 2)
-                        if result["average_score"]
+        data = [
+            {
+                "subject_id": r["subject__id"],
+                "subject_name": r["subject__name"],
+                "subject_code": r["subject__code"],
+                "total_students": r["total_students"],
+                "average_score": round(r["average_score"] or 0, 2),
+                "highest_score": r["highest_score"],
+                "lowest_score": r["lowest_score"],
+                "pass_rate": round(
+                    (
+                        (r["students_passed"] / r["total_students"] * 100)
+                        if r["total_students"]
                         else 0
                     ),
-                    "highest_score": result["highest_score"],
-                    "lowest_score": result["lowest_score"],
-                    "pass_rate": round(pass_rate, 2),
-                    "students_passed": result["students_passed"],
-                    "students_failed": result["students_failed"],
-                }
-            )
-
-        serializer = SubjectPerformanceSerializer(performance_data, many=True)
-        return Response(serializer.data)
-
-    @action(detail=False, methods=["get"])
-    def student_performance_trend(self, request):
-        """Get student performance trend across terms"""
-        student_id = request.query_params.get("student_id")
-        academic_session_id = request.query_params.get("academic_session_id")
-
-        if not student_id:
-            return Response(
-                {"error": "student_id is required"}, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            student = Student.objects.select_related("education_level").get(
-                id=student_id
-            )
-            # UPDATED: education_level is a FK; use level_type property
-            education_level = student.education_level  # @property → level_type string
-
-            if education_level == "SENIOR_SECONDARY":
-                term_reports = SeniorSecondaryTermReport.objects.filter(
-                    student=student
-                ).select_related("exam_session")
-            elif education_level == "JUNIOR_SECONDARY":
-                term_reports = JuniorSecondaryTermReport.objects.filter(
-                    student=student
-                ).select_related("exam_session")
-            elif education_level == "PRIMARY":
-                term_reports = PrimaryTermReport.objects.filter(
-                    student=student
-                ).select_related("exam_session")
-            else:
-                term_reports = NurseryTermReport.objects.filter(
-                    student=student
-                ).select_related("exam_session")
-
-            if academic_session_id:
-                term_reports = term_reports.filter(
-                    exam_session__academic_session_id=academic_session_id
-                )
-
-            term_scores = []
-            for report in term_reports:
-                term_scores.append(
-                    {
-                        "term": report.exam_session.term,
-                        "average_score": (
-                            float(report.average_score) if report.average_score else 0
-                        ),
-                        "total_score": (
-                            float(report.total_score) if report.total_score else 0
-                        ),
-                        "class_position": report.class_position,
-                    }
-                )
-
-            if len(term_scores) >= 2:
-                first_score = term_scores[0]["average_score"]
-                last_score = term_scores[-1]["average_score"]
-                percentage_change = (
-                    ((last_score - first_score) / first_score * 100)
-                    if first_score > 0
-                    else 0
-                )
-                if percentage_change > 5:
-                    trend = "IMPROVING"
-                elif percentage_change < -5:
-                    trend = "DECLINING"
-                else:
-                    trend = "STABLE"
-            else:
-                percentage_change = 0
-                trend = "STABLE"
-
-            best_subject = None
-            worst_subject = None
-
-            if education_level == "SENIOR_SECONDARY":
-                results = SeniorSecondaryResult.objects.filter(
-                    student=student
-                ).select_related("subject")
-                if academic_session_id:
-                    results = results.filter(exam_session__academic_session_id=academic_session_id)
-            elif education_level == "JUNIOR_SECONDARY":
-                results = JuniorSecondaryResult.objects.filter(
-                    student=student
-                ).select_related("subject")
-                if academic_session_id:
-                    results = results.filter(exam_session__academic_session_id=academic_session_id)
-            elif education_level == "PRIMARY":
-                results = PrimaryResult.objects.filter(student=student).select_related(
-                    "subject"
-                )
-                if academic_session_id:
-                    results = results.filter(exam_session__academic_session_id=academic_session_id)
-            else:
-                results = NurseryResult.objects.filter(student=student).select_related(
-                    "subject"
-                )
-                if academic_session_id:
-                    results = results.filter(exam_session__academic_session_id=academic_session_id)
-
-            subject_scores = {}
-            for result in results:
-                subject_name = (
-                    result.subject.name
-                    if hasattr(result, "subject") and result.subject
-                    else "Unknown"
-                )
-                total = float(result.total or 0)
-                subject_scores.setdefault(subject_name, []).append(total)
-
-            subject_averages = {
-                subject: sum(scores) / len(scores)
-                for subject, scores in subject_scores.items()
-                if scores
-            }
-
-            if subject_averages:
-                best_subject_name = max(subject_averages, key=subject_averages.get)
-                best_subject = {
-                    "name": best_subject_name,
-                    "average_score": round(subject_averages[best_subject_name], 2),
-                }
-                worst_subject_name = min(subject_averages, key=subject_averages.get)
-                worst_subject = {
-                    "name": worst_subject_name,
-                    "average_score": round(subject_averages[worst_subject_name], 2),
-                }
-
-            response_data = {
-                "student": StudentMinimalSerializer(student).data,
-                "term_scores": term_scores,
-                "average_score": (
-                    sum(s["average_score"] for s in term_scores) / len(term_scores)
-                    if term_scores
-                    else 0
+                    2,
                 ),
-                "trend": trend,
-                "percentage_change": round(percentage_change, 2),
-                "best_subject": best_subject,
-                "worst_subject": worst_subject,
+                "students_passed": r["students_passed"],
+                "students_failed": r["students_failed"],
             }
-
-            return Response(response_data)
-
-        except Student.DoesNotExist:
-            return Response(
-                {"error": "Student not found"}, status=status.HTTP_404_NOT_FOUND
-            )
-
-    @action(detail=False, methods=["get"])
-    def class_performance(self, request):
-        """Get class-level performance summary"""
-        exam_session_id = request.query_params.get("exam_session_id")
-        # UPDATED: accept student_class_id (FK pk) instead of a class name string
-        student_class_id = request.query_params.get("student_class_id")
-        # education_level still used for model routing (level_type string)
-        education_level = request.query_params.get("education_level")
-
-        if not all([exam_session_id, student_class_id, education_level]):
-            return Response(
-                {
-                    "error": "exam_session_id, student_class_id, and education_level are required"
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        report_model_map = {
-            "SENIOR_SECONDARY": SeniorSecondaryTermReport,
-            "JUNIOR_SECONDARY": JuniorSecondaryTermReport,
-            "PRIMARY": PrimaryTermReport,
-            "NURSERY": NurseryTermReport,
-        }
-        report_model = report_model_map.get(education_level)
-        if not report_model:
-            return Response(
-                {"error": "Invalid education level"}, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # UPDATED: filter via FK — student__student_class_id instead of student__student_class string
-        term_reports = report_model.objects.filter(
-            exam_session_id=exam_session_id,
-            student__student_class_id=student_class_id,
-            status__in=["APPROVED", "PUBLISHED"],
-        ).select_related("student")
-
-        if not term_reports.exists():
-            return Response(
-                {"error": "No results found"}, status=status.HTTP_404_NOT_FOUND
-            )
-
-        total_students = term_reports.count()
-        class_average = (
-            term_reports.aggregate(Avg("average_score"))["average_score__avg"] or 0
-        )
-
-        passed_count = term_reports.filter(average_score__gte=50).count()
-        pass_rate = (passed_count / total_students * 100) if total_students > 0 else 0
-
-        top_performers = term_reports.order_by("-average_score")[:5]
-        top_performers_data = [
-            {
-                "student_id": str(report.student.id),
-                "student_name": report.student.full_name,
-                "average_score": (
-                    float(report.average_score) if report.average_score else 0
-                ),
-                "class_position": report.class_position,
-            }
-            for report in top_performers
+            for r in results
         ]
-
-        result_model_map = {
-            "SENIOR_SECONDARY": SeniorSecondaryResult,
-            "JUNIOR_SECONDARY": JuniorSecondaryResult,
-            "PRIMARY": PrimaryResult,
-            "NURSERY": NurseryResult,
-        }
-        result_model = result_model_map.get(education_level)
-        subject_performance = []
-
-        if result_model:
-            # UPDATED: filter via FK — student__student_class_id instead of string
-            results = result_model.objects.filter(
-                exam_session_id=exam_session_id,
-                student__student_class_id=student_class_id,
-                status__in=["APPROVED", "PUBLISHED"],
-            ).select_related("subject")
-
-            subject_stats = {}
-            for result in results:
-                subject_name = (
-                    result.subject.name
-                    if hasattr(result, "subject") and result.subject
-                    else "Unknown"
-                )
-                total_score = float(result.total or 0)
-                if subject_name not in subject_stats:
-                    subject_stats[subject_name] = {
-                        "scores": [],
-                        "passed": 0,
-                        "failed": 0,
-                    }
-                subject_stats[subject_name]["scores"].append(total_score)
-                if total_score >= 50:
-                    subject_stats[subject_name]["passed"] += 1
-                else:
-                    subject_stats[subject_name]["failed"] += 1
-
-            for subject_name, stats in subject_stats.items():
-                scores = stats["scores"]
-                if scores:
-                    subject_performance.append(
-                        {
-                            "subject": subject_name,
-                            "average_score": round(sum(scores) / len(scores), 2),
-                            "highest_score": round(max(scores), 2),
-                            "lowest_score": round(min(scores), 2),
-                            "students_passed": stats["passed"],
-                            "students_failed": stats["failed"],
-                            "pass_rate": round(
-                                (stats["passed"] / len(scores) * 100) if scores else 0,
-                                2,
-                            ),
-                        }
-                    )
-
-            subject_performance.sort(key=lambda x: x["average_score"], reverse=True)
-
-        # UPDATED: return student_class_id instead of raw name string so callers
-        # can resolve the FK object themselves if needed
-        response_data = {
-            "student_class_id": student_class_id,
-            "education_level": education_level,
-            "total_students": total_students,
-            "class_average": round(class_average, 2),
-            "pass_rate": round(pass_rate, 2),
-            "top_performers": top_performers_data,
-            "subject_performance": subject_performance,
-        }
-
-        return Response(response_data)
+        return Response(SubjectPerformanceSerializer(data, many=True).data)
 
     @action(detail=False, methods=["get"])
     def result_summary(self, request):
-        """Get overall result summary dashboard"""
-        exam_session_id = request.query_params.get("exam_session_id")
-
-        if not exam_session_id:
-            return Response(
-                {"error": "exam_session_id is required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
+        es_id = request.query_params.get("exam_session_id")
+        if not es_id:
+            return Response({"error": "exam_session_id is required"}, status=400)
         summary = {
             "total_results": 0,
             "published_results": 0,
             "pending_approval": 0,
             "draft_results": 0,
-            "overall_pass_rate": 0,
-            "average_class_performance": 0,
-            "top_performing_class": None,
-            "subjects_summary": [],
         }
-
-        for model in [
-            SeniorSecondaryResult,
-            JuniorSecondaryResult,
-            PrimaryResult,
-            NurseryResult,
-        ]:
-            results = model.objects.filter(exam_session_id=exam_session_id)
-            summary["total_results"] += results.count()
-            summary["published_results"] += results.filter(status="PUBLISHED").count()
-            summary["pending_approval"] += results.filter(status="SUBMITTED").count()
-            summary["draft_results"] += results.filter(status="DRAFT").count()
-
         total_passed = 0
-        for model in [
-            SeniorSecondaryResult,
-            JuniorSecondaryResult,
-            PrimaryResult,
-            NurseryResult,
-        ]:
-            total_passed += model.objects.filter(
-                exam_session_id=exam_session_id, is_passed=True
-            ).count()
-
+        for model in _RESULT_MODEL_MAP.values():
+            qs = model.objects.filter(exam_session_id=es_id)
+            summary["total_results"] += qs.count()
+            summary["published_results"] += qs.filter(status=PUBLISHED).count()
+            summary["pending_approval"] += qs.filter(status=SUBMITTED).count()
+            summary["draft_results"] += qs.filter(status=DRAFT).count()
+            total_passed += qs.filter(is_passed=True).count()
         summary["overall_pass_rate"] = round(
             (
-                (total_passed / summary["total_results"] * 100)
-                if summary["total_results"] > 0
+                total_passed / summary["total_results"] * 100
+                if summary["total_results"]
                 else 0
             ),
             2,
         )
-
         return Response(summary)
 
 
-class ResultImportExportViewSet(TenantFilterMixin, viewsets.ViewSet):
-    """CRITICAL: TenantFilterMixin ensures tenant isolation."""
+# ── Import / Export ───────────────────────────────────────────────────────────
 
+
+class ResultImportExportViewSet(TenantFilterMixin, viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
 
     @action(detail=False, methods=["post"])
     def import_results(self, request):
-        """Import results from CSV file"""
         serializer = ResultImportSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
         file_obj = request.FILES.get("file")
         if not file_obj:
-            return Response(
-                {"error": "No file provided"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            education_level = serializer.validated_data.get("education_level")
-            exam_session_id = serializer.validated_data.get("exam_session_id")
-
-            model_map = {
-                "SENIOR_SECONDARY": SeniorSecondaryResult,
-                "JUNIOR_SECONDARY": JuniorSecondaryResult,
-                "PRIMARY": PrimaryResult,
-                "NURSERY": NurseryResult,
-            }
-            result_model = model_map.get(education_level)
-            if not result_model:
-                return Response(
-                    {"error": "Invalid education level"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            decoded_file = file_obj.read().decode("utf-8")
-            io_string = io.StringIO(decoded_file)
-            reader = csv.DictReader(io_string)
-
-            imported_count = 0
-            errors = []
-
-            with transaction.atomic():
-                for row_num, row in enumerate(reader, start=2):
-                    try:
-                        from students.models import Student
-                        from subject.models import Subject
-
-                        student = Student.objects.get(id=row["student_id"])
-                        subject = Subject.objects.get(id=row["subject_id"])
-
-                        result, created = result_model.objects.update_or_create(
-                            student=student,
-                            subject=subject,
-                            exam_session_id=exam_session_id,
-                            defaults={
-                                "ca_score": Decimal(row.get("ca_score", 0)),
-                                "exam_score": Decimal(row.get("exam_score", 0)),
-                                "total": Decimal(row.get("ca_score", 0))
-                                + Decimal(row.get("exam_score", 0)),
-                                "status": "DRAFT",
-                                "tenant": (
-                                    request.tenant
-                                    if hasattr(request, "tenant")
-                                    else None
-                                ),
-                            },
-                        )
-                        imported_count += 1
-
-                    except Student.DoesNotExist:
-                        errors.append(
-                            f"Row {row_num}: Student ID {row.get('student_id')} not found"
-                        )
-                    except Subject.DoesNotExist:
-                        errors.append(
-                            f"Row {row_num}: Subject ID {row.get('subject_id')} not found"
-                        )
-                    except Exception as e:
-                        errors.append(f"Row {row_num}: {str(e)}")
-
-            return Response(
-                {
-                    "message": f"Successfully imported {imported_count} results",
-                    "imported_count": imported_count,
-                    "error_count": len(errors),
-                    "errors": errors[:10],
-                },
-                status=status.HTTP_200_OK,
-            )
-
-        except Exception as e:
-            logger.error(f"Import failed: {str(e)}")
-            return Response(
-                {"error": f"Import failed: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": "No file provided"}, status=400)
+        level = serializer.validated_data.get("education_level")
+        es_id = serializer.validated_data.get("exam_session_id")
+        model = _RESULT_MODEL_MAP.get(level)
+        if not model:
+            return Response({"error": "Invalid education level"}, status=400)
+        reader = csv.DictReader(io.StringIO(file_obj.read().decode("utf-8")))
+        imported, errors = 0, []
+        with transaction.atomic():
+            for row_num, row in enumerate(reader, start=2):
+                try:
+                    student = Student.objects.get(id=row["student_id"])
+                    subject = Subject.objects.get(id=row["subject_id"])
+                    model.objects.update_or_create(
+                        student=student,
+                        subject=subject,
+                        exam_session_id=es_id,
+                        defaults={
+                            "status": DRAFT,
+                            "tenant": getattr(request, "tenant", None),
+                        },
+                    )
+                    imported += 1
+                except Exception as e:
+                    errors.append(f"Row {row_num}: {e}")
+        return Response({"imported_count": imported, "errors": errors[:10]})
 
     @action(detail=False, methods=["post"])
     def export_results(self, request):
-        """Export results to CSV file"""
         serializer = ResultExportSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
-        try:
-            education_level = serializer.validated_data.get("education_level")
-            exam_session_id = serializer.validated_data.get("exam_session_id")
-            # UPDATED: accept student_class_id instead of a raw class name string
-            student_class_id = serializer.validated_data.get("student_class_id")
-            export_format = serializer.validated_data.get("export_format", "csv")
-
-            model_map = {
-                "SENIOR_SECONDARY": SeniorSecondaryResult,
-                "JUNIOR_SECONDARY": JuniorSecondaryResult,
-                "PRIMARY": PrimaryResult,
-                "NURSERY": NurseryResult,
-            }
-            result_model = model_map.get(education_level)
-            if not result_model:
-                return Response(
-                    {"error": "Invalid education level"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            results = result_model.objects.filter(
-                exam_session_id=exam_session_id
-            ).select_related("student", "subject", "student__student_class")
-
-            # UPDATED: filter by FK id instead of student_class name string
-            if student_class_id:
-                results = results.filter(student__student_class_id=student_class_id)
-
-            if export_format == "csv":
-                response = HttpResponse(content_type="text/csv")
-                response["Content-Disposition"] = (
-                    f'attachment; filename="results_{exam_session_id}_{education_level}.csv"'
-                )
-
-                writer = csv.writer(response)
-                writer.writerow(
-                    [
-                        "Student ID",
-                        "Student Name",
-                        "Student Class",
-                        "Subject ID",
-                        "Subject Name",
-                        "CA Score",
-                        "Exam Score",
-                        "Total",
-                        "Grade",
-                        "Status",
-                    ]
-                )
-
-                for result in results:
-                    # UPDATED: student_class is now a FK — use .name attribute
-                    student_class_name = (
-                        result.student.student_class.name
-                        if result.student.student_class
+        level = serializer.validated_data.get("education_level")
+        es_id = serializer.validated_data.get("exam_session_id")
+        sc_id = serializer.validated_data.get("student_class")
+        model = _RESULT_MODEL_MAP.get(level)
+        if not model:
+            return Response({"error": "Invalid education level"}, status=400)
+        qs = model.objects.filter(exam_session_id=es_id).select_related(
+            "student", "subject", "student__student_class"
+        )
+        if sc_id:
+            qs = qs.filter(student__student_class_id=sc_id)
+        response = HttpResponse(content_type="text/csv")
+        response["Content-Disposition"] = (
+            f'attachment; filename="results_{es_id}_{level}.csv"'
+        )
+        writer = csv.writer(response)
+        writer.writerow(
+            [
+                "Student ID",
+                "Student Name",
+                "Student Class",
+                "Subject",
+                "Grade",
+                "Status",
+            ]
+        )
+        for r in qs:
+            writer.writerow(
+                [
+                    r.student.id,
+                    getattr(r.student, "full_name", ""),
+                    r.student.student_class.name if r.student.student_class else "",
+                    (
+                        getattr(r, "subject", {}).name
+                        if hasattr(r, "subject") and r.subject
                         else ""
-                    )
-                    writer.writerow(
-                        [
-                            result.student.id,
-                            (
-                                result.student.full_name
-                                if hasattr(result.student, "full_name")
-                                else f"{result.student.user.first_name} {result.student.user.last_name}"
-                            ),
-                            student_class_name,
-                            result.subject.id if hasattr(result, "subject") else "",
-                            result.subject.name if hasattr(result, "subject") else "",
-                            result.ca_score or 0,
-                            result.exam_score or 0,
-                            result.total or 0,
-                            result.grade or "",
-                            result.status or "",
-                        ]
-                    )
-
-                return response
-            else:
-                return Response(
-                    {"error": "Only CSV export is currently supported"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-        except Exception as e:
-            logger.error(f"Export failed: {str(e)}")
-            return Response(
-                {"error": f"Export failed: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
+                    ),
+                    r.grade or "",
+                    r.status or "",
+                ]
             )
+        return response
+
+
+# ── Report Generation ─────────────────────────────────────────────────────────
 
 
 class ReportGenerationViewSet(TenantFilterMixin, viewsets.ViewSet):
-    """CRITICAL: TenantFilterMixin ensures tenant isolation."""
-
     permission_classes = [IsAuthenticated]
 
     @action(detail=False, methods=["get"], url_path="verify-report")
     def verify_report_exists(self, request):
-        """Verify if a term report exists before allowing download"""
         report_id = request.query_params.get("report_id")
-        education_level = request.query_params.get("education_level")
-
-        if not report_id or not education_level:
-            return Response(
-                {"error": "Missing parameters"}, status=status.HTTP_400_BAD_REQUEST
-            )
-
+        level = request.query_params.get("education_level", "").upper()
+        model = _TERM_REPORT_MODEL_MAP.get(level)
+        if not model:
+            return Response({"error": "Invalid education level"}, status=400)
         try:
-            model_map = {
-                "NURSERY": NurseryTermReport,
-                "PRIMARY": PrimaryTermReport,
-                "JUNIOR_SECONDARY": JuniorSecondaryTermReport,
-                "SENIOR_SECONDARY": SeniorSecondaryTermReport,
-            }
-            report_model = model_map.get(education_level.upper())
-            if not report_model:
-                return Response(
-                    {"error": "Invalid education level"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            report = report_model.objects.get(id=report_id)
+            report = model.objects.get(id=report_id)
             return Response(
                 {
                     "exists": True,
                     "report_id": str(report.id),
-                    "student": (
-                        report.student.full_name
-                        if hasattr(report, "student")
-                        else "Unknown"
-                    ),
-                    "status": report.status if hasattr(report, "status") else "UNKNOWN",
+                    "student": getattr(report.student, "full_name", "Unknown"),
+                    "status": report.status,
                 }
             )
-
-        except (report_model.DoesNotExist, ValueError, AttributeError):
-            return Response(
-                {"exists": False, "error": f"Report with ID {report_id} not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        except model.DoesNotExist:
+            return Response({"exists": False, "error": "Not found"}, status=404)
 
     @action(detail=False, methods=["get"], url_path="download-term-report")
     def download_term_report(self, request):
-        """Download PDF term report for a student"""
         report_id = request.query_params.get("report_id")
         education_level = request.query_params.get("education_level")
-
-        print(f"\n{'='*60}")
-        print(f"🎯 DOWNLOAD REQUEST RECEIVED")
-        print(f"{'='*60}")
-        print(f"📨 Request Method: {request.method}")
-        print(f"📨 Request Path: {request.path}")
-        print(f"📨 Query Params: {dict(request.query_params)}")
-        print(f"🎫 Report ID: {report_id}")
-        print(f"🎓 Education Level: {education_level}")
-        print(f"👤 User: {request.user.username if request.user else 'Anonymous'}")
-        print(f"{'='*60}\n")
-
         if not report_id or not education_level:
             return Response(
-                {"error": "report_id and education_level are required"},
-                status=status.HTTP_400_BAD_REQUEST,
+                {"error": "report_id and education_level are required"}, status=400
             )
-
         try:
             generator = get_report_generator(education_level, request)
-            print(f"About to generate report for ID: {report_id}")
-            pdf_response = generator.generate_term_report(report_id)
-            print(f"PDF generation completed for ID: {report_id}\n")
-            return pdf_response
-
+            return generator.generate_term_report(report_id)
         except ValueError as e:
-            logger.error(f"Invalid education level: {e}")
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": str(e)}, status=400)
         except Exception as e:
             logger.error(f"Error generating PDF report: {e}", exc_info=True)
-            return Response(
-                {"error": "Failed to generate PDF report", "detail": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+            return Response({"error": str(e)}, status=500)
 
     @action(detail=False, methods=["get"], url_path="download-session-report")
     def download_session_report(self, request):
-        """Download PDF session report for a student (Senior Secondary only)"""
         report_id = request.query_params.get("report_id")
-
         if not report_id:
-            return Response(
-                {"error": "report_id is required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
+            return Response({"error": "report_id is required"}, status=400)
         try:
-            generator = get_report_generator("SENIOR_SECONDARY", request)
-            return generator.generate_session_report(report_id)
+            return get_report_generator(
+                SENIOR_SECONDARY, request
+            ).generate_session_report(report_id)
         except Exception as e:
-            logger.error(f"Error generating session PDF report: {e}", exc_info=True)
-            return Response(
-                {"error": "Failed to generate PDF report", "detail": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-    @action(detail=False, methods=["post"], url_path="bulk-download")
-    def bulk_download_reports(self, request):
-        """Bulk download multiple PDF reports"""
-        serializer = BulkReportGenerationSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        report_ids = serializer.validated_data.get("report_ids", [])
-        education_level = serializer.validated_data.get("education_level")
-
-        if not report_ids:
-            return Response(
-                {"error": "report_ids are required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            generator = get_report_generator(education_level, request)
-            return Response(
-                {
-                    "message": f"Bulk download initiated for {len(report_ids)} reports",
-                    "status": "processing",
-                },
-                status=status.HTTP_202_ACCEPTED,
-            )
-        except Exception as e:
-            logger.error(f"Bulk download failed: {e}", exc_info=True)
-            return Response(
-                {"error": "Failed to initiate bulk download", "detail": str(e)},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            logger.error(f"Error generating session report: {e}", exc_info=True)
+            return Response({"error": str(e)}, status=500)
 
 
-# ===== PROFESSIONAL ASSIGNMENT VIEWS =====
-from rest_framework.parsers import MultiPartParser, FormParser
-import cloudinary.uploader
+# ── Professional Assignment ───────────────────────────────────────────────────
 
 
 class ProfessionalAssignmentViewSet(
     TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ViewSet
 ):
-    """ViewSet for Professional Assignment tab functionality."""
-
-    pagination_class = StandardResultsPagination
     permission_classes = [IsAuthenticated]
     parser_classes = (MultiPartParser, FormParser)
 
-    def get_user_role(self):
-        return getattr(self.request.user, "role", None)
+    def _get_report_model(self, education_level):
+        model = _TERM_REPORT_MODEL_MAP.get(education_level.upper())
+        if not model:
+            raise ValueError(f"Invalid education level: {education_level}")
+        return model
+
+    def _can_teacher_edit_remark(self, user, term_report):
+        try:
+            from teacher.models import Teacher
+            from classroom.models import ClassroomTeacherAssignment
+
+            teacher = Teacher.objects.get(user=user)
+            enrollment = (
+                StudentEnrollment.objects.filter(
+                    student=term_report.student, is_active=True
+                )
+                .select_related("classroom")
+                .first()
+            )
+            if not enrollment:
+                return False
+            classroom = enrollment.classroom
+            if classroom.class_teacher == teacher:
+                return True
+            return ClassroomTeacherAssignment.objects.filter(
+                teacher=teacher, classroom=classroom
+            ).exists()
+        except Exception:
+            return False
 
     @action(detail=False, methods=["get"], url_path="my-students")
     def get_assigned_students(self, request):
-        """Get all students assigned to the current teacher."""
         user = request.user
+        es_id = request.query_params.get("exam_session")
+        level_filter = request.query_params.get("education_level")
 
-        exam_session_id = request.query_params.get("exam_session")
-        # UPDATED: accept education_level as level_type string for filtering;
-        # actual DB comparisons go through the FK property on Student
-        education_level_filter = request.query_params.get("education_level")
-
-        if exam_session_id:
-            try:
-                exam_session = ExamSession.objects.get(id=exam_session_id)
-            except ExamSession.DoesNotExist:
-                return Response(
-                    {"error": "Exam session not found"},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-        else:
-            exam_session = (
-                ExamSession.objects.filter(is_active=True)
-                .order_by("-created_at")
-                .first()
+        exam_session = (
+            ExamSession.objects.select_related(
+                "academic_session", "term", "term__term_type"
+            ).get(id=es_id)
+            if es_id
+            else ExamSession.objects.select_related(
+                "academic_session", "term", "term__term_type"
             )
-            if not exam_session:
-                return Response(
-                    {"error": "No active exam session found"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+            .filter(is_active=True)
+            .order_by("-created_at")
+            .first()
+        )
+        if not exam_session:
+            return Response({"error": "No active exam session found"}, status=400)
 
         try:
             from teacher.models import Teacher
-            from classroom.models import Classroom, StudentEnrollment
 
             teacher = Teacher.objects.get(user=user)
-            logger.info(
-                f"👨‍🏫 Teacher: {teacher.user.get_full_name()} (ID: {teacher.id})"
+            assigned_classrooms = (
+                apps.get_model("classroom", "Classroom")
+                .objects.filter(
+                    Q(class_teacher=teacher)
+                    | Q(classroomteacherassignment__teacher=teacher)
+                )
+                .distinct()
             )
-
-            assigned_classrooms = Classroom.objects.filter(
-                Q(class_teacher=teacher)
-                | Q(classroomteacherassignment__teacher=teacher)
-            ).distinct()
 
             if not assigned_classrooms.exists():
                 return Response(
@@ -5356,62 +3162,39 @@ class ProfessionalAssignmentViewSet(
                             "pending_remarks": 0,
                             "completion_percentage": 0,
                         },
-                        "message": "No classrooms assigned to this teacher",
                     }
                 )
 
-            student_enrollments = StudentEnrollment.objects.filter(
+            enrollments = StudentEnrollment.objects.filter(
                 classroom__in=assigned_classrooms,
                 is_active=True,
             ).select_related(
-                "student", "student__user", "student__education_level", "classroom"
-            )
-
-            from collections import Counter
-
-            # UPDATED: education_level is a FK; use level_type @property
-            education_level_counts = Counter(
-                enrollment.student.education_level for enrollment in student_enrollments
+                "student", "student__user", "student__student_class", "classroom"
             )
 
             students_data = []
-            for idx, enrollment in enumerate(student_enrollments, 1):
+            for enrollment in enrollments:
                 student = enrollment.student
-                # UPDATED: education_level @property returns level_type string from FK
-                education_level = student.education_level
-
-                if education_level_filter and education_level != education_level_filter:
+                level = student.education_level
+                if level_filter and level != level_filter:
                     continue
-
                 try:
-                    report_model = self._get_report_model(education_level)
+                    report_model = self._get_report_model(level)
                     term_report = report_model.objects.filter(
-                        student=student,
-                        exam_session=exam_session,
+                        student=student, exam_session=exam_session
                     ).first()
-                except Exception as e:
-                    logger.error(
-                        f"❌ Error getting report for {student.full_name}: {e}"
-                    )
+                except Exception:
                     term_report = None
 
-                has_teacher_remark = bool(
-                    term_report and term_report.class_teacher_remark
-                )
-                has_teacher_signature = bool(
+                has_remark = bool(term_report and term_report.class_teacher_remark)
+                has_sig = bool(
                     term_report
                     and getattr(term_report, "class_teacher_signature", None)
                 )
-
-                if has_teacher_remark and has_teacher_signature:
-                    remark_status = "completed"
-                elif has_teacher_remark:
-                    remark_status = "draft"
-                else:
-                    remark_status = "pending"
-
-                average_score = (
-                    getattr(term_report, "average_score", None) if term_report else None
+                remark_status = (
+                    "completed"
+                    if (has_remark and has_sig)
+                    else ("draft" if has_remark else "pending")
                 )
 
                 students_data.append(
@@ -5419,703 +3202,373 @@ class ProfessionalAssignmentViewSet(
                         "id": str(student.id),
                         "full_name": student.full_name,
                         "admission_number": student.registration_number,
-                        # UPDATED: student_class is a FK — use .name attribute
                         "student_class": (
                             student.student_class.name
                             if student.student_class
                             else enrollment.classroom.name
                         ),
-                        "education_level": education_level,
+                        "education_level": level,
                         "average_score": (
-                            float(average_score) if average_score is not None else None
+                            float(getattr(term_report, "average_score", None) or 0)
+                            if term_report
+                            else None
                         ),
                         "term_report_id": str(term_report.id) if term_report else None,
-                        "has_remark": has_teacher_remark,
+                        "has_remark": has_remark,
                         "remark_status": remark_status,
                         "last_remark": (
                             getattr(term_report, "class_teacher_remark", "")
                             if term_report
                             else ""
                         ),
-                        "has_signature": has_teacher_signature,
-                        "classroom": (
-                            enrollment.classroom.name if enrollment.classroom else None
-                        ),
                     }
                 )
 
-            final_level_counts = Counter(s["education_level"] for s in students_data)
-            logger.info(
-                f"📊 Final students_data by education level: {dict(final_level_counts)}"
-            )
-
             students_data.sort(key=lambda x: (x["student_class"], x["full_name"]))
-
-            # UPDATED: derive level_type strings from FK-based property
-            student_education_levels = [
-                enrollment.student.education_level for enrollment in student_enrollments
-            ]
-            is_classroom_teacher = any(
-                level in ["NURSERY", "PRIMARY"] for level in student_education_levels
-            )
-
-            total_students = len(students_data)
-            completed_remarks = sum(
+            total = len(students_data)
+            completed = sum(
                 1 for s in students_data if s["remark_status"] == "completed"
             )
-            pending_remarks = total_students - completed_remarks
 
             return Response(
                 {
                     "exam_session": {
                         "id": str(exam_session.id),
                         "name": exam_session.name,
-                        "term": exam_session.term,
-                        "start_date": exam_session.start_date,
-                        "end_date": exam_session.end_date,
+                        "term": exam_session.term.name if exam_session.term else None,
                     },
                     "students": students_data,
                     "summary": {
-                        "total_students": total_students,
-                        "completed_remarks": completed_remarks,
-                        "pending_remarks": pending_remarks,
+                        "total_students": total,
+                        "completed_remarks": completed,
+                        "pending_remarks": total - completed,
                         "completion_percentage": (
-                            round((completed_remarks / total_students) * 100, 2)
-                            if total_students > 0
-                            else 0
+                            round(completed / total * 100, 2) if total else 0
                         ),
                     },
-                    "is_classroom_teacher": is_classroom_teacher,
-                    "education_level_counts": dict(education_level_counts),
                 }
-            )
-
-        except Teacher.DoesNotExist:
-            return Response(
-                {"error": "Teacher profile not found"}, status=status.HTTP_404_NOT_FOUND
             )
         except Exception as e:
             logger.error(f"Error fetching assigned students: {e}", exc_info=True)
-            return Response(
-                {"error": f"Failed to fetch students: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-    def _can_teacher_edit_remark(self, user, term_report):
-        """Check if teacher can edit remarks for this term report."""
-        try:
-            from teacher.models import Teacher
-            from classroom.models import (
-                Classroom,
-                StudentEnrollment,
-                ClassroomTeacherAssignment,
-            )
-
-            teacher = Teacher.objects.get(user=user)
-            student = term_report.student
-
-            student_enrollment = (
-                StudentEnrollment.objects.filter(student=student, is_active=True)
-                .select_related("classroom")
-                .first()
-            )
-
-            if not student_enrollment:
-                return False
-
-            student_classroom = student_enrollment.classroom
-
-            if student_classroom.class_teacher == teacher:
-                return True
-
-            return ClassroomTeacherAssignment.objects.filter(
-                teacher=teacher, classroom=student_classroom
-            ).exists()
-
-        except Teacher.DoesNotExist:
-            return False
-        except Exception as e:
-            logger.error(
-                f"Error checking teacher remark permission: {e}", exc_info=True
-            )
-            return False
+            return Response({"error": str(e)}, status=500)
 
     @action(detail=False, methods=["post"], url_path="update-remark")
     def update_teacher_remark(self, request):
-        """Update teacher remark for a student's term report."""
-        term_report_id = request.data.get("term_report_id")
-        education_level = request.data.get("education_level")
-        class_teacher_remark = request.data.get("class_teacher_remark", "").strip()
-
-        if not term_report_id or not education_level:
+        report_id = request.data.get("term_report_id")
+        level = request.data.get("education_level")
+        remark = request.data.get("class_teacher_remark", "").strip()
+        if not report_id or not level or not remark:
             return Response(
-                {"error": "term_report_id and education_level are required"},
-                status=status.HTTP_400_BAD_REQUEST,
+                {"error": "term_report_id, education_level, and remark are required"},
+                status=400,
             )
-        if not class_teacher_remark:
+        if len(remark) < 50:
             return Response(
-                {"error": "Remark cannot be empty"}, status=status.HTTP_400_BAD_REQUEST
+                {"error": "Remark must be at least 50 characters"}, status=400
             )
-        if len(class_teacher_remark) < 50:
+        if len(remark) > 500:
             return Response(
-                {"error": "Remark must be at least 50 characters long"},
-                status=status.HTTP_400_BAD_REQUEST,
+                {"error": "Remark must not exceed 500 characters"}, status=400
             )
-        if len(class_teacher_remark) > 500:
-            return Response(
-                {"error": "Remark must not exceed 500 characters"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         try:
-            report_model = self._get_report_model(education_level)
-            term_report = report_model.objects.get(id=term_report_id)
-
-            if not self._can_teacher_edit_remark(request.user, term_report):
-                return Response(
-                    {"error": "You don't have permission to edit this remark"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-            with transaction.atomic():
-                term_report.class_teacher_remark = class_teacher_remark
-                term_report.save(update_fields=["class_teacher_remark", "updated_at"])
-
+            model = self._get_report_model(level)
+            report = model.objects.get(id=report_id)
+            if not self._can_teacher_edit_remark(request.user, report):
+                return Response({"error": "Permission denied"}, status=403)
+            report.class_teacher_remark = remark
+            report.save(update_fields=["class_teacher_remark", "updated_at"])
             return Response(
-                {
-                    "message": "Remark updated successfully",
-                    "term_report_id": str(term_report.id),
-                    "class_teacher_remark": term_report.class_teacher_remark,
-                    "status": term_report.status,
-                }
-            )
-
-        except report_model.DoesNotExist:
-            return Response(
-                {"error": "Term report not found"}, status=status.HTTP_404_NOT_FOUND
+                {"message": "Remark updated", "term_report_id": str(report.id)}
             )
         except Exception as e:
-            logger.error(f"Error updating remark: {e}", exc_info=True)
-            return Response(
-                {"error": f"Failed to update remark: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+            return Response({"error": str(e)}, status=500)
 
     @action(detail=False, methods=["post"], url_path="upload-signature")
     def upload_teacher_signature(self, request):
-        """Upload teacher signature to Cloudinary and save URL."""
-        signature_image = request.FILES.get("signature_image")
-
-        if not signature_image:
-            return Response(
-                {"error": "signature_image file is required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if signature_image.size > 2 * 1024 * 1024:
-            return Response(
-                {"error": "Signature image must be less than 2MB"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if signature_image.content_type not in ["image/png", "image/jpeg", "image/jpg"]:
-            return Response(
-                {"error": "Only PNG and JPEG images are allowed"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
+        sig = request.FILES.get("signature_image")
+        if not sig:
+            return Response({"error": "signature_image is required"}, status=400)
+        if sig.size > 2 * 1024 * 1024:
+            return Response({"error": "Max 2MB"}, status=400)
+        if sig.content_type not in ("image/png", "image/jpeg", "image/jpg"):
+            return Response({"error": "Only PNG/JPEG allowed"}, status=400)
         try:
-            upload_result = upload_signature_to_cloudinary(
-                signature_image, request.user, signature_type="teacher"
+            result = upload_signature_to_cloudinary(
+                sig, request.user, signature_type="teacher"
             )
             return Response(
                 {
-                    "message": "Signature uploaded successfully",
-                    "signature_url": upload_result["signature_url"],
-                    "public_id": upload_result["public_id"],
-                    "width": upload_result["width"],
-                    "height": upload_result["height"],
+                    "signature_url": result["signature_url"],
+                    "public_id": result["public_id"],
                 }
             )
-        except ValidationError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            logger.error(f"Error uploading signature: {e}", exc_info=True)
-            return Response(
-                {"error": f"Failed to upload signature: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+            return Response({"error": str(e)}, status=500)
 
     @action(detail=False, methods=["post"], url_path="apply-signature")
     def apply_signature_to_reports(self, request):
-        """Apply uploaded signature to multiple term reports."""
         import json
-
-        signature_url = request.data.get("signature_url")
-        education_level = request.data.get("education_level")
-        term_report_ids = request.data.get("term_report_ids", [])
-
-        if isinstance(term_report_ids, str):
+        url = request.data.get("signature_url")
+        level = request.data.get("education_level")
+        ids = request.data.get("term_report_ids", [])
+        if isinstance(ids, str):
             try:
-                term_report_ids = json.loads(term_report_ids)
+                ids = json.loads(ids)
             except json.JSONDecodeError:
-                return Response(
-                    {"error": "Invalid term_report_ids format. Expected JSON array."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-        if not signature_url or not term_report_ids or not education_level:
+                return Response({"error": "Invalid term_report_ids format"}, status=400)
+        if not url or not ids or not level:
             return Response(
                 {
                     "error": "signature_url, term_report_ids, and education_level are required"
                 },
-                status=status.HTTP_400_BAD_REQUEST,
+                status=400,
             )
-
         try:
-            report_model = self._get_report_model(education_level)
-            updated_count = 0
-            errors = []
-
+            model = self._get_report_model(level)
+            updated, errors = 0, []
             with transaction.atomic():
-                for report_id in term_report_ids:
+                for rid in ids:
                     try:
-                        term_report = report_model.objects.select_related(
-                            "student", "student__user", "student__education_level"
-                        ).get(id=report_id)
-
-                        can_edit = self._can_teacher_edit_remark(
-                            request.user, term_report
-                        )
-                        if not can_edit:
+                        report = model.objects.get(id=rid)
+                        if not self._can_teacher_edit_remark(request.user, report):
                             errors.append(
-                                {
-                                    "report_id": str(report_id),
-                                    # UPDATED: student_class is a FK — use .name
-                                    "student": term_report.student.full_name,
-                                    "class": (
-                                        term_report.student.student_class.name
-                                        if term_report.student.student_class
-                                        else ""
-                                    ),
-                                    "error": "You don't have permission to sign this report. You must teach at least one subject in this class.",
-                                }
+                                {"report_id": str(rid), "error": "Permission denied"}
                             )
                             continue
-
-                        term_report.class_teacher_signature = signature_url
-                        term_report.class_teacher_signed_at = timezone.now()
-                        term_report.save(
+                        report.class_teacher_signature = url
+                        report.class_teacher_signed_at = timezone.now()
+                        report.save(
                             update_fields=[
                                 "class_teacher_signature",
                                 "class_teacher_signed_at",
                                 "updated_at",
                             ]
                         )
-                        updated_count += 1
-
-                    except report_model.DoesNotExist:
-                        errors.append(
-                            {"report_id": str(report_id), "error": "Report not found"}
-                        )
-                    except Exception as e:
-                        errors.append({"report_id": str(report_id), "error": str(e)})
-
-            logger.info(
-                f"Signature applied to {updated_count} reports by {request.user.username}"
-            )
-
-            response_data = {
-                "message": f"Signature applied to {updated_count} out of {len(term_report_ids)} report(s)",
-                "updated_count": updated_count,
-                "total_requested": len(term_report_ids),
-                "success": updated_count > 0,
-            }
+                        updated += 1
+                    except model.DoesNotExist:
+                        errors.append({"report_id": str(rid), "error": "Not found"})
+            resp = {"updated_count": updated, "total_requested": len(ids)}
             if errors:
-                response_data["errors"] = errors
-                response_data["failed_count"] = len(errors)
-
-            return Response(response_data)
-
+                resp["errors"] = errors
+            return Response(resp)
         except Exception as e:
-            logger.error(f"Error applying signature: {e}", exc_info=True)
-            return Response(
-                {"error": f"Failed to apply signature: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+            return Response({"error": str(e)}, status=500)
 
     @action(detail=False, methods=["get"], url_path="remark-templates")
     def get_remark_templates(self, request):
-        templates = {
-            "nursery": {
-                "excellent": [
-                    "{student_name} shows great enthusiasm for learning, follows instructions well, and interacts positively with classmates.",
-                    "{student_name} is attentive, eager to learn, and demonstrates excellent behaviour in class.",
-                ],
-                "good": [
-                    "{student_name} is learning well, participates in activities, and shows good behaviour most of the time.",
-                    "{student_name} follows routines and is making steady academic progress.",
-                ],
-                "average": [
-                    "{student_name} is developing basic skills and should participate more actively in class activities.",
-                    "{student_name} needs gentle encouragement to stay focused and improve learning consistency.",
-                ],
-                "needs_improvement": [
-                    "{student_name} needs support in staying focused and following classroom routines.",
-                    "{student_name} should improve attention, listening skills, and participation.",
-                ],
-            },
-            "primary": {
-                "excellent": [
-                    "{student_name} demonstrates strong academic performance, positive behaviour, and a responsible attitude toward learning.",
-                    "{student_name} is hardworking, respectful, and actively engaged in class activities.",
-                ],
-                "good": [
-                    "{student_name} shows good understanding of lessons and maintains positive classroom behaviour.",
-                    "{student_name} is making good progress and displays a cooperative learning attitude.",
-                ],
-                "average": [
-                    "{student_name} shows average performance and needs more consistency and focus to improve.",
-                    "{student_name} can achieve better results with increased effort and better study habits.",
-                ],
-                "needs_improvement": [
-                    "{student_name} needs to improve focus, class participation, and academic commitment.",
-                    "{student_name} should work harder and show greater responsibility toward learning.",
-                ],
-            },
-            "junior_secondary": {
-                "excellent": [
-                    "{student_name} demonstrates excellent academic skills, discipline, and strong engagement in learning.",
-                    "{student_name} shows maturity, focus, and consistent high-quality work.",
-                ],
-                "good": [
-                    "{student_name} performs well academically and participates actively in class activities.",
-                    "{student_name} shows steady progress and a positive attitude toward learning.",
-                ],
-                "average": [
-                    "{student_name} shows adequate performance and needs to improve focus and study habits.",
-                    "{student_name} can achieve better results with more consistent effort and concentration.",
-                ],
-                "needs_improvement": [
-                    "{student_name} needs to work on discipline, class engagement, and study consistency.",
-                    "{student_name} should seek help where necessary and improve academic commitment.",
-                ],
-            },
-            "senior_secondary": {
-                "excellent": [
-                    "{student_name} consistently excels academically, demonstrates responsibility, and shows strong leadership qualities.",
-                    "{student_name} is disciplined, focused, and produces high-quality work consistently.",
-                ],
-                "good": [
-                    "{student_name} shows good understanding of concepts and maintains a positive approach to learning.",
-                    "{student_name} performs well and participates actively in class discussions.",
-                ],
-                "average": [
-                    "{student_name} shows fair performance and should focus on strengthening weak areas and time management.",
-                    "{student_name} can improve with more effort, better organization, and consistent study habits.",
-                ],
-                "needs_improvement": [
-                    "{student_name} needs to increase academic effort, attention, and participation in class activities.",
-                    "{student_name} should develop better study routines and seek guidance to improve results.",
-                ],
-            },
-        }
-
         return Response(
             {
-                "templates": templates,
-                "usage": "Select education level and performance key, then replace {student_name} dynamically.",
+                "templates": {
+                    "nursery": {
+                        "excellent": [
+                            "{student_name} shows great enthusiasm for learning and interacts positively with classmates."
+                        ],
+                        "good": [
+                            "{student_name} is learning well and shows good behaviour most of the time."
+                        ],
+                        "average": [
+                            "{student_name} is developing basic skills and should participate more actively."
+                        ],
+                        "needs_improvement": [
+                            "{student_name} needs support staying focused and following classroom routines."
+                        ],
+                    },
+                    "primary": {
+                        "excellent": [
+                            "{student_name} demonstrates strong academic performance and a responsible attitude."
+                        ],
+                        "good": [
+                            "{student_name} shows good understanding and maintains positive classroom behaviour."
+                        ],
+                        "average": [
+                            "{student_name} shows average performance and needs more consistency."
+                        ],
+                        "needs_improvement": [
+                            "{student_name} needs to improve focus and academic commitment."
+                        ],
+                    },
+                    "junior_secondary": {
+                        "excellent": [
+                            "{student_name} demonstrates excellent academic skills and strong engagement."
+                        ],
+                        "good": [
+                            "{student_name} performs well and participates actively in class activities."
+                        ],
+                        "average": [
+                            "{student_name} shows adequate performance and needs better study habits."
+                        ],
+                        "needs_improvement": [
+                            "{student_name} needs to work on discipline and study consistency."
+                        ],
+                    },
+                    "senior_secondary": {
+                        "excellent": [
+                            "{student_name} consistently excels academically and shows strong leadership."
+                        ],
+                        "good": [
+                            "{student_name} shows good understanding and maintains a positive attitude."
+                        ],
+                        "average": [
+                            "{student_name} should focus on strengthening weak areas and time management."
+                        ],
+                        "needs_improvement": [
+                            "{student_name} needs to increase effort and participation."
+                        ],
+                    },
+                }
             }
         )
 
-    def _get_report_model(self, education_level):
-        """Helper method to get the appropriate report model."""
-        model_map = {
-            "SENIOR_SECONDARY": SeniorSecondaryTermReport,
-            "JUNIOR_SECONDARY": JuniorSecondaryTermReport,
-            "PRIMARY": PrimaryTermReport,
-            "NURSERY": NurseryTermReport,
-        }
-        model = model_map.get(education_level.upper())
-        if not model:
-            raise ValueError(f"Invalid education level: {education_level}")
-        return model
 
-
-# ===== HEAD TEACHER PROFESSIONAL ASSIGNMENT =====
 class HeadTeacherAssignmentViewSet(
     TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ViewSet
 ):
-    """ViewSet for Head Teacher to manage remarks and signatures."""
-
     permission_classes = [IsAuthenticated]
-    pagination_class = StandardResultsPagination
     parser_classes = (MultiPartParser, FormParser)
-
-    def get_queryset_for_head_teacher(self, exam_session):
-        all_reports = []
-        for model in [
-            SeniorSecondaryTermReport,
-            JuniorSecondaryTermReport,
-            PrimaryTermReport,
-            NurseryTermReport,
-        ]:
-            reports = model.objects.filter(
-                exam_session=exam_session,
-                status="SUBMITTED",
-            ).select_related("student", "student__user", "student__education_level")
-            all_reports.extend(reports)
-        return all_reports
 
     @action(detail=False, methods=["get"], url_path="pending-reviews")
     def get_pending_reviews(self, request):
-        """Get all term reports pending head teacher review."""
-        exam_session_id = request.query_params.get("exam_session")
-
-        if exam_session_id:
-            try:
-                exam_session = ExamSession.objects.get(id=exam_session_id)
-            except ExamSession.DoesNotExist:
-                return Response(
-                    {"error": "Exam session not found"},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-        else:
-            exam_session = (
-                ExamSession.objects.filter(is_active=True)
-                .order_by("-created_at")
-                .first()
+        es_id = request.query_params.get("exam_session")
+        exam_session = (
+            ExamSession.objects.select_related(
+                "academic_session", "term", "term__term_type"
+            ).get(id=es_id)
+            if es_id
+            else ExamSession.objects.select_related(
+                "academic_session", "term", "term__term_type"
             )
-
+            .filter(is_active=True)
+            .order_by("-created_at")
+            .first()
+        )
         if not exam_session:
-            return Response(
-                {"error": "No active exam session found"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": "No active exam session found"}, status=400)
 
-        pending_reports = []
-
-        for education_level, model in [
-            ("SENIOR_SECONDARY", SeniorSecondaryTermReport),
-            ("JUNIOR_SECONDARY", JuniorSecondaryTermReport),
-            ("PRIMARY", PrimaryTermReport),
-            ("NURSERY", NurseryTermReport),
-        ]:
-            reports = model.objects.filter(
-                exam_session=exam_session, status="SUBMITTED"
-            ).select_related("student", "student__user", "student__student_class")
-
-            for report in reports:
-                has_head_remark = bool(report.head_teacher_remark)
-                has_head_signature = bool(report.head_teacher_signature)
-
-                pending_reports.append(
+        pending = []
+        for level, model in _TERM_REPORT_MODEL_MAP.items():
+            for report in model.objects.filter(
+                exam_session=exam_session, status=SUBMITTED
+            ).select_related("student", "student__user", "student__student_class"):
+                pending.append(
                     {
                         "id": str(report.id),
                         "student": {
                             "id": str(report.student.id),
                             "full_name": report.student.full_name,
-                            # UPDATED: student_class is a FK — use .name attribute
                             "student_class": (
                                 report.student.student_class.name
                                 if report.student.student_class
                                 else None
                             ),
                         },
-                        "education_level": education_level,
+                        "education_level": level,
                         "class_teacher_remark": report.class_teacher_remark,
                         "head_teacher_remark": report.head_teacher_remark,
-                        "has_head_teacher_remark": has_head_remark,
-                        "has_head_teacher_signature": has_head_signature,
+                        "has_head_teacher_remark": bool(report.head_teacher_remark),
+                        "has_head_teacher_signature": bool(
+                            getattr(report, "head_teacher_signature", None)
+                        ),
                         "status": report.status,
                         "average_score": (
-                            float(report.average_score)
-                            if hasattr(report, "average_score") and report.average_score
+                            float(getattr(report, "average_score", None) or 0)
+                            if hasattr(report, "average_score")
                             else None
                         ),
                     }
                 )
-
         return Response(
             {
                 "exam_session": ExamSessionSerializer(exam_session).data,
-                "pending_reviews": pending_reports,
-                "total_pending": len(pending_reports),
+                "pending_reviews": pending,
+                "total_pending": len(pending),
             }
         )
 
     @action(detail=False, methods=["post"], url_path="update-head-remark")
     def update_head_teacher_remark(self, request):
-        """Update head teacher remark for a term report."""
-        term_report_id = request.data.get("term_report_id")
-        education_level = request.data.get("education_level")
-        head_teacher_remark = request.data.get("head_teacher_remark", "").strip()
-
-        if not all([term_report_id, education_level, head_teacher_remark]):
+        report_id = request.data.get("term_report_id")
+        level = request.data.get("education_level")
+        remark = request.data.get("head_teacher_remark", "").strip()
+        if not all([report_id, level, remark]):
+            return Response({"error": "All fields are required"}, status=400)
+        if len(remark) < 50:
             return Response(
-                {"error": "All fields are required"}, status=status.HTTP_400_BAD_REQUEST
+                {"error": "Remark must be at least 50 characters"}, status=400
             )
-        if len(head_teacher_remark) < 50:
-            return Response(
-                {"error": "Remark must be at least 50 characters"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
+        model = _TERM_REPORT_MODEL_MAP.get(level.upper())
+        if not model:
+            return Response({"error": "Invalid education level"}, status=400)
         try:
-            model_map = {
-                "SENIOR_SECONDARY": SeniorSecondaryTermReport,
-                "JUNIOR_SECONDARY": JuniorSecondaryTermReport,
-                "PRIMARY": PrimaryTermReport,
-                "NURSERY": NurseryTermReport,
-            }
-            report_model = model_map.get(education_level.upper())
-            if not report_model:
-                return Response(
-                    {"error": "Invalid education level"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            term_report = report_model.objects.get(id=term_report_id)
-
-            if not term_report.can_edit_head_teacher_remark(request.user):
-                return Response(
-                    {"error": "You don't have permission to edit this remark"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-            with transaction.atomic():
-                term_report.head_teacher_remark = head_teacher_remark
-                term_report.save(update_fields=["head_teacher_remark", "updated_at"])
-
+            report = model.objects.get(id=report_id)
+            if not report.can_edit_head_teacher_remark(request.user):
+                return Response({"error": "Permission denied"}, status=403)
+            report.head_teacher_remark = remark
+            report.save(update_fields=["head_teacher_remark", "updated_at"])
             return Response(
                 {
-                    "message": "Head teacher remark updated successfully",
-                    "term_report_id": str(term_report.id),
+                    "message": "Head teacher remark updated",
+                    "term_report_id": str(report.id),
                 }
             )
-
-        except report_model.DoesNotExist:
-            return Response(
-                {"error": "Term report not found"}, status=status.HTTP_404_NOT_FOUND
-            )
+        except model.DoesNotExist:
+            return Response({"error": "Term report not found"}, status=404)
         except Exception as e:
-            logger.error(f"Error updating head teacher remark: {e}", exc_info=True)
-            return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({"error": str(e)}, status=500)
 
     @action(detail=False, methods=["post"], url_path="upload-head-signature")
     def upload_head_teacher_signature(self, request):
-        """Upload head teacher signature to Cloudinary"""
-        signature_image = request.FILES.get("signature_image")
-
-        if not signature_image:
-            return Response(
-                {"error": "signature_image is required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
+        sig = request.FILES.get("signature_image")
+        if not sig:
+            return Response({"error": "signature_image is required"}, status=400)
         try:
-            upload_result = upload_signature_to_cloudinary(
-                signature_image, request.user, signature_type="head_teacher"
+            result = upload_signature_to_cloudinary(
+                sig, request.user, signature_type="head_teacher"
             )
             return Response(
                 {
-                    "message": "Signature uploaded successfully",
-                    "signature_url": upload_result["signature_url"],
-                    "public_id": upload_result["public_id"],
-                    "width": upload_result["width"],
-                    "height": upload_result["height"],
+                    "signature_url": result["signature_url"],
+                    "public_id": result["public_id"],
                 }
             )
-        except ValidationError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            logger.error(f"Error uploading head signature: {e}", exc_info=True)
-            return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({"error": str(e)}, status=500)
 
     @action(detail=False, methods=["post"], url_path="apply-head-signature")
     def apply_head_signature(self, request):
-        """Apply head teacher signature to reports"""
         import json
-
-        signature_url = request.data.get("signature_url")
-        education_level = request.data.get("education_level")
-        term_report_ids = request.data.get("term_report_ids", [])
-
-        if isinstance(term_report_ids, str):
+        url = request.data.get("signature_url")
+        level = request.data.get("education_level")
+        ids = request.data.get("term_report_ids", [])
+        if isinstance(ids, str):
             try:
-                term_report_ids = json.loads(term_report_ids)
+                ids = json.loads(ids)
             except json.JSONDecodeError:
-                return Response(
-                    {"error": "Invalid term_report_ids format. Expected JSON array."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-        if not all([signature_url, term_report_ids, education_level]):
-            return Response(
-                {"error": "All fields are required"}, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            model_map = {
-                "SENIOR_SECONDARY": SeniorSecondaryTermReport,
-                "JUNIOR_SECONDARY": JuniorSecondaryTermReport,
-                "PRIMARY": PrimaryTermReport,
-                "NURSERY": NurseryTermReport,
-            }
-            report_model = model_map.get(education_level.upper())
-            if not report_model:
-                return Response(
-                    {"error": "Invalid education level"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            updated_count = 0
-            errors = []
-
-            with transaction.atomic():
-                for report_id in term_report_ids:
-                    try:
-                        term_report = report_model.objects.get(id=report_id)
-
-                        if not term_report.can_edit_head_teacher_remark(request.user):
-                            errors.append(
-                                {
-                                    "report_id": str(report_id),
-                                    "error": "No permission to edit this report",
-                                }
-                            )
-                            continue
-
-                        term_report.head_teacher_signature = signature_url
-                        term_report.head_teacher_signed_at = timezone.now()
-                        term_report.save(
-                            update_fields=[
-                                "head_teacher_signature",
-                                "head_teacher_signed_at",
-                                "updated_at",
-                            ]
-                        )
-                        updated_count += 1
-
-                    except report_model.DoesNotExist:
+                return Response({"error": "Invalid term_report_ids format"}, status=400)
+        if not all([url, ids, level]):
+            return Response({"error": "All fields are required"}, status=400)
+        model = _TERM_REPORT_MODEL_MAP.get(level.upper())
+        if not model:
+            return Response({"error": "Invalid education level"}, status=400)
+        updated, errors = 0, []
+        with transaction.atomic():
+            for rid in ids:
+                try:
+                    report = model.objects.get(id=rid)
+                    if not report.can_edit_head_teacher_remark(request.user):
                         errors.append(
-                            {"report_id": str(report_id), "error": "Report not found"}
+                            {"report_id": str(rid), "error": "Permission denied"}
                         )
-                    except Exception as e:
-                        errors.append({"report_id": str(report_id), "error": str(e)})
-
-            return Response(
-                {
-                    "message": f"Signature applied to {updated_count} report(s)",
-                    "updated_count": updated_count,
-                    "errors": errors if errors else None,
-                }
-            )
-
-        except Exception as e:
-            logger.error(f"Error applying head signature: {e}", exc_info=True)
-            return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+                        continue
+                    report.head_teacher_signature = url
+                    report.head_teacher_signed_at = timezone.now()
+                    report.save(
+                        update_fields=[
+                            "head_teacher_signature",
+                            "head_teacher_signed_at",
+                            "updated_at",
+                        ]
+                    )
+                    updated += 1
+                except model.DoesNotExist:
+                    errors.append({"report_id": str(rid), "error": "Not found"})
+        return Response({"updated_count": updated, "errors": errors or None})

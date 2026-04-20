@@ -1,4 +1,5 @@
 // import { User } from '@/services/AuthService';
+import { RecentActivity } from '@/services/AdminDashboardService';
 import { ReactNode, ComponentType } from 'react';
 
 // ==========================================
@@ -1518,6 +1519,7 @@ export interface AdminAuditLog {
 // ==========================================
 // DASHBOARD TYPES
 // ==========================================
+// Dashboard-specific interfaces
 
 export interface DashboardStats {
   overview?: {
@@ -1528,16 +1530,18 @@ export interface DashboardStats {
     total_classes: number;
     active_academic_year: string;
   };
-  totalStudents?: number;
-  totalTeachers?: number;
-  totalClasses?: number;
-  totalUsers?: number;
-  totalParents?: number;
+  totalStudents: number;
+  activeStudents: number;
+  totalTeachers: number;
+  activeTeachers: number;
+  totalClasses: number;
+  totalUsers: number;
+  totalParents: number;
   activeUsers?: number;
   inactiveUsers?: number;
   pendingVerifications?: number;
   recentRegistrations?: number;
-  recent_activities?: Activity[];
+  recent_activities?: RecentActivity[];
   upcoming_events?: SchoolEvent[];
   alerts?: Alert[];
   quick_stats?: QuickStat[];
@@ -2168,18 +2172,6 @@ export interface AdminAuditLog {
 
 
 
-// Dashboard-specific interfaces
-export interface DashboardStats {
-  totalStudents?: number;
-  totalTeachers?: number;
-  totalClasses?: number;
-  totalUsers?: number;
-  totalParents?: number;
-  activeUsers?: number;
-  inactiveUsers?: number;
-  pendingVerifications?: number;
-  recentRegistrations?: number;
-}
 
 export interface Message {
   id: number;

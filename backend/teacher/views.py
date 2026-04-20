@@ -4,12 +4,14 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from authentication.cookie_auth import CookieJWTAuthentication
 from .models import Teacher, AssignmentRequest, TeacherSchedule
 from .serializers import (
     TeacherSerializer,
     AssignmentRequestSerializer,
     TeacherScheduleSerializer,
 )
+from rest_framework.exceptions import ValidationError
 from classroom.models import GradeLevel, Section
 from subject.models import Subject
 from utils.section_filtering import AutoSectionFilterMixin
@@ -153,12 +155,20 @@ class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
     queryset = Teacher.objects.select_related("user").all()
     serializer_class = TeacherSerializer
     authentication_classes = [
-        JWTAuthentication,
+        CookieJWTAuthentication,  # ✅ reads from cookie
         TokenAuthentication,
         SessionAuthentication,
     ]
     permission_classes = [TeacherModulePermission]
     pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate teachers
+
+    def get_authenticators(self):
+        logger.warning(f"🔐 Teachers authenticators: {super().get_authenticators()}")
+        return super().get_authenticators()
+
+    def get_permissions(self):
+        logger.warning(f"🔐 Teachers permissions: {super().get_permissions()}")
+        return super().get_permissions()
 
     def get_queryset(self):
         """
@@ -450,29 +460,15 @@ class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
     def perform_create(self, serializer):
         tenant = getattr(self.request, "tenant", None)
 
-        # If tenant not in request, try to get from authenticated user
-        if not tenant and self.request.user.is_authenticated:
-            user = self.request.user
-            tenant = getattr(user, "tenant", None)
-            logger.info(
-                f"[TeacherViewSet.perform_create] Tenant not in request, using user's tenant: {tenant}"
-            )
-
-        # If still no tenant, try to find the school from the current session or user role
-        if not tenant and self.request.user.is_authenticated:
-            # For admin/staff users, try to find their tenant from related objects
-            if self.request.user.is_staff or self.request.user.is_superuser:
-                from tenants.models import Tenant
-
-                # Try to find the default/active tenant
-                tenant = Tenant.objects.filter(is_active=True, status="active").first()
-                logger.warning(
-                    f"[TeacherViewSet.perform_create] Using fallback tenant: {tenant}"
-                )
-
         if not tenant:
             logger.error(
-                f"[TeacherViewSet.perform_create] No tenant could be determined for user {self.request.user}"
+                f"[TeacherViewSet.perform_create] No tenant on request for user "
+                f"{self.request.user} — check TenantMiddleware is running correctly"
+            )
+            raise ValidationError(
+                {
+                    "error": "Could not determine school context. Please refresh and try again."
+                }
             )
 
         serializer.save(tenant=tenant)

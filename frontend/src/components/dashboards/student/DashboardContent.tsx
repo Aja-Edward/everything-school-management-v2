@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, BookOpen, Calendar, Loader2, Trophy, Clock, AlertCircle, TrendingUp, Bell, CheckCircle, Target, GraduationCap, MessageSquare, ChevronRight } from 'lucide-react';
+import { BookOpen, Calendar, Trophy, Clock, AlertCircle, TrendingUp, Bell, CheckCircle, ChevronRight } from 'lucide-react';
 import StudentService from '@/services/StudentService';
 
 interface DashboardData {
@@ -94,10 +94,11 @@ const DashboardContent = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+     console.log("useEffect triggered");
     const fetchDashboardData = async () => {
       try {
         setLoading(true);
-        const data = await StudentService.getDashboardData();
+        const data = await StudentService.getDashboard();
         console.log("Dashboard API response:", data);
         setDashboardData(data);
         setError(null);

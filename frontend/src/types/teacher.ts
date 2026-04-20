@@ -211,6 +211,7 @@ export interface UpdateTeacherAssignmentData {
   is_active?: boolean;
 }
 
+export type LevelType = 'nursery' | 'primary' | 'junior_secondary' | 'senior_secondary' | 'secondary' | undefined;
 
 
 export interface FormData {
@@ -221,15 +222,32 @@ export interface FormData {
   email: string;
   phoneNumber: string;
   // Step 2 – Professional
-  staffType: string;
-  level: string;
+ staffType: 'teaching' | 'non-teaching' | string;
+  level: LevelType;
   employeeId: string;
   hireDate: string;
   qualification: string;
   subjects: string[];
-  assignments: Assignment[];
+  assignments: AssignmentRow[];
 }
 
+
+
+// Add this new interface specifically for the edit form
+export interface EditTeacherFormData {
+  first_name: string;
+  last_name: string;
+  email: string;
+  employee_id: string;
+  phone_number: string;
+  address: string;
+  qualification: string;
+  specialization: string;
+  staff_type: 'teaching' | 'non-teaching';
+  level: LevelType;
+  is_active: boolean;
+  photo: string | undefined;
+}
 export interface Assignment {
   id: string;
   // Primary level: grade + section
@@ -324,8 +342,9 @@ export interface AssignmentRow {
   section_id: string;
   sectionOptions: Section[];
   // Secondary
-  classroom_id: string;
-  subject_id: string;
-  periods_per_week: number;
+ classroom_id: number | string;
+  subject_id: number | string;
   is_primary_teacher: boolean;
+  periods_per_week: number;
 }
+

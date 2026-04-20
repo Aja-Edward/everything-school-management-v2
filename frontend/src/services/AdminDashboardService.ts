@@ -9,16 +9,7 @@
  */
 
 import api from './api';
-
-// Types for optimized dashboard response
-export interface DashboardStats {
-  totalStudents: number;
-  totalTeachers: number;
-  totalParents: number;
-  totalClasses: number;
-  activeStudents: number;
-  activeTeachers: number;
-}
+import type {DashboardStats} from '../types/types';
 
 export interface AttendanceSummary {
   todayRate: number;
@@ -226,6 +217,7 @@ const fetchDashboardData = async (): Promise<OptimizedDashboardData> => {
     // Try optimized endpoint first
     const optimizedData = await api.get('/api/dashboard/admin/optimized/');
     console.log('✅ Got data from optimized endpoint');
+    console.log("OPTIMIZED DATA:", optimizedData.data);
     return transformOptimizedResponse(optimizedData);
   } catch (error: any) {
     // If optimized endpoint doesn't exist (404), fall back to parallel calls
@@ -297,6 +289,7 @@ const fetchDashboardDataFallback = async (): Promise<OptimizedDashboardData> => 
     stats: {
       totalStudents,
       totalTeachers,
+      totalUsers: totalStudents + totalTeachers + totalParents,
       totalParents,
       totalClasses,
       activeStudents,
@@ -319,6 +312,7 @@ const transformOptimizedResponse = (response: any): OptimizedDashboardData => {
       totalStudents: response.stats?.total_students || 0,
       totalTeachers: response.stats?.total_teachers || 0,
       totalParents: response.stats?.total_parents || 0,
+      totalUsers: (response.stats?.total_students || 0) + (response.stats?.total_teachers || 0) + (response.stats?.total_parents || 0),
       totalClasses: response.stats?.total_classes || 0,
       activeStudents: response.stats?.active_students || 0,
       activeTeachers: response.stats?.active_teachers || 0
@@ -474,6 +468,7 @@ export const clearEnhancedStatsCache = (): void => {
  * - System alerts and notifications
  */
 export const fetchEnhancedStats = async (forceRefresh = false): Promise<EnhancedDashboardStats> => {
+  
   // Return cached data if valid and not forcing refresh
   if (!forceRefresh && isEnhancedCacheValid() && enhancedStatsCache.data) {
     console.log('📦 Returning cached enhanced stats data');
@@ -511,6 +506,7 @@ export const fetchEnhancedStats = async (forceRefresh = false): Promise<Enhanced
 const fetchEnhancedStatsData = async (): Promise<EnhancedDashboardStats> => {
   try {
     const response = await api.get('/api/dashboard/admin/enhanced-stats/');
+    console.log("OPTIMIZED DATA:", response.data);
     console.log('✅ Got enhanced stats from API');
     return response;
   } catch (error: any) {

@@ -67,6 +67,7 @@ const TeacherBio = lazy(() => import('./../components/dashboards/teacher/PublicT
 const AdminLayout = lazy(() => import('./../components/layouts/AdminLayout'));
 const AdminDashboardContentLoader = lazy(() => import('./../pages/admin/AdminDashboardContentLoader'));
 const StudentList = lazy(() => import('./../pages/admin/AdminStudentList'));
+const AdminLoginPage = lazy(() => import('./../pages/AdminLoginPage'));
 const BulkUploadPage = lazy(() => import('./../pages/admin/BulkUploadPage'));
 const ParentBulkUploadPage = lazy(() => import('./../pages/admin/ParentBulkUploadPage'))
 const StudentDetailView = lazy(() => import('./../components/dashboards/admin/StudentDetailView'));
@@ -335,6 +336,10 @@ export const router = createBrowserRouter([
       {
         path: 'login',
         element: <LazyWrapper><SubdomainLandingPage /></LazyWrapper>,
+      },
+      {
+        path: 'supabase-login',
+        element: <LazyWrapper><AdminLoginPage /></LazyWrapper>,
       },
       {
         path: 'verify-email',

@@ -30,6 +30,10 @@ class CookieJWTAuthentication(JWTAuthentication):
         # Try to get token from cookie first
         raw_token = request.COOKIES.get(settings.AUTH_COOKIE_ACCESS)
 
+        logger.warning(f"🍪 All cookies: {list(request.COOKIES.keys())}")
+        logger.warning(f"🍪 Looking for cookie: '{settings.AUTH_COOKIE_ACCESS}'")
+        logger.warning(f"🍪 Found token: {bool(raw_token)}")
+
         if raw_token is None:
             # Fall back to header-based authentication
             return super().authenticate(request)

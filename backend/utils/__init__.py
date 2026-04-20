@@ -194,3 +194,23 @@ def _code_from_tenant(tenant) -> str:
 def get_default_school_code():
     """Helper for migrations — never touches tenant settings."""
     return "SCH"
+
+
+import secrets, string
+
+
+def generate_temp_password(length=14):
+    """Generate a cryptographically secure password guaranteed to meet
+    complexity rules without positional bias."""
+    alphabet = string.ascii_letters + string.digits + "!@#$%"
+
+    while True:
+        pwd = "".join(secrets.choice(alphabet) for _ in range(length))
+        # Check all complexity requirements
+        if (
+            any(c.isupper() for c in pwd)
+            and any(c.islower() for c in pwd)
+            and any(c.isdigit() for c in pwd)
+            and any(c in "!@#$%" for c in pwd)
+        ):
+            return pwd

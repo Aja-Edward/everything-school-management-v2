@@ -498,10 +498,11 @@ def export_credentials(request, upload_id):
 def _cred_rows(imported):
     """Yield rows for teacher credential tables."""
     for entry in imported:
+        user = entry.get("user", {})
         yield [
             entry.get("employee_id", "—"),
             entry.get("full_name", ""),
-            entry.get("email", ""),
+            user.get("email", ""),
             entry.get("username", ""),
             entry.get("password", ""),
         ]
@@ -647,7 +648,7 @@ def _export_pdf(imported, record):
     elements = []
 
     # Cover / header
-    elements.append(Paragraph("Student Login Credentials", title_style))
+    elements.append(Paragraph("Teacher Login Credentials", title_style))
     elements.append(Paragraph(
         f"Generated: {datetime.now().strftime('%d %B %Y, %H:%M')}  |  "
         f"Upload: {record.original_filename}  |  "
@@ -655,11 +656,13 @@ def _export_pdf(imported, record):
         sub_style,
     ))
     elements.append(Spacer(1, 4 * mm))
-    elements.append(Paragraph(
-        "⚠ Confidential — These are initial passwords. "
-        "Distribute securely and advise students/parents to change on first login.",
-        warn_style,
-    ))
+    elements.append(
+        Paragraph(
+            "⚠ Confidential — These are initial passwords. "
+            "Distribute securely and advise teachers to change on first login.",
+            warn_style,
+        )
+    )
     elements.append(Spacer(1, 6 * mm))
 
     # Table

@@ -130,6 +130,10 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     USERNAME_FIELD = "username"
     REQUIRED_FIELDS = ["first_name", "last_name", "role"]
 
+    supabase_id = models.UUIDField(
+        unique=True, null=True, blank=True, help_text="Supabase auth.users UUID"
+    )
+
     class Meta:
         verbose_name = "User"
         verbose_name_plural = "Users"

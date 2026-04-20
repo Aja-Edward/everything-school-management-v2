@@ -67,10 +67,10 @@ class RegisterSerializer(serializers.ModelSerializer):
     date_of_birth = serializers.DateField(required=False)
     gender = serializers.CharField(required=False)
     registration_number = serializers.CharField(required=False, max_length=20)
-    
+
     # Teacher-specific fields (only required when role is teacher)
     employee_id = serializers.CharField(required=False, max_length=20)
-    
+
     # Parent fields (only required when role is student)
     parent_first_name = serializers.CharField(required=False)
     parent_last_name = serializers.CharField(required=False)
@@ -140,7 +140,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             # Check if parent email already exists
             if User.objects.filter(email=attrs.get("parent_email")).exists():
                 raise serializers.ValidationError("A parent with this email already exists.")
-            
+
             # Check if registration number is already in use (if provided)
             registration_number = attrs.get("registration_number")
             if registration_number:
@@ -149,7 +149,7 @@ class RegisterSerializer(serializers.ModelSerializer):
                 base_username = generate_unique_username("student", registration_number)
                 if CustomUser.objects.filter(username=base_username).exists():
                     raise serializers.ValidationError(f"Student with registration number '{registration_number}' already exists.")
-        
+
         # Validate teacher-specific fields when role is teacher
         elif role == "teacher":
             employee_id = attrs.get("employee_id")
@@ -159,7 +159,7 @@ class RegisterSerializer(serializers.ModelSerializer):
                 base_username = generate_unique_username("teacher", None, employee_id)
                 if CustomUser.objects.filter(username=base_username).exists():
                     raise serializers.ValidationError(f"Teacher with employment ID '{employee_id}' already exists.")
-        
+
         return attrs
 
     def create(self, validated_data):
@@ -175,7 +175,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(10))
         # Generate username using the updated function
         from utils import generate_unique_username
-        
+
         # Extract registration number for students and employee_id for teachers
         registration_number = None
         employee_id = None
@@ -183,10 +183,10 @@ class RegisterSerializer(serializers.ModelSerializer):
             registration_number = validated_data.get("registration_number")
         elif role == "teacher":
             employee_id = validated_data.get("employee_id")
-        
+
         # Generate username
         username = generate_unique_username(role, registration_number, employee_id)
-        
+
         # Create user with generated username
         user = User(
             email=validated_data["email"], 
@@ -221,47 +221,52 @@ class RegisterSerializer(serializers.ModelSerializer):
             self.send_verification_email(user, verification_code)
         elif verification_method == "sms":
             self.send_verification_sms(user, verification_code)
-        
+
         # Store generated credentials as instance attributes for the view to access
         user._generated_username = username
         user._generated_password = password
         return user
 
     def create_student_and_parent(self, user, student_data, parent_data):
-        """Create student and parent records for student registration"""
         from students.models import Student
         from parent.models import ParentProfile
-        
-        # Create parent user (inactive until verified)
-        from utils import generate_unique_username
+        from utils import generate_unique_username, generate_temp_password
+
+        # Prevent duplicate parent email
+        if User.objects.filter(email=parent_data["parent_email"]).exists():
+            raise ValueError("Parent with this email already exists")
+
+        # Generate credentials
+        parent_password = generate_temp_password()
         parent_username = generate_unique_username("parent")
+
+        # Create parent user
         parent_user = User.objects.create_user(
             email=parent_data["parent_email"],
             username=parent_username,
             first_name=parent_data["parent_first_name"],
             last_name=parent_data["parent_last_name"],
             role="parent",
-            password=parent_data["parent_email"],  # Use email as initial password
-            is_active=False,  # Parent also needs verification
+            password=parent_password,
+            is_active=False,
         )
-        
-        # Create student record
-        student = Student.objects.create(
-            user=user,
-            **student_data
-        )
-        
-        # Create parent profile and link to student
+
+        # Create student
+        student = Student.objects.create(user=user, **student_data)
+
+        # Create parent profile
         parent_profile = ParentProfile.objects.create(
             user=parent_user,
             phone=parent_data["parent_phone"],
         )
         parent_profile.students.add(student)
 
+        return parent_user, parent_username, parent_password
+
     def send_verification_email(self, user, code):
         """Send verification code via email using Brevo"""
         from utils.email import send_email_via_brevo
-        
+
         subject = "Verify Your Account - SchoolMS"
         html_content = f"""
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
@@ -283,9 +288,9 @@ class RegisterSerializer(serializers.ModelSerializer):
             </p>
         </div>
         """
-        
+
         status_code, response = send_email_via_brevo(subject, html_content, user.email)
-        
+
         if status_code not in [200, 201]:  # Accept both 200 (console) and 201 (Brevo) for success
             raise serializers.ValidationError("Failed to send verification email. Please try again.")
 
@@ -487,31 +492,17 @@ class SimpleLoginSerializer(serializers.Serializer):
     )
 
     def authenticate_user(self, identifier, password):
-        """Try to authenticate with identifier as email first, then as username"""
-        # First try with identifier as email
-        user = authenticate(self.context["request"], username=identifier, password=password)
-        if user:
-            return user
-
-        # If that fails, try to find user by email and authenticate with their username
+        request = self.context["request"]
+        # Single lookup: username or email, resolved once
         try:
-            user_by_email = User.objects.get(email=identifier)
-            user = authenticate(self.context["request"], username=user_by_email.username, password=password)
-            if user:
-                return user
+            user = User.objects.get(username=identifier)
         except User.DoesNotExist:
-            pass
-
-        # Try to find user by username directly
-        try:
-            user_by_username = User.objects.get(username=identifier)
-            user = authenticate(self.context["request"], username=identifier, password=password)
-            if user:
-                return user
-        except User.DoesNotExist:
-            pass
-
-        return None
+            try:
+                user = User.objects.get(email=identifier)
+            except (User.DoesNotExist, User.MultipleObjectsReturned):
+                return None
+        # One authenticate() call — EmailBackend now handles tenant scoping
+        return authenticate(request, username=user.username, password=password)
 
     def validate(self, attrs):
         identifier = attrs.get("email")  # Can be email or username

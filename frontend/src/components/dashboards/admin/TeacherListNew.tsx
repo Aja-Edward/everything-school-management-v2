@@ -55,10 +55,13 @@ const TeacherList = () => {
       setLoading(true);
       setError(null);
       const response = await TeacherService.getTeachers();
+      console.log('Fetched teachers response:', response);
       const teachersData = Array.isArray(response.results) ? response.results :
         Array.isArray(response) ? response : [];
       setTeachers(teachersData);
       setFilteredTeachers(teachersData);
+
+       console.log('Teacherdata after check:', teachersData);
     } catch (err: any) {
       console.error('Error loading teachers:', err);
       setError(err.response?.data?.message || 'Failed to load teachers');
@@ -79,7 +82,7 @@ const TeacherList = () => {
     if (searchTerm) {
       filtered = filtered.filter(teacher => {
         const teacherName = teacher.full_name || `${teacher.first_name || ''} ${teacher.last_name || ''}`;
-        const teacherEmail = teacher.email || '';
+        const teacherEmail = teacher.user?.email || teacher.email || '';
         return teacherName.toLowerCase().includes(searchTerm.toLowerCase()) ||
           teacherEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
           (teacher.qualification || '').toLowerCase().includes(searchTerm.toLowerCase());
@@ -235,7 +238,11 @@ const TeacherList = () => {
               <Plus className="w-4 h-4" />
               Add Teacher
             </button>
-            <TeacherBulkUploadMenu onOpenGuide={() => setShowGuide(true)} />
+            {!showGuide && (
+            
+              <TeacherBulkUploadMenu onOpenGuide={() => setShowGuide(true)} />
+            )}
+            
           </div>
         </div>
       </div>
@@ -385,20 +392,27 @@ const TeacherList = () => {
                     <tr key={teacher.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center">
-                            {teacher.photo ? (
-                              <img
-                                src={teacher.photo.startsWith('http') ? teacher.photo : `${import.meta.env.VITE_API_URL || ''}${teacher.photo}`}
-                                alt={`${teacher.first_name} ${teacher.last_name}`}
-                                className="w-9 h-9 rounded-full object-cover"
-                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                              />
-                            ) : (
-                              <span className="text-xs font-medium text-gray-600">
-                                {getInitials(teacher.first_name, teacher.last_name)}
-                              </span>
-                            )}
-                          </div>
+                          <div className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0">
+                              {teacher.photo ? (
+                                <img
+                                  src={teacher.photo.startsWith('http') ? teacher.photo : `${import.meta.env.VITE_API_URL || ''}${teacher.photo}`}
+                                  alt={`${teacher.first_name} ${teacher.last_name}`}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    e.currentTarget.replaceWith(
+                                      Object.assign(document.createElement('span'), {
+                                        className: 'text-xs font-medium text-gray-600',
+                                        textContent: getInitials(teacher.first_name, teacher.last_name)
+                                      })
+                                    );
+                                  }}
+                                />
+                              ) : (
+                                <span className="text-xs font-medium text-gray-600">
+                                  {getInitials(teacher.first_name, teacher.last_name)}
+                                </span>
+                              )}
+                            </div>
                           <div>
                             <p className="text-sm font-medium text-gray-900">{teacher.first_name} {teacher.last_name}</p>
                             <p className="text-xs text-gray-500">{teacher.staff_type === 'teaching' ? 'Teaching Staff' : 'Non-Teaching'}</p>
@@ -407,7 +421,7 @@ const TeacherList = () => {
                       </td>
                       <td className="px-6 py-4">
                         <p className="text-sm text-gray-900">{teacher.phone_number || 'No phone'}</p>
-                        <p className="text-xs text-gray-500">{teacher.email || 'No email'}</p>
+                        <p className="text-xs text-gray-500">{teacher.user?.email || 'No email'}</p>
                       </td>
                       <td className="px-6 py-4">
                         <span className="text-sm text-gray-900">{getLevelLabel(teacher.level)}</span>
@@ -463,20 +477,27 @@ const TeacherList = () => {
               >
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden">
-                      {teacher.photo ? (
-                        <img
-                          src={teacher.photo.startsWith('http') ? teacher.photo : `${import.meta.env.VITE_API_URL || ''}${teacher.photo}`}
-                          alt={`${teacher.first_name} ${teacher.last_name}`}
-                          className="w-10 h-10 rounded-full object-cover"
-                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                        />
-                      ) : (
-                        <span className="text-sm font-medium text-gray-600">
-                          {getInitials(teacher.first_name, teacher.last_name)}
-                        </span>
-                      )}
-                    </div>
+                    <div className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0">
+                        {teacher.photo ? (
+                          <img
+                            src={teacher.photo.startsWith('http') ? teacher.photo : `${import.meta.env.VITE_API_URL || ''}${teacher.photo}`}
+                            alt={`${teacher.first_name} ${teacher.last_name}`}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.currentTarget.replaceWith(
+                                Object.assign(document.createElement('span'), {
+                                  className: 'text-xs font-medium text-gray-600',
+                                  textContent: getInitials(teacher.first_name, teacher.last_name)
+                                })
+                              );
+                            }}
+                          />
+                        ) : (
+                          <span className="text-xs font-medium text-gray-600">
+                            {getInitials(teacher.first_name, teacher.last_name)}
+                          </span>
+                        )}
+                      </div>
                     <div>
                       <h3 className="text-sm font-semibold text-gray-900">{teacher.first_name} {teacher.last_name}</h3>
                       <p className="text-xs text-gray-500">{teacher.staff_type === 'teaching' ? 'Teaching Staff' : 'Non-Teaching'}</p>
@@ -623,17 +644,25 @@ const TeacherList = () => {
                     <img
                       src={selectedTeacher.photo.startsWith('http') ? selectedTeacher.photo : `${import.meta.env.VITE_API_URL || ''}${selectedTeacher.photo}`}
                       alt={`${selectedTeacher.first_name} ${selectedTeacher.last_name}`}
-                      className="w-16 h-16 rounded-full object-cover"
+                      className="w-9 h-9 rounded-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                        // Show the sibling initials span
+                        const sibling = e.currentTarget.nextElementSibling as HTMLElement;
+                        if (sibling) sibling.style.display = 'flex';
+                      }}
                     />
-                  ) : (
-                    <span className="text-xl font-semibold text-gray-600">
-                      {getInitials(selectedTeacher.first_name, selectedTeacher.last_name)}
-                    </span>
-                  )}
+                  ) : null}
+                  <span
+                    className="text-xs font-medium text-gray-600"
+                    style={{ display: selectedTeacher.photo ? 'none' : 'flex' }}
+                  >
+                    {getInitials(selectedTeacher.first_name, selectedTeacher.last_name)}
+                  </span>
                 </div>
                 <div>
                   <h3 className="text-xl font-semibold text-gray-900">
-                    {selectedTeacher.first_name} {selectedTeacher.last_name}
+                    {selectedTeacher.user?.first_name} {selectedTeacher.user?.last_name}
                   </h3>
                   <p className="text-sm text-gray-500">{selectedTeacher.staff_type === 'teaching' ? 'Teaching Staff' : 'Non-Teaching Staff'}</p>
                   <div className="flex gap-2 mt-2">
@@ -655,7 +684,7 @@ const TeacherList = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">Email</label>
-                  <p className="text-sm text-gray-900">{selectedTeacher.email || 'Not provided'}</p>
+                  <p className="text-sm text-gray-900">{selectedTeacher.user?.email || 'Not provided'}</p>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">Phone</label>

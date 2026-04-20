@@ -1,50 +1,57 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
-export default defineConfig({
-  plugins: [react()],
-  base: '/', // base path
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, 'src'),
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+
+  return {
+    plugins: [react()],
+    base: '/',
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, 'src'),
+      },
     },
-  },
-  server: {
-    host: '0.0.0.0',
-    port: 5173,
-    proxy: {
-      '/api': {
-        // Use backend service name in Docker, localhost outside Docker
-        target: process.env.VITE_BACKEND_URL || 'http://localhost:8084',
-        changeOrigin: true,
-        secure: false,
-        cookieDomainRewrite: '',
-        configure: (proxy, options) => {
-          proxy.on('proxyReq', (proxyReq, req, res) => {
-            // Forward cookies from browser
-            if (req.headers.cookie) {
-              proxyReq.setHeader('Cookie', req.headers.cookie);
-            }
-            // Forward authorization header if present
-            if (req.headers.authorization) {
-              proxyReq.setHeader('Authorization', req.headers.authorization);
-            }
-          });
+    server: {
+      host: '0.0.0.0',
+      port: 5173,
+      proxy: {
+        '/api': {
+            target: env.VITE_BACKEND_URL || 'http://localhost:8000',
+            changeOrigin: true,
+            secure: false,
+            cookieDomainRewrite: '',
+            configure: (proxy) => {
+              proxy.on('proxyReq', (proxyReq, req) => {
+                // Dynamically forward whatever subdomain the browser sent
+                const host = req.headers.host;
+                if (host) {
+                  proxyReq.setHeader('X-Forwarded-Host', host);
+                  proxyReq.setHeader('Host', host);
+                }
+                if (req.headers.cookie) {
+                  proxyReq.setHeader('Cookie', req.headers.cookie);
+                }
+                if (req.headers.authorization) {
+                  proxyReq.setHeader('Authorization', req.headers.authorization);
+                }
+              });
+            },
+          },
+        '/media': {
+          target: env.VITE_BACKEND_URL || 'http://localhost:8000',
+          changeOrigin: true,
+          secure: false,
         },
       },
-      '/media': {
-        target: process.env.VITE_BACKEND_URL || 'http://localhost:8084',
-        changeOrigin: true,
-        secure: false,
-      },
     },
-  },
-  build: {
-    outDir: 'dist', // ✅ ensures Vercel finds your built files
-  },
-  preview: {
-    port: 4173,
-    strictPort: true,
-  },
+    build: {
+      outDir: 'dist',
+    },
+    preview: {
+      port: 4173,
+      strictPort: true,
+    },
+  }
 })

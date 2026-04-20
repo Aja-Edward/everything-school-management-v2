@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTenant } from '@/contexts/TenantContext';
 import { useAuth } from '@/hooks/useAuth';
+import { Link } from 'react-router-dom';
 import {
   GraduationCap,
   BookOpen,
@@ -367,6 +368,9 @@ const SubdomainLandingPage: React.FC = () => {
         <div className={`lg:hidden px-6 py-4 text-center text-xs text-gray-400 transition-all duration-500 delay-300 ${mounted ? 'opacity-100' : 'opacity-0'}`}>
           &copy; {new Date().getFullYear()} {schoolName} &middot; Powered by SchoolPlatform
         </div>
+        <Link to="/supabase-login" className="text-sm text-blue-600 hover:text-blue-800 transition-colors">
+          Go to Admin Login
+        </Link>
       </div>
     </div>
   );

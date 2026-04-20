@@ -12,6 +12,9 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.views import View
 from django.utils.decorators import method_decorator
+from django_ratelimit.decorators import ratelimit
+from django_ratelimit.exceptions import Ratelimited
+from rest_framework.exceptions import Throttled
 import os
 from rest_framework import status, generics, permissions
 from rest_framework.decorators import api_view, permission_classes
@@ -34,9 +37,11 @@ import random
 import string
 import logging
 import json
-from utils import generate_unique_username
+from utils import generate_unique_username, generate_temp_password
 import secrets
 from django.db import transaction
+from rest_framework.decorators import authentication_classes
+from .supabase_backend import SupabaseJWTAuthentication
 
 from .serializers import (
     RegisterSerializer,
@@ -90,7 +95,11 @@ class VerifyAccountView(APIView):
     **FIXED**: Now stores tenant in session for TenantMiddleware
     """
 
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [AllowAny]
+
+    @method_decorator(
+        ratelimit(key="post:email", rate="10/15m", method="POST", block=True)
+    )
 
     def post(self, request):
         serializer = VerifyAccountSerializer(data=request.data)
@@ -213,7 +222,9 @@ class SimpleLoginView(APIView):
     **FIXED**: Now stores tenant in session for TenantMiddleware
     """
 
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [AllowAny]
+
+    @method_decorator(ratelimit(key="ip", rate="5/m", method="POST", block=True))
 
     def post(self, request):
         serializer = SimpleLoginSerializer(
@@ -1249,85 +1260,60 @@ def admin_reset_password(request):
         return Response({"error": str(e)}, status=500)
 
 
-def generate_temp_password(length=12):
-    """Generate a secure temporary password"""
-    chars = string.ascii_uppercase + string.ascii_lowercase + string.digits + "!@#$%"
-    password = "".join(secrets.choice(chars) for _ in range(length))
-
-    # Ensure it has at least one of each type
-    if not any(c.isupper() for c in password):
-        password = secrets.choice(string.ascii_uppercase) + password[1:]
-    if not any(c.islower() for c in password):
-        password = password[0] + secrets.choice(string.ascii_lowercase) + password[2:]
-    if not any(c.isdigit() for c in password):
-        password = password[:2] + secrets.choice(string.digits) + password[3:]
-    if not any(c in "!@#$%" for c in password):
-        password = password[:3] + secrets.choice("!@#$%") + password[4:]
-
-    return password
-
-
 @api_view(["POST"])
 @permission_classes([IsAdminUser])
 def create_admin(request):
-    """Create a new admin with auto-generated username and password"""
     email = request.data.get("email")
     first_name = request.data.get("first_name")
     last_name = request.data.get("last_name")
-
-    # Validate required fields
+    role = request.data.get("role", "admin")  # allow section admins
     if not all([email, first_name, last_name]):
-        return Response(
-            {"detail": "Email, first name, and last name are required"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    # Check if email already exists
+        return Response({"detail": "email, first_name, last_name required"}, 400)
     if User.objects.filter(email=email).exists():
+        return Response({"detail": "Email already in use"}, 400)
+    # Callers that ARE platform superusers create via Django shell,
+    # not via this endpoint.
+    with transaction.atomic():
+        username = generate_unique_username("admin")
+        temp_password = generate_temp_password()
+        admin = User.objects.create_user(
+            username=username,
+            email=email,
+            password=temp_password,
+            first_name=first_name,
+            last_name=last_name,
+            role=role,
+            is_staff=True,  # Can access Django admin
+            is_superuser=False,  # NEVER True for school admins
+            is_active=True,
+            # Link to the calling admin's tenant
+            tenant=request.user.tenant,
+        )
         return Response(
-            {"detail": "A user with this email already exists"},
-            status=status.HTTP_400_BAD_REQUEST,
+            {
+                "id": admin.id,
+                "username": username,
+                "password": temp_password,
+                "email": email,
+            },
+            status=201,
         )
 
-    try:
-        with transaction.atomic():
-            # Generate unique username using your existing utility
-            # Format will be: ADM/GTS/OCT/25/001
-            username = generate_unique_username("admin")
-            temp_password = generate_temp_password()
 
-            # Create the admin user
-            admin = User.objects.create_user(
-                username=username,
-                email=email,
-                password=temp_password,
-                first_name=first_name,
-                last_name=last_name,
-                role="admin",
-                is_staff=True,
-                is_superuser=True,
-                is_active=True,
-                email_verified=True,
-            )
-
-            logger.info(f"Admin created: {username} ({email})")
-
-            return Response(
-                {
-                    "id": admin.id,
-                    "admin_username": username,
-                    "admin_password": temp_password,
-                    "email": email,
-                    "first_name": first_name,
-                    "last_name": last_name,
-                    "message": "Admin created successfully",
-                },
-                status=status.HTTP_201_CREATED,
-            )
-
-    except Exception as e:
-        logger.error(f"Failed to create admin: {str(e)}")
-        return Response(
-            {"detail": f"Failed to create admin: {str(e)}"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
+@api_view(["POST"])
+@authentication_classes([SupabaseJWTAuthentication])
+def supabase_login(request):
+    user = request.user
+    return Response(
+        {
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "role": user.role,  # adjust to your field name
+                "tenant_id": user.tenant_id,
+                "tenant_slug": user.tenant.slug if user.tenant else None,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+            }
+        }
+    )
