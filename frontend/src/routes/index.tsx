@@ -91,8 +91,6 @@ const AddAdminForm = lazy(() => import('./../pages/admin/AddAdminForm'));
 const SettingsPage = lazy(() => import('./../pages/admin/Settings'));
 const MessageManagement = lazy(() => import('./../components/dashboards/admin/MessageManagement'));
 const PasswordRecovery = lazy(() => import('./../pages/admin/PasswordRecovery'));
-const ResultChecker = lazy(() => import('./../components/dashboards/admin/ResultChecker'));
-const StudentResultChecker = lazy(() => import('./../components/dashboards/admin/StudentResultChecker'));
 const StudentResultDetail = lazy(() => import('./../components/dashboards/admin/StudentResultDetail'));
 const AdminTokenGenerator = lazy(() => import('./../pages/admin/TokenGenerator'));
 const AdminRemarksAndSignatureManager = lazy(() => import('./../pages/admin/AdminRemarksAndSignatureManager'));
@@ -596,14 +594,14 @@ export const router = createBrowserRouter([
             path: 'password-recovery',
             element: <LazyWrapper><PasswordRecovery /></LazyWrapper>,
           },
-          {
-            path: 'result-checker',
-            element: <LazyWrapper><ResultChecker /></LazyWrapper>,
-          },
-          {
-            path: 'student-result-checker',
-            element: <LazyWrapper><StudentResultChecker onClose={() => {}} /></LazyWrapper>,
-          },
+          // {
+          //   path: 'result-checker',
+          //   element: <LazyWrapper><ResultChecker /></LazyWrapper>,
+          // },
+          // {
+          //   path: 'student-result-checker',
+          //   element: <LazyWrapper><StudentResultChecker onClose={() => {}} /></LazyWrapper>,
+          // },
           // Billing routes
           {
             path: 'billing',

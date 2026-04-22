@@ -1,44 +1,62 @@
-# result/views.py
 """
-Key fixes applied in this version
-───────────────────────────────────
-1. Removed queryset.count() calls from all logger.info() lines — each was a
-   wasted DB hit on every list request.
+result/views.py
 
-2. Fixed NurseryResultViewSet.class_statistics() — was mixing a plain dict
-   with &= Q(...) which raises TypeError at runtime.
+All changes vs the previous version
+─────────────────────────────────────
+1.  Broken imports fixed:
+      REMOVED  BulkResultUpdateSerializer, BulkStatusUpdateSerializer,
+               PublishResultSerializer
+      ADDED    BulkApproveSerializer, BulkPublishSerializer,
+               BulkDeleteSerializer, BulkRecordSerializer,
+               SingleApproveSerializer
 
-3. Fixed _recalculate_subject_stats() position algorithm — the first group
-   was always skipping position 1 due to the way count_at_position was
-   accumulated before the first score comparison.
+2.  All role/permission checks consolidated around _is_admin(user) imported
+    from models.py.  No more hardcoded role strings scattered across handlers.
+    Role strings in _ADMIN_ROLES (HEAD_TEACHER, HEADMASTER, PROPRIETRESS,
+    PRINCIPAL, admin, superadmin) now work everywhere uniformly.
 
-4. Fixed StudentTermResultViewSet.get_queryset() — was filtering on
-   student__education_level__in which doesn't hit a real DB column (it's a
-   @property). Now routes to the correct FK lookup.
+3.  All four TermReport approve actions now set approved_by + approved_date
+    by delegating to BaseTermReport.bulk_approve(qs, user) — one SQL UPDATE.
 
-5. Fixed SeniorSecondaryTermReportViewSet prefetch — added grading_system__grades
-   to the subject_results Prefetch so the serializer doesn't fire per-result
-   grade queries.
+4.  _recalculate_subject_stats (Python-sort N+1) removed.
+    All callers now use ModelClass.bulk_recalculate_positions(qs) —
+    SQL RANK(), two statements total.
 
-6. Fixed NurseryTermReportViewSet prefetch — added term_report to the
-   subject_results Prefetch so NurseryResultSerializer can access
-   term_report.field via source= without extra queries.
+5.  _bulk_create_component_scores replaced by ModelClass.bulk_record()
+    in the bulk_create action.
 
-7. Removed the 8-line per-field debug logging from NurseryResultViewSet.create()
-   — kept one compact log line instead.
+6.  handle_approve / handle_publish delegate to
+    ModelClass.bulk_approve / bulk_publish (one UPDATE each).
 
-8. Moved StandardResultsPagination import to avoid the local duplicate
-   definition shadowing the one from utils.pagination.
+7.  destroy() delegates to instance.can_delete(user) — single source of truth.
+
+8.  NurseryTermReportViewSet.bulk_publish — O(N) subject_result UPDATEs
+    replaced with one NurseryResult.objects.filter(term_report__in=...).update().
+
+9.  All session-report publish actions call report.publish(user) — clean model
+    method, targeted update_fields save.
+
+10. All TermReport and SessionReport get_queryset calls now include
+    'approved_by' in select_related.
+
+11. NurseryTermReportViewSet prefetch chain now includes component_scores
+    (NurseryResult inherits BaseResult so the relation exists).
+
+12. BulkResultOperationsViewSet updated to use new bulk serializers and
+    model bulk methods instead of raw .update() loops.
+
+13. skip_permission_flags=True passed in context on all LIST serializer calls
+    to suppress per-row DB queries from _RemarkPermissionMixin.
 """
 
 import csv
 import io
+import json
 import logging
 from decimal import Decimal
 
 import cloudinary.uploader
 from django.apps import apps
-from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Avg, Count, Max, Min, Prefetch, Q
 from django.http import HttpResponse
@@ -64,16 +82,22 @@ from utils.teacher_portal_permissions import TeacherPortalCheckMixin
 
 from .filters import StudentTermResultFilter
 from .models import (
+    AssessmentComponent,
     AssessmentScore,
     AssessmentType,
+    ComponentScore,
     ExamSession,
+    ExamType,
     Grade,
     GradingSystem,
     JuniorSecondaryResult,
+    JuniorSecondarySessionReport,
     JuniorSecondaryTermReport,
     NurseryResult,
+    NurserySessionReport,
     NurseryTermReport,
     PrimaryResult,
+    PrimarySessionReport,
     PrimaryTermReport,
     ResultComment,
     ResultSheet,
@@ -81,37 +105,57 @@ from .models import (
     ScoringConfiguration,
     SeniorSecondaryResult,
     SeniorSecondarySessionReport,
-    SeniorSecondarySessionResult,
     SeniorSecondaryTermReport,
     StudentResult,
     StudentTermResult,
+    # Permission helpers — single source of truth from models.py
+    _is_admin,
+    _user_role,
 )
 from .report_generation import get_report_generator
 from .serializers import (
+    AssessmentComponentCreateUpdateSerializer,
+    AssessmentComponentSerializer,
     AssessmentScoreSerializer,
+    AssessmentTypeCreateUpdateSerializer,
     AssessmentTypeSerializer,
+    BulkApproveSerializer,
+    BulkDeleteSerializer,
+    BulkPublishSerializer,
+    BulkRecordSerializer,
     BulkReportGenerationSerializer,
-    BulkResultUpdateSerializer,
-    BulkStatusUpdateSerializer,
+    ComponentScoreReadSerializer,
     DetailedStudentResultSerializer,
     ExamSessionCreateUpdateSerializer,
     ExamSessionSerializer,
+    ExamTypeCreateUpdateSerializer,
+    ExamTypeSerializer,
+    GradeSerializer,
     GradingSystemCreateUpdateSerializer,
     GradingSystemSerializer,
-    GradeSerializer,
+    HeadTeacherRemarkUpdateSerializer,
     JuniorSecondaryResultCreateUpdateSerializer,
     JuniorSecondaryResultSerializer,
+    JuniorSecondarySessionReportCreateUpdateSerializer,
+    JuniorSecondarySessionReportSerializer,
+    JuniorSecondaryTermReportCreateUpdateSerializer,
     JuniorSecondaryTermReportSerializer,
     NurseryResultCreateUpdateSerializer,
     NurseryResultSerializer,
+    NurserySessionReportCreateUpdateSerializer,
+    NurserySessionReportSerializer,
+    NurseryTermReportCreateUpdateSerializer,
     NurseryTermReportSerializer,
     PrimaryResultCreateUpdateSerializer,
     PrimaryResultSerializer,
+    PrimarySessionReportCreateUpdateSerializer,
+    PrimarySessionReportSerializer,
+    PrimaryTermReportCreateUpdateSerializer,
     PrimaryTermReportSerializer,
-    PublishResultSerializer,
     ReportGenerationSerializer,
     ResultCommentCreateSerializer,
     ResultCommentSerializer,
+    ResultComponentScoresSerializer,
     ResultExportSerializer,
     ResultImportSerializer,
     ResultSheetSerializer,
@@ -121,30 +165,34 @@ from .serializers import (
     ScoringConfigurationSerializer,
     SeniorSecondaryResultCreateUpdateSerializer,
     SeniorSecondaryResultSerializer,
-    SeniorSecondarySessionResultCreateUpdateSerializer,
-    SeniorSecondarySessionResultSerializer,
+    SeniorSecondarySessionReportCreateUpdateSerializer,
     SeniorSecondarySessionReportSerializer,
+    SeniorSecondaryTermReportCreateUpdateSerializer,
     SeniorSecondaryTermReportSerializer,
+    SingleApproveSerializer,
+    StatusTransitionSerializer,
     StudentMinimalSerializer,
+    StudentResultSerializer,
+    StudentTermResultCreateUpdateSerializer,
     StudentTermResultDetailSerializer,
     StudentTermResultSerializer,
-    StudentResultSerializer,
     SubjectPerformanceSerializer,
+    TeacherRemarkUpdateSerializer,
 )
 
 logger = logging.getLogger(__name__)
 
-# ── Constants ────────────────────────────────────────────────────────────────
+# ── Status constants ──────────────────────────────────────────────────────────
 DRAFT = "DRAFT"
-SUBMITTED = "SUBMITTED"
 APPROVED = "APPROVED"
 PUBLISHED = "PUBLISHED"
+
 SENIOR_SECONDARY = "SENIOR_SECONDARY"
 JUNIOR_SECONDARY = "JUNIOR_SECONDARY"
 PRIMARY = "PRIMARY"
 NURSERY = "NURSERY"
 
-# ── Model routing maps (avoids repeated if/elif chains) ───────────────────────
+# ── Model routing maps ────────────────────────────────────────────────────────
 _RESULT_MODEL_MAP = {
     SENIOR_SECONDARY: SeniorSecondaryResult,
     JUNIOR_SECONDARY: JuniorSecondaryResult,
@@ -157,6 +205,12 @@ _TERM_REPORT_MODEL_MAP = {
     PRIMARY: PrimaryTermReport,
     NURSERY: NurseryTermReport,
 }
+_SESSION_REPORT_MODEL_MAP = {
+    SENIOR_SECONDARY: SeniorSecondarySessionReport,
+    JUNIOR_SECONDARY: JuniorSecondarySessionReport,
+    PRIMARY: PrimarySessionReport,
+    NURSERY: NurserySessionReport,
+}
 
 
 class StandardResultsPagination(PageNumberPagination):
@@ -168,22 +222,12 @@ class StandardResultsPagination(PageNumberPagination):
 # ── Utility helpers ───────────────────────────────────────────────────────────
 
 
-def check_user_permission(user, permission_name):
-    if user.is_superuser or user.is_staff:
-        return True
-    role = getattr(user, "role", None)
-    if role in ("admin", "superadmin", "principal"):
-        return True
-    return user.has_perm(permission_name)
-
-
 def get_next_term_begins_date(exam_session):
     try:
         current_term = exam_session.term
         if not current_term:
             return None
         current_session = exam_session.academic_session
-
         next_term = (
             Term.objects.filter(
                 academic_session=current_session,
@@ -193,11 +237,8 @@ def get_next_term_begins_date(exam_session):
             .order_by("term_type__display_order")
             .first()
         )
-
         if next_term:
             return next_term.next_term_begins
-
-        # Last term — look into next academic session
         next_session = (
             AcademicSession.objects.filter(
                 start_date__gt=current_session.end_date, is_active=True
@@ -207,18 +248,224 @@ def get_next_term_begins_date(exam_session):
         )
         if next_session:
             first_term = (
-                Term.objects.filter(
-                    academic_session=next_session,
-                    is_active=True,
-                )
+                Term.objects.filter(academic_session=next_session, is_active=True)
                 .order_by("term_type__display_order")
                 .first()
             )
             return first_term.next_term_begins if first_term else None
         return None
-    except Exception as e:
-        logger.error(f"Error getting next term begins date: {e}")
+    except Exception as exc:
+        logger.error("Error getting next term begins date: %s", exc)
         return None
+
+
+def _validate_component_scores(scores_data, education_level):
+    """
+    Validate a list of {"component_id": int, "score": Decimal} dicts.
+    Returns a list of error strings; empty list means valid.
+    Nursery skips this — it uses mark_obtained directly.
+    """
+    if education_level == NURSERY or not scores_data:
+        return []
+
+    errors, seen_ids = [], set()
+    for entry in scores_data:
+        cid = entry.get("component_id")
+        score = entry.get("score")
+        if cid is None or score is None:
+            errors.append("Each score entry must have 'component_id' and 'score'")
+            continue
+        if cid in seen_ids:
+            errors.append(f"Duplicate component_id {cid}")
+            continue
+        seen_ids.add(cid)
+        try:
+            component = AssessmentComponent.objects.get(id=cid)
+        except AssessmentComponent.DoesNotExist:
+            errors.append(f"AssessmentComponent {cid} does not exist")
+            continue
+        if not component.is_active:
+            errors.append(f"Component '{component.name}' (id={cid}) is not active")
+            continue
+        try:
+            score_decimal = Decimal(str(score))
+        except Exception:
+            errors.append(f"Invalid score value '{score}' for component {cid}")
+            continue
+        if score_decimal < 0:
+            errors.append(f"Score for '{component.name}' cannot be negative")
+        elif score_decimal > component.max_score:
+            errors.append(
+                f"Score {score_decimal} for '{component.name}' "
+                f"exceeds maximum {component.max_score}"
+            )
+    return errors
+
+
+def _calculate_nursery_scores(instance):
+    """Compute NurseryResult percentage + grade in-memory before bulk_create."""
+    if instance.max_marks_obtainable and instance.max_marks_obtainable > 0:
+        instance.percentage = (
+            instance.mark_obtained / instance.max_marks_obtainable * 100
+        )
+    else:
+        instance.percentage = Decimal(0)
+
+    gs = getattr(instance, "grading_system", None)
+    if gs:
+        try:
+            from .models import _default_grade
+
+            grade = gs.get_grade(float(instance.percentage))
+            instance.grade = (
+                grade if grade else _default_grade(float(instance.percentage))
+            )
+            instance.is_passed = float(instance.percentage) >= float(gs.pass_mark or 40)
+        except Exception as exc:
+            logger.error("Error grading nursery instance: %s", exc)
+            from .models import _default_grade
+
+            instance.grade = _default_grade(float(instance.percentage))
+            instance.is_passed = float(instance.percentage) >= 40
+
+
+def _error_response(message, errors):
+    return Response(
+        {"error": message, "errors": errors},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+# ── Result queryset helpers ───────────────────────────────────────────────────
+
+
+def _component_score_qs():
+    """Standard ComponentScore prefetch sub-queryset."""
+    return ComponentScore.objects.select_related("component")
+
+
+def _result_qs_base(ModelClass, extra_selects=()):
+    """Return the base queryset with standard select_related for a result model."""
+    selects = [
+        "student",
+        "student__user",
+        "student__student_class",
+        "student__student_class__education_level",
+        "subject",
+        "exam_session",
+        "exam_session__academic_session",
+        "exam_session__exam_type",
+        "exam_session__term",
+        "grading_system",
+        "entered_by",
+        "approved_by",
+        "published_by",
+        "last_edited_by",
+    ]
+    selects.extend(extra_selects)
+    return (
+        ModelClass.objects.all()
+        .select_related(*selects)
+        .prefetch_related(
+            "grading_system__grades",
+            Prefetch("component_scores", queryset=_component_score_qs()),
+        )
+    )
+
+
+def _apply_role_filter(queryset, viewset, user):
+    """Apply role-based visibility filter on a result queryset."""
+    if user.is_superuser or user.is_staff:
+        return queryset
+    if _is_admin(user):
+        return queryset
+    role = _user_role(user)
+    if role in (
+        "secondary_admin",
+        "nursery_admin",
+        "primary_admin",
+        "junior_secondary_admin",
+        "senior_secondary_admin",
+    ):
+        levels = viewset.get_user_education_level_access()
+        return (
+            queryset.filter(
+                student__student_class__education_level__level_type__in=levels
+            )
+            if levels
+            else queryset.none()
+        )
+    if role == "TEACHER":
+        return viewset.get_teacher_queryset(user, queryset)
+    if role == "STUDENT":
+        try:
+            student = Student.objects.get(user=user)
+            return queryset.filter(student=student, status=PUBLISHED)
+        except Student.DoesNotExist:
+            return queryset.none()
+    if role == "PARENT":
+        try:
+            Parent = apps.get_model("parent", "Parent")
+            parent = Parent.objects.get(user=user)
+            return queryset.filter(student__parents=parent, status=PUBLISHED)
+        except Exception:
+            return queryset.none()
+    return queryset.none()
+
+
+def _apply_report_role_filter(queryset, viewset, user):
+    """Role filter for term/session reports (no subject restriction for teachers)."""
+    if user.is_superuser or user.is_staff:
+        return queryset
+    if _is_admin(user):
+        return queryset
+    role = _user_role(user)
+    if role in (
+        "secondary_admin",
+        "nursery_admin",
+        "primary_admin",
+        "junior_secondary_admin",
+        "senior_secondary_admin",
+    ):
+        levels = viewset.get_user_education_level_access()
+        return (
+            queryset.filter(
+                student__student_class__education_level__level_type__in=levels
+            )
+            if levels
+            else queryset.none()
+        )
+    if role == "TEACHER":
+        try:
+            from teacher.models import Teacher
+
+            teacher = Teacher.objects.get(user=user)
+            assigned_classrooms = (
+                apps.get_model("classroom", "Classroom")
+                .objects.filter(
+                    Q(class_teacher=teacher)
+                    | Q(classroomteacherassignment__teacher=teacher)
+                )
+                .distinct()
+            )
+            student_ids = StudentEnrollment.objects.filter(
+                classroom__in=assigned_classrooms, is_active=True
+            ).values_list("student_id", flat=True)
+            return queryset.filter(student_id__in=student_ids)
+        except Exception:
+            return queryset.none()
+    if role == "STUDENT":
+        try:
+            return queryset.filter(student=Student.objects.get(user=user))
+        except Student.DoesNotExist:
+            return queryset.none()
+    if role == "PARENT":
+        try:
+            parent = apps.get_model("parent", "Parent").objects.get(user=user)
+            return queryset.filter(student__parents=parent)
+        except Exception:
+            return queryset.none()
+    return queryset.none()
 
 
 # ── Grading System ────────────────────────────────────────────────────────────
@@ -226,7 +473,6 @@ def get_next_term_begins_date(exam_session):
 
 class GradingSystemViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     queryset = GradingSystem.objects.all()
-    serializer_class = GradingSystemSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ["grading_type", "is_active"]
@@ -244,14 +490,14 @@ class GradingSystemViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     def activate(self, request, pk=None):
         gs = self.get_object()
         gs.is_active = True
-        gs.save()
+        gs.save(update_fields=["is_active", "updated_at"])
         return Response(GradingSystemSerializer(gs).data)
 
     @action(detail=True, methods=["post"])
     def deactivate(self, request, pk=None):
         gs = self.get_object()
         gs.is_active = False
-        gs.save()
+        gs.save(update_fields=["is_active", "updated_at"])
         return Response(GradingSystemSerializer(gs).data)
 
 
@@ -266,18 +512,96 @@ class GradeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         return super().get_queryset().select_related("grading_system")
 
 
+# ── Assessment Component ───────────────────────────────────────────────────────
+
+
+class AssessmentComponentViewSet(
+    TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet
+):
+    queryset = AssessmentComponent.objects.all().order_by("display_order", "name")
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = [
+        "education_level",
+        "component_type",
+        "is_active",
+        "contributes_to_ca",
+    ]
+    search_fields = ["name", "code"]
+
+    def get_queryset(self):
+        return super().get_queryset().select_related("education_level")
+
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return AssessmentComponentCreateUpdateSerializer
+        return AssessmentComponentSerializer
+
+    @action(detail=False, methods=["get"])
+    def by_education_level(self, request):
+        param = request.query_params.get("education_level")
+        if not param:
+            return Response(
+                {"error": "education_level parameter is required"}, status=400
+            )
+        try:
+            qs = self.get_queryset().filter(education_level_id=int(param))
+        except (ValueError, TypeError):
+            qs = self.get_queryset().filter(education_level__level_type=param.upper())
+        return Response(
+            AssessmentComponentSerializer(qs.filter(is_active=True), many=True).data
+        )
+
+
+# ── Assessment Type ───────────────────────────────────────────────────────────
+
+
 class AssessmentTypeViewSet(
     TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet
 ):
     queryset = AssessmentType.objects.all()
-    serializer_class = AssessmentTypeSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ["education_level", "is_active"]
     search_fields = ["name", "code"]
 
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return AssessmentTypeCreateUpdateSerializer
+        return AssessmentTypeSerializer
+
     def get_queryset(self):
         return super().get_queryset().select_related("education_level")
+
+
+# ── Exam Type ─────────────────────────────────────────────────────────────────
+
+
+class ExamTypeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    queryset = ExamType.objects.all().order_by("display_order", "name")
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ["category", "is_active"]
+    search_fields = ["name", "code"]
+
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return ExamTypeCreateUpdateSerializer
+        return ExamTypeSerializer
+
+    @action(detail=True, methods=["post"])
+    def activate(self, request, pk=None):
+        et = self.get_object()
+        et.is_active = True
+        et.save(update_fields=["is_active", "updated_at"])
+        return Response(ExamTypeSerializer(et).data)
+
+    @action(detail=True, methods=["post"])
+    def deactivate(self, request, pk=None):
+        et = self.get_object()
+        et.is_active = False
+        et.save(update_fields=["is_active", "updated_at"])
+        return Response(ExamTypeSerializer(et).data)
 
 
 # ── Exam Session ──────────────────────────────────────────────────────────────
@@ -307,9 +631,9 @@ class ExamSessionViewSet(
         qs = (
             super()
             .get_queryset()
-            .select_related("academic_session", "term", "term__term_type")
+            .select_related("academic_session", "term", "term__term_type", "exam_type")
         )
-        if getattr(self.request.user, "role", None) == "STUDENT":
+        if _user_role(self.request.user) == "STUDENT":
             qs = qs.filter(is_published=True)
         return qs.order_by("-created_at")
 
@@ -317,7 +641,7 @@ class ExamSessionViewSet(
     def publish(self, request, pk=None):
         session = self.get_object()
         session.is_published = True
-        session.save()
+        session.save(update_fields=["is_published", "updated_at"])
         return Response(ExamSessionSerializer(session).data)
 
     @action(detail=True, methods=["get"])
@@ -376,8 +700,11 @@ class ScoringConfigurationViewSet(
 
     @action(detail=False, methods=["get"])
     def defaults(self, request):
-        configs = self.get_queryset().filter(is_default=True, is_active=True)
-        return Response(ScoringConfigurationSerializer(configs, many=True).data)
+        return Response(
+            ScoringConfigurationSerializer(
+                self.get_queryset().filter(is_default=True, is_active=True), many=True
+            ).data
+        )
 
     @action(detail=False, methods=["get"])
     def by_result_type(self, request):
@@ -400,7 +727,8 @@ class ScoringConfigurationViewSet(
         config = self.get_object()
         with transaction.atomic():
             ScoringConfiguration.objects.filter(
-                education_level=config.education_level, result_type=config.result_type
+                education_level=config.education_level,
+                result_type=config.result_type,
             ).update(is_default=False)
             config.is_default = True
             config.save(update_fields=["is_default"])
@@ -413,7 +741,7 @@ class ScoringConfigurationViewSet(
 class BaseResultViewSetMixin:
     """
     Shared helpers for all education-level result viewsets.
-    Does NOT contain any get_queryset() — each viewset owns its own.
+    Does NOT define get_queryset() — each viewset owns its own.
     """
 
     def get_teacher_queryset(self, user, queryset):
@@ -445,7 +773,7 @@ class BaseResultViewSetMixin:
                     continue
 
             is_classroom_teacher = any(
-                l in ("NURSERY", "PRIMARY") for l in classroom_levels
+                l in (NURSERY, PRIMARY) for l in classroom_levels
             )
             student_ids = list(
                 StudentEnrollment.objects.filter(
@@ -469,26 +797,22 @@ class BaseResultViewSetMixin:
             return queryset.filter(
                 subject_id__in=assigned_subject_ids, student_id__in=student_ids
             )
-
         except Teacher.DoesNotExist:
             return queryset.none()
-        except Exception as e:
+        except Exception as exc:
             logger.error(
-                f"Error filtering for teacher {user.username}: {e}", exc_info=True
+                "Error filtering for teacher %s: %s", user.username, exc, exc_info=True
             )
             return queryset.none()
+
+    # ── Single-record create / update helpers ─────────────────────────────────
 
     def handle_create(
         self, request, education_level, serializer_class, result_serializer_class
     ):
         try:
             with transaction.atomic():
-                data = (
-                    request.data.copy()
-                    if hasattr(request.data, "copy")
-                    else dict(request.data)
-                )
-                student_id = data.get("student")
+                student_id = request.data.get("student")
                 if student_id:
                     student = Student.objects.select_related(
                         "student_class", "student_class__education_level"
@@ -496,112 +820,160 @@ class BaseResultViewSetMixin:
                     if student.education_level != education_level:
                         return Response(
                             {
-                                "error": f"Student education level is {student.education_level}, expected {education_level}."
+                                "error": (
+                                    f"Student education level is {student.education_level},"
+                                    f" expected {education_level}."
+                                )
                             },
                             status=status.HTTP_400_BAD_REQUEST,
                         )
-                data["entered_by"] = request.user.id
-                serializer = serializer_class(data=data)
+                serializer = serializer_class(
+                    data=request.data, context={"request": request}
+                )
                 serializer.is_valid(raise_exception=True)
                 result = serializer.save()
                 return Response(
-                    result_serializer_class(result).data, status=status.HTTP_201_CREATED
+                    result_serializer_class(result, context={"request": request}).data,
+                    status=status.HTTP_201_CREATED,
                 )
         except Student.DoesNotExist:
             return Response(
                 {"error": "Student not found"}, status=status.HTTP_404_NOT_FOUND
             )
-        except Exception as e:
-            logger.error(f"Failed to create result: {e}", exc_info=True)
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            logger.error("Failed to create result: %s", exc, exc_info=True)
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     def handle_update(
         self, request, instance, serializer_class, result_serializer_class, **kwargs
     ):
         try:
             with transaction.atomic():
-                if instance.status == PUBLISHED and not check_user_permission(
-                    request.user, "results.change_published_results"
-                ):
+                if not instance.can_edit(request.user):
                     return Response(
-                        {
-                            "error": "You don't have permission to modify published results"
-                        },
+                        {"error": "You do not have permission to edit this result."},
                         status=status.HTTP_403_FORBIDDEN,
                     )
-                data = (
-                    request.data.copy()
-                    if hasattr(request.data, "copy")
-                    else dict(request.data)
-                )
                 serializer = serializer_class(
-                    instance, data=data, partial=kwargs.get("partial", False)
+                    instance,
+                    data=request.data,
+                    partial=kwargs.get("partial", False),
+                    context={"request": request},
                 )
                 serializer.is_valid(raise_exception=True)
-                return Response(result_serializer_class(serializer.save()).data)
-        except Exception as e:
-            logger.error(f"Failed to update result: {e}", exc_info=True)
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    result_serializer_class(
+                        serializer.save(), context={"request": request}
+                    ).data
+                )
+        except Exception as exc:
+            logger.error("Failed to update result: %s", exc, exc_info=True)
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-    def handle_approve(self, request, result, serializer_class):
-        user_role = self.get_user_role()
-        if user_role not in (
-            "admin",
-            "superadmin",
-            "principal",
-            "senior_secondary_admin",
-        ) and not check_user_permission(request.user, "results.can_approve_results"):
+    # ── Approve / publish (delegates to model bulk methods, one SQL UPDATE) ───
+
+    def handle_approve(self, request, result, read_serializer_class):
+        """
+        Single-record approve.  Uses ModelClass.bulk_approve() so the same
+        SQL UPDATE path is used for both single and bulk operations.
+        Requires _is_admin(user) — consistent with model _ADMIN_ROLES.
+        """
+        if not _is_admin(request.user):
             return Response(
-                {"error": "You don't have permission to approve results"}, status=403
+                {"error": "You do not have permission to approve results."},
+                status=status.HTTP_403_FORBIDDEN,
             )
         if result.status == PUBLISHED:
-            return Response({"error": "Cannot approve a published result"}, status=400)
-        if result.status not in (DRAFT, SUBMITTED):
+            return Response({"error": "Cannot approve a published result."}, status=400)
+        if result.status != DRAFT:
             return Response(
-                {"error": f"Cannot approve result with status '{result.status}'"},
+                {"error": f"Cannot approve result with status '{result.status}'."},
                 status=400,
             )
-        try:
-            with transaction.atomic():
-                result.status = APPROVED
-                result.approved_by = request.user
-                result.approved_date = timezone.now()
-                result.save(update_fields=["status", "approved_by", "approved_date"])
-            return Response(serializer_class(result).data)
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
+        ModelClass = type(result)
+        ModelClass.bulk_approve(ModelClass.objects.filter(pk=result.pk), request.user)
+        result.refresh_from_db()
+        return Response(
+            read_serializer_class(result, context={"request": request}).data
+        )
 
-    def handle_publish(self, request, result, serializer_class):
-        user_role = self.get_user_role()
-        if user_role not in (
-            "admin",
-            "superadmin",
-            "principal",
-            "senior_secondary_admin",
-        ) and not check_user_permission(request.user, "results.can_publish_results"):
+    def handle_publish(self, request, result, read_serializer_class):
+        """
+        Single-record publish.  Uses ModelClass.bulk_publish() — one UPDATE.
+        """
+        if not _is_admin(request.user):
             return Response(
-                {"error": "You don't have permission to publish results"}, status=403
+                {"error": "You do not have permission to publish results."},
+                status=status.HTTP_403_FORBIDDEN,
             )
         if result.status == PUBLISHED:
-            return Response({"error": "Result is already published"}, status=400)
-        try:
-            with transaction.atomic():
-                result.status = PUBLISHED
-                result.published_by = request.user
-                result.published_date = timezone.now()
-                result.save(update_fields=["status", "published_by", "published_date"])
-            return Response(serializer_class(result).data)
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
+            return Response({"error": "Result is already published."}, status=400)
+        if result.status != APPROVED:
+            return Response(
+                {
+                    "error": f"Only APPROVED results can be published (current: {result.status})."
+                },
+                status=400,
+            )
+        ModelClass = type(result)
+        ModelClass.bulk_publish(ModelClass.objects.filter(pk=result.pk), request.user)
+        result.refresh_from_db()
+        return Response(
+            read_serializer_class(result, context={"request": request}).data
+        )
 
-    # ── bulk_create helpers ───────────────────────────────────────────────────
+    # ── component-scores action ───────────────────────────────────────────────
+
+    @action(detail=True, methods=["post"], url_path="component-scores")
+    def component_scores(self, request, pk=None):
+        """
+        POST {component_id, score} pairs for this result.
+        Upserts ComponentScore rows and re-triggers calculate_scores().
+        """
+        result = self.get_object()
+        if not result.can_edit(request.user):
+            return Response(
+                {"error": "You do not have permission to edit scores for this result."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = ResultComponentScoresSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            updated = serializer.save(result_instance=result)
+            return Response(
+                self.get_serializer_class()(updated, context={"request": request}).data
+            )
+        except Exception as exc:
+            logger.error("Failed to save component scores: %s", exc, exc_info=True)
+            return Response({"error": str(exc)}, status=400)
+
+    # ── destroy — delegates to model can_delete ───────────────────────────────
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if not instance.can_delete(request.user):
+            return Response(
+                {"error": "You do not have permission to delete this result."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        with transaction.atomic():
+            subject_name = getattr(getattr(instance, "subject", None), "name", "N/A")
+            student_name = getattr(instance.student, "full_name", "Unknown")
+            instance.delete()
+        return Response(
+            {
+                "message": f"Result for {student_name} in {subject_name} deleted successfully."
+            },
+            status=status.HTTP_204_NO_CONTENT,
+        )
+
+    # ── bulk_create ───────────────────────────────────────────────────────────
 
     def _get_education_level(self, ModelClass):
         return {v: k for k, v in _RESULT_MODEL_MAP.items()}.get(ModelClass, "UNKNOWN")
 
     def _get_term_report_model(self, ModelClass):
-        level = self._get_education_level(ModelClass)
-        return _TERM_REPORT_MODEL_MAP.get(level)
+        return _TERM_REPORT_MODEL_MAP.get(self._get_education_level(ModelClass))
 
     def _get_exam_session(self, exam_session_id):
         if not hasattr(self, "_exam_session_cache"):
@@ -611,27 +983,6 @@ class BaseResultViewSetMixin:
                 id=exam_session_id
             )
         return self._exam_session_cache[exam_session_id]
-
-    def _calculate_instance_scores(self, instance, ModelClass):
-        if hasattr(instance, "calculate_scores"):
-            instance.calculate_scores()
-        if hasattr(instance, "determine_grade"):
-            instance.determine_grade()
-        if ModelClass == NurseryResult:
-            if instance.max_marks_obtainable and instance.max_marks_obtainable > 0:
-                instance.percentage = (
-                    instance.mark_obtained / instance.max_marks_obtainable
-                ) * 100
-            else:
-                instance.percentage = 0
-            if instance.grading_system:
-                grade = instance.grading_system.get_grade(instance.percentage)
-                from result.models import _default_grade
-
-                instance.grade = grade or _default_grade(instance.percentage)
-                instance.is_passed = instance.percentage >= float(
-                    instance.grading_system.pass_mark or 40
-                )
 
     def _ensure_term_reports_exist(self, created_results, ModelClass, education_level):
         TermReportModel = self._get_term_report_model(ModelClass)
@@ -658,141 +1009,32 @@ class BaseResultViewSetMixin:
             ).update(term_report=term_report)
             term_report.calculate_metrics()
 
-    def _recalculate_subject_stats(
-        self, ModelClass, exam_session_id, subject_id, student_class, edu_level
-    ):
-        """
-        Bulk recalculate subject-level stats with correct tie-breaking.
-
-        Position algorithm fix: when score changes, advance position by the
-        count of results at the *previous* score, not the current one.
-        Reset prev_score tracking before the loop.
-        """
-        score_field = (
-            "mark_obtained"
-            if ModelClass == NurseryResult
-            else (
-                "total_percentage"
-                if hasattr(ModelClass, "total_percentage")
-                else "total_score"
-            )
-        )
-        results = (
-            ModelClass.objects.filter(
-                exam_session_id=exam_session_id,
-                subject_id=subject_id,
-                student__student_class=student_class,
-                student__education_level=edu_level,
-                status__in=(APPROVED, PUBLISHED),
-            )
-            .select_for_update()
-            .order_by(f"-{score_field}", "created_at")
-        )
-        if not results.exists():
-            return
-
-        stats = results.aggregate(
-            avg=Avg(score_field), highest=Max(score_field), lowest=Min(score_field)
-        )
-
-        updates = []
-        current_position = 1  # position assigned to current score group
-        count_at_current = 0  # how many have this score so far
-        prev_score = None
-
-        for result in results:
-            score = getattr(result, score_field)
-            if score != prev_score:
-                # Move position past the previous group
-                current_position += count_at_current
-                count_at_current = 1
-                prev_score = score
-            else:
-                count_at_current += 1
-
-            result.subject_position = current_position
-            result.class_average = stats["avg"] or 0
-            result.highest_in_class = stats["highest"] or 0
-            result.lowest_in_class = stats["lowest"] or 0
-            updates.append(result)
-
-        ModelClass.objects.bulk_update(
-            updates,
-            [
-                "subject_position",
-                "class_average",
-                "highest_in_class",
-                "lowest_in_class",
-            ],
-            batch_size=100,
-        )
-
+    @action(detail=False, methods=["post"])
     def bulk_create(self, request):
         """
         Two-phase bulk result creation.
 
-        Expected request body
-        ─────────────────────
-        {
-            "results": [
-                {
-                    "student":        "<uuid>",
-                    "subject":        <int>,
-                    "exam_session":   "<uuid>",
-                    "grading_system": <int>,
-                    "stream":         <int | null>,   # optional
-                    "status":         "DRAFT",
-                    "teacher_remark": "",             # optional
-                    "scores": [                       # omit for NurseryResult
-                        {"component_id": 1, "score": "8.50"},
-                        {"component_id": 2, "score": "62.00"}
-                    ],
-                    # NurseryResult only:
-                    "mark_obtained":      "45.00",
-                    "max_marks_obtainable": "50.00",
-                    "academic_comment": ""
-                },
-                ...
-            ]
-        }
-
-        Phase 1  Validate all records and check for duplicates.
-                Build unsaved model instances with derived fields set to 0.
-        Phase 2  bulk_create the instances.
-                For each created result, bulk_create ComponentScore rows,
-                then recalculate and persist derived fields.
-        Phase 3  Ensure term reports exist; recalculate subject stats and
-                class positions.
+        Phase 1: validate all rows — fail fast, nothing written.
+        Phase 2: bulk_create result rows, then call ModelClass.bulk_record()
+                 for ComponentScore creation + score recalculation in two SQL
+                 statements (one aggregate, one bulk_update).
+        Positions recalculated with SQL RANK() via bulk_recalculate_positions().
         """
-        from result.models import (
-            ComponentScore,
-            AssessmentComponent,
-            NurseryResult,
-        )
-        from result.serializers import (
-            SeniorSecondaryResultCreateUpdateSerializer,
-            JuniorSecondaryResultCreateUpdateSerializer,
-            PrimaryResultCreateUpdateSerializer,
-            NurseryResultCreateUpdateSerializer,
-        )
+        _serializer_map = {
+            SENIOR_SECONDARY: SeniorSecondaryResultCreateUpdateSerializer,
+            JUNIOR_SECONDARY: JuniorSecondaryResultCreateUpdateSerializer,
+            PRIMARY: PrimaryResultCreateUpdateSerializer,
+            NURSERY: NurseryResultCreateUpdateSerializer,
+        }
 
         results_data = request.data.get("results", [])
         ModelClass = self.get_queryset().model
         education_level = self._get_education_level(ModelClass)
         is_nursery = ModelClass == NurseryResult
-
-        # Map serializer per model
-        _serializer_map = {
-            "SENIOR_SECONDARY": SeniorSecondaryResultCreateUpdateSerializer,
-            "JUNIOR_SECONDARY": JuniorSecondaryResultCreateUpdateSerializer,
-            "PRIMARY": PrimaryResultCreateUpdateSerializer,
-            "NURSERY": NurseryResultCreateUpdateSerializer,
-        }
         CreateUpdateSerializer = _serializer_map.get(
             education_level, self.get_serializer_class()
         )
 
-        # Pre-load existing (student, subject, session) tuples to skip dupes
         existing_keys = set(
             ModelClass.objects.values_list(
                 "student_id", "subject_id", "exam_session_id"
@@ -800,19 +1042,14 @@ class BaseResultViewSetMixin:
         )
 
         errors = []
-        validated_instances = []  # (model_instance, raw_scores_list)
+        validated_instances = []
         seen_keys = set()
 
-        # ── Phase 1: validate ────────────────────────────────────────────────────
         for i, raw in enumerate(results_data):
             item = dict(raw) if not isinstance(raw, dict) else raw.copy()
-
-            # Pull scores out before passing to the model serializer
             scores_data = item.pop("scores", [])
-            item["entered_by"] = request.user.id
 
             serializer = CreateUpdateSerializer(data=item, context={"request": request})
-
             if not serializer.is_valid():
                 errors.append({"index": i, "errors": serializer.errors, "data": item})
                 continue
@@ -823,7 +1060,6 @@ class BaseResultViewSetMixin:
                 data.get("subject", {}).id if data.get("subject") else None,
                 data["exam_session"].id,
             )
-
             if key in seen_keys:
                 errors.append(
                     {"index": i, "errors": "Duplicate entry in submitted data"}
@@ -834,66 +1070,72 @@ class BaseResultViewSetMixin:
                     {"index": i, "errors": "Result already exists in database"}
                 )
                 continue
-
             seen_keys.add(key)
 
-            # Validate component scores against their component max_score
             score_errors = _validate_component_scores(scores_data, education_level)
             if score_errors:
                 errors.append({"index": i, "errors": score_errors})
                 continue
 
-            # Build unsaved instance — derived fields default to 0 until Phase 2
             instance = ModelClass(**data)
-
-            # NurseryResult: compute percentage now (no ComponentScore rows needed)
             if is_nursery:
                 _calculate_nursery_scores(instance)
-
             validated_instances.append((instance, scores_data))
 
         if errors:
             return _error_response("Validation failed. No results were saved.", errors)
 
-        # ── Phase 2 & 3: insert, score, link ────────────────────────────────────
         try:
             with transaction.atomic():
-                # 2a. Bulk-insert result rows
                 raw_instances = [inst for inst, _ in validated_instances]
                 created_results = ModelClass.objects.bulk_create(
                     raw_instances, batch_size=500
                 )
 
-                # 2b. Create ComponentScore rows and recalculate per result
-                if not is_nursery:
-                    score_map = {
-                        i: scores for i, (_, scores) in enumerate(validated_instances)
-                    }
-                    _bulk_create_component_scores(
-                        created_results, score_map, ModelClass
+                if not is_nursery and any(scores for _, scores in validated_instances):
+                    # Build entries list for bulk_record: map each created result to its scores.
+                    # created_results[i] corresponds to validated_instances[i].
+                    entries = []
+                    for result, scores in zip(created_results, validated_instances):
+                        _, scores_data = scores
+                        for s in scores_data:
+                            entries.append(
+                                {
+                                    "result_id": result.pk,
+                                    "component_id": s["component_id"],
+                                    "score": s["score"],
+                                }
+                            )
+                    if entries:
+                        ModelClass.bulk_record(entries, request.user)
+                elif not is_nursery:
+                    # No scores submitted; still recalculate to set zeros correctly.
+                    ModelClass._bulk_recalculate_scores(
+                        ModelClass.objects.filter(
+                            pk__in=[r.pk for r in created_results]
+                        )
                     )
 
-                # 3a. Ensure term reports exist and link results
                 self._ensure_term_reports_exist(
                     created_results, ModelClass, education_level
                 )
 
-                # 3b. Recalculate subject-level stats
-                subject_groups = set()
+                # Recalculate positions with SQL RANK() — no Python sort.
                 class_groups = set()
                 for obj in created_results:
                     sc = obj.student.student_class
                     el = obj.student.education_level
-                    if hasattr(obj, "subject_id"):
-                        subject_groups.add(
-                            (obj.exam_session_id, obj.subject_id, sc, el)
-                        )
                     class_groups.add((obj.exam_session_id, sc, el))
 
-                for esid, sid, sc, el in subject_groups:
-                    self._recalculate_subject_stats(ModelClass, esid, sid, sc, el)
+                for esid, sc, el in class_groups:
+                    qs = ModelClass.objects.filter(
+                        exam_session_id=esid,
+                        student__student_class=sc,
+                        student__education_level=el,
+                        status__in=(APPROVED, PUBLISHED),
+                    )
+                    ModelClass.bulk_recalculate_positions(qs)
 
-                # 3c. Recalculate class positions on term reports
                 TermReportModel = self._get_term_report_model(ModelClass)
                 if TermReportModel:
                     for esid, sc, el in class_groups:
@@ -903,267 +1145,93 @@ class BaseResultViewSetMixin:
                             education_level=el,
                         )
 
-            from rest_framework import status as drf_status
-            from rest_framework.response import Response
-
             return Response(
                 {
                     "message": f"Successfully created {len(created_results)} results",
-                    "results": self.get_serializer(created_results, many=True).data,
+                    "results": self.get_serializer(
+                        created_results, many=True, context={"request": request}
+                    ).data,
                 },
-                status=drf_status.HTTP_201_CREATED,
+                status=status.HTTP_201_CREATED,
             )
-
-        except Exception as e:
-            logger.error(f"Bulk create failed: {e}", exc_info=True)
-            from rest_framework.response import Response
-            from rest_framework import status as drf_status
-
+        except Exception as exc:
+            logger.error("Bulk create failed: %s", exc, exc_info=True)
             return Response(
                 {
                     "error": "Bulk upload failed. No results were saved.",
-                    "details": str(e),
+                    "details": str(exc),
                 },
-                status=drf_status.HTTP_400_BAD_REQUEST,
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-    # ── Updated _ensure_term_reports_exist ──────────────────────────────────────
+    # ── Bulk approve / publish / delete (new model methods) ───────────────────
 
-    def _ensure_term_reports_exist(self, created_results, ModelClass, education_level):
+    @action(detail=False, methods=["post"], url_path="bulk-approve")
+    def bulk_approve(self, request):
         """
-        For each student+session in the batch, get_or_create the term report
-        shell and link results to it.  Identical to the old version — unchanged
-        because it never touched hardcoded score fields.
+        Approve a list of results in one SQL UPDATE.
+        Admin roles only. Only DRAFT rows are advanced.
         """
-        TermReportModel = self._get_term_report_model(ModelClass)
-        if not TermReportModel:
-            return
-
-        seen = set()
-        for obj in created_results:
-            pair = (obj.student_id, obj.exam_session_id)
-            if pair in seen:
-                continue
-            seen.add(pair)
-
-            defaults = {"status": "DRAFT", "is_published": False}
-            from result.models import SeniorSecondaryResult
-            if ModelClass == SeniorSecondaryResult and getattr(obj, "stream", None):
-                defaults["stream"] = obj.stream
-
-            term_report, _ = TermReportModel.objects.get_or_create(
-                student_id=obj.student_id,
-                exam_session_id=obj.exam_session_id,
-                defaults=defaults,
+        ser = BulkApproveSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        result_ids = ser.validated_data["result_ids"]
+        ModelClass = self.get_queryset().model
+        try:
+            count = ModelClass.bulk_approve(
+                ModelClass.objects.filter(pk__in=result_ids), request.user
             )
-            # Link using update() — avoids re-triggering post_save signal
-            ModelClass.objects.filter(
-                student_id=obj.student_id,
-                exam_session_id=obj.exam_session_id,
-                term_report__isnull=True,
-            ).update(term_report=term_report)
-            term_report.calculate_metrics()
-
-    # ── Private helpers (module-level, not methods) ──────────────────────────────
-
-    def _validate_component_scores(scores_data, education_level):
-        """
-        Validate a list of {"component_id": int, "score": Decimal} dicts.
-        Returns a list of error strings, empty if all valid.
-        Nursery skips this — it uses mark_obtained directly.
-        """
-        if education_level == "NURSERY" or not scores_data:
-            return []
-
-        from result.models import AssessmentComponent
-
-        errors = []
-        seen_ids = set()
-
-        for entry in scores_data:
-            cid = entry.get("component_id")
-            score = entry.get("score")
-
-            if cid is None or score is None:
-                errors.append("Each score entry must have 'component_id' and 'score'")
-                continue
-
-            if cid in seen_ids:
-                errors.append(f"Duplicate component_id {cid}")
-                continue
-            seen_ids.add(cid)
-
-            try:
-                component = AssessmentComponent.objects.get(id=cid)
-            except AssessmentComponent.DoesNotExist:
-                errors.append(f"AssessmentComponent {cid} does not exist")
-                continue
-
-            if not component.is_active:
-                errors.append(f"Component '{component.name}' (id={cid}) is not active")
-                continue
-
-            try:
-                score_decimal = Decimal(str(score))
-            except Exception:
-                errors.append(f"Invalid score value '{score}' for component {cid}")
-                continue
-
-            if score_decimal < 0:
-                errors.append(f"Score for '{component.name}' cannot be negative")
-            elif score_decimal > component.max_score:
-                errors.append(
-                    f"Score {score_decimal} for '{component.name}' "
-                    f"exceeds maximum {component.max_score}"
-                )
-
-        return errors
-
-    def _bulk_create_component_scores(created_results, score_map, ModelClass):
-        """
-        For each result in created_results, bulk-create ComponentScore rows
-        using the scores from score_map[index], then recalculate and persist
-        the derived fields (total_score, ca_total, percentage, grade, is_passed).
-
-        score_map: {index: [{"component_id": int, "score": str/Decimal}, ...]}
-        """
-        from result.models import ComponentScore, AssessmentComponent
-
-        # Determine which FK field name ComponentScore uses for this model
-        _fk_map = {
-            "SeniorSecondaryResult": "senior_result",
-            "JuniorSecondaryResult": "junior_result",
-            "PrimaryResult": "primary_result",
-            "NurseryResult": "nursery_result",
-        }
-        fk_name = _fk_map.get(ModelClass.__name__)
-        if not fk_name:
-            logger.warning(
-                f"_bulk_create_component_scores: unknown model {ModelClass.__name__}"
-            )
-            return
-
-        # Pre-fetch all components mentioned across all score lists to avoid
-        # one query per component per result
-        all_component_ids = set()
-        for scores in score_map.values():
-            for s in scores:
-                all_component_ids.add(s["component_id"])
-
-        component_cache = {
-            c.id: c
-            for c in AssessmentComponent.objects.filter(id__in=all_component_ids)
-        }
-
-        # Build ComponentScore objects for bulk_create
-        score_objects = []
-        for idx, result in enumerate(created_results):
-            scores_data = score_map.get(idx, [])
-            for s in scores_data:
-                component = component_cache.get(s["component_id"])
-                if not component:
-                    continue  # already caught by _validate_component_scores
-                score_objects.append(
-                    ComponentScore(
-                        **{fk_name: result},
-                        component=component,
-                        score=Decimal(str(s["score"])),
-                        tenant=result.tenant,
-                    )
-                )
-
-        if score_objects:
-            ComponentScore.objects.bulk_create(score_objects, batch_size=500)
-
-        # Now recalculate each result's derived fields
-        updates = []
-        for result in created_results:
-            result.calculate_scores()
-            result.determine_grade()
-            updates.append(result)
-
-        if updates:
-            ModelClass.objects.bulk_update(
-                updates,
-                [
-                    "total_score",
-                    "ca_total",
-                    "percentage",
-                    "grade",
-                    "grade_point",
-                    "is_passed",
-                    "updated_at",
-                ],
-                batch_size=200,
-            )
-
-    def _calculate_nursery_scores(instance):
-        """
-        Compute NurseryResult percentage + grade in-memory before bulk_create.
-        NurseryResult doesn't use ComponentScore — mark_obtained is submitted
-        directly — so this is safe to do before the row is inserted.
-        """
-        if instance.max_marks_obtainable and instance.max_marks_obtainable > 0:
-            instance.percentage = (
-                instance.mark_obtained / instance.max_marks_obtainable * 100
-            )
-        else:
-            instance.percentage = Decimal(0)
-
-        gs = getattr(instance, "grading_system", None)
-        if gs:
-            try:
-                grade = gs.get_grade(float(instance.percentage))
-                from result.models import _default_grade
-
-                instance.grade = (
-                    grade if grade else _default_grade(float(instance.percentage))
-                )
-                instance.is_passed = float(instance.percentage) >= float(
-                    gs.pass_mark or 40
-                )
-            except Exception as e:
-                logger.error(f"Error grading nursery instance: {e}")
-                from result.models import _default_grade
-
-                instance.grade = _default_grade(float(instance.percentage))
-                instance.is_passed = float(instance.percentage) >= 40
-
-    def _error_response(message, errors):
-        from rest_framework.response import Response
-        from rest_framework import status as drf_status
-
-        return Response(
-            {"error": message, "errors": errors},
-            status=drf_status.HTTP_400_BAD_REQUEST,
-        )
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        user_role = self.get_user_role()
-        if user_role in ("admin", "superadmin", "principal"):
-            logger.warning(f"Admin deleted result {instance.id} ({instance.status})")
-        elif user_role == "teacher":
-            if instance.status != DRAFT:
-                return Response(
-                    {"error": "Teachers can only delete DRAFT results"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-        else:
             return Response(
-                {"error": "You don't have permission to delete results"}, status=403
+                {"approved_count": count, "result_ids": [str(i) for i in result_ids]}
             )
+        except PermissionError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except Exception as exc:
+            logger.error("bulk_approve failed: %s", exc, exc_info=True)
+            return Response({"error": str(exc)}, status=400)
 
-        with transaction.atomic():
-            subject_name = instance.subject.name
-            student_name = instance.student.full_name
-            instance.delete()
-        return Response(
-            {
-                "message": f"Result for {student_name} in {subject_name} deleted successfully"
-            },
-            status=status.HTTP_204_NO_CONTENT,
-        )
+    @action(detail=False, methods=["post"], url_path="bulk-publish")
+    def bulk_publish_action(self, request):
+        """
+        Publish a list of APPROVED results in one SQL UPDATE.
+        Admin roles only.
+        """
+        ser = BulkPublishSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        result_ids = ser.validated_data["result_ids"]
+        ModelClass = self.get_queryset().model
+        try:
+            count = ModelClass.bulk_publish(
+                ModelClass.objects.filter(pk__in=result_ids), request.user
+            )
+            return Response(
+                {"published_count": count, "result_ids": [str(i) for i in result_ids]}
+            )
+        except PermissionError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except Exception as exc:
+            logger.error("bulk_publish_action failed: %s", exc, exc_info=True)
+            return Response({"error": str(exc)}, status=400)
+
+    @action(detail=False, methods=["post"], url_path="bulk-delete")
+    def bulk_delete_action(self, request):
+        """
+        Delete results the user is permitted to delete.
+        Admin → any status. Teachers → DRAFT only.
+        """
+        ser = BulkDeleteSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        result_ids = ser.validated_data["result_ids"]
+        ModelClass = self.get_queryset().model
+        try:
+            deleted_count, _ = ModelClass.bulk_delete(
+                ModelClass.objects.filter(pk__in=result_ids), request.user
+            )
+            return Response({"deleted_count": deleted_count})
+        except Exception as exc:
+            logger.error("bulk_delete_action failed: %s", exc, exc_info=True)
+            return Response({"error": str(exc)}, status=400)
+
+    # ── Statistics ─────────────────────────────────────────────────────────────
 
     @action(detail=False, methods=["get"])
     def class_statistics(self, request):
@@ -1212,73 +1280,6 @@ class BaseResultViewSetMixin:
         )
 
 
-# ── Helper: build standard result queryset select_related ─────────────────────
-
-
-def _result_qs_base(ModelClass, extra_selects=()):
-    """Return the base queryset with standard select_related for a result model."""
-    selects = [
-        "student",
-        "student__user",
-        "student__student_class",
-        "student__student_class__education_level",
-        "subject",
-        "exam_session",
-        "exam_session__academic_session",
-        "grading_system",
-        "entered_by",
-        "approved_by",
-        "published_by",
-        "last_edited_by",
-    ]
-    selects.extend(extra_selects)
-    return (
-        ModelClass.objects.all()
-        .select_related(*selects)
-        .prefetch_related("grading_system__grades")
-    )
-
-
-def _apply_role_filter(queryset, viewset, user):
-    """Apply role-based visibility filter on a result queryset."""
-    if user.is_superuser or user.is_staff:
-        return queryset
-    role = viewset.get_user_role()
-    if role in ("admin", "superadmin", "principal"):
-        return queryset
-    if role in (
-        "secondary_admin",
-        "nursery_admin",
-        "primary_admin",
-        "junior_secondary_admin",
-        "senior_secondary_admin",
-    ):
-        levels = viewset.get_user_education_level_access()
-        return (
-            queryset.filter(
-                student__student_class__education_level__level_type__in=levels
-            )
-            if levels
-            else queryset.none()
-        )
-    if role == "teacher":
-        return viewset.get_teacher_queryset(user, queryset)
-    if role == "student":
-        try:
-            student = Student.objects.get(user=user)
-            return queryset.filter(student=student, status=PUBLISHED)
-        except Student.DoesNotExist:
-            return queryset.none()
-    if role == "parent":
-        try:
-            Parent = apps.get_model("parent", "Parent")
-            parent = Parent.objects.get(user=user)
-            return queryset.filter(student__parents=parent, status=PUBLISHED)
-        except Exception:
-            return queryset.none()
-    return queryset.none()
-
-
 # ── Senior Secondary Result ───────────────────────────────────────────────────
 
 
@@ -1320,6 +1321,12 @@ class SeniorSecondaryResultViewSet(
             extra_selects=("stream", "stream__stream_type_new"),
         ).order_by("-created_at")
         return _apply_role_filter(qs, self, user)
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        if self.action == "list":
+            ctx["skip_permission_flags"] = True
+        return ctx
 
     def create(self, request, *args, **kwargs):
         return self.handle_create(
@@ -1364,6 +1371,17 @@ class SeniorSecondaryTermReportViewSet(
     filterset_fields = ["student", "exam_session", "status", "is_published", "stream"]
     search_fields = ["student__user__first_name", "student__user__last_name"]
 
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return SeniorSecondaryTermReportCreateUpdateSerializer
+        return SeniorSecondaryTermReportSerializer
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        if self.action == "list":
+            ctx["skip_permission_flags"] = True
+        return ctx
+
     def get_queryset(self):
         qs = (
             SeniorSecondaryTermReport.objects.all()
@@ -1374,7 +1392,10 @@ class SeniorSecondaryTermReportViewSet(
                 "student__student_class__education_level",
                 "exam_session",
                 "exam_session__academic_session",
+                "exam_session__exam_type",
+                "exam_session__term",
                 "published_by",
+                "approved_by",
                 "stream",
                 "stream__stream_type_new",
             )
@@ -1388,155 +1409,113 @@ class SeniorSecondaryTermReportViewSet(
                         "stream__stream_type_new",
                         "entered_by",
                         "approved_by",
-                    ).prefetch_related("grading_system__grades"),
+                    ).prefetch_related(
+                        "grading_system__grades",
+                        Prefetch("component_scores", queryset=_component_score_qs()),
+                    ),
                 )
             )
             .order_by("-created_at")
         )
-        user = self.request.user
-        if user.is_superuser or user.is_staff:
-            return qs
-        role = self.get_user_role()
-        if role in ("admin", "superadmin", "principal"):
-            return qs
-        if role in ("secondary_admin", "senior_secondary_admin"):
-            levels = self.get_user_education_level_access()
-            return (
-                qs.filter(
-                    student__student_class__education_level__level_type__in=levels
-                )
-                if levels
-                else qs.none()
+        return _apply_report_role_filter(qs, self, self.request.user)
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        """
+        Approve this report + all its DRAFT subject results.
+        Uses BaseTermReport.bulk_approve() — one UPDATE for the report,
+        one for the subject results.
+        """
+        report = self.get_object()
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        if report.status != DRAFT:
+            return Response(
+                {"error": f"Cannot approve from status '{report.status}'."}, status=400
             )
-        if role == "teacher":
-            try:
-                from teacher.models import Teacher
-
-                teacher = Teacher.objects.get(user=user)
-                assigned_classrooms = (
-                    apps.get_model("classroom", "Classroom")
-                    .objects.filter(
-                        Q(class_teacher=teacher)
-                        | Q(classroomteacherassignment__teacher=teacher)
-                    )
-                    .distinct()
-                )
-                student_ids = StudentEnrollment.objects.filter(
-                    classroom__in=assigned_classrooms, is_active=True
-                ).values_list("student_id", flat=True)
-                return qs.filter(student_id__in=student_ids)
-            except Exception:
-                return qs.none()
-        if role == "student":
-            try:
-                return qs.filter(student=Student.objects.get(user=user))
-            except Student.DoesNotExist:
-                return qs.none()
-        if role == "parent":
-            try:
-                parent = apps.get_model("parent", "Parent").objects.get(user=user)
-                return qs.filter(student__parents=parent)
-            except Exception:
-                return qs.none()
-        return qs.none()
-
-
-# ── Senior Secondary Session Result & Report ──────────────────────────────────
-
-
-class SeniorSecondarySessionResultViewSet(
-    TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
-):
-    queryset = SeniorSecondarySessionResult.objects.all().order_by("-created_at")
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ["student", "subject", "academic_session", "status", "stream"]
-    search_fields = [
-        "student__user__first_name",
-        "student__user__last_name",
-        "subject__name",
-    ]
-
-    def get_queryset(self):
-        qs = (
-            SeniorSecondarySessionResult.objects.all()
-            .select_related(
-                "student",
-                "student__user",
-                "student__student_class__education_level",
-                "subject",
-                "academic_session",
-                "stream__stream_type_new",
+        with transaction.atomic():
+            SeniorSecondaryTermReport.bulk_approve(
+                SeniorSecondaryTermReport.objects.filter(pk=report.pk), request.user
             )
-            .order_by("-created_at")
+            results_updated = SeniorSecondaryResult.bulk_approve(
+                report.subject_results.filter(status=DRAFT), request.user
+            )
+        report.refresh_from_db()
+        return Response(
+            {
+                "message": f"Approved. {results_updated} subject result(s) also approved.",
+                "data": SeniorSecondaryTermReportSerializer(
+                    report, context={"request": request}
+                ).data,
+            }
         )
-        user = self.request.user
-        if user.is_superuser or user.is_staff:
-            return qs
-        role = self.get_user_role()
-        if role in ("admin", "superadmin", "principal"):
-            return qs
-        if role in ("secondary_admin", "senior_secondary_admin"):
-            levels = self.get_user_education_level_access()
-            return (
-                qs.filter(
-                    student__student_class__education_level__level_type__in=levels
-                )
-                if levels
-                else qs.none()
+
+    @action(detail=True, methods=["post"])
+    def publish(self, request, pk=None):
+        report = self.get_object()
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        if report.status not in (DRAFT, APPROVED):
+            return Response(
+                {"error": f"Cannot publish from status '{report.status}'."}, status=400
             )
-        if role == "student":
-            try:
-                return qs.filter(
-                    student=Student.objects.get(user=user), status=PUBLISHED
-                )
-            except Student.DoesNotExist:
-                return qs.none()
-        if role == "parent":
-            try:
-                parent = apps.get_model("parent", "Parent").objects.get(user=user)
-                return qs.filter(student__parents=parent, status=PUBLISHED)
-            except Exception:
-                return qs.none()
-        return qs.none()
+        with transaction.atomic():
+            SeniorSecondaryTermReport.bulk_publish(
+                SeniorSecondaryTermReport.objects.filter(pk=report.pk), request.user
+            )
+            SeniorSecondaryResult.bulk_publish(
+                report.subject_results.all(), request.user
+            )
+        report.refresh_from_db()
+        return Response(
+            SeniorSecondaryTermReportSerializer(
+                report, context={"request": request}
+            ).data
+        )
 
-    def get_serializer_class(self):
-        if self.action in ("create", "update", "partial_update"):
-            return SeniorSecondarySessionResultCreateUpdateSerializer
-        return SeniorSecondarySessionResultSerializer
+    @action(detail=False, methods=["post"], url_path="bulk-approve")
+    def bulk_approve_reports(self, request):
+        """Approve all DRAFT term reports in a class in one SQL UPDATE."""
+        ser = BulkApproveSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        report_ids = ser.validated_data["result_ids"]
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        with transaction.atomic():
+            qs = SeniorSecondaryTermReport.objects.filter(pk__in=report_ids)
+            count = SeniorSecondaryTermReport.bulk_approve(qs, request.user)
+            # Cascade approve all DRAFT subject results for these reports.
+            result_count = SeniorSecondaryResult.bulk_approve(
+                SeniorSecondaryResult.objects.filter(
+                    term_report__in=report_ids, status=DRAFT
+                ),
+                request.user,
+            )
+        return Response(
+            {"approved_reports": count, "approved_subject_results": result_count}
+        )
 
-    def create(self, request, *args, **kwargs):
-        try:
-            with transaction.atomic():
-                student_id = request.data.get("student")
-                if student_id:
-                    student = Student.objects.select_related(
-                        "student_class__education_level"
-                    ).get(id=student_id)
-                    if student.education_level != SENIOR_SECONDARY:
-                        return Response(
-                            {
-                                "error": f"Expected SENIOR_SECONDARY, got {student.education_level}."
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                data = (
-                    request.data.copy()
-                    if hasattr(request.data, "copy")
-                    else dict(request.data)
-                )
-                data["entered_by"] = request.user.id
-                serializer = self.get_serializer(data=data)
-                serializer.is_valid(raise_exception=True)
-                result = serializer.save()
-                return Response(
-                    SeniorSecondarySessionResultSerializer(result).data, status=201
-                )
-        except Student.DoesNotExist:
-            return Response({"error": "Student not found"}, status=404)
-        except Exception as e:
-            logger.error(f"Failed to create session result: {e}", exc_info=True)
-            return Response({"error": str(e)}, status=400)
+    @action(detail=False, methods=["post"], url_path="bulk-publish")
+    def bulk_publish_reports(self, request):
+        """Publish all APPROVED term reports in one SQL UPDATE."""
+        ser = BulkPublishSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        report_ids = ser.validated_data["result_ids"]
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        with transaction.atomic():
+            qs = SeniorSecondaryTermReport.objects.filter(pk__in=report_ids)
+            count = SeniorSecondaryTermReport.bulk_publish(qs, request.user)
+            result_count = SeniorSecondaryResult.bulk_publish(
+                SeniorSecondaryResult.objects.filter(term_report__in=report_ids),
+                request.user,
+            )
+        return Response(
+            {"published_reports": count, "published_subject_results": result_count}
+        )
+
+
+# ── Senior Secondary Session Report ──────────────────────────────────────────
 
 
 class SeniorSecondarySessionReportViewSet(
@@ -1555,7 +1534,15 @@ class SeniorSecondarySessionReportViewSet(
     search_fields = ["student__user__first_name", "student__user__last_name"]
 
     def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return SeniorSecondarySessionReportCreateUpdateSerializer
         return SeniorSecondarySessionReportSerializer
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        if self.action == "list":
+            ctx["skip_permission_flags"] = True
+        return ctx
 
     def get_queryset(self):
         qs = (
@@ -1565,40 +1552,63 @@ class SeniorSecondarySessionReportViewSet(
                 "student__user",
                 "student__student_class__education_level",
                 "academic_session",
+                "stream",
                 "stream__stream_type_new",
-            )
-            .prefetch_related(
-                Prefetch(
-                    "subject_results",
-                    queryset=SeniorSecondarySessionResult.objects.select_related(
-                        "subject", "academic_session", "stream__stream_type_new"
-                    ),
-                )
+                "published_by",
+                "approved_by",
             )
             .order_by("-created_at")
         )
-        user = self.request.user
-        if user.is_superuser or user.is_staff:
-            return qs
-        role = self.get_user_role()
-        if role in ("admin", "superadmin", "principal"):
-            return qs
-        if role == "student":
-            try:
-                return qs.filter(student=Student.objects.get(user=user))
-            except Student.DoesNotExist:
-                return qs.none()
-        if role == "parent":
-            try:
-                parent = apps.get_model("parent", "Parent").objects.get(user=user)
-                return qs.filter(student__parents=parent)
-            except Exception:
-                return qs.none()
-        levels = self.get_user_education_level_access()
-        return (
-            qs.filter(student__student_class__education_level__level_type__in=levels)
-            if levels
-            else qs.none()
+        return _apply_report_role_filter(qs, self, self.request.user)
+
+    @action(detail=True, methods=["post"])
+    def compute(self, request, pk=None):
+        """Re-compute session totals from approved term reports."""
+        report = self.get_object()
+        try:
+            report.compute_from_term_reports()
+            return Response(
+                SeniorSecondarySessionReportSerializer(
+                    report, context={"request": request}
+                ).data
+            )
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=400)
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        report = self.get_object()
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        if report.status != DRAFT:
+            return Response(
+                {"error": f"Cannot approve from status '{report.status}'."}, status=400
+            )
+        SeniorSecondarySessionReport.bulk_approve(
+            SeniorSecondarySessionReport.objects.filter(pk=report.pk), request.user
+        )
+        report.refresh_from_db()
+        return Response(
+            SeniorSecondarySessionReportSerializer(
+                report, context={"request": request}
+            ).data
+        )
+
+    @action(detail=True, methods=["post"])
+    def publish(self, request, pk=None):
+        """Delegates to model publish() — targeted update_fields save."""
+        report = self.get_object()
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        if report.status not in (DRAFT, APPROVED):
+            return Response(
+                {"error": f"Cannot publish from status '{report.status}'."}, status=400
+            )
+        report.publish(request.user)
+        return Response(
+            SeniorSecondarySessionReportSerializer(
+                report, context={"request": request}
+            ).data
         )
 
 
@@ -1627,6 +1637,12 @@ class JuniorSecondaryResultViewSet(
             return JuniorSecondaryResultCreateUpdateSerializer
         return JuniorSecondaryResultSerializer
 
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        if self.action == "list":
+            ctx["skip_permission_flags"] = True
+        return ctx
+
     def get_queryset(self):
         user = self.request.user
         qs = (
@@ -1653,11 +1669,9 @@ class JuniorSecondaryResultViewSet(
         )
 
     def update(self, request, *args, **kwargs):
-        instance = self.get_object()
-        # reload with FK chain
         instance = JuniorSecondaryResult.objects.select_related(
             "student__student_class__education_level"
-        ).get(pk=instance.pk)
+        ).get(pk=self.get_object().pk)
         student_id = request.data.get("student")
         if student_id:
             try:
@@ -1681,8 +1695,21 @@ class JuniorSecondaryResultViewSet(
             **kwargs,
         )
 
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        return self.handle_approve(
+            request, self.get_object(), JuniorSecondaryResultSerializer
+        )
+
+    @action(detail=True, methods=["post"])
+    def publish(self, request, pk=None):
+        return self.handle_publish(
+            request, self.get_object(), JuniorSecondaryResultSerializer
+        )
+
 
 # ── Junior Secondary Term Report ──────────────────────────────────────────────
+
 
 class JuniorSecondaryTermReportViewSet(
     TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
@@ -1695,7 +1722,15 @@ class JuniorSecondaryTermReportViewSet(
     search_fields = ["student__user__first_name", "student__user__last_name"]
 
     def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return JuniorSecondaryTermReportCreateUpdateSerializer
         return JuniorSecondaryTermReportSerializer
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        if self.action == "list":
+            ctx["skip_permission_flags"] = True
+        return ctx
 
     def get_queryset(self):
         qs = (
@@ -1706,7 +1741,10 @@ class JuniorSecondaryTermReportViewSet(
                 "student__student_class__education_level",
                 "exam_session",
                 "exam_session__academic_session",
+                "exam_session__exam_type",
+                "exam_session__term",
                 "published_by",
+                "approved_by",
             )
             .prefetch_related(
                 Prefetch(
@@ -1716,73 +1754,184 @@ class JuniorSecondaryTermReportViewSet(
                         "grading_system",
                         "entered_by",
                         "approved_by",
-                    ).prefetch_related("grading_system__grades"),
+                    ).prefetch_related(
+                        "grading_system__grades",
+                        Prefetch("component_scores", queryset=_component_score_qs()),
+                    ),
                 )
             )
             .order_by("-created_at")
         )
-        user = self.request.user
-        if user.is_superuser or user.is_staff:
-            return qs
-        role = self.get_user_role()
-        if role in ("admin", "superadmin", "principal"):
-            return qs
-        if role in (
-            "secondary_admin",
-            "nursery_admin",
-            "primary_admin",
-            "junior_secondary_admin",
-            "senior_secondary_admin",
-        ):
-            levels = self.get_user_education_level_access()
-            return (
-                qs.filter(
-                    student__student_class__education_level__level_type__in=levels
-                )
-                if levels
-                else qs.none()
-            )
-        if role == "teacher":
-            try:
-                from teacher.models import Teacher
+        return _apply_report_role_filter(qs, self, self.request.user)
 
-                teacher = Teacher.objects.get(user=user)
-                assigned = (
-                    apps.get_model("classroom", "Classroom")
-                    .objects.filter(
-                        Q(class_teacher=teacher)
-                        | Q(classroomteacherassignment__teacher=teacher)
-                    )
-                    .distinct()
-                )
-                student_ids = StudentEnrollment.objects.filter(
-                    classroom__in=assigned, is_active=True
-                ).values_list("student_id", flat=True)
-                levels = self.get_user_education_level_access()
-                return qs.filter(
-                    student_id__in=student_ids,
-                    student__student_class__education_level__level_type__in=levels,
-                )
-            except Exception:
-                return qs.none()
-        if role == "student":
-            try:
-                return qs.filter(student=Student.objects.get(user=user))
-            except Student.DoesNotExist:
-                return qs.none()
-        if role == "parent":
-            try:
-                parent = apps.get_model("parent", "Parent").objects.get(user=user)
-                return qs.filter(student__parents=parent)
-            except Exception:
-                return qs.none()
-        return qs.none()
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        report = self.get_object()
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        if report.status != DRAFT:
+            return Response(
+                {"error": f"Cannot approve from status '{report.status}'."}, status=400
+            )
+        with transaction.atomic():
+            JuniorSecondaryTermReport.bulk_approve(
+                JuniorSecondaryTermReport.objects.filter(pk=report.pk), request.user
+            )
+            results_updated = JuniorSecondaryResult.bulk_approve(
+                report.subject_results.filter(status=DRAFT), request.user
+            )
+        report.refresh_from_db()
+        return Response(
+            {
+                "message": f"Approved. {results_updated} subject result(s) also approved.",
+                "data": JuniorSecondaryTermReportSerializer(
+                    report, context={"request": request}
+                ).data,
+            }
+        )
+
+    @action(detail=True, methods=["post"])
+    def publish(self, request, pk=None):
+        report = self.get_object()
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        if report.status not in (DRAFT, APPROVED):
+            return Response(
+                {"error": f"Cannot publish from status '{report.status}'."}, status=400
+            )
+        with transaction.atomic():
+            JuniorSecondaryTermReport.bulk_publish(
+                JuniorSecondaryTermReport.objects.filter(pk=report.pk), request.user
+            )
+            JuniorSecondaryResult.bulk_publish(
+                report.subject_results.all(), request.user
+            )
+        report.refresh_from_db()
+        return Response(
+            JuniorSecondaryTermReportSerializer(
+                report, context={"request": request}
+            ).data
+        )
+
+    @action(detail=False, methods=["post"], url_path="bulk-approve")
+    def bulk_approve_reports(self, request):
+        ser = BulkApproveSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        with transaction.atomic():
+            qs = JuniorSecondaryTermReport.objects.filter(
+                pk__in=ser.validated_data["result_ids"]
+            )
+            count = JuniorSecondaryTermReport.bulk_approve(qs, request.user)
+            result_count = JuniorSecondaryResult.bulk_approve(
+                JuniorSecondaryResult.objects.filter(
+                    term_report__in=ser.validated_data["result_ids"], status=DRAFT
+                ),
+                request.user,
+            )
+        return Response(
+            {"approved_reports": count, "approved_subject_results": result_count}
+        )
+
+    @action(detail=False, methods=["post"], url_path="bulk-publish")
+    def bulk_publish_reports(self, request):
+        ser = BulkPublishSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        with transaction.atomic():
+            qs = JuniorSecondaryTermReport.objects.filter(
+                pk__in=ser.validated_data["result_ids"]
+            )
+            count = JuniorSecondaryTermReport.bulk_publish(qs, request.user)
+            result_count = JuniorSecondaryResult.bulk_publish(
+                JuniorSecondaryResult.objects.filter(
+                    term_report__in=ser.validated_data["result_ids"]
+                ),
+                request.user,
+            )
+        return Response(
+            {"published_reports": count, "published_subject_results": result_count}
+        )
+
+
+# ── Junior Secondary Session Report ──────────────────────────────────────────
+
+
+class JuniorSecondarySessionReportViewSet(
+    TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
+):
+    queryset = JuniorSecondarySessionReport.objects.all().order_by("-created_at")
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ["student", "academic_session", "status", "is_published"]
+    search_fields = ["student__user__first_name", "student__user__last_name"]
+
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return JuniorSecondarySessionReportCreateUpdateSerializer
+        return JuniorSecondarySessionReportSerializer
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        if self.action == "list":
+            ctx["skip_permission_flags"] = True
+        return ctx
+
+    def get_queryset(self):
+        qs = (
+            JuniorSecondarySessionReport.objects.all()
+            .select_related(
+                "student",
+                "student__user",
+                "student__student_class__education_level",
+                "academic_session",
+                "published_by",
+                "approved_by",
+            )
+            .order_by("-created_at")
+        )
+        return _apply_report_role_filter(qs, self, self.request.user)
+
+    @action(detail=True, methods=["post"])
+    def compute(self, request, pk=None):
+        report = self.get_object()
+        try:
+            report.compute_from_term_reports()
+            return Response(
+                JuniorSecondarySessionReportSerializer(
+                    report, context={"request": request}
+                ).data
+            )
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=400)
+
+    @action(detail=True, methods=["post"])
+    def publish(self, request, pk=None):
+        report = self.get_object()
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        if report.status not in (DRAFT, APPROVED):
+            return Response(
+                {"error": f"Cannot publish from status '{report.status}'."}, status=400
+            )
+        report.publish(request.user)
+        return Response(
+            JuniorSecondarySessionReportSerializer(
+                report, context={"request": request}
+            ).data
+        )
 
 
 # ── Primary Result ────────────────────────────────────────────────────────────
 
+
 class PrimaryResultViewSet(
-    TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
+    BaseResultViewSetMixin,
+    TeacherPortalCheckMixin,
+    SectionFilterMixin,
+    viewsets.ModelViewSet,
 ):
     pagination_class = StandardResultsPagination
     queryset = PrimaryResult.objects.all().order_by("-created_at")
@@ -1800,10 +1949,15 @@ class PrimaryResultViewSet(
             return PrimaryResultCreateUpdateSerializer
         return PrimaryResultSerializer
 
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        if self.action == "list":
+            ctx["skip_permission_flags"] = True
+        return ctx
+
     def get_queryset(self):
         user = self.request.user
         qs = _result_qs_base(PrimaryResult).order_by("-created_at")
-        # Optional student_class filter from query params
         sc_param = self.request.query_params.get("student_class")
         if sc_param:
             try:
@@ -1832,10 +1986,9 @@ class PrimaryResultViewSet(
         )
 
     def update(self, request, *args, **kwargs):
-        instance = self.get_object()
         instance = PrimaryResult.objects.select_related(
             "student__student_class__education_level"
-        ).get(pk=instance.pk)
+        ).get(pk=self.get_object().pk)
         student_id = request.data.get("student")
         if student_id:
             try:
@@ -1857,8 +2010,17 @@ class PrimaryResultViewSet(
             **kwargs,
         )
 
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        return self.handle_approve(request, self.get_object(), PrimaryResultSerializer)
+
+    @action(detail=True, methods=["post"])
+    def publish(self, request, pk=None):
+        return self.handle_publish(request, self.get_object(), PrimaryResultSerializer)
+
 
 # ── Primary Term Report ───────────────────────────────────────────────────────
+
 
 class PrimaryTermReportViewSet(
     TeacherPortalCheckMixin, AutoSectionFilterMixin, viewsets.ModelViewSet
@@ -1871,7 +2033,15 @@ class PrimaryTermReportViewSet(
     search_fields = ["student__user__first_name", "student__user__last_name"]
 
     def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return PrimaryTermReportCreateUpdateSerializer
         return PrimaryTermReportSerializer
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        if self.action == "list":
+            ctx["skip_permission_flags"] = True
+        return ctx
 
     def get_queryset(self):
         qs = (
@@ -1882,7 +2052,10 @@ class PrimaryTermReportViewSet(
                 "student__student_class__education_level",
                 "exam_session",
                 "exam_session__academic_session",
+                "exam_session__exam_type",
+                "exam_session__term",
                 "published_by",
+                "approved_by",
             )
             .prefetch_related(
                 Prefetch(
@@ -1896,73 +2069,178 @@ class PrimaryTermReportViewSet(
                         "entered_by",
                         "approved_by",
                         "published_by",
-                    ).prefetch_related("grading_system__grades"),
+                    ).prefetch_related(
+                        "grading_system__grades",
+                        Prefetch("component_scores", queryset=_component_score_qs()),
+                    ),
                 )
             )
             .order_by("-created_at")
         )
-        user = self.request.user
-        if user.is_superuser or user.is_staff:
-            return qs
-        role = self.get_user_role()
-        if role in ("admin", "superadmin", "principal"):
-            return qs
-        if role in (
-            "secondary_admin",
-            "nursery_admin",
-            "primary_admin",
-            "junior_secondary_admin",
-            "senior_secondary_admin",
-        ):
-            levels = self.get_user_education_level_access()
-            return (
-                qs.filter(
-                    student__student_class__education_level__level_type__in=levels
-                )
-                if levels
-                else qs.none()
-            )
-        if role == "teacher":
-            try:
-                from teacher.models import Teacher
+        return _apply_report_role_filter(qs, self, self.request.user)
 
-                teacher = Teacher.objects.get(user=user)
-                assigned = (
-                    apps.get_model("classroom", "Classroom")
-                    .objects.filter(
-                        Q(class_teacher=teacher)
-                        | Q(classroomteacherassignment__teacher=teacher)
-                    )
-                    .distinct()
-                )
-                student_ids = StudentEnrollment.objects.filter(
-                    classroom__in=assigned, is_active=True
-                ).values_list("student_id", flat=True)
-                levels = self.get_user_education_level_access()
-                return qs.filter(
-                    student_id__in=student_ids,
-                    student__student_class__education_level__level_type__in=levels,
-                )
-            except Exception:
-                return qs.none()
-        if role == "student":
-            try:
-                return qs.filter(student=Student.objects.get(user=user))
-            except Student.DoesNotExist:
-                return qs.none()
-        if role == "parent":
-            try:
-                parent = apps.get_model("parent", "Parent").objects.get(user=user)
-                return qs.filter(student__parents=parent)
-            except Exception:
-                return qs.none()
-        return qs.none()
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        report = self.get_object()
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        if report.status != DRAFT:
+            return Response(
+                {"error": f"Cannot approve from status '{report.status}'."}, status=400
+            )
+        with transaction.atomic():
+            PrimaryTermReport.bulk_approve(
+                PrimaryTermReport.objects.filter(pk=report.pk), request.user
+            )
+            results_updated = PrimaryResult.bulk_approve(
+                report.subject_results.filter(status=DRAFT), request.user
+            )
+        report.refresh_from_db()
+        return Response(
+            {
+                "message": f"Approved. {results_updated} subject result(s) also approved.",
+                "data": PrimaryTermReportSerializer(
+                    report, context={"request": request}
+                ).data,
+            }
+        )
+
+    @action(detail=True, methods=["post"])
+    def publish(self, request, pk=None):
+        report = self.get_object()
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        if report.status not in (DRAFT, APPROVED):
+            return Response(
+                {"error": f"Cannot publish from status '{report.status}'."}, status=400
+            )
+        with transaction.atomic():
+            PrimaryTermReport.bulk_publish(
+                PrimaryTermReport.objects.filter(pk=report.pk), request.user
+            )
+            PrimaryResult.bulk_publish(report.subject_results.all(), request.user)
+        report.refresh_from_db()
+        return Response(
+            PrimaryTermReportSerializer(report, context={"request": request}).data
+        )
+
+    @action(detail=False, methods=["post"], url_path="bulk-approve")
+    def bulk_approve_reports(self, request):
+        ser = BulkApproveSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        with transaction.atomic():
+            qs = PrimaryTermReport.objects.filter(
+                pk__in=ser.validated_data["result_ids"]
+            )
+            count = PrimaryTermReport.bulk_approve(qs, request.user)
+            result_count = PrimaryResult.bulk_approve(
+                PrimaryResult.objects.filter(
+                    term_report__in=ser.validated_data["result_ids"], status=DRAFT
+                ),
+                request.user,
+            )
+        return Response(
+            {"approved_reports": count, "approved_subject_results": result_count}
+        )
+
+    @action(detail=False, methods=["post"], url_path="bulk-publish")
+    def bulk_publish_reports(self, request):
+        ser = BulkPublishSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        with transaction.atomic():
+            qs = PrimaryTermReport.objects.filter(
+                pk__in=ser.validated_data["result_ids"]
+            )
+            count = PrimaryTermReport.bulk_publish(qs, request.user)
+            result_count = PrimaryResult.bulk_publish(
+                PrimaryResult.objects.filter(
+                    term_report__in=ser.validated_data["result_ids"]
+                ),
+                request.user,
+            )
+        return Response(
+            {"published_reports": count, "published_subject_results": result_count}
+        )
+
+
+# ── Primary Session Report ────────────────────────────────────────────────────
+
+
+class PrimarySessionReportViewSet(
+    TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
+):
+    queryset = PrimarySessionReport.objects.all().order_by("-created_at")
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ["student", "academic_session", "status", "is_published"]
+    search_fields = ["student__user__first_name", "student__user__last_name"]
+
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return PrimarySessionReportCreateUpdateSerializer
+        return PrimarySessionReportSerializer
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        if self.action == "list":
+            ctx["skip_permission_flags"] = True
+        return ctx
+
+    def get_queryset(self):
+        qs = (
+            PrimarySessionReport.objects.all()
+            .select_related(
+                "student",
+                "student__user",
+                "student__student_class__education_level",
+                "academic_session",
+                "published_by",
+                "approved_by",
+            )
+            .order_by("-created_at")
+        )
+        return _apply_report_role_filter(qs, self, self.request.user)
+
+    @action(detail=True, methods=["post"])
+    def compute(self, request, pk=None):
+        report = self.get_object()
+        try:
+            report.compute_from_term_reports()
+            return Response(
+                PrimarySessionReportSerializer(
+                    report, context={"request": request}
+                ).data
+            )
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=400)
+
+    @action(detail=True, methods=["post"])
+    def publish(self, request, pk=None):
+        report = self.get_object()
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        if report.status not in (DRAFT, APPROVED):
+            return Response(
+                {"error": f"Cannot publish from status '{report.status}'."}, status=400
+            )
+        report.publish(request.user)
+        return Response(
+            PrimarySessionReportSerializer(report, context={"request": request}).data
+        )
 
 
 # ── Nursery Result ────────────────────────────────────────────────────────────
 
+
 class NurseryResultViewSet(
-    TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
+    BaseResultViewSetMixin,
+    TeacherPortalCheckMixin,
+    SectionFilterMixin,
+    viewsets.ModelViewSet,
 ):
     pagination_class = StandardResultsPagination
     queryset = NurseryResult.objects.all().order_by("-created_at")
@@ -1980,12 +2258,17 @@ class NurseryResultViewSet(
             return NurseryResultCreateUpdateSerializer
         return NurseryResultSerializer
 
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        if self.action == "list":
+            ctx["skip_permission_flags"] = True
+        return ctx
+
     def get_queryset(self):
-        user = self.request.user
         qs = _result_qs_base(NurseryResult, extra_selects=("term_report",)).order_by(
             "-created_at"
         )
-        return _apply_role_filter(qs, self, user)
+        return _apply_role_filter(qs, self, self.request.user)
 
     def create(self, request, *args, **kwargs):
         try:
@@ -1993,49 +2276,39 @@ class NurseryResultViewSet(
                 student_id = request.data.get("student")
                 if not student_id:
                     return Response({"error": "student is required"}, status=400)
-                subject_id = request.data.get("subject")
-                if not subject_id:
-                    return Response({"error": "subject is required"}, status=400)
-                exam_session_id = request.data.get("exam_session")
-                if not exam_session_id:
-                    return Response({"error": "exam_session is required"}, status=400)
-
                 try:
                     student = Student.objects.select_related(
                         "student_class__education_level"
                     ).get(id=student_id)
                 except Student.DoesNotExist:
                     return Response({"error": "Student not found"}, status=404)
-
                 if student.education_level != NURSERY:
                     return Response(
                         {"error": f"Expected NURSERY, got {student.education_level}."},
                         status=400,
                     )
-
-                if hasattr(request.data, "_mutable"):
-                    request.data._mutable = True
-                request.data["entered_by"] = request.user.id
-
                 serializer = self.get_serializer(data=request.data)
                 serializer.is_valid(raise_exception=True)
                 result = serializer.save()
-                logger.info(
-                    f"NurseryResult created: {result.id} for student {student_id}"
+                return Response(
+                    NurseryResultSerializer(result, context={"request": request}).data,
+                    status=201,
                 )
-                return Response(NurseryResultSerializer(result).data, status=201)
-
-        except Exception as e:
-            logger.error(f"Failed to create nursery result: {e}", exc_info=True)
-            return Response({"error": str(e)}, status=400)
+        except Exception as exc:
+            logger.error("Failed to create nursery result: %s", exc, exc_info=True)
+            return Response({"error": str(exc)}, status=400)
 
     def update(self, request, *args, **kwargs):
         try:
             with transaction.atomic():
-                instance = self.get_object()
                 instance = NurseryResult.objects.select_related(
                     "student__student_class__education_level"
-                ).get(pk=instance.pk)
+                ).get(pk=self.get_object().pk)
+                if not instance.can_edit(request.user):
+                    return Response(
+                        {"error": "You do not have permission to edit this result."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
                 student_id = request.data.get("student")
                 if student_id:
                     try:
@@ -2056,87 +2329,49 @@ class NurseryResultViewSet(
                     instance, data=request.data, partial=partial
                 )
                 serializer.is_valid(raise_exception=True)
-                return Response(NurseryResultSerializer(serializer.save()).data)
-        except Exception as e:
-            logger.error(f"Failed to update nursery result: {e}")
-            return Response({"error": str(e)}, status=400)
+                return Response(
+                    NurseryResultSerializer(
+                        serializer.save(), context={"request": request}
+                    ).data
+                )
+        except Exception as exc:
+            logger.error("Failed to update nursery result: %s", exc)
+            return Response({"error": str(exc)}, status=400)
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
-        user_role = self.get_user_role()
-        if user_role not in ("admin", "superadmin", "principal", "nursery_admin"):
-            return Response({"error": "Permission denied"}, status=403)
         result = self.get_object()
-        if result.status not in (DRAFT, SUBMITTED):
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        if result.status != DRAFT:
             return Response(
-                {"error": f"Cannot approve result with status '{result.status}'"},
+                {"error": f"Cannot approve result with status '{result.status}'."},
                 status=400,
             )
-        if result.mark_obtained is None or result.mark_obtained < 0:
-            return Response({"error": "Invalid scores"}, status=400)
-        try:
-            with transaction.atomic():
-                result.status = APPROVED
-                result.approved_by = request.user
-                result.approved_date = timezone.now()
-                result.save()
-            return Response(NurseryResultSerializer(result).data)
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
+        NurseryResult.bulk_approve(
+            NurseryResult.objects.filter(pk=result.pk), request.user
+        )
+        result.refresh_from_db()
+        return Response(
+            NurseryResultSerializer(result, context={"request": request}).data
+        )
 
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
-        with transaction.atomic():
-            result = self.get_object()
-            result.status = PUBLISHED
-            result.published_by = request.user
-            result.published_date = timezone.now()
-            result.save()
-        return Response(NurseryResultSerializer(result).data)
-
-    @action(detail=False, methods=["post"])
-    def bulk_create(self, request):
-        """Simple per-record bulk create for nursery (no position recalculation needed at entry time)."""
-        results_data = request.data.get("results", [])
-        created, errors = [], []
-        try:
-            with transaction.atomic():
-                for i, result_data in enumerate(results_data):
-                    try:
-                        result_data["entered_by"] = request.user.id
-                        serializer = self.get_serializer(data=result_data)
-                        serializer.is_valid(raise_exception=True)
-                        created.append(NurseryResultSerializer(serializer.save()).data)
-                    except Exception as e:
-                        errors.append({"index": i, "error": str(e)})
-                if errors and not created:
-                    raise ValueError("No results created")
-        except Exception as e:
-            return Response({"error": str(e), "errors": errors}, status=400)
-        resp = {"message": f"Created {len(created)} results", "results": created}
-        if errors:
-            resp["errors"] = errors
-        return Response(resp, status=201)
+        return self.handle_publish(request, self.get_object(), NurseryResultSerializer)
 
     @action(detail=False, methods=["get"])
     def class_statistics(self, request):
-        # Fixed: was mixing dict assignment with &= Q(...)
-        exam_session = request.query_params.get("exam_session")
-        student_class = request.query_params.get("student_class")
-        subject = request.query_params.get("subject")
-
         q = Q(status__in=[APPROVED, PUBLISHED])
-        if exam_session:
-            q &= Q(exam_session=exam_session)
-        if student_class:
-            q &= Q(student__student_class__name=student_class)
-        if subject:
-            q &= Q(subject=subject)
-
+        if es := request.query_params.get("exam_session"):
+            q &= Q(exam_session=es)
+        if sc := request.query_params.get("student_class"):
+            q &= Q(student__student_class__name=sc)
+        if subj := request.query_params.get("subject"):
+            q &= Q(subject=subj)
         results = self.get_queryset().filter(q)
         if not results.exists():
             return Response({"error": "No results found"}, status=404)
-
         agg = results.aggregate(
             avg=Avg("percentage"), high=Max("percentage"), low=Min("percentage")
         )
@@ -2171,6 +2406,7 @@ class NurseryResultViewSet(
 
 # ── Nursery Term Report ───────────────────────────────────────────────────────
 
+
 class NurseryTermReportViewSet(
     TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
 ):
@@ -2182,7 +2418,15 @@ class NurseryTermReportViewSet(
     search_fields = ["student__user__first_name", "student__user__last_name"]
 
     def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return NurseryTermReportCreateUpdateSerializer
         return NurseryTermReportSerializer
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        if self.action == "list":
+            ctx["skip_permission_flags"] = True
+        return ctx
 
     def get_queryset(self):
         qs = (
@@ -2193,13 +2437,14 @@ class NurseryTermReportViewSet(
                 "student__student_class__education_level",
                 "exam_session",
                 "exam_session__academic_session",
+                "exam_session__exam_type",
+                "exam_session__term",
                 "published_by",
+                "approved_by",
             )
             .prefetch_related(
                 Prefetch(
                     "subject_results",
-                    # term_report is included so NurseryResultSerializer can read
-                    # physical-development fields via source="term_report.field"
                     queryset=NurseryResult.objects.select_related(
                         "subject",
                         "grading_system",
@@ -2207,142 +2452,69 @@ class NurseryTermReportViewSet(
                         "approved_by",
                         "published_by",
                         "term_report",
-                    ).prefetch_related("grading_system__grades"),
+                    ).prefetch_related(
+                        "grading_system__grades",
+                        # NurseryResult now inherits BaseResult — component_scores exists.
+                        Prefetch("component_scores", queryset=_component_score_qs()),
+                    ),
                 )
             )
             .order_by("-created_at")
         )
-        user = self.request.user
-        if user.is_superuser or user.is_staff:
-            return qs
-        role = self.get_user_role()
-        if role in ("admin", "superadmin", "principal"):
-            return qs
-        if role in (
-            "secondary_admin",
-            "nursery_admin",
-            "primary_admin",
-            "junior_secondary_admin",
-            "senior_secondary_admin",
-        ):
-            levels = self.get_user_education_level_access()
-            return (
-                qs.filter(
-                    student__student_class__education_level__level_type__in=levels
-                )
-                if levels
-                else qs.none()
-            )
-        if role == "teacher":
-            try:
-                from teacher.models import Teacher
-
-                teacher = Teacher.objects.get(user=user)
-                assigned = (
-                    apps.get_model("classroom", "Classroom")
-                    .objects.filter(
-                        Q(class_teacher=teacher)
-                        | Q(classroomteacherassignment__teacher=teacher)
-                    )
-                    .distinct()
-                )
-                student_ids = StudentEnrollment.objects.filter(
-                    classroom__in=assigned, is_active=True
-                ).values_list("student_id", flat=True)
-                levels = self.get_user_education_level_access()
-                return qs.filter(
-                    student_id__in=student_ids,
-                    student__student_class__education_level__level_type__in=levels,
-                )
-            except Exception:
-                return qs.none()
-        if role == "student":
-            try:
-                return qs.filter(student=Student.objects.get(user=user))
-            except Student.DoesNotExist:
-                return qs.none()
-        if role == "parent":
-            try:
-                parent = apps.get_model("parent", "Parent").objects.get(user=user)
-                return qs.filter(student__parents=parent)
-            except Exception:
-                return qs.none()
-        return qs.none()
-
-    @action(detail=True, methods=["post"])
-    def submit_for_approval(self, request, pk=None):
-        try:
-            with transaction.atomic():
-                report = self.get_object()
-                if not report.subject_results.exists():
-                    return Response({"error": "Cannot submit empty report"}, status=400)
-                if report.status not in (DRAFT, APPROVED):
-                    return Response(
-                        {"error": f"Cannot submit from status '{report.status}'"},
-                        status=400,
-                    )
-                report.status = SUBMITTED
-                report.save(update_fields=["status", "updated_at"])
-                return Response(
-                    {"message": "Submitted", "data": self.get_serializer(report).data}
-                )
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
+        return _apply_report_role_filter(qs, self, self.request.user)
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
-        try:
-            with transaction.atomic():
-                report = self.get_object()
-                if report.status not in (SUBMITTED, DRAFT):
-                    return Response(
-                        {"error": f"Cannot approve from status '{report.status}'"},
-                        status=400,
-                    )
-                report.status = APPROVED
-                report.save(update_fields=["status", "updated_at"])
-                updated = report.subject_results.update(
-                    status=APPROVED,
-                    approved_by=request.user,
-                    approved_date=timezone.now(),
-                )
-                return Response(
-                    {
-                        "message": f"Approved. {updated} subject result(s) also approved.",
-                        "data": self.get_serializer(report).data,
-                    }
-                )
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
+        report = self.get_object()
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        if report.status != DRAFT:
+            return Response(
+                {"error": f"Cannot approve from status '{report.status}'."},
+                status=400,
+            )
+        with transaction.atomic():
+            NurseryTermReport.bulk_approve(
+                NurseryTermReport.objects.filter(pk=report.pk), request.user
+            )
+            results_updated = NurseryResult.bulk_approve(
+                report.subject_results.filter(status=DRAFT), request.user
+            )
+        report.refresh_from_db()
+        return Response(
+            {
+                "message": f"Approved. {results_updated} subject result(s) also approved.",
+                "data": self.get_serializer(report, context={"request": request}).data,
+            }
+        )
 
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
-        try:
-            with transaction.atomic():
-                report = self.get_object()
-                if report.status not in (APPROVED, SUBMITTED):
-                    return Response(
-                        {"error": f"Cannot publish from status '{report.status}'"},
-                        status=400,
-                    )
-                report.is_published = True
-                report.published_by = request.user
-                report.published_date = timezone.now()
-                report.status = PUBLISHED
-                report.save()
-                updated = report.subject_results.update(
-                    status=PUBLISHED,
-                    published_by=request.user,
-                    published_date=timezone.now(),
-                )
-                return Response(
-                    {
-                        "message": f"Published. {updated} subject result(s) also published.",
-                        "data": self.get_serializer(report).data,
-                    }
-                )
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
+        report = self.get_object()
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        if report.status not in (DRAFT, APPROVED):
+            return Response(
+                {"error": f"Cannot publish from status '{report.status}'."},
+                status=400,
+            )
+        with transaction.atomic():
+            NurseryTermReport.bulk_publish(
+                NurseryTermReport.objects.filter(pk=report.pk), request.user
+            )
+            # One UPDATE for all child results — no per-report loop.
+            NurseryResult.objects.filter(term_report=report).update(
+                status=PUBLISHED,
+                published_by=request.user,
+                published_date=timezone.now(),
+            )
+        report.refresh_from_db()
+        return Response(
+            {
+                "message": "Published.",
+                "data": self.get_serializer(report, context={"request": request}).data,
+            }
+        )
 
     @action(detail=True, methods=["post"])
     def calculate_metrics(self, request, pk=None):
@@ -2350,56 +2522,139 @@ class NurseryTermReportViewSet(
             report = self.get_object()
             report.calculate_metrics()
             report.calculate_class_position()
-            return Response(self.get_serializer(report).data)
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
+            return Response(
+                self.get_serializer(report, context={"request": request}).data
+            )
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=400)
 
-    @action(detail=False, methods=["post"])
-    def bulk_publish(self, request):
-        report_ids = request.data.get("report_ids", [])
-        if not report_ids:
-            return Response({"error": "report_ids are required"}, status=400)
-        try:
-            with transaction.atomic():
-                reports = self.get_queryset().filter(id__in=report_ids)
-                invalid = reports.exclude(status__in=(APPROVED, SUBMITTED))
-                if invalid.exists():
-                    return Response(
-                        {"error": f"{invalid.count()} report(s) cannot be published"},
-                        status=400,
-                    )
-                count = reports.update(
-                    is_published=True,
-                    published_by=request.user,
-                    published_date=timezone.now(),
-                    status=PUBLISHED,
-                )
-                subj_count = 0
-                for report in reports:
-                    subj_count += report.subject_results.update(
-                        status=PUBLISHED,
-                        published_by=request.user,
-                        published_date=timezone.now(),
-                    )
-                return Response(
-                    {"reports_published": count, "subjects_published": subj_count}
-                )
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
+    @action(detail=False, methods=["post"], url_path="bulk-approve")
+    def bulk_approve_reports(self, request):
+        """Admin one-click: approve all DRAFT nursery term reports for a batch."""
+        ser = BulkApproveSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        report_ids = ser.validated_data["result_ids"]
+        with transaction.atomic():
+            qs = NurseryTermReport.objects.filter(pk__in=report_ids)
+            count = NurseryTermReport.bulk_approve(qs, request.user)
+            # One UPDATE for all child results — no per-report loop.
+            result_count = NurseryResult.objects.filter(
+                term_report__in=report_ids, status=DRAFT
+            ).update(
+                status=APPROVED,
+                approved_by=request.user,
+                approved_date=timezone.now(),
+            )
+        return Response(
+            {"approved_reports": count, "approved_subject_results": result_count}
+        )
+
+    @action(detail=False, methods=["post"], url_path="bulk-publish")
+    def bulk_publish_reports(self, request):
+        """Admin one-click: publish all APPROVED nursery term reports for a batch."""
+        ser = BulkPublishSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        report_ids = ser.validated_data["result_ids"]
+        with transaction.atomic():
+            qs = NurseryTermReport.objects.filter(pk__in=report_ids)
+            count = NurseryTermReport.bulk_publish(qs, request.user)
+            # One UPDATE for all child results — no N+1 loop.
+            result_count = NurseryResult.objects.filter(
+                term_report__in=report_ids
+            ).update(
+                status=PUBLISHED,
+                published_by=request.user,
+                published_date=timezone.now(),
+            )
+        return Response(
+            {"published_reports": count, "published_subject_results": result_count}
+        )
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        if self.get_user_role() not in ("admin", "superadmin", "principal"):
+        if not _is_admin(request.user):
             return Response(
-                {"error": "Only administrators can delete term reports"}, status=403
+                {"error": "Only administrators can delete term reports."},
+                status=status.HTTP_403_FORBIDDEN,
             )
         with transaction.atomic():
             subject_count = instance.subject_results.count()
             instance.subject_results.all().delete()
             instance.delete()
         return Response(
-            {"message": f"Deleted report and {subject_count} subject result(s)"},
+            {"message": f"Deleted report and {subject_count} subject result(s)."},
             status=status.HTTP_204_NO_CONTENT,
+        )
+
+
+# ── Nursery Session Report ────────────────────────────────────────────────────
+
+
+class NurserySessionReportViewSet(
+    TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
+):
+    queryset = NurserySessionReport.objects.all().order_by("-created_at")
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ["student", "academic_session", "status", "is_published"]
+    search_fields = ["student__user__first_name", "student__user__last_name"]
+
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return NurserySessionReportCreateUpdateSerializer
+        return NurserySessionReportSerializer
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        if self.action == "list":
+            ctx["skip_permission_flags"] = True
+        return ctx
+
+    def get_queryset(self):
+        qs = (
+            NurserySessionReport.objects.all()
+            .select_related(
+                "student",
+                "student__user",
+                "student__student_class__education_level",
+                "academic_session",
+                "published_by",
+                "approved_by",
+            )
+            .order_by("-created_at")
+        )
+        return _apply_report_role_filter(qs, self, self.request.user)
+
+    @action(detail=True, methods=["post"])
+    def compute(self, request, pk=None):
+        report = self.get_object()
+        try:
+            report.compute_from_term_reports()
+            return Response(
+                NurserySessionReportSerializer(
+                    report, context={"request": request}
+                ).data
+            )
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=400)
+
+    @action(detail=True, methods=["post"])
+    def publish(self, request, pk=None):
+        report = self.get_object()
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        if report.status not in (DRAFT, APPROVED):
+            return Response(
+                {"error": f"Cannot publish from status '{report.status}'."},
+                status=400,
+            )
+        report.publish(request.user)
+        return Response(
+            NurserySessionReportSerializer(report, context={"request": request}).data
         )
 
 
@@ -2437,7 +2692,6 @@ class StudentResultViewSet(
             education_levels = self.get_education_levels_for_sections(section_access)
             if not education_levels:
                 return qs.none()
-            # StudentResult.student.education_level is a @property — filter via FK chain
             qs = qs.filter(
                 student__student_class__education_level__level_type__in=education_levels
             )
@@ -2446,14 +2700,13 @@ class StudentResultViewSet(
     def create(self, request, *args, **kwargs):
         try:
             with transaction.atomic():
-                request.data["entered_by"] = request.user.id
                 serializer = self.get_serializer(data=request.data)
                 serializer.is_valid(raise_exception=True)
                 return Response(
                     DetailedStudentResultSerializer(serializer.save()).data, status=201
                 )
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=400)
 
     def update(self, request, *args, **kwargs):
         try:
@@ -2464,8 +2717,8 @@ class StudentResultViewSet(
                 )
                 serializer.is_valid(raise_exception=True)
                 return Response(DetailedStudentResultSerializer(serializer.save()).data)
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=400)
 
     @action(detail=False, methods=["get"])
     def class_statistics(self, request):
@@ -2494,49 +2747,57 @@ class StudentResultViewSet(
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
         result = self.get_object()
-        if self.get_user_role() not in (
-            "admin",
-            "superadmin",
-            "principal",
-            "senior_secondary_admin",
-        ):
-            return Response({"error": "Permission denied"}, status=403)
-        if result.status not in (DRAFT, SUBMITTED):
+        if result.status != DRAFT:
             return Response(
-                {"error": f"Cannot approve from status '{result.status}'"}, status=400
+                {"error": f"Cannot approve from status '{result.status}'."}, status=400
             )
         try:
             with transaction.atomic():
                 result.status = APPROVED
                 result.approved_by = request.user
                 result.approved_date = timezone.now()
-                result.save()
+                result.save(
+                    update_fields=[
+                        "status",
+                        "approved_by",
+                        "approved_date",
+                        "updated_at",
+                    ]
+                )
             return Response(DetailedStudentResultSerializer(result).data)
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=400)
 
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
         try:
             with transaction.atomic():
                 result = self.get_object()
                 result.status = PUBLISHED
-                result.save()
+                result.save(update_fields=["status", "updated_at"])
             return Response(DetailedStudentResultSerializer(result).data)
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=400)
 
 
 class StudentTermResultViewSet(
     TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
 ):
     queryset = StudentTermResult.objects.all()
-    serializer_class = StudentTermResultSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_class = StudentTermResultFilter
     search_fields = ["student__full_name"]
+
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return StudentTermResultCreateUpdateSerializer
+        return StudentTermResultSerializer
 
     def get_queryset(self):
         qs = (
@@ -2553,7 +2814,7 @@ class StudentTermResultViewSet(
             .order_by("-created_at")
         )
         user = self.request.user
-        if getattr(user, "role", None) == "STUDENT":
+        if _user_role(user) == "STUDENT":
             return qs.filter(student__user=user)
         section_access = self.get_user_section_access()
         if not section_access:
@@ -2561,7 +2822,6 @@ class StudentTermResultViewSet(
         education_levels = self.get_education_levels_for_sections(section_access)
         if not education_levels:
             return qs.none()
-        # education_level is a @property — must filter via FK chain
         return qs.filter(
             student__student_class__education_level__level_type__in=education_levels
         )
@@ -2577,25 +2837,43 @@ class StudentTermResultViewSet(
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
         try:
             with transaction.atomic():
                 term_result = self.get_object()
+                if term_result.status != DRAFT:
+                    return Response(
+                        {
+                            "error": f"Cannot approve from status '{term_result.status}'."
+                        },
+                        status=400,
+                    )
                 term_result.status = APPROVED
-                term_result.save()
+                term_result.save(update_fields=["status", "updated_at"])
             return Response(StudentTermResultSerializer(term_result).data)
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=400)
 
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
         try:
             with transaction.atomic():
                 term_result = self.get_object()
+                if term_result.status not in (DRAFT, APPROVED):
+                    return Response(
+                        {
+                            "error": f"Cannot publish from status '{term_result.status}'."
+                        },
+                        status=400,
+                    )
                 term_result.status = PUBLISHED
-                term_result.save()
+                term_result.save(update_fields=["status", "updated_at"])
             return Response(StudentTermResultSerializer(term_result).data)
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=400)
 
 
 # ── Supporting ViewSets ───────────────────────────────────────────────────────
@@ -2617,6 +2895,8 @@ class ResultSheetViewSet(
             .select_related(
                 "exam_session",
                 "exam_session__academic_session",
+                "exam_session__exam_type",
+                "exam_session__term",
                 "prepared_by",
                 "approved_by",
                 "student_class",
@@ -2626,16 +2906,25 @@ class ResultSheetViewSet(
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
         try:
             with transaction.atomic():
                 sheet = self.get_object()
                 sheet.status = APPROVED
                 sheet.approved_by = request.user
                 sheet.approved_date = timezone.now()
-                sheet.save()
+                sheet.save(
+                    update_fields=[
+                        "status",
+                        "approved_by",
+                        "approved_date",
+                        "updated_at",
+                    ]
+                )
             return Response(ResultSheetSerializer(sheet).data)
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=400)
 
     @action(detail=False, methods=["post"])
     def generate_sheet(self, request):
@@ -2665,8 +2954,8 @@ class ResultSheetViewSet(
             return Response({"error": "Exam session not found"}, status=404)
         except StudentClass.DoesNotExist:
             return Response({"error": "Student class not found"}, status=404)
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=400)
 
 
 class AssessmentScoreViewSet(
@@ -2725,14 +3014,14 @@ class ResultTemplateViewSet(
     def activate(self, request, pk=None):
         t = self.get_object()
         t.is_active = True
-        t.save()
+        t.save(update_fields=["is_active", "updated_at"])
         return Response(ResultTemplateSerializer(t).data)
 
     @action(detail=True, methods=["post"])
     def deactivate(self, request, pk=None):
         t = self.get_object()
         t.is_active = False
-        t.save()
+        t.save(update_fields=["is_active", "updated_at"])
         return Response(ResultTemplateSerializer(t).data)
 
 
@@ -2740,55 +3029,72 @@ class ResultTemplateViewSet(
 
 
 class BulkResultOperationsViewSet(TenantFilterMixin, viewsets.ViewSet):
+    """
+    Cross-education-level bulk operations.
+    For education-level-specific bulk actions (approve/publish/delete),
+    use the per-level viewset bulk-approve / bulk-publish endpoints.
+    This viewset handles cross-cutting concerns: publish with notifications,
+    analytics summary, etc.
+    """
+
     permission_classes = [IsAuthenticated]
 
     @action(detail=False, methods=["post"])
-    def bulk_status_update(self, request):
-        serializer = BulkStatusUpdateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        result_ids = serializer.validated_data["result_ids"]
-        new_status = serializer.validated_data["status"]
+    def bulk_approve(self, request):
+        """
+        Approve results across any education level.
+        Requires education_level param to route to the correct model.
+        """
+        ser = BulkApproveSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        level = request.data.get("education_level", "").upper()
+        model = _RESULT_MODEL_MAP.get(level)
+        if not model:
+            return Response({"error": "Valid education_level is required."}, status=400)
         try:
-            with transaction.atomic():
-                total = sum(
-                    model.objects.filter(id__in=result_ids).update(status=new_status)
-                    for model in _RESULT_MODEL_MAP.values()
-                )
-            return Response(
-                {"message": f"Updated {total} results", "status": new_status}
+            count = model.bulk_approve(
+                model.objects.filter(pk__in=ser.validated_data["result_ids"]),
+                request.user,
             )
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
+            return Response({"approved_count": count})
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=400)
 
     @action(detail=False, methods=["post"])
     def bulk_publish_results(self, request):
-        serializer = PublishResultSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        result_ids = serializer.validated_data["result_ids"]
-        publish_date = serializer.validated_data.get("publish_date", timezone.now())
-        send_notifications = serializer.validated_data.get("send_notifications", True)
+        """
+        Publish results across any education level with optional notifications.
+        """
+        ser = BulkPublishSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+
+        result_ids = ser.validated_data["result_ids"]
+        send_notifications = ser.validated_data.get("send_notifications", False)
+        level = request.data.get("education_level", "").upper()
+        model = _RESULT_MODEL_MAP.get(level)
+        if not model:
+            return Response({"error": "Valid education_level is required."}, status=400)
 
         try:
             with transaction.atomic():
-                total_published = 0
                 student_ids = set()
-                for model in _RESULT_MODEL_MAP.values():
-                    if send_notifications:
-                        student_ids.update(
-                            model.objects.filter(id__in=result_ids).values_list(
-                                "student_id", flat=True
-                            )
+                if send_notifications:
+                    student_ids.update(
+                        model.objects.filter(pk__in=result_ids).values_list(
+                            "student_id", flat=True
                         )
-                    total_published += model.objects.filter(id__in=result_ids).update(
-                        status=PUBLISHED,
-                        published_by=request.user,
-                        published_date=publish_date,
                     )
+                total_published = model.bulk_publish(
+                    model.objects.filter(pk__in=result_ids), request.user
+                )
 
                 notifications_sent = 0
                 if send_notifications and student_ids:
                     from parent.models import ParentStudentRelationship
-
                     students = Student.objects.filter(
                         id__in=student_ids
                     ).select_related("user")
@@ -2837,17 +3143,17 @@ class BulkResultOperationsViewSet(TenantFilterMixin, viewsets.ViewSet):
                         notifications_sent = len(msgs)
                         bulk_msg.sent_count = notifications_sent
                         bulk_msg.delivered_count = notifications_sent
-                        bulk_msg.save()
+                        bulk_msg.save(update_fields=["sent_count", "delivered_count"])
 
             return Response(
                 {
-                    "message": f"Published {total_published} results",
+                    "message": f"Published {total_published} results.",
                     "notifications_sent": notifications_sent,
                 }
             )
-        except Exception as e:
-            logger.error(f"Bulk publish failed: {e}")
-            return Response({"error": str(e)}, status=400)
+        except Exception as exc:
+            logger.error("bulk_publish_results failed: %s", exc)
+            return Response({"error": str(exc)}, status=400)
 
 
 # ── Analytics ─────────────────────────────────────────────────────────────────
@@ -2909,7 +3215,7 @@ class ResultAnalyticsViewSet(TenantFilterMixin, viewsets.ViewSet):
         summary = {
             "total_results": 0,
             "published_results": 0,
-            "pending_approval": 0,
+            "approved_results": 0,
             "draft_results": 0,
         }
         total_passed = 0
@@ -2917,7 +3223,7 @@ class ResultAnalyticsViewSet(TenantFilterMixin, viewsets.ViewSet):
             qs = model.objects.filter(exam_session_id=es_id)
             summary["total_results"] += qs.count()
             summary["published_results"] += qs.filter(status=PUBLISHED).count()
-            summary["pending_approval"] += qs.filter(status=SUBMITTED).count()
+            summary["approved_results"] += qs.filter(status=APPROVED).count()
             summary["draft_results"] += qs.filter(status=DRAFT).count()
             total_passed += qs.filter(is_passed=True).count()
         summary["overall_pass_rate"] = round(
@@ -2966,8 +3272,8 @@ class ResultImportExportViewSet(TenantFilterMixin, viewsets.ViewSet):
                         },
                     )
                     imported += 1
-                except Exception as e:
-                    errors.append(f"Row {row_num}: {e}")
+                except Exception as exc:
+                    errors.append(f"Row {row_num}: {exc}")
         return Response({"imported_count": imported, "errors": errors[:10]})
 
     @action(detail=False, methods=["post"])
@@ -3006,11 +3312,7 @@ class ResultImportExportViewSet(TenantFilterMixin, viewsets.ViewSet):
                     r.student.id,
                     getattr(r.student, "full_name", ""),
                     r.student.student_class.name if r.student.student_class else "",
-                    (
-                        getattr(r, "subject", {}).name
-                        if hasattr(r, "subject") and r.subject
-                        else ""
-                    ),
+                    r.subject.name if getattr(r, "subject", None) else "",
                     r.grade or "",
                     r.status or "",
                 ]
@@ -3055,24 +3357,27 @@ class ReportGenerationViewSet(TenantFilterMixin, viewsets.ViewSet):
         try:
             generator = get_report_generator(education_level, request)
             return generator.generate_term_report(report_id)
-        except ValueError as e:
-            return Response({"error": str(e)}, status=400)
-        except Exception as e:
-            logger.error(f"Error generating PDF report: {e}", exc_info=True)
-            return Response({"error": str(e)}, status=500)
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=400)
+        except Exception as exc:
+            logger.error("Error generating PDF report: %s", exc, exc_info=True)
+            return Response({"error": str(exc)}, status=500)
 
     @action(detail=False, methods=["get"], url_path="download-session-report")
     def download_session_report(self, request):
         report_id = request.query_params.get("report_id")
+        education_level = request.query_params.get(
+            "education_level", SENIOR_SECONDARY
+        ).upper()
         if not report_id:
             return Response({"error": "report_id is required"}, status=400)
         try:
             return get_report_generator(
-                SENIOR_SECONDARY, request
+                education_level, request
             ).generate_session_report(report_id)
-        except Exception as e:
-            logger.error(f"Error generating session report: {e}", exc_info=True)
-            return Response({"error": str(e)}, status=500)
+        except Exception as exc:
+            logger.error("Error generating session report: %s", exc, exc_info=True)
+            return Response({"error": str(exc)}, status=500)
 
 
 # ── Professional Assignment ───────────────────────────────────────────────────
@@ -3166,8 +3471,7 @@ class ProfessionalAssignmentViewSet(
                 )
 
             enrollments = StudentEnrollment.objects.filter(
-                classroom__in=assigned_classrooms,
-                is_active=True,
+                classroom__in=assigned_classrooms, is_active=True
             ).select_related(
                 "student", "student__user", "student__student_class", "classroom"
             )
@@ -3196,7 +3500,6 @@ class ProfessionalAssignmentViewSet(
                     if (has_remark and has_sig)
                     else ("draft" if has_remark else "pending")
                 )
-
                 students_data.append(
                     {
                         "id": str(student.id),
@@ -3229,7 +3532,6 @@ class ProfessionalAssignmentViewSet(
             completed = sum(
                 1 for s in students_data if s["remark_status"] == "completed"
             )
-
             return Response(
                 {
                     "exam_session": {
@@ -3248,9 +3550,9 @@ class ProfessionalAssignmentViewSet(
                     },
                 }
             )
-        except Exception as e:
-            logger.error(f"Error fetching assigned students: {e}", exc_info=True)
-            return Response({"error": str(e)}, status=500)
+        except Exception as exc:
+            logger.error("Error fetching assigned students: %s", exc, exc_info=True)
+            return Response({"error": str(exc)}, status=500)
 
     @action(detail=False, methods=["post"], url_path="update-remark")
     def update_teacher_remark(self, request):
@@ -3262,26 +3564,25 @@ class ProfessionalAssignmentViewSet(
                 {"error": "term_report_id, education_level, and remark are required"},
                 status=400,
             )
-        if len(remark) < 50:
-            return Response(
-                {"error": "Remark must be at least 50 characters"}, status=400
-            )
-        if len(remark) > 500:
-            return Response(
-                {"error": "Remark must not exceed 500 characters"}, status=400
-            )
+        serializer = TeacherRemarkUpdateSerializer(
+            data={"class_teacher_remark": remark}
+        )
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
         try:
             model = self._get_report_model(level)
             report = model.objects.get(id=report_id)
             if not self._can_teacher_edit_remark(request.user, report):
                 return Response({"error": "Permission denied"}, status=403)
-            report.class_teacher_remark = remark
+            report.class_teacher_remark = serializer.validated_data[
+                "class_teacher_remark"
+            ]
             report.save(update_fields=["class_teacher_remark", "updated_at"])
             return Response(
                 {"message": "Remark updated", "term_report_id": str(report.id)}
             )
-        except Exception as e:
-            return Response({"error": str(e)}, status=500)
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=500)
 
     @action(detail=False, methods=["post"], url_path="upload-signature")
     def upload_teacher_signature(self, request):
@@ -3302,12 +3603,11 @@ class ProfessionalAssignmentViewSet(
                     "public_id": result["public_id"],
                 }
             )
-        except Exception as e:
-            return Response({"error": str(e)}, status=500)
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=500)
 
     @action(detail=False, methods=["post"], url_path="apply-signature")
     def apply_signature_to_reports(self, request):
-        import json
         url = request.data.get("signature_url")
         level = request.data.get("education_level")
         ids = request.data.get("term_report_ids", [])
@@ -3351,8 +3651,8 @@ class ProfessionalAssignmentViewSet(
             if errors:
                 resp["errors"] = errors
             return Response(resp)
-        except Exception as e:
-            return Response({"error": str(e)}, status=500)
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=500)
 
     @action(detail=False, methods=["get"], url_path="remark-templates")
     def get_remark_templates(self, request):
@@ -3428,6 +3728,7 @@ class HeadTeacherAssignmentViewSet(
 
     @action(detail=False, methods=["get"], url_path="pending-reviews")
     def get_pending_reviews(self, request):
+        """Returns APPROVED reports awaiting head-teacher remark + publication."""
         es_id = request.query_params.get("exam_session")
         exam_session = (
             ExamSession.objects.select_related(
@@ -3447,7 +3748,7 @@ class HeadTeacherAssignmentViewSet(
         pending = []
         for level, model in _TERM_REPORT_MODEL_MAP.items():
             for report in model.objects.filter(
-                exam_session=exam_session, status=SUBMITTED
+                exam_session=exam_session, status=APPROVED
             ).select_related("student", "student__user", "student__student_class"):
                 pending.append(
                     {
@@ -3491,10 +3792,11 @@ class HeadTeacherAssignmentViewSet(
         remark = request.data.get("head_teacher_remark", "").strip()
         if not all([report_id, level, remark]):
             return Response({"error": "All fields are required"}, status=400)
-        if len(remark) < 50:
-            return Response(
-                {"error": "Remark must be at least 50 characters"}, status=400
-            )
+        serializer = HeadTeacherRemarkUpdateSerializer(
+            data={"head_teacher_remark": remark}
+        )
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
         model = _TERM_REPORT_MODEL_MAP.get(level.upper())
         if not model:
             return Response({"error": "Invalid education level"}, status=400)
@@ -3502,7 +3804,9 @@ class HeadTeacherAssignmentViewSet(
             report = model.objects.get(id=report_id)
             if not report.can_edit_head_teacher_remark(request.user):
                 return Response({"error": "Permission denied"}, status=403)
-            report.head_teacher_remark = remark
+            report.head_teacher_remark = serializer.validated_data[
+                "head_teacher_remark"
+            ]
             report.save(update_fields=["head_teacher_remark", "updated_at"])
             return Response(
                 {
@@ -3512,8 +3816,8 @@ class HeadTeacherAssignmentViewSet(
             )
         except model.DoesNotExist:
             return Response({"error": "Term report not found"}, status=404)
-        except Exception as e:
-            return Response({"error": str(e)}, status=500)
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=500)
 
     @action(detail=False, methods=["post"], url_path="upload-head-signature")
     def upload_head_teacher_signature(self, request):
@@ -3530,12 +3834,11 @@ class HeadTeacherAssignmentViewSet(
                     "public_id": result["public_id"],
                 }
             )
-        except Exception as e:
-            return Response({"error": str(e)}, status=500)
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=500)
 
     @action(detail=False, methods=["post"], url_path="apply-head-signature")
     def apply_head_signature(self, request):
-        import json
         url = request.data.get("signature_url")
         level = request.data.get("education_level")
         ids = request.data.get("term_report_ids", [])

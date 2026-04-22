@@ -1,30 +1,40 @@
-# result/serializers.py
 """
-Serializers for the result app — kept in sync with models.py (post-refactor).
+result/serializers.py
 
 Design notes
 ────────────
-1.  ExamType is now a FK on ExamSession (no more get_exam_type_display).
-    ExamTypeSerializer / ExamTypeCreateUpdateSerializer are added.
+1.  ExamType is a FK on ExamSession — ExamTypeSerializer /
+    ExamTypeCreateUpdateSerializer handle it.
 
-2.  SeniorSecondarySessionResult / SeniorSecondarySessionResultSerializer are
-    REMOVED — the correct model is SeniorSecondarySessionReport (BaseSessionReport
-    subclass).  Session-report serializers now exist for all four levels.
+2.  Session-report serializers exist for all four education levels and
+    expose the computed BaseSessionReport fields (term_totals, overall_*).
 
-3.  Session-report read serializers expose the computed fields that
-    BaseSessionReport actually stores:
-        term_totals, overall_total, overall_average, overall_grade,
-        overall_position, total_students
-    The old hardcoded term1_total / taa_score / obtainable / obtained fields
-    are gone.
+3.  _RemarkPermissionMixin.get_first_signatory_role calls the correct
+    private method _first_signatory_role() (renamed in models.py).
 
-4.  StudentMinimalSerializer is defined exactly once.
+4.  _position_suffix handles 11th–13th and 21st–23rd correctly.
 
-5.  New serializers added:
-        ExamTypeSerializer / ExamTypeCreateUpdateSerializer
-        JuniorSecondarySessionReportSerializer / …CreateUpdateSerializer
-        PrimarySessionReportSerializer   / …CreateUpdateSerializer
-        NurserySessionReportSerializer   / …CreateUpdateSerializer
+5.  status is NOT writable in any TermReport / SessionReport CreateUpdate
+    serializer.  Status changes go through dedicated action endpoints
+    (approve / publish / bulk_approve / bulk_publish).
+
+6.  Permission flag SerializerMethodFields (can_edit_teacher_remark,
+    can_edit_head_teacher_remark) are kept on detail serializers only.
+    List views must set context['skip_permission_flags'] = True to
+    avoid per-row DB queries (see _RemarkPermissionMixin).
+
+7.  New bulk serializers:
+        BulkApproveSerializer
+        BulkPublishSerializer
+        BulkDeleteSerializer
+        BulkRecordEntrySerializer / BulkRecordSerializer
+        SingleApproveSerializer  (single-record approve action)
+
+8.  NurseryResult now exposes component_scores and ca_total (inherited
+    from BaseResult). Prefetch contract updated accordingly.
+
+9.  ResultSheetSerializer uses source= paths instead of SerializerMethodFields
+    for education_level columns to avoid 2 queries per row.
 
 Prefetch contracts are documented on every serializer that reads nested data.
 """
@@ -73,6 +83,26 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================
+# UTILITY
+# ============================================================
+
+
+def _position_suffix(position) -> str:
+    """
+    Convert an integer position to an ordinal string.
+    Handles 11th-13th and 21st-23rd correctly.
+    """
+    if not position:
+        return ""
+    n = int(position)
+    if 11 <= (n % 100) <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
 
 
 # ============================================================
@@ -272,8 +302,8 @@ class GradingSystemCreateUpdateSerializer(serializers.ModelSerializer):
 
 class AssessmentComponentSerializer(serializers.ModelSerializer):
     """
-    Read serializer — used when listing a school's configured components
-    for a given education level.
+    Read serializer for listing configured components per education level.
+    Caller must: .select_related('education_level')
     """
 
     education_level_detail = EducationLevelMinimalSerializer(
@@ -321,15 +351,14 @@ class AssessmentComponentCreateUpdateSerializer(serializers.ModelSerializer):
 
 
 # ============================================================
-# COMPONENT SCORE — the score entry unit
+# COMPONENT SCORE
 # ============================================================
 
 
 class ComponentScoreInputSerializer(serializers.Serializer):
     """
-    Validates a single {component_id, score} pair submitted by the client.
-    Score is checked against component.max_score using the live DB value —
-    no hardcoding.
+    Validates a single {component_id, score} pair.
+    Score is checked against component.max_score via a live DB lookup.
     """
 
     component_id = serializers.IntegerField()
@@ -365,18 +394,12 @@ class ResultComponentScoresSerializer(serializers.Serializer):
     """
     Accepts a list of component scores for one result row.
 
-    POST body example:
-        {
-            "scores": [
-                {"component_id": 1, "score": "8.50"},
-                {"component_id": 2, "score": "7.00"},
-                {"component_id": 3, "score": "62.00"}
-            ]
-        }
+    POST body:
+        {"scores": [{"component_id": 1, "score": "8.50"}, ...]}
 
-    validate() checks for duplicate component IDs in a single submission.
-    save() upserts ComponentScore rows and re-triggers calculate_scores()
-    on the parent result.
+    validate() checks for duplicate component IDs.
+    save() upserts ComponentScore rows then recalculates via a targeted
+    update_fields save — no double full-model save.
     """
 
     scores = ComponentScoreInputSerializer(many=True, min_length=1)
@@ -394,16 +417,16 @@ class ResultComponentScoresSerializer(serializers.Serializer):
 
     def save(self, result_instance):
         """
-        Upsert ComponentScore rows and trigger recalculation.
+        Upsert ComponentScore rows and recalculate derived fields.
         result_instance must be one of the four result model instances.
         """
-        fk_map = {
+        _FK_MAP = {
             SeniorSecondaryResult: "senior_result",
             JuniorSecondaryResult: "junior_result",
             PrimaryResult: "primary_result",
             NurseryResult: "nursery_result",
         }
-        fk_name = fk_map.get(type(result_instance))
+        fk_name = _FK_MAP.get(type(result_instance))
         if not fk_name:
             raise ValueError(f"Unsupported result type: {type(result_instance)}")
 
@@ -430,7 +453,10 @@ class ResultComponentScoresSerializer(serializers.Serializer):
 
 
 class ComponentScoreReadSerializer(serializers.ModelSerializer):
-    """Read serializer for rendering a single ComponentScore in API responses."""
+    """
+    Read serializer for a ComponentScore row in API responses.
+    Caller must: .select_related('component')
+    """
 
     component_name = serializers.CharField(source="component.name", read_only=True)
     component_code = serializers.CharField(source="component.code", read_only=True)
@@ -438,10 +464,7 @@ class ComponentScoreReadSerializer(serializers.ModelSerializer):
         source="component.component_type", read_only=True
     )
     max_score = serializers.DecimalField(
-        source="component.max_score",
-        read_only=True,
-        max_digits=6,
-        decimal_places=2,
+        source="component.max_score", read_only=True, max_digits=6, decimal_places=2
     )
     contributes_to_ca = serializers.BooleanField(
         source="component.contributes_to_ca", read_only=True
@@ -515,7 +538,7 @@ class ScoringConfigurationCreateUpdateSerializer(serializers.ModelSerializer):
 
 
 # ============================================================
-# ASSESSMENT TYPE  (legacy)
+# ASSESSMENT TYPE (legacy)
 # ============================================================
 
 
@@ -559,7 +582,7 @@ class AssessmentTypeCreateUpdateSerializer(serializers.ModelSerializer):
 
 
 # ============================================================
-# EXAM TYPE  — new; replaces the old hardcoded EXAM_TYPES CharField
+# EXAM TYPE
 # ============================================================
 
 
@@ -592,7 +615,6 @@ class ExamTypeCreateUpdateSerializer(serializers.ModelSerializer):
         ]
 
     def validate_code(self, value):
-        """Codes must be slug-safe (letters, digits, hyphens, underscores)."""
         if not value.replace("_", "").replace("-", "").isalnum():
             raise serializers.ValidationError(
                 "code must contain only letters, numbers, hyphens, and underscores"
@@ -608,14 +630,9 @@ class ExamTypeCreateUpdateSerializer(serializers.ModelSerializer):
 class ExamSessionSerializer(serializers.ModelSerializer):
     """
     Caller must:
-        .select_related(
-            'exam_type',
-            'academic_session',
-            'term',
-        )
+        .select_related('exam_type', 'academic_session', 'term')
     """
 
-    # exam_type is now a FK — expose both the PK and key display fields
     exam_type_name = serializers.CharField(
         source="exam_type.name", read_only=True, allow_null=True
     )
@@ -692,27 +709,24 @@ class ResultCommentCreateSerializer(serializers.ModelSerializer):
 
 
 # ============================================================
-# SHARED RESULT READ HELPER
-# ============================================================
-
-
-def _position_suffix(position):
-    if not position:
-        return ""
-    suffix = {1: "st", 2: "nd", 3: "rd"}.get(int(position), "th")
-    return f"{position}{suffix}"
-
-
-# ============================================================
-# SHARED TERM-REPORT / SESSION-REPORT REMARK PERMISSION MIXIN
+# REMARK PERMISSION MIXIN
 # ============================================================
 
 
 class _RemarkPermissionMixin:
     """
-    Shared validate() + SerializerMethodFields for the four TermReport
-    and four SessionReport read serializers.
-    Subclasses inherit this alongside ModelSerializer.
+    Shared validate() and SerializerMethodFields for all TermReport and
+    SessionReport read serializers.
+
+    Performance contract
+    ─────────────────────
+    get_can_edit_teacher_remark() calls model.can_edit_teacher_remark(user)
+    which hits Teacher + StudentEnrollment + ClassroomTeacherAssignment.
+    This is fine on DETAIL views.
+
+    On LIST views set context['skip_permission_flags'] = True — the flags
+    return None without any DB queries. Views can surface permission info
+    via a separate lightweight endpoint if needed.
     """
 
     can_edit_teacher_remark = serializers.SerializerMethodField()
@@ -720,13 +734,18 @@ class _RemarkPermissionMixin:
     first_signatory_role = serializers.SerializerMethodField()
 
     def get_first_signatory_role(self, obj):
-        return obj.first_signatory_role()
+        # Method was renamed to _first_signatory_role() in models.py.
+        return obj._first_signatory_role()
 
     def get_can_edit_teacher_remark(self, obj):
+        if self.context.get("skip_permission_flags"):
+            return None
         request = self.context.get("request")
         return obj.can_edit_teacher_remark(request.user) if request else False
 
     def get_can_edit_head_teacher_remark(self, obj):
+        if self.context.get("skip_permission_flags"):
+            return None
         request = self.context.get("request")
         return obj.can_edit_head_teacher_remark(request.user) if request else False
 
@@ -750,6 +769,144 @@ class _RemarkPermissionMixin:
                     "You are not allowed to edit the head teacher remark."
                 )
         return attrs
+
+
+# ============================================================
+# BULK OPERATION SERIALIZERS
+# ============================================================
+
+
+class BulkApproveSerializer(serializers.Serializer):
+    """
+    Input for ModelClass.bulk_approve(qs, user).
+    Views filter the queryset by result_ids then call the class method.
+    """
+
+    result_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        error_messages={"min_length": "At least one ID is required."},
+    )
+
+    def validate_result_ids(self, value):
+        if len(value) != len({str(v) for v in value}):
+            raise serializers.ValidationError("Duplicate IDs are not allowed.")
+        return value
+
+
+class BulkPublishSerializer(serializers.Serializer):
+    """
+    Input for ModelClass.bulk_publish(qs, user).
+    Only APPROVED rows are advanced — others are silently skipped by the model.
+    """
+
+    result_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        error_messages={"min_length": "At least one ID is required."},
+    )
+    send_notifications = serializers.BooleanField(default=False)
+    notification_message = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_result_ids(self, value):
+        if len(value) != len({str(v) for v in value}):
+            raise serializers.ValidationError("Duplicate IDs are not allowed.")
+        return value
+
+
+class BulkDeleteSerializer(serializers.Serializer):
+    """
+    Input for ModelClass.bulk_delete(qs, user).
+    Permission rules enforced by the model:
+      - admin roles  -> any status deleted
+      - teachers     -> DRAFT only
+    """
+
+    result_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        error_messages={"min_length": "At least one ID is required."},
+    )
+
+    def validate_result_ids(self, value):
+        if len(value) != len({str(v) for v in value}):
+            raise serializers.ValidationError("Duplicate IDs are not allowed.")
+        return value
+
+
+class SingleApproveSerializer(serializers.Serializer):
+    """
+    Input for the single-record approve() action endpoint.
+    The view calls report_instance.approve(user) after validation.
+    An optional comment is accepted for audit logging purposes.
+    """
+
+    comment = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class BulkRecordEntrySerializer(serializers.Serializer):
+    """
+    Validates one entry in a bulk-record payload:
+        {"result_id": "<uuid>", "component_id": <int>, "score": "8.50"}
+    """
+
+    result_id = serializers.UUIDField()
+    component_id = serializers.IntegerField()
+    score = serializers.DecimalField(
+        max_digits=6, decimal_places=2, min_value=Decimal("0")
+    )
+
+    def validate(self, data):
+        try:
+            component = AssessmentComponent.objects.get(id=data["component_id"])
+        except AssessmentComponent.DoesNotExist:
+            raise serializers.ValidationError(
+                {"component_id": f"Component {data['component_id']} does not exist"}
+            )
+        if not component.is_active:
+            raise serializers.ValidationError(
+                {"component_id": f"Component '{component.name}' is not active"}
+            )
+        if data["score"] > component.max_score:
+            raise serializers.ValidationError(
+                {
+                    "score": (
+                        f"Score {data['score']} exceeds the maximum "
+                        f"{component.max_score} for '{component.name}'"
+                    )
+                }
+            )
+        return data
+
+
+class BulkRecordSerializer(serializers.Serializer):
+    """
+    Input for ModelClass.bulk_record(entries, user).
+
+    POST body:
+        {
+            "entries": [
+                {"result_id": "...", "component_id": 1, "score": "8.50"},
+                {"result_id": "...", "component_id": 2, "score": "7.00"}
+            ]
+        }
+
+    validate_entries() ensures no (result_id, component_id) pair is duplicated.
+    """
+
+    entries = BulkRecordEntrySerializer(many=True, min_length=1)
+
+    def validate_entries(self, value):
+        seen = set()
+        for entry in value:
+            key = (str(entry["result_id"]), entry["component_id"])
+            if key in seen:
+                raise serializers.ValidationError(
+                    f"Duplicate (result_id={entry['result_id']}, "
+                    f"component_id={entry['component_id']}) in submission."
+                )
+            seen.add(key)
+        return value
 
 
 # ============================================================
@@ -825,8 +982,8 @@ class SeniorSecondaryResultSerializer(serializers.ModelSerializer):
 class SeniorSecondaryResultCreateUpdateSerializer(serializers.ModelSerializer):
     """
     Creates/updates a result row — FK fields only.
-    Scores are submitted separately via ResultComponentScoresSerializer
-    (POST to /results/<id>/component-scores/).
+    Scores submitted separately via ResultComponentScoresSerializer.
+    status excluded — use approve/publish action endpoints.
     """
 
     class Meta:
@@ -840,7 +997,6 @@ class SeniorSecondaryResultCreateUpdateSerializer(serializers.ModelSerializer):
             "teacher_remark",
             "class_teacher_remark",
             "head_teacher_remark",
-            "status",
         ]
 
     def create(self, validated_data):
@@ -870,7 +1026,7 @@ class SeniorSecondaryTermReportSerializer(
         .select_related(
             'student', 'exam_session', 'exam_session__academic_session',
             'exam_session__term', 'exam_session__exam_type',
-            'stream', 'stream__stream_type_new', 'published_by',
+            'stream', 'stream__stream_type_new', 'published_by', 'approved_by',
         )
         .prefetch_related(
             Prefetch('subject_results',
@@ -883,6 +1039,7 @@ class SeniorSecondaryTermReportSerializer(
                                   queryset=ComponentScore.objects.select_related('component')),
                      ))
         )
+    List views: pass context['skip_permission_flags'] = True.
     """
 
     student = StudentMinimalSerializer(read_only=True)
@@ -894,6 +1051,9 @@ class SeniorSecondaryTermReportSerializer(
         source="stream.stream_type_new.name", read_only=True, allow_null=True
     )
     status_display = serializers.CharField(source="get_status_display", read_only=True)
+    approved_by_name = serializers.CharField(
+        source="approved_by.get_full_name", read_only=True, allow_null=True
+    )
     subject_results = SeniorSecondaryResultSerializer(many=True, read_only=True)
 
     class Meta:
@@ -906,12 +1066,16 @@ class SeniorSecondaryTermReportSerializer(
             "overall_grade",
             "class_position",
             "total_students",
+            "approved_by",
+            "approved_date",
             "created_at",
             "updated_at",
         ]
 
 
 class SeniorSecondaryTermReportCreateUpdateSerializer(serializers.ModelSerializer):
+    """status excluded — use approve/publish action endpoints."""
+
     class Meta:
         model = SeniorSecondaryTermReport
         fields = [
@@ -923,7 +1087,6 @@ class SeniorSecondaryTermReportCreateUpdateSerializer(serializers.ModelSerialize
             "next_term_begins",
             "class_teacher_remark",
             "head_teacher_remark",
-            "status",
         ]
 
 
@@ -936,14 +1099,15 @@ class SeniorSecondarySessionReportSerializer(
     _RemarkPermissionMixin, serializers.ModelSerializer
 ):
     """
-    Session totals are computed from SeniorSecondaryTermReport records via
-    compute_from_term_reports() on the model.  No manual score entry here.
+    Session totals are computed from SeniorSecondaryTermReport records
+    via compute_from_term_reports() — no manual score entry here.
 
     Caller must:
         .select_related(
             'student', 'student__student_class',
-            'academic_session', 'stream', 'published_by',
+            'academic_session', 'stream', 'published_by', 'approved_by',
         )
+    List views: pass context['skip_permission_flags'] = True.
     """
 
     student = StudentMinimalSerializer(read_only=True)
@@ -952,9 +1116,11 @@ class SeniorSecondarySessionReportSerializer(
         source="stream.name", read_only=True, allow_null=True
     )
     status_display = serializers.CharField(source="get_status_display", read_only=True)
-    # term_totals is a JSONField: list of dicts built by compute_from_term_reports()
     term_totals = serializers.JSONField(read_only=True)
     overall_position_formatted = serializers.SerializerMethodField()
+    approved_by_name = serializers.CharField(
+        source="approved_by.get_full_name", read_only=True, allow_null=True
+    )
 
     class Meta:
         model = SeniorSecondarySessionReport
@@ -967,6 +1133,8 @@ class SeniorSecondarySessionReportSerializer(
             "overall_grade",
             "overall_position",
             "total_students",
+            "approved_by",
+            "approved_date",
             "created_at",
             "updated_at",
         ]
@@ -976,6 +1144,8 @@ class SeniorSecondarySessionReportSerializer(
 
 
 class SeniorSecondarySessionReportCreateUpdateSerializer(serializers.ModelSerializer):
+    """status excluded — use approve/publish action endpoints."""
+
     class Meta:
         model = SeniorSecondarySessionReport
         fields = [
@@ -984,7 +1154,6 @@ class SeniorSecondarySessionReportCreateUpdateSerializer(serializers.ModelSerial
             "stream",
             "class_teacher_remark",
             "head_teacher_remark",
-            "status",
         ]
 
 
@@ -999,7 +1168,7 @@ class JuniorSecondaryResultSerializer(serializers.ModelSerializer):
         .select_related(
             'student', 'subject', 'exam_session',
             'exam_session__academic_session', 'exam_session__exam_type',
-            'grading_system', 'entered_by',
+            'grading_system', 'entered_by', 'approved_by',
         )
         .prefetch_related(
             'grading_system__grades',
@@ -1017,6 +1186,9 @@ class JuniorSecondaryResultSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     entered_by_name = serializers.CharField(
         source="entered_by.get_full_name", read_only=True, allow_null=True
+    )
+    approved_by_name = serializers.CharField(
+        source="approved_by.get_full_name", read_only=True, allow_null=True
     )
     position = serializers.SerializerMethodField()
 
@@ -1044,7 +1216,7 @@ class JuniorSecondaryResultSerializer(serializers.ModelSerializer):
 
 
 class JuniorSecondaryResultCreateUpdateSerializer(serializers.ModelSerializer):
-    """FK fields only — scores submitted via /component-scores/."""
+    """FK fields only — scores via /component-scores/. status excluded."""
 
     class Meta:
         model = JuniorSecondaryResult
@@ -1054,7 +1226,6 @@ class JuniorSecondaryResultCreateUpdateSerializer(serializers.ModelSerializer):
             "exam_session",
             "grading_system",
             "teacher_remark",
-            "status",
         ]
 
     def create(self, validated_data):
@@ -1083,7 +1254,7 @@ class JuniorSecondaryTermReportSerializer(
     Caller must:
         .select_related(
             'student', 'exam_session', 'exam_session__academic_session',
-            'exam_session__exam_type', 'published_by',
+            'exam_session__exam_type', 'published_by', 'approved_by',
         )
         .prefetch_related(
             Prefetch('subject_results',
@@ -1095,11 +1266,15 @@ class JuniorSecondaryTermReportSerializer(
                                   queryset=ComponentScore.objects.select_related('component')),
                      ))
         )
+    List views: pass context['skip_permission_flags'] = True.
     """
 
     student = StudentMinimalSerializer(read_only=True)
     exam_session = ExamSessionSerializer(read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
+    approved_by_name = serializers.CharField(
+        source="approved_by.get_full_name", read_only=True, allow_null=True
+    )
     subject_results = JuniorSecondaryResultSerializer(many=True, read_only=True)
 
     class Meta:
@@ -1112,12 +1287,16 @@ class JuniorSecondaryTermReportSerializer(
             "overall_grade",
             "class_position",
             "total_students",
+            "approved_by",
+            "approved_date",
             "created_at",
             "updated_at",
         ]
 
 
 class JuniorSecondaryTermReportCreateUpdateSerializer(serializers.ModelSerializer):
+    """status excluded — use approve/publish action endpoints."""
+
     class Meta:
         model = JuniorSecondaryTermReport
         fields = [
@@ -1128,7 +1307,6 @@ class JuniorSecondaryTermReportCreateUpdateSerializer(serializers.ModelSerialize
             "next_term_begins",
             "class_teacher_remark",
             "head_teacher_remark",
-            "status",
         ]
 
 
@@ -1142,7 +1320,11 @@ class JuniorSecondarySessionReportSerializer(
 ):
     """
     Caller must:
-        .select_related('student', 'student__student_class', 'academic_session', 'published_by')
+        .select_related(
+            'student', 'student__student_class',
+            'academic_session', 'published_by', 'approved_by',
+        )
+    List views: pass context['skip_permission_flags'] = True.
     """
 
     student = StudentMinimalSerializer(read_only=True)
@@ -1150,6 +1332,9 @@ class JuniorSecondarySessionReportSerializer(
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     term_totals = serializers.JSONField(read_only=True)
     overall_position_formatted = serializers.SerializerMethodField()
+    approved_by_name = serializers.CharField(
+        source="approved_by.get_full_name", read_only=True, allow_null=True
+    )
 
     class Meta:
         model = JuniorSecondarySessionReport
@@ -1162,6 +1347,8 @@ class JuniorSecondarySessionReportSerializer(
             "overall_grade",
             "overall_position",
             "total_students",
+            "approved_by",
+            "approved_date",
             "created_at",
             "updated_at",
         ]
@@ -1171,6 +1358,8 @@ class JuniorSecondarySessionReportSerializer(
 
 
 class JuniorSecondarySessionReportCreateUpdateSerializer(serializers.ModelSerializer):
+    """status excluded — use approve/publish action endpoints."""
+
     class Meta:
         model = JuniorSecondarySessionReport
         fields = [
@@ -1178,7 +1367,6 @@ class JuniorSecondarySessionReportCreateUpdateSerializer(serializers.ModelSerial
             "academic_session",
             "class_teacher_remark",
             "head_teacher_remark",
-            "status",
         ]
 
 
@@ -1193,7 +1381,7 @@ class PrimaryResultSerializer(serializers.ModelSerializer):
         .select_related(
             'student', 'subject', 'exam_session',
             'exam_session__academic_session', 'exam_session__exam_type',
-            'grading_system', 'entered_by',
+            'grading_system', 'entered_by', 'approved_by',
         )
         .prefetch_related(
             'grading_system__grades',
@@ -1211,6 +1399,9 @@ class PrimaryResultSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     entered_by_name = serializers.CharField(
         source="entered_by.get_full_name", read_only=True, allow_null=True
+    )
+    approved_by_name = serializers.CharField(
+        source="approved_by.get_full_name", read_only=True, allow_null=True
     )
     position = serializers.SerializerMethodField()
 
@@ -1238,7 +1429,7 @@ class PrimaryResultSerializer(serializers.ModelSerializer):
 
 
 class PrimaryResultCreateUpdateSerializer(serializers.ModelSerializer):
-    """FK fields only — scores submitted via /component-scores/."""
+    """FK fields only — scores via /component-scores/. status excluded."""
 
     class Meta:
         model = PrimaryResult
@@ -1248,7 +1439,6 @@ class PrimaryResultCreateUpdateSerializer(serializers.ModelSerializer):
             "exam_session",
             "grading_system",
             "teacher_remark",
-            "status",
         ]
 
     def create(self, validated_data):
@@ -1275,7 +1465,7 @@ class PrimaryTermReportSerializer(_RemarkPermissionMixin, serializers.ModelSeria
     Caller must:
         .select_related(
             'student', 'exam_session', 'exam_session__academic_session',
-            'exam_session__exam_type', 'published_by',
+            'exam_session__exam_type', 'published_by', 'approved_by',
         )
         .prefetch_related(
             Prefetch('subject_results',
@@ -1287,11 +1477,15 @@ class PrimaryTermReportSerializer(_RemarkPermissionMixin, serializers.ModelSeria
                                   queryset=ComponentScore.objects.select_related('component')),
                      ))
         )
+    List views: pass context['skip_permission_flags'] = True.
     """
 
     student = StudentMinimalSerializer(read_only=True)
     exam_session = ExamSessionSerializer(read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
+    approved_by_name = serializers.CharField(
+        source="approved_by.get_full_name", read_only=True, allow_null=True
+    )
     subject_results = PrimaryResultSerializer(many=True, read_only=True)
 
     class Meta:
@@ -1304,12 +1498,16 @@ class PrimaryTermReportSerializer(_RemarkPermissionMixin, serializers.ModelSeria
             "overall_grade",
             "class_position",
             "total_students",
+            "approved_by",
+            "approved_date",
             "created_at",
             "updated_at",
         ]
 
 
 class PrimaryTermReportCreateUpdateSerializer(serializers.ModelSerializer):
+    """status excluded — use approve/publish action endpoints."""
+
     class Meta:
         model = PrimaryTermReport
         fields = [
@@ -1320,7 +1518,6 @@ class PrimaryTermReportCreateUpdateSerializer(serializers.ModelSerializer):
             "next_term_begins",
             "class_teacher_remark",
             "head_teacher_remark",
-            "status",
         ]
 
 
@@ -1334,7 +1531,11 @@ class PrimarySessionReportSerializer(
 ):
     """
     Caller must:
-        .select_related('student', 'student__student_class', 'academic_session', 'published_by')
+        .select_related(
+            'student', 'student__student_class',
+            'academic_session', 'published_by', 'approved_by',
+        )
+    List views: pass context['skip_permission_flags'] = True.
     """
 
     student = StudentMinimalSerializer(read_only=True)
@@ -1342,6 +1543,9 @@ class PrimarySessionReportSerializer(
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     term_totals = serializers.JSONField(read_only=True)
     overall_position_formatted = serializers.SerializerMethodField()
+    approved_by_name = serializers.CharField(
+        source="approved_by.get_full_name", read_only=True, allow_null=True
+    )
 
     class Meta:
         model = PrimarySessionReport
@@ -1354,6 +1558,8 @@ class PrimarySessionReportSerializer(
             "overall_grade",
             "overall_position",
             "total_students",
+            "approved_by",
+            "approved_date",
             "created_at",
             "updated_at",
         ]
@@ -1363,6 +1569,8 @@ class PrimarySessionReportSerializer(
 
 
 class PrimarySessionReportCreateUpdateSerializer(serializers.ModelSerializer):
+    """status excluded — use approve/publish action endpoints."""
+
     class Meta:
         model = PrimarySessionReport
         fields = [
@@ -1370,7 +1578,6 @@ class PrimarySessionReportCreateUpdateSerializer(serializers.ModelSerializer):
             "academic_session",
             "class_teacher_remark",
             "head_teacher_remark",
-            "status",
         ]
 
 
@@ -1381,30 +1588,41 @@ class PrimarySessionReportCreateUpdateSerializer(serializers.ModelSerializer):
 
 class NurseryResultSerializer(serializers.ModelSerializer):
     """
+    NurseryResult now inherits BaseResult so ca_total, component_scores,
+    class_average, highest_in_class, lowest_in_class, subject_position,
+    and position_formatted are all available.
+
     Caller must:
         .select_related(
             'student', 'subject', 'exam_session',
             'exam_session__academic_session', 'exam_session__exam_type',
-            'grading_system', 'entered_by', 'term_report',
+            'grading_system', 'entered_by', 'approved_by', 'term_report',
         )
-        .prefetch_related('grading_system__grades')
-
-    Physical-development fields are pulled from the linked NurseryTermReport
-    (0 extra queries when term_report is in select_related).
+        .prefetch_related(
+            'grading_system__grades',
+            Prefetch('component_scores',
+                     queryset=ComponentScore.objects.select_related('component')),
+        )
     """
 
     student = StudentMinimalSerializer(read_only=True)
     subject = SubjectMinimalSerializer(read_only=True)
     exam_session = ExamSessionSerializer(read_only=True)
     grading_system = GradingSystemSerializer(read_only=True)
+    component_scores = ComponentScoreReadSerializer(many=True, read_only=True)
+    ca_total = serializers.DecimalField(read_only=True, max_digits=7, decimal_places=2)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     entered_by_name = serializers.CharField(
         source="entered_by.get_full_name", read_only=True, allow_null=True
     )
-    position = serializers.IntegerField(source="subject_position", read_only=True)
+    approved_by_name = serializers.CharField(
+        source="approved_by.get_full_name", read_only=True, allow_null=True
+    )
+    # position_formatted is a property on BaseResult.
     position_formatted = serializers.CharField(read_only=True)
 
-    # Physical-development fields pulled via term_report FK
+    # Physical-development fields from term_report FK — zero extra queries
+    # when term_report is in select_related.
     physical_development = serializers.CharField(
         source="term_report.physical_development",
         read_only=True,
@@ -1412,7 +1630,10 @@ class NurseryResultSerializer(serializers.ModelSerializer):
         default=None,
     )
     health = serializers.CharField(
-        source="term_report.health", read_only=True, allow_null=True, default=None
+        source="term_report.health",
+        read_only=True,
+        allow_null=True,
+        default=None,
     )
     cleanliness = serializers.CharField(
         source="term_report.cleanliness",
@@ -1462,9 +1683,26 @@ class NurseryResultSerializer(serializers.ModelSerializer):
     class Meta:
         model = NurseryResult
         fields = "__all__"
+        read_only_fields = [
+            "id",
+            "total_score",
+            "ca_total",
+            "percentage",
+            "grade",
+            "grade_point",
+            "is_passed",
+            "class_average",
+            "highest_in_class",
+            "lowest_in_class",
+            "subject_position",
+            "created_at",
+            "updated_at",
+        ]
 
 
 class NurseryResultCreateUpdateSerializer(serializers.ModelSerializer):
+    """status excluded — use approve/publish action endpoints."""
+
     class Meta:
         model = NurseryResult
         fields = [
@@ -1475,7 +1713,6 @@ class NurseryResultCreateUpdateSerializer(serializers.ModelSerializer):
             "max_marks_obtainable",
             "mark_obtained",
             "academic_comment",
-            "status",
         ]
 
     def validate(self, data):
@@ -1509,22 +1746,29 @@ class NurseryTermReportSerializer(_RemarkPermissionMixin, serializers.ModelSeria
     Caller must:
         .select_related(
             'student', 'exam_session', 'exam_session__academic_session',
-            'exam_session__exam_type', 'published_by',
+            'exam_session__exam_type', 'published_by', 'approved_by',
         )
         .prefetch_related(
             Prefetch('subject_results',
                      queryset=NurseryResult.objects.select_related(
                          'subject', 'grading_system', 'entered_by', 'term_report',
-                     ).prefetch_related('grading_system__grades'))
+                     ).prefetch_related(
+                         'grading_system__grades',
+                         Prefetch('component_scores',
+                                  queryset=ComponentScore.objects.select_related('component')),
+                     ))
         )
+    List views: pass context['skip_permission_flags'] = True.
     """
 
     student = StudentMinimalSerializer(read_only=True)
     exam_session = ExamSessionSerializer(read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
+    approved_by_name = serializers.CharField(
+        source="approved_by.get_full_name", read_only=True, allow_null=True
+    )
     subject_results = NurseryResultSerializer(many=True, read_only=True)
 
-    # Display values for the choice fields on NurseryTermReport
     physical_development_display = serializers.CharField(
         source="get_physical_development_display", read_only=True
     )
@@ -1547,12 +1791,16 @@ class NurseryTermReportSerializer(_RemarkPermissionMixin, serializers.ModelSeria
             "overall_percentage",
             "class_position",
             "total_students_in_class",
+            "approved_by",
+            "approved_date",
             "created_at",
             "updated_at",
         ]
 
 
 class NurseryTermReportCreateUpdateSerializer(serializers.ModelSerializer):
+    """status excluded — use approve/publish action endpoints."""
+
     class Meta:
         model = NurseryTermReport
         fields = [
@@ -1572,7 +1820,6 @@ class NurseryTermReportCreateUpdateSerializer(serializers.ModelSerializer):
             "next_term_begins",
             "class_teacher_remark",
             "head_teacher_remark",
-            "status",
         ]
 
 
@@ -1586,7 +1833,11 @@ class NurserySessionReportSerializer(
 ):
     """
     Caller must:
-        .select_related('student', 'student__student_class', 'academic_session', 'published_by')
+        .select_related(
+            'student', 'student__student_class',
+            'academic_session', 'published_by', 'approved_by',
+        )
+    List views: pass context['skip_permission_flags'] = True.
     """
 
     student = StudentMinimalSerializer(read_only=True)
@@ -1594,6 +1845,9 @@ class NurserySessionReportSerializer(
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     term_totals = serializers.JSONField(read_only=True)
     overall_position_formatted = serializers.SerializerMethodField()
+    approved_by_name = serializers.CharField(
+        source="approved_by.get_full_name", read_only=True, allow_null=True
+    )
 
     class Meta:
         model = NurserySessionReport
@@ -1606,6 +1860,8 @@ class NurserySessionReportSerializer(
             "overall_grade",
             "overall_position",
             "total_students",
+            "approved_by",
+            "approved_date",
             "created_at",
             "updated_at",
         ]
@@ -1615,6 +1871,8 @@ class NurserySessionReportSerializer(
 
 
 class NurserySessionReportCreateUpdateSerializer(serializers.ModelSerializer):
+    """status excluded — use approve/publish action endpoints."""
+
     class Meta:
         model = NurserySessionReport
         fields = [
@@ -1622,7 +1880,6 @@ class NurserySessionReportCreateUpdateSerializer(serializers.ModelSerializer):
             "academic_session",
             "class_teacher_remark",
             "head_teacher_remark",
-            "status",
         ]
 
 
@@ -1644,11 +1901,23 @@ class AssessmentScoreSerializer(serializers.ModelSerializer):
 
 
 class StudentResultSerializer(serializers.ModelSerializer):
+    """
+    Caller must:
+        .select_related(
+            'student', 'subject', 'exam_session', 'grading_system',
+            'exam_session__academic_session', 'exam_session__exam_type',
+        )
+        .prefetch_related(
+            'assessment_scores__assessment_type',
+            'comments__commented_by',
+            'grading_system__grades',
+        )
+    """
+
     student = StudentMinimalSerializer(read_only=True)
     subject = SubjectMinimalSerializer(read_only=True)
     exam_session = ExamSessionSerializer(read_only=True)
     grading_system = GradingSystemSerializer(read_only=True)
-    # Caller must: .prefetch_related('assessment_scores__assessment_type')
     assessment_scores = AssessmentScoreSerializer(many=True, read_only=True)
     comments = ResultCommentSerializer(many=True, read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
@@ -1670,7 +1939,7 @@ class DetailedStudentResultSerializer(StudentResultSerializer):
     )
 
 
-# ── Routing helper used by StudentTermResult serializers ─────────────────────
+# ── Routing helper ────────────────────────────────────────────────────────────
 
 _TERM_RESULT_MODEL_MAP = {
     "SENIOR_SECONDARY": (SeniorSecondaryResult, SeniorSecondaryResultSerializer),
@@ -1681,6 +1950,13 @@ _TERM_RESULT_MODEL_MAP = {
 
 
 def _get_subject_results_for_student(student, academic_session, term, context):
+    """
+    Fetches subject results for one student/term with the correct model and
+    minimum prefetch chain.
+
+    NOTE: Used in StudentTermResultSerializer.get_subject_results().
+    Fires one query per student — fine for detail view, avoid for list views.
+    """
     education_level = getattr(student, "education_level", None)
     model_class, serializer_class = _TERM_RESULT_MODEL_MAP.get(
         education_level, (StudentResult, StudentResultSerializer)
@@ -1704,10 +1980,7 @@ def _get_subject_results_for_student(student, academic_session, term, context):
                 "entered_by",
                 "approved_by",
             )
-            .prefetch_related(
-                "grading_system__grades",
-                "component_scores__component",
-            )
+            .prefetch_related("grading_system__grades", "component_scores__component")
         )
     elif model_class in (JuniorSecondaryResult, PrimaryResult):
         qs = (
@@ -1719,11 +1992,9 @@ def _get_subject_results_for_student(student, academic_session, term, context):
                 "exam_session__academic_session",
                 "exam_session__exam_type",
                 "entered_by",
+                "approved_by",
             )
-            .prefetch_related(
-                "grading_system__grades",
-                "component_scores__component",
-            )
+            .prefetch_related("grading_system__grades", "component_scores__component")
         )
     elif model_class is NurseryResult:
         qs = (
@@ -1735,9 +2006,10 @@ def _get_subject_results_for_student(student, academic_session, term, context):
                 "exam_session__academic_session",
                 "exam_session__exam_type",
                 "entered_by",
+                "approved_by",
                 "term_report",
             )
-            .prefetch_related("grading_system__grades")
+            .prefetch_related("grading_system__grades", "component_scores__component")
         )
     else:
         qs = model_class.objects.filter(**base_filter).select_related(
@@ -1749,6 +2021,8 @@ def _get_subject_results_for_student(student, academic_session, term, context):
 
 
 class StudentTermResultSerializer(serializers.ModelSerializer):
+    """Detail view only — get_subject_results fires one query per call."""
+
     student = StudentDetailSerializer(read_only=True)
     academic_session = AcademicSessionSerializer(read_only=True)
     comments = ResultCommentSerializer(many=True, read_only=True)
@@ -1831,12 +2105,32 @@ class StudentTermResultCreateUpdateSerializer(serializers.ModelSerializer):
 
 
 class ResultSheetSerializer(serializers.ModelSerializer):
+    """
+    Caller must:
+        .select_related(
+            'exam_session', 'student_class',
+            'student_class__education_level',
+            'exam_session__exam_type',
+            'exam_session__academic_session',
+            'exam_session__term',
+        )
+    education_level uses source= paths — no per-row SerializerMethodField queries.
+    """
+
     exam_session = ExamSessionSerializer(read_only=True)
     student_class_name = serializers.CharField(
         source="student_class.name", read_only=True, allow_null=True
     )
-    education_level = serializers.SerializerMethodField()
-    education_level_display = serializers.SerializerMethodField()
+    education_level = serializers.CharField(
+        source="student_class.education_level.level_type",
+        read_only=True,
+        allow_null=True,
+    )
+    education_level_display = serializers.CharField(
+        source="student_class.education_level.name",
+        read_only=True,
+        allow_null=True,
+    )
     status_display = serializers.CharField(source="get_status_display", read_only=True)
 
     class Meta:
@@ -1853,18 +2147,6 @@ class ResultSheetSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-
-    def get_education_level(self, obj):
-        try:
-            return obj.student_class.education_level.level_type
-        except AttributeError:
-            return None
-
-    def get_education_level_display(self, obj):
-        try:
-            return obj.student_class.education_level.name
-        except AttributeError:
-            return None
 
 
 class ResultTemplateSerializer(serializers.ModelSerializer):
@@ -1903,51 +2185,17 @@ class ResultTemplateCreateUpdateSerializer(serializers.ModelSerializer):
 
 
 # ============================================================
-# BULK / STATUS OPERATIONS
+# STATUS TRANSITION (single-record)
 # ============================================================
 
 
-class BulkResultUpdateSerializer(serializers.Serializer):
-    results = serializers.ListField(child=serializers.DictField())
-
-    def validate_results(self, value):
-        if not value:
-            raise serializers.ValidationError("Results list cannot be empty")
-        for result in value:
-            if "id" not in result:
-                raise serializers.ValidationError("Each result must have an 'id' field")
-        return value
-
-
-class BulkStatusUpdateSerializer(serializers.Serializer):
-    result_ids = serializers.ListField(child=serializers.UUIDField())
-    status = serializers.ChoiceField(
-        choices=["DRAFT", "SUBMITTED", "APPROVED", "PUBLISHED"]
-    )
-    comment = serializers.CharField(required=False, allow_blank=True)
-
-    def validate_result_ids(self, value):
-        if not value:
-            raise serializers.ValidationError("Result IDs list cannot be empty")
-        return value
-
-
-class PublishResultSerializer(serializers.Serializer):
-    result_ids = serializers.ListField(child=serializers.UUIDField())
-    publish_date = serializers.DateTimeField(required=False, allow_null=True)
-    notification_message = serializers.CharField(required=False, allow_blank=True)
-    send_notifications = serializers.BooleanField(default=True)
-
-    def validate_result_ids(self, value):
-        if not value:
-            raise serializers.ValidationError("Result IDs list cannot be empty")
-        return value
-
-
 class StatusTransitionSerializer(serializers.Serializer):
-    status = serializers.ChoiceField(
-        choices=["DRAFT", "SUBMITTED", "APPROVED", "PUBLISHED"]
-    )
+    """
+    Validates a status change on a single result/report instance.
+    View must pass context['instance'] for transition validation.
+    """
+
+    status = serializers.ChoiceField(choices=["DRAFT", "APPROVED", "PUBLISHED"])
     comment = serializers.CharField(required=False, allow_blank=True)
 
     def validate_status(self, value):
@@ -1955,18 +2203,22 @@ class StatusTransitionSerializer(serializers.Serializer):
         if not instance:
             return value
         valid_transitions = {
-            "DRAFT": ["SUBMITTED", "APPROVED"],
-            "SUBMITTED": ["APPROVED", "DRAFT"],
-            "APPROVED": ["PUBLISHED", "SUBMITTED"],
+            "DRAFT": ["APPROVED"],
+            "APPROVED": ["PUBLISHED", "DRAFT"],
             "PUBLISHED": [],
         }
         if value != instance.status and value not in valid_transitions.get(
             instance.status, []
         ):
             raise serializers.ValidationError(
-                f"Cannot change status from {instance.status} to {value}"
+                f"Cannot transition from {instance.status} to {value}"
             )
         return value
+
+
+# ============================================================
+# REPORT GENERATION / IMPORT / EXPORT
+# ============================================================
 
 
 class ReportGenerationSerializer(serializers.Serializer):
@@ -2041,6 +2293,11 @@ class ResultExportSerializer(serializers.Serializer):
     format = serializers.ChoiceField(choices=["CSV", "EXCEL", "PDF"], default="EXCEL")
     include_statistics = serializers.BooleanField(default=True)
     include_comments = serializers.BooleanField(default=False)
+
+
+# ============================================================
+# STATISTICS
+# ============================================================
 
 
 class SubjectPerformanceSerializer(serializers.Serializer):

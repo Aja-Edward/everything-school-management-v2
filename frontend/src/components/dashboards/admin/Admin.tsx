@@ -25,7 +25,7 @@ import {
   MarsStrokeIcon,
   Award
 } from 'lucide-react';
-import StudentResultChecker from './StudentResultChecker';
+// import StudentResultChecker from './StudentResultChecker';
 import TokenGenerator from '@/pages/admin/TokenGenerator';
 import {
   UserProfile,
@@ -161,9 +161,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       { name: 'Exams', icon: FileText, path: '/admin/exams' },
       { name: 'Exam Schedules', icon: Calendar, path: '/admin/exam-schedules' },
       { name: 'Results', icon: BarChart3, path: '/admin/results' },
-      { name: 'Result Checker', icon: Search, path: '/admin/result-checker' },
       { name: 'Admin Remarks', icon: PenTool, path: '/admin/admin-remarks' },
-      { name: 'Student Result Checker', icon: Search, path: '/admin/student-result-checker' },
       { name: 'Token Generator', icon: Key, path: '/admin/token-generator' },
       { name: 'Messages', icon: MessageSquare, path: '/admin/messages' }
     );
@@ -199,10 +197,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleNavigationClick = (itemName: string, path: string) => {
     setIsMobileMenuOpen(false);
 
-    if (itemName === 'Student Result Checker') {
-      setShowStudentResultChecker(true);
-      return;
-    }
+
     if (itemName === 'Token Generator') {
       setShowTokenGenerator(true);
       return;
@@ -374,9 +369,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         )}
 
         {/* Student Result Checker Modal */}
-        {showStudentResultChecker && (
+        {/* {showStudentResultChecker && (
           <StudentResultChecker onClose={() => setShowStudentResultChecker(false)} />
-        )}
+        )} */}
 
         {/* Token Generator Modal */}
         {showTokenGenerator && (

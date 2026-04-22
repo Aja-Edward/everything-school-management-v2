@@ -1,130 +1,750 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>{{ student.name }} - Session Report</title>
-    <style>
-        body { font-family: Arial, sans-serif; color: #333; background-color: #f9f9f9; margin:0; padding:0; }
-        .container { max-width: 900px; margin: 20px auto; background-color:#fff; padding:20px 30px; box-shadow:0 0 10px rgba(0,0,0,0.1); }
-        .header, .student-info, .summary, .remarks { text-align:center; margin-bottom:20px; }
-        .school-logo { width:80px; height:80px; object-fit:contain; border-radius:50%; }
-        h1,h2,h3 { margin:5px 0; }
-        table { width:100%; border-collapse:collapse; font-size:0.9rem; }
-        th, td { border:1px solid #333; padding:5px; text-align:center; }
-        th { background-color:#f0f0f0; }
-        .pass { background-color:#d4edda; color:#155724; font-weight:bold; }
-        .fail { background-color:#f8d7da; color:#721c24; font-weight:bold; }
-    </style>
+<meta charset="UTF-8">
+<title>{{ student.name }} - Senior Secondary Session Report</title>
+
+<style>
+@page {
+    size: A4;
+    margin: 14mm 15mm;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: 9pt;
+    color: #0f172a;
+    background: #ffffff;
+    line-height: 1.45;
+}
+
+/* ===================== WATERMARK ===================== */
+.watermark {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 0;
+    pointer-events: none;
+}
+
+.watermark-ring {
+    width: 380px;
+    height: 380px;
+    border-radius: 50%;
+    border: 12px solid #0f4c81;
+    opacity: 0.055;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.watermark-ring img {
+    width: 180px;
+    height: 180px;
+    object-fit: contain;
+}
+
+.watermark-text {
+    position: absolute;
+    bottom: 20%;
+    font-size: 44pt;
+    font-weight: 900;
+    letter-spacing: 3px;
+    color: #0f4c81;
+    opacity: 0.04;
+}
+
+/* ===================== LAYOUT ===================== */
+.content { position: relative; z-index: 1; }
+
+/* ===================== HEADER ===================== */
+.header {
+    display: grid;
+    grid-template-columns: 90px 1fr 90px;
+    align-items: center;
+    gap: 10px;
+    padding-bottom: 10px;
+    border-bottom: 4px solid #0f4c81;
+    margin-bottom: 0;
+}
+
+.school-logo {
+    width: 78px;
+    height: 78px;
+    object-fit: contain;
+}
+
+.logo-placeholder {
+    width: 78px;
+    height: 78px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #0f4c81, #1e40af);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+    color: #fff;
+    font-size: 8.5pt;
+    letter-spacing: 1px;
+}
+
+.header-center { text-align: center; }
+
+.school-name {
+    font-size: 16pt;
+    font-weight: 900;
+    color: #0f172a;
+    letter-spacing: 0.5px;
+    line-height: 1.1;
+}
+
+.school-sub {
+    font-size: 7.5pt;
+    color: #475569;
+    margin-top: 2px;
+}
+
+.school-motto {
+    font-size: 7.5pt;
+    font-style: italic;
+    color: #1e40af;
+    margin-top: 2px;
+}
+
+/* Decorative accent strip below header */
+.accent-strip {
+    height: 5px;
+    background: linear-gradient(90deg, #0f4c81 0%, #1e40af 40%, #3b82f6 70%, #93c5fd 100%);
+    margin-bottom: 12px;
+}
+
+/* ===================== REPORT TITLE BAND ===================== */
+.title-band {
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 60%, #1d4ed8 100%);
+    border-radius: 8px;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.title-band-left .report-label {
+    font-size: 7pt;
+    font-weight: 700;
+    color: #93c5fd;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+}
+
+.title-band-left .report-name {
+    font-size: 14pt;
+    font-weight: 900;
+    color: #ffffff;
+    letter-spacing: 0.5px;
+    line-height: 1;
+}
+
+.title-band-right {
+    text-align: right;
+}
+
+.title-band-right .session-label {
+    font-size: 6.5pt;
+    color: #93c5fd;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+}
+
+.title-band-right .session-name {
+    font-size: 10pt;
+    font-weight: 800;
+    color: #ffffff;
+}
+
+.title-band-right .session-dates {
+    font-size: 7pt;
+    color: #bfdbfe;
+    margin-top: 1px;
+}
+
+/* ===================== STUDENT PROFILE CARD ===================== */
+.profile-card {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0;
+    border: 2px solid #0f4c81;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 14px;
+}
+
+.profile-segment {
+    padding: 10px 12px;
+    border-right: 1px solid #bfdbfe;
+}
+
+.profile-segment:last-child {
+    border-right: none;
+}
+
+.profile-segment-label {
+    font-size: 6.5pt;
+    font-weight: 700;
+    color: #1e40af;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    padding-bottom: 3px;
+    border-bottom: 1px solid #e0f2fe;
+}
+
+.profile-field {
+    display: flex;
+    justify-content: space-between;
+    font-size: 8pt;
+    margin-bottom: 3px;
+}
+
+.profile-field .pf-key {
+    color: #64748b;
+    font-weight: 600;
+}
+
+.profile-field .pf-val {
+    font-weight: 700;
+    color: #0f172a;
+    text-align: right;
+}
+
+/* Highlighted position segment */
+.profile-segment.highlight {
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+}
+
+.position-display {
+    text-align: center;
+    margin-top: 4px;
+}
+
+.position-number {
+    font-size: 28pt;
+    font-weight: 900;
+    color: #1e40af;
+    line-height: 1;
+}
+
+.position-denom {
+    font-size: 9pt;
+    color: #64748b;
+    font-weight: 600;
+}
+
+.position-grade {
+    display: inline-block;
+    margin-top: 4px;
+    background: #1e40af;
+    color: #fff;
+    font-size: 11pt;
+    font-weight: 900;
+    padding: 2px 14px;
+    border-radius: 20px;
+    letter-spacing: 1px;
+}
+
+/* ===================== SECTION HEADING ===================== */
+.section-heading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 14px 0 8px;
+}
+
+.section-heading-bar {
+    width: 4px;
+    height: 16px;
+    background: linear-gradient(180deg, #0f4c81, #3b82f6);
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+
+.section-heading-text {
+    font-size: 10pt;
+    font-weight: 900;
+    color: #0f172a;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+
+.section-heading-line {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, #bfdbfe, transparent);
+}
+
+/* ===================== TERM TOTALS TABLE ===================== */
+.term-table-wrapper { margin-bottom: 10px; }
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8.5pt;
+}
+
+th, td {
+    border: 1px solid #cbd5e1;
+    padding: 6px 8px;
+    text-align: center;
+    vertical-align: middle;
+}
+
+thead th {
+    background: linear-gradient(180deg, #1e3a8a 0%, #1e40af 100%);
+    color: #ffffff;
+    font-weight: 800;
+    font-size: 8pt;
+    letter-spacing: 0.3px;
+}
+
+.col-term {
+    text-align: left;
+    padding-left: 10px;
+    font-weight: 700;
+    width: 180px;
+    color: #0f172a;
+}
+
+.col-term th {
+    text-align: left;
+    padding-left: 10px;
+}
+
+.td-bold {
+    font-weight: 800;
+    color: #1e40af;
+}
+
+.td-pos {
+    font-weight: 700;
+    color: #0f172a;
+}
+
+tbody tr:nth-child(odd) {
+    background: #f8fafc;
+}
+
+tbody tr:nth-child(even) {
+    background: #f0f9ff;
+}
+
+tbody tr:last-child td {
+    border-bottom: 2px solid #1e40af;
+}
+
+/* Summary row at the bottom of term table */
+.totals-row td {
+    background: linear-gradient(180deg, #eff6ff, #dbeafe) !important;
+    font-weight: 800;
+    color: #1e3a8a;
+    border-top: 2px solid #1e40af;
+}
+
+/* ===================== SCORECARD ===================== */
+.scorecard {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.score-tile {
+    border: 1.5px solid #bfdbfe;
+    border-radius: 8px;
+    padding: 8px 10px;
+    text-align: center;
+    background: linear-gradient(135deg, #f8fafc, #eff6ff);
+}
+
+.score-tile-label {
+    font-size: 6.5pt;
+    font-weight: 700;
+    color: #64748b;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+
+.score-tile-value {
+    font-size: 16pt;
+    font-weight: 900;
+    color: #1e40af;
+    line-height: 1;
+}
+
+.score-tile-sub {
+    font-size: 7pt;
+    color: #94a3b8;
+    margin-top: 2px;
+}
+
+/* ===================== REMARKS ===================== */
+.remarks-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.remark-card {
+    border: 1.5px solid #bfdbfe;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.remark-card-header {
+    background: linear-gradient(90deg, #1e3a8a, #1e40af);
+    padding: 5px 10px;
+    font-size: 7.5pt;
+    font-weight: 800;
+    color: #ffffff;
+    letter-spacing: 0.5px;
+}
+
+.remark-card-body {
+    padding: 8px 10px;
+    background: #ffffff;
+    min-height: 36px;
+}
+
+.remark-text {
+    font-size: 8pt;
+    color: #334155;
+    line-height: 1.4;
+    margin-bottom: 6px;
+}
+
+.sig-area {
+    margin-top: 6px;
+    padding-top: 5px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.signature-image {
+    max-width: 200px;
+    max-height: 70px;
+    height: auto;
+    display: block;
+    margin-bottom: 2px;
+}
+
+.sig-placeholder {
+    display: inline-block;
+    border-bottom: 1px solid #94a3b8;
+    min-width: 130px;
+    height: 1px;
+    margin-bottom: 3px;
+}
+
+.sig-label {
+    display: block;
+    font-size: 6pt;
+    color: #94a3b8;
+}
+
+.sig-date {
+    display: block;
+    font-size: 6pt;
+    font-style: italic;
+    color: #1e40af;
+    margin-top: 1px;
+}
+
+/* ===================== FOOTER ===================== */
+.report-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 8px;
+    border-top: 2px solid #e2e8f0;
+    font-size: 7pt;
+    color: #94a3b8;
+    margin-top: 10px;
+}
+
+.footer-school {
+    font-weight: 700;
+    color: #1e40af;
+    font-size: 7.5pt;
+}
+
+/* ===================== PRINT ===================== */
+@media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .signature-image {
+        image-rendering: -webkit-optimize-contrast;
+        image-rendering: crisp-edges;
+    }
+}
+</style>
 </head>
+
 <body>
-<div class="container">
-    <div class="header">
+
+<!-- WATERMARK -->
+<div class="watermark">
+    <div class="watermark-ring">
         {% if school.logo %}
-            <img src="{{ school.logo }}" alt="School Logo" class="school-logo">
-        {% else %}
-            <div class="school-logo" style="background-color:#007bff;color:white;display:flex;align-items:center;justify-content:center;">LOGO</div>
+            <img src="{{ school.logo }}" alt="">
         {% endif %}
-        <h1>{{ school.name|upper }}</h1>
-        <p>{{ school.address }}</p>
-        <p>{{ school.phone }} | {{ school.email }}</p>
-        {% if school.motto %}<p><em>{{ school.motto }}</em></p>{% endif %}
-        <h2>STUDENT'S SESSION REPORT</h2>
-        <p>{{ academic_session.name }} Academic Session</p>
+    </div>
+    <div class="watermark-text">{{ school.name|upper }}</div>
+</div>
+
+<div class="content">
+
+<!-- HEADER -->
+<div class="header">
+    {% if school.logo %}
+        <img src="{{ school.logo }}" class="school-logo" alt="School Logo">
+    {% else %}
+        <div class="logo-placeholder">LOGO</div>
+    {% endif %}
+
+    <div class="header-center">
+        <div class="school-name">{{ school.name|upper }}</div>
+        <div class="school-sub">
+            {{ school.address }}
+            {% if school.phone %} &nbsp;|&nbsp; {{ school.phone }}{% endif %}
+            {% if school.email %} &nbsp;|&nbsp; {{ school.email }}{% endif %}
+        </div>
+        {% if school.motto %}
+            <div class="school-motto">&ldquo;{{ school.motto }}&rdquo;</div>
+        {% endif %}
     </div>
 
-    <div class="student-info">
-        <h3>{{ student.name|upper }} ({{ student.admission_number }})</h3>
-        <p>Class: {{ student.class }} | Age: {{ student.age }} | No in Class: {{ total_students }}</p>
+    <div></div><!-- spacer column -->
+</div>
+
+<div class="accent-strip"></div>
+
+<!-- TITLE BAND -->
+<div class="title-band">
+    <div class="title-band-left">
+        <div class="report-label">Official Academic Record</div>
+        <div class="report-name">Senior Secondary Session Report</div>
+    </div>
+    <div class="title-band-right">
+        <div class="session-label">Academic Session</div>
+        <div class="session-name">{{ session.name }}</div>
+        <div class="session-dates">
+            {{ session.start_date }}{% if session.end_date %} &ndash; {{ session.end_date }}{% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- STUDENT PROFILE CARD -->
+<div class="profile-card">
+    <!-- Segment 1: Identity -->
+    <div class="profile-segment">
+        <div class="profile-segment-label">Student Details</div>
+        <div class="profile-field">
+            <span class="pf-key">Full Name</span>
+            <span class="pf-val">{{ student.name|upper }}</span>
+        </div>
+        <div class="profile-field">
+            <span class="pf-key">Admission No.</span>
+            <span class="pf-val">{{ student.admission_number|default:"—" }}</span>
+        </div>
+        <div class="profile-field">
+            <span class="pf-key">Class</span>
+            <span class="pf-val">{{ student.class }}</span>
+        </div>
+        {% if student.stream %}
+        <div class="profile-field">
+            <span class="pf-key">Stream</span>
+            <span class="pf-val">{{ student.stream }}</span>
+        </div>
+        {% endif %}
     </div>
 
-    <div class="summary">
-        <p>Average Score: {{ average_score }} | Grade: {{ overall_grade }}</p>
-        <p class="{{ "pass" if is_passed else "fail" }}">Result: {{ "PASS" if is_passed else "FAIL" }}</p>
-        <p>Position in Class: {{ class_position }} of {{ total_students }}</p>
+    <!-- Segment 2: Session summary -->
+    <div class="profile-segment">
+        <div class="profile-segment-label">Session Summary</div>
+        <div class="profile-field">
+            <span class="pf-key">Overall Total</span>
+            <span class="pf-val">{{ summary.overall_total|floatformat:1 }}</span>
+        </div>
+        <div class="profile-field">
+            <span class="pf-key">Overall Average</span>
+            <span class="pf-val">{{ summary.overall_average|floatformat:1 }}%</span>
+        </div>
+        <div class="profile-field">
+            <span class="pf-key">Overall Grade</span>
+            <span class="pf-val">{{ summary.overall_grade|default:"—" }}</span>
+        </div>
+        <div class="profile-field">
+            <span class="pf-key">Terms Completed</span>
+            <span class="pf-val">{{ summary.terms_completed }}</span>
+        </div>
+        <div class="profile-field">
+            <span class="pf-key">No. in Class</span>
+            <span class="pf-val">{{ summary.total_students|default:"—" }}</span>
+        </div>
     </div>
 
+    <!-- Segment 3: Position highlight -->
+    <div class="profile-segment highlight">
+        <div class="profile-segment-label">Class Position</div>
+        <div class="position-display">
+            <div class="position-number">{{ summary.overall_position|default:"—" }}</div>
+            {% if summary.total_students %}
+            <div class="position-denom">of {{ summary.total_students }} students</div>
+            {% endif %}
+            {% if summary.overall_grade %}
+            <div class="position-grade">{{ summary.overall_grade }}</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- TERM PERFORMANCE TABLE -->
+<div class="section-heading">
+    <div class="section-heading-bar"></div>
+    <div class="section-heading-text">Term-by-Term Performance</div>
+    <div class="section-heading-line"></div>
+</div>
+
+<div class="term-table-wrapper">
     <table>
         <thead>
-        <tr>
-            <th>Subject</th>
-            <th>Term 1</th>
-            <th>Term 2</th>
-            <th>Term 3</th>
-            <th>Total</th>
-            <th>Class Avg</th>
-            <th>Highest</th>
-            <th>Lowest</th>
-            <th>Position</th>
-            <th>Grade</th>
-            <th>Teacher Remark</th>
-        </tr>
+            <tr>
+                <th class="col-term" style="text-align:left; padding-left:10px;">Term</th>
+                <th>Total Score</th>
+                <th>Average (%)</th>
+                <th>Class Position</th>
+            </tr>
         </thead>
         <tbody>
-        {% for subject in subjects %}
-        <tr>
-            <td>{{ subject.subject.name }}</td>
-            <td>{{ subject.term1_score }}</td>
-            <td>{{ subject.term2_score }}</td>
-            <td>{{ subject.term3_score }}</td>
-            <td>{{ subject.total_score }}</td>
-            <td>{{ subject.class_average }}</td>
-            <td>{{ subject.highest_in_class }}</td>
-            <td>{{ subject.lowest_in_class }}</td>
-            <td>{{ subject.position }}</td>
-            <td>{{ subject.grade }}</td>
-            <td>{{ subject.teacher_remark }}</td>
-        </tr>
-        {% endfor %}
+            {% if term_totals %}
+                {% for t in term_totals %}
+                <tr>
+                    <td class="col-term">{{ t.term_name }}</td>
+                    <td class="td-bold">{{ t.total_score|floatformat:1 }}</td>
+                    <td>{{ t.average_score|floatformat:1 }}%</td>
+                    <td class="td-pos">
+                        {% if t.class_position %}{{ t.class_position }}{% else %}—{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                <!-- Session totals row -->
+                <tr class="totals-row">
+                    <td class="col-term" style="font-weight:900; color:#1e3a8a;">
+                        SESSION TOTAL
+                    </td>
+                    <td>{{ summary.overall_total|floatformat:1 }}</td>
+                    <td>{{ summary.overall_average|floatformat:1 }}%</td>
+                    <td>{{ summary.overall_position|default:"—" }}</td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="4" style="text-align:center; color:#94a3b8; font-style:italic; padding:12px;">
+                        No term data available. Use the Compute action to populate from approved term reports.
+                    </td>
+                </tr>
+            {% endif %}
         </tbody>
     </table>
+</div>
 
-    <div class="remarks-section">
-   <div class="remark-row">
-        <div class="remark-column">
-            <h4>Class Teacher's Remark:</h4>
-            <p>{{ remarks.class_teacher }}</p>
-            
-            <!-- ✅ ADD SIGNATURE DISPLAY -->
-            {% if signatures.class_teacher.url %}
-            <div class="signature-container">
-                <img src="{{ signatures.class_teacher.url }}" 
-                     alt="Class Teacher Signature" 
-                     class="signature-image" />
-                {% if signatures.class_teacher.signed_at %}
-                <p class="signature-date">Signed: {{ signatures.class_teacher.signed_at }}</p>
-                {% endif %}
-            </div>
-            {% else %}
-            <div class="signature-placeholder">
-                <p>_____________________</p>
-                <p class="signature-label">Class Teacher's Signature</p>
-            </div>
-            {% endif %}
-        </div>
-        
-        <div class="remark-column">
-            <h4>Head Teacher's Remark:</h4>
-            <p>{{ remarks.head_teacher }}</p>
-            
-            <!-- ✅ ADD SIGNATURE DISPLAY -->
-            {% if signatures.head_teacher.url %}
-            <div class="signature-container">
-                <img src="{{ signatures.head_teacher.url }}" 
-                     alt="Head Teacher Signature" 
-                     class="signature-image" />
-                {% if signatures.head_teacher.signed_at %}
-                <p class="signature-date">Signed: {{ signatures.head_teacher.signed_at }}</p>
-                {% endif %}
-            </div>
-            {% else %}
-            <div class="signature-placeholder">
-                <p>_____________________</p>
-                <p class="signature-label">Head Teacher's Signature</p>
-            </div>
-            {% endif %}
+<!-- SCORECARD TILES -->
+<div class="scorecard">
+    <div class="score-tile">
+        <div class="score-tile-label">Overall Total</div>
+        <div class="score-tile-value">{{ summary.overall_total|floatformat:0 }}</div>
+        <div class="score-tile-sub">cumulative score</div>
+    </div>
+    <div class="score-tile">
+        <div class="score-tile-label">Overall Average</div>
+        <div class="score-tile-value">{{ summary.overall_average|floatformat:1 }}<span style="font-size:10pt;">%</span></div>
+        <div class="score-tile-sub">session average</div>
+    </div>
+    <div class="score-tile">
+        <div class="score-tile-label">Grade</div>
+        <div class="score-tile-value">{{ summary.overall_grade|default:"—" }}</div>
+        <div class="score-tile-sub">overall grade</div>
+    </div>
+    <div class="score-tile">
+        <div class="score-tile-label">Position</div>
+        <div class="score-tile-value">{{ summary.overall_position|default:"—" }}</div>
+        <div class="score-tile-sub">
+            {% if summary.total_students %}of {{ summary.total_students }}{% else %}in class{% endif %}
         </div>
     </div>
 </div>
+
+<!-- REMARKS -->
+<div class="section-heading">
+    <div class="section-heading-bar"></div>
+    <div class="section-heading-text">Teacher Remarks &amp; Signatures</div>
+    <div class="section-heading-line"></div>
 </div>
+
+<div class="remarks-grid">
+    <!-- Class Teacher -->
+    <div class="remark-card">
+        <div class="remark-card-header">Class Teacher&rsquo;s Remark</div>
+        <div class="remark-card-body">
+            <p class="remark-text">{{ remarks.class_teacher|default:"" }}</p>
+            <div class="sig-area">
+                {% if signatures.class_teacher.url %}
+                    <img src="{{ signatures.class_teacher.url }}"
+                         alt="Class Teacher Signature"
+                         class="signature-image" />
+                    {% if signatures.class_teacher.signed_at %}
+                        <span class="sig-date">{{ signatures.class_teacher.signed_at }}</span>
+                    {% endif %}
+                {% else %}
+                    <span class="sig-placeholder"></span>
+                    <span class="sig-label">Signature &amp; Date</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Head Teacher -->
+    <div class="remark-card">
+        <div class="remark-card-header">Head Teacher&rsquo;s Remark</div>
+        <div class="remark-card-body">
+            <p class="remark-text">{{ remarks.head_teacher|default:"" }}</p>
+            <div class="sig-area">
+                {% if signatures.head_teacher.url %}
+                    <img src="{{ signatures.head_teacher.url }}"
+                         alt="Head Teacher Signature"
+                         class="signature-image" />
+                    {% if signatures.head_teacher.signed_at %}
+                        <span class="sig-date">{{ signatures.head_teacher.signed_at }}</span>
+                    {% endif %}
+                {% else %}
+                    <span class="sig-placeholder"></span>
+                    <span class="sig-label">Signature &amp; Date</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- FOOTER -->
+<div class="report-footer">
+    <span class="footer-school">{{ school.name }}</span>
+    <span>Generated on {{ generated_date }}</span>
+    <span>This is an official school document</span>
+</div>
+
+</div><!-- .content -->
 </body>
 </html>

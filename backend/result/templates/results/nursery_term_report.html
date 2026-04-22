@@ -3,493 +3,492 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ student.name }} - Nursery Term Report</title> 
-</head>
-
-<style>
-    * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-    }
-
-    @page {
-        size: A4;
-        margin: 8mm;
-    }
-
-    @media print {
-        body {
+    <title>{{ student.name }} - Nursery Term Report</title>
+    <style>
+        * {
             margin: 0;
             padding: 0;
+            box-sizing: border-box;
         }
+
+        @page {
+            size: A4;
+            margin: 8mm;
+        }
+
+        @media print {
+            body {
+                margin: 0;
+                padding: 0;
+            }
+            .container {
+                box-shadow: none;
+                margin: 0;
+                padding: 12mm;
+            }
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #2c3e50;
+            background-color: #f8f9fa;
+            font-size: 9px;
+            line-height: 1.3;
+        }
+
         .container {
-            box-shadow: none;
-            margin: 0;
+            max-width: 210mm;
+            margin: 10px auto;
             padding: 12mm;
+            background: white;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+            position: relative;
         }
-    }
 
-    body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        color: #2c3e50;
-        background-color: #f8f9fa;
-        font-size: 9px;
-        line-height: 1.3;
-    }
+        /* Elegant Watermark */
+        .watermark {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            opacity: 0.03;
+            pointer-events: none;
+            z-index: 1;
+        }
 
-    .container {
-        max-width: 210mm;
-        margin: 10px auto;
-        padding: 12mm;
-        background: white;
-        box-shadow: 0 0 20px rgba(0,0,0,0.1);
-        position: relative;
-    }
+        .watermark-circle {
+            width: 400px;
+            height: 400px;
+            border: 3px solid #3498db;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 42px;
+            font-weight: 900;
+            color: #3498db;
+            letter-spacing: 4px;
+        }
 
-    /* Elegant Watermark */
-    .watermark {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        opacity: 0.03;
-        pointer-events: none;
-        z-index: 1;
-    }
+        .content {
+            position: relative;
+            z-index: 10;
+        }
 
-    .watermark-circle {
-        width: 400px;
-        height: 400px;
-        border: 3px solid #3498db;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 42px;
-        font-weight: 900;
-        color: #3498db;
-        letter-spacing: 4px;
-    }
+        /* Elegant Header */
+        .header {
+            border-bottom: 3px solid #3498db;
+            margin-bottom: 12px;
+            padding-bottom: 10px;
+        }
 
-    .content {
-        position: relative;
-        z-index: 10;
-    }
+        .header-top {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
 
-    /* Elegant Header */
-    .header {
-        border-bottom: 3px solid #3498db;
-        margin-bottom: 12px;
-        padding-bottom: 10px;
-    }
+        .logo-section {
+            flex-shrink: 0;
+        }
 
-    .header-top {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 8px;
-    }
+        .school-logo {
+            width: 55px;
+            height: 55px;
+            object-fit: contain;
+            border-radius: 50%;
+            border: 2px solid #3498db;
+            padding: 3px;
+            background: white;
+        }
 
-    .logo-section {
-        flex-shrink: 0;
-    }
+        .logo-placeholder {
+            width: 55px;
+            height: 55px;
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 9px;
+        }
 
-    .school-logo {
-        width: 55px;
-        height: 55px;
-        object-fit: contain;
-        border-radius: 50%;
-        border: 2px solid #3498db;
-        padding: 3px;
-        background: white;
-    }
+        .school-info {
+            flex: 1;
+            text-align: center;
+        }
+        .school-info h1{
+            font-weight: 900;
+        }
 
-    .logo-placeholder {
-        width: 55px;
-        height: 55px;
-        background: linear-gradient(135deg, #3498db, #2980b9);
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-        font-weight: 700;
-        font-size: 9px;
-    }
+        .school-name {
+            font-size: 18px;
+            font-weight: 900;
+            color: #2c3e50;
+            margin-bottom: 3px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
 
-    .school-info {
-        flex: 1;
-        text-align: center;
-    }
-    .school-info h1{
-        font-weight: 900;
-    }
+        .school-details {
+            font-size: 7.5px;
+            color: #7f8c8d;
+            line-height: 1.4;
+        }
 
-    .school-name {
-        font-size: 18px;
-        font-weight: 900;
-        color: #2c3e50;
-        margin-bottom: 3px;
-        letter-spacing: 1px;
-        text-transform: uppercase;
-    }
+        .school-motto {
+            font-style: italic;
+            color: #3498db;
+            font-weight: 600;
+            margin-top: 2px;
+        }
 
-    .school-details {
-        font-size: 7.5px;
-        color: #7f8c8d;
-        line-height: 1.4;
-    }
+        .report-banner {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            text-align: center;
+            padding: 5px;
+            margin: 8px -12mm 12px -12mm;
+            font-weight: 700;
+            font-size: 10px;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+        }
 
-    .school-motto {
-        font-style: italic;
-        color: #3498db;
-        font-weight: 600;
-        margin-top: 2px;
-    }
+        .session-info {
+            text-align: center;
+            font-size: 8px;
+            color: #7f8c8d;
+            margin-top: -8px;
+            margin-bottom: 10px;
+        }
 
-    .report-banner {
-        background: linear-gradient(135deg, #3498db, #2980b9);
-        color: white;
-        text-align: center;
-        padding: 5px;
-        margin: 8px -12mm 12px -12mm;
-        font-weight: 700;
-        font-size: 10px;
-        letter-spacing: 1.5px;
-        text-transform: uppercase;
-    }
+        /* Student Info Grid */
+        .student-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px 10px;
+            margin-bottom: 10px;
+            font-size: 8px;
+        }
 
-    .session-info {
-        text-align: center;
-        font-size: 8px;
-        color: #7f8c8d;
-        margin-top: -8px;
-        margin-bottom: 10px;
-    }
+        .info-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
 
-    /* Student Info Grid */
-    .student-grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 6px 10px;
-        margin-bottom: 10px;
-        font-size: 8px;
-    }
+        .info-label {
+            font-weight: 700;
+            color: #3498db;
+            white-space: nowrap;
+        }
 
-    .info-item {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-    }
+        .info-value {
+            flex: 1;
+            border-bottom: 1px dotted #bdc3c7;
+            color: #2c3e50;
+            font-weight: 600;
+            padding-bottom: 1px;
+        }
 
-    .info-label {
-        font-weight: 700;
-        color: #3498db;
-        white-space: nowrap;
-    }
+        /* Section Headers */
+        .section-header {
+            background: linear-gradient(135deg, #ecf0f1, #bdc3c7);
+            color: #2c3e50;
+            font-weight: 700;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 4px 8px;
+            margin: 10px 0 6px 0;
+            border-left: 4px solid #3498db;
+        }
 
-    .info-value {
-        flex: 1;
-        border-bottom: 1px dotted #bdc3c7;
-        color: #2c3e50;
-        font-weight: 600;
-        padding-bottom: 1px;
-    }
+        /* Compact Table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 8px;
+            margin-bottom: 10px;
+        }
 
-    /* Section Headers */
-    .section-header {
-        background: linear-gradient(135deg, #ecf0f1, #bdc3c7);
-        color: #2c3e50;
-        font-weight: 700;
-        font-size: 9px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        padding: 4px 8px;
-        margin: 10px 0 6px 0;
-        border-left: 4px solid #3498db;
-    }
+        thead {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+        }
 
-    /* Compact Table */
-    table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 8px;
-        margin-bottom: 10px;
-    }
+        th {
+            padding: 5px 3px;
+            text-align: center;
+            font-weight: 700;
+            font-size: 7.5px;
+            border: 1px solid #2980b9;
+            line-height: 1.2;
+        }
 
-    thead {
-        background: linear-gradient(135deg, #3498db, #2980b9);
-        color: white;
-    }
+        td {
+            padding: 5px 4px;
+            border: 1px solid #e0e0e0;
+            text-align: center;
+        }
 
-    th {
-        padding: 5px 3px;
-        text-align: center;
-        font-weight: 700;
-        font-size: 7.5px;
-        border: 1px solid #2980b9;
-        line-height: 1.2;
-    }
+        .subject-name {
+            text-align: left;
+            font-weight: 600;
+            color: #2c3e50;
+            background: #f8f9fa;
+            padding-left: 6px;
+        }
 
-    td {
-        padding: 5px 4px;
-        border: 1px solid #e0e0e0;
-        text-align: center;
-    }
+        .score-value {
+            font-weight: 700;
+            color: #3498db;
+        }
 
-    .subject-name {
-        text-align: left;
-        font-weight: 600;
-        color: #2c3e50;
-        background: #f8f9fa;
-        padding-left: 6px;
-    }
+        tbody tr:hover {
+            background: #f1f8ff;
+        }
 
-    .score-value {
-        font-weight: 700;
-        color: #3498db;
-    }
+        /* Two Column Layout */
+        .two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
 
-    tbody tr:hover {
-        background: #f1f8ff;
-    }
+        /* Summary Box */
+        .summary-box {
+            border: 2px solid #3498db;
+            border-radius: 6px;
+            padding: 8px;
+            background: linear-gradient(135deg, #f8f9fa, #ffffff);
+        }
 
-    /* Two Column Layout */
-    .two-col {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
-        margin-bottom: 10px;
-    }
+        .summary-title {
+            font-size: 9px;
+            font-weight: 700;
+            color: #3498db;
+            margin-bottom: 6px;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
 
-    /* Summary Box */
-    .summary-box {
-        border: 2px solid #3498db;
-        border-radius: 6px;
-        padding: 8px;
-        background: linear-gradient(135deg, #f8f9fa, #ffffff);
-    }
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 3px 0;
+            font-size: 8px;
+            border-bottom: 1px dotted #e0e0e0;
+        }
 
-    .summary-title {
-        font-size: 9px;
-        font-weight: 700;
-        color: #3498db;
-        margin-bottom: 6px;
-        text-align: center;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
+        .summary-row:last-child {
+            border-bottom: none;
+        }
 
-    .summary-row {
-        display: flex;
-        justify-content: space-between;
-        padding: 3px 0;
-        font-size: 8px;
-        border-bottom: 1px dotted #e0e0e0;
-    }
+        .summary-label {
+            color: #7f8c8d;
+            font-weight: 600;
+        }
 
-    .summary-row:last-child {
-        border-bottom: none;
-    }
+        .summary-value {
+            color: #2c3e50;
+            font-weight: 700;
+        }
 
-    .summary-label {
-        color: #7f8c8d;
-        font-weight: 600;
-    }
+        /* Development Table */
+        .dev-box {
+            border: 2px solid #3498db;
+            border-radius: 6px;
+            overflow: hidden;
+            background: white;
+        }
 
-    .summary-value {
-        color: #2c3e50;
-        font-weight: 700;
-    }
+        .dev-title {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            padding: 5px;
+            font-size: 9px;
+            font-weight: 700;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
 
-    /* Development Table */
-    .dev-box {
-        border: 2px solid #3498db;
-        border-radius: 6px;
-        overflow: hidden;
-        background: white;
-    }
+        .dev-box table {
+            margin: 0;
+            font-size: 7.5px;
+        }
 
-    .dev-title {
-        background: linear-gradient(135deg, #3498db, #2980b9);
-        color: white;
-        padding: 5px;
-        font-size: 9px;
-        font-weight: 700;
-        text-align: center;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
+        .dev-box td {
+            padding: 4px 6px;
+        }
 
-    .dev-box table {
-        margin: 0;
-        font-size: 7.5px;
-    }
+        .dev-box td:first-child {
+            background: #f8f9fa;
+            font-weight: 600;
+            text-align: left;
+            color: #2c3e50;
+        }
 
-    .dev-box td {
-        padding: 4px 6px;
-    }
+        .dev-box td:last-child {
+            font-weight: 700;
+            color: #3498db;
+        }
 
-    .dev-box td:first-child {
-        background: #f8f9fa;
-        font-weight: 600;
-        text-align: left;
-        color: #2c3e50;
-    }
+        /* Height & Weight */
+        .hw-box {
+            border: 2px solid #3498db;
+            border-radius: 6px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
 
-    .dev-box td:last-child {
-        font-weight: 700;
-        color: #3498db;
-    }
+        .hw-title {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            padding: 4px;
+            font-size: 8px;
+            font-weight: 700;
+            text-align: center;
+            text-transform: uppercase;
+        }
 
-    /* Height & Weight */
-    .hw-box {
-        border: 2px solid #3498db;
-        border-radius: 6px;
-        overflow: hidden;
-        margin-bottom: 10px;
-    }
+        .hw-box table {
+            margin: 0;
+            font-size: 7.5px;
+        }
 
-    .hw-title {
-        background: linear-gradient(135deg, #3498db, #2980b9);
-        color: white;
-        padding: 4px;
-        font-size: 8px;
-        font-weight: 700;
-        text-align: center;
-        text-transform: uppercase;
-    }
+        .hw-box th {
+            background: #ecf0f1;
+            color: #2c3e50;
+            padding: 3px;
+            font-size: 7px;
+        }
 
-    .hw-box table {
-        margin: 0;
-        font-size: 7.5px;
-    }
+        .hw-box td {
+            padding: 4px;
+            font-weight: 600;
+        }
 
-    .hw-box th {
-        background: #ecf0f1;
-        color: #2c3e50;
-        padding: 3px;
-        font-size: 7px;
-    }
+        /* IMPROVED REMARKS SECTION */
+        .remarks-section {
+            margin-top: 12px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
 
-    .hw-box td {
-        padding: 4px;
-        font-weight: 600;
-    }
+        .remark-box {
+            border: 2px solid #3498db;
+            border-radius: 6px;
+            overflow: hidden;
+            background: white;
+            display: flex;
+            flex-direction: column;
+        }
 
-    /* IMPROVED REMARKS SECTION */
-    .remarks-section {
-        margin-top: 12px;
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
-    }
+        .remark-title {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            padding: 5px 8px;
+            font-size: 8px;
+            font-weight: 700;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
 
-    .remark-box {
-        border: 2px solid #3498db;
-        border-radius: 6px;
-        overflow: hidden;
-        background: white;
-        display: flex;
-        flex-direction: column;
-    }
+        .remark-content {
+            padding: 8px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
 
-    .remark-title {
-        background: linear-gradient(135deg, #3498db, #2980b9);
-        color: white;
-        padding: 5px 8px;
-        font-size: 8px;
-        font-weight: 700;
-        text-align: center;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
+        .remark-text {
+            font-size: 7.5px;
+            color: #2c3e50;
+            line-height: 1.5;
+            margin-bottom: 8px;
+            min-height: 45px;
+            flex: 1;
+            border-bottom: 1px solid #ecf0f1;
+            padding-bottom: 6px;
+        }
 
-    .remark-content {
-        padding: 8px;
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-    }
+        .signature-block {
+            margin-top: auto;
+        }
 
-    .remark-text {
-        font-size: 7.5px;
-        color: #2c3e50;
-        line-height: 1.5;
-        margin-bottom: 8px;
-        min-height: 45px;
-        flex: 1;
-        border-bottom: 1px solid #ecf0f1;
-        padding-bottom: 6px;
-    }
+        .signature-label {
+            font-size: 7px;
+            color: #7f8c8d;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
 
-    .signature-block {
-        margin-top: auto;
-    }
+        .signature-image {
+            max-width: 240px;
+            max-height: 90px;
+            display: block;
+            margin: 4px 0;
+            border-bottom: 1px solid #bdc3c7;
+            padding-bottom: 2px;
+        }
 
-    .signature-label {
-        font-size: 7px;
-        color: #7f8c8d;
-        font-weight: 600;
-        margin-bottom: 4px;
-    }
+        .signature-placeholder {
+            height: 35px;
+            border-bottom: 1px solid #bdc3c7;
+            margin: 4px 0;
+        }
 
-    .signature-image {
-        max-width: 240px;
-        max-height: 90px;
-        display: block;
-        margin: 4px 0;
-        border-bottom: 1px solid #bdc3c7;
-        padding-bottom: 2px;
-    }
+        .signature-date {
+            font-size: 9px;
+            color: #95a5a6;
+            margin-top: 2px;
+        }
 
-    .signature-placeholder {
-        height: 35px;
-        border-bottom: 1px solid #bdc3c7;
-        margin: 4px 0;
-    }
+        /* Footer */
+        .footer {
+            text-align: center;
+            font-size: 7px;
+            color: #95a5a6;
+            padding-top: 6px;
+            border-top: 1px solid #ecf0f1;
+            margin-top: 10px;
+        }
 
-    .signature-date {
-        font-size: 9px;
-        color: #95a5a6;
-        margin-top: 2px;
-    }
+        /* Attendance Box */
+        .attendance-box {
+            border: 2px solid #3498db;
+            border-radius: 6px;
+            padding: 6px 8px;
+            background: linear-gradient(135deg, #f8f9fa, #ffffff);
+            text-align: center;
+            margin-bottom: 10px;
+        }
 
-    /* Footer */
-    .footer {
-        text-align: center;
-        font-size: 7px;
-        color: #95a5a6;
-        padding-top: 6px;
-        border-top: 1px solid #ecf0f1;
-        margin-top: 10px;
-    }
+        .attendance-title {
+            font-size: 8px;
+            font-weight: 700;
+            color: #3498db;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+        }
 
-    /* Attendance Box */
-    .attendance-box {
-        border: 2px solid #3498db;
-        border-radius: 6px;
-        padding: 6px 8px;
-        background: linear-gradient(135deg, #f8f9fa, #ffffff);
-        text-align: center;
-        margin-bottom: 10px;
-    }
-
-    .attendance-title {
-        font-size: 8px;
-        font-weight: 700;
-        color: #3498db;
-        margin-bottom: 4px;
-        text-transform: uppercase;
-    }
-
-    .attendance-value {
-        font-size: 11px;
-        font-weight: 700;
-        color: #2c3e50;
-    }
-</style>
+        .attendance-value {
+            font-size: 11px;
+            font-weight: 700;
+            color: #2c3e50;
+        }
+    </style>
+</head>
 
 <body>
     <div class="container">
@@ -514,7 +513,7 @@
                     <div class="school-info">
                         <h1>المدرسة القلم الموفق الدولية</h1>
                         <div class="school-name">{{ school.name|upper }}</div>
-                        <div class="school-details">  
+                        <div class="school-details">
                             <p>{{ school.address }}</p>
                             <p>{{ school.phone }} | {{ school.email }}</p>
                         </div>
@@ -609,7 +608,7 @@
                 </div>
 
                 <div class="dev-box">
-                    <div class="dev-title">Development & Conduct</div>
+                    <div class="dev-title">Development &amp; Conduct</div>
                     <table>
                         <tbody>
                             <tr>
@@ -628,10 +627,6 @@
                                 <td>General Conduct</td>
                                 <td>{{ development.conduct|default:"Good" }}</td>
                             </tr>
-                            <tr>
-                                <td>Punctuality</td>
-                                <td>{{ development.punctuality|default:"Very Good" }}</td>
-                            </tr>
                         </tbody>
                     </table>
                 </div>
@@ -647,7 +642,7 @@
 
             <!-- Height & Weight -->
             <div class="hw-box">
-                <div class="hw-title">Height & Weight Record</div>
+                <div class="hw-title">Height &amp; Weight Record</div>
                 <table>
                     <thead>
                         <tr>
@@ -672,7 +667,7 @@
                 </table>
             </div>
 
-            <!-- Remarks Section - IMPROVED -->
+            <!-- Remarks Section -->
             <div class="section-header">💬 Teacher's Remarks</div>
             <div class="remarks-section">
                 <!-- Class Teacher Remark -->
@@ -685,8 +680,8 @@
                         <div class="signature-block">
                             <div class="signature-label">Signature:</div>
                             {% if signatures.class_teacher.url %}
-                                <img src="{{ signatures.class_teacher.url }}" 
-                                     alt="Class Teacher Signature" 
+                                <img src="{{ signatures.class_teacher.url }}"
+                                     alt="Class Teacher Signature"
                                      class="signature-image" />
                                 {% if signatures.class_teacher.signed_at %}
                                     <div class="signature-date">Signed: {{ signatures.class_teacher.signed_at }}</div>
@@ -706,10 +701,10 @@
                             {{ remarks.head_teacher|default:"Keep up the good work and excellent behavior." }}
                         </div>
                         <div class="signature-block">
-                            <div class="signature-label">Signature & Stamp:</div>
+                            <div class="signature-label">Signature &amp; Stamp:</div>
                             {% if signatures.head_teacher.url %}
-                                <img src="{{ signatures.head_teacher.url }}" 
-                                     alt="Head Teacher Signature" 
+                                <img src="{{ signatures.head_teacher.url }}"
+                                     alt="Head Teacher Signature"
                                      class="signature-image" />
                                 {% if signatures.head_teacher.signed_at %}
                                     <div class="signature-date">Signed: {{ signatures.head_teacher.signed_at }}</div>

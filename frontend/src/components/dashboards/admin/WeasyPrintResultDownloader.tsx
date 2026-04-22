@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
+import { Download, Loader2, AlertCircle } from 'lucide-react';
 import { useWeasyPrintPDF } from '@/hooks/useWeasyPrintPDF';
 import { useAuthenticatedStudent } from '@/hooks/useAuthenticatedStudent'; // Extract this hook
 import type { EducationLevel, TermType } from '@/services/WeasyPrintPDFService';

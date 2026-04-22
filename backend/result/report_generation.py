@@ -1,5 +1,6 @@
-# result/report_generation.py
 """
+result/report_generation.py
+
 PDF report generation after the hardcoded-field removal.
 
 Key change: generate_term_report() for Senior/Junior/Primary no longer
@@ -15,6 +16,16 @@ needed for different school structures.
 
 The rest of the file (WeasyPrint wrapper, school info, signatures,
 age/next-term helpers) is unchanged from the previous version.
+
+Session report generators added for Junior Secondary, Primary, and Nursery.
+All three share the same BaseSessionReport shape:
+    term_totals        — list of {term_name, term_order, total_score,
+                                  average_score, class_position}
+    overall_total / overall_average / overall_grade / overall_position
+    total_students
+There is no stream FK and no subject-level breakdown on session reports
+for these levels — everything is aggregated from term reports via
+compute_from_term_reports().
 """
 
 import logging
@@ -29,9 +40,12 @@ from django.template.loader import render_to_string
 
 from .models import (
     ExamSession,
+    JuniorSecondarySessionReport,
     JuniorSecondaryTermReport,
+    NurserySessionReport,
     NurseryTermReport,
     PrimaryResult,
+    PrimarySessionReport,
     PrimaryTermReport,
     SeniorSecondarySessionReport,
     SeniorSecondaryTermReport,
@@ -53,8 +67,11 @@ except (ImportError, OSError) as e:
 
 TEMPLATE_MAPPING = {
     ("NURSERY", "term"): "results/nursery_term_report.html",
+    ("NURSERY", "session"): "results/nursery_session_report.html",
     ("PRIMARY", "term"): "results/primary_term_report.html",
+    ("PRIMARY", "session"): "results/primary_session_report.html",
     ("JUNIOR_SECONDARY", "term"): "results/junior_secondary_term_report.html",
+    ("JUNIOR_SECONDARY", "session"): "results/junior_secondary_session_report.html",
     ("SENIOR_SECONDARY", "term"): "results/senior_secondary_term_report.html",
     ("SENIOR_SECONDARY", "session"): "results/senior_secondary_session_report.html",
 }
@@ -104,9 +121,22 @@ def _build_component_breakdown(result):
     ]
 
 
+def _student_class_name(student):
+    """
+    Safe accessor for a student's class name.
+    Student.student_class is a FK to Class, not a CharField with choices,
+    so get_student_class_display() does not exist.
+    """
+    try:
+        return student.student_class.name if student.student_class else ""
+    except Exception:
+        return ""
+
+
 # ============================================================
 # BASE GENERATOR
 # ============================================================
+
 
 class ReportGenerator:
     """
@@ -278,6 +308,56 @@ class ReportGenerator:
                 {"error": "Failed to generate PDF", "detail": str(e)}, status=500
             )
 
+    def _build_session_context(self, report, report_type_label):
+        """
+        Shared context builder for Junior Secondary, Primary, and Nursery
+        session reports. All three have the same BaseSessionReport shape.
+
+        The 'stream' field is intentionally absent — only Senior Secondary
+        session reports have a stream FK.
+        """
+        term_totals = report.term_totals or []
+        return {
+            "report_type": "SESSION_REPORT",
+            "report_type_label": report_type_label,
+            "school": self.get_school_info(student=report.student),
+            "student": {
+                "name": report.student.full_name,
+                "admission_number": report.student.registration_number or "",
+                "class": _student_class_name(report.student),
+                "age": self.calculate_student_age(
+                    getattr(report.student, "date_of_birth", None)
+                ),
+            },
+            "session": {
+                "name": report.academic_session.name,
+                "year": report.academic_session.start_date.year,
+                "start_date": report.academic_session.start_date.strftime(_DATE_FORMAT),
+                "end_date": (
+                    report.academic_session.end_date.strftime(_DATE_FORMAT)
+                    if report.academic_session.end_date
+                    else "In Progress"
+                ),
+            },
+            # Each entry: {term_name, term_order, total_score,
+            #               average_score, class_position}
+            "term_totals": term_totals,
+            "summary": {
+                "overall_total": float(report.overall_total or 0),
+                "overall_average": float(report.overall_average or 0),
+                "overall_grade": report.overall_grade or "",
+                "overall_position": self.format_grade_suffix(report.overall_position),
+                "total_students": report.total_students or 0,
+                "terms_completed": len(term_totals),
+            },
+            "remarks": {
+                "class_teacher": report.class_teacher_remark or "",
+                "head_teacher": report.head_teacher_remark or "",
+            },
+            "signatures": self.get_signatures(report),
+            "generated_date": datetime.now().strftime(_DATE_FORMAT),
+        }
+
 
 # ============================================================
 # SENIOR SECONDARY
@@ -329,11 +409,9 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                     {
                         "name": result.subject.name,
                         "code": result.subject.code,
-                        # Dynamic breakdown — templates iterate this list
                         "components": component_breakdown,
                         "ca_components": ca_components,
                         "exam_components": exam_components,
-                        # Derived totals from BaseResult.calculate_scores()
                         "ca_total": float(result.ca_total or 0),
                         "total": float(result.total_score or 0),
                         "percentage": float(result.percentage or 0),
@@ -350,7 +428,7 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                 "student": {
                     "name": report.student.full_name,
                     "admission_number": report.student.registration_number or "",
-                    "class": report.student.get_student_class_display(),
+                    "class": _student_class_name(report.student),
                     "stream": report.stream.name if report.stream else "",
                     "age": self.calculate_student_age(
                         getattr(report.student, "date_of_birth", None)
@@ -400,14 +478,14 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
             return JsonResponse({"error": str(e)}, status=500)
 
     def generate_session_report(self, report_id):
+        """
+        Session reports are built from the term_totals JSONField on
+        SeniorSecondarySessionReport (populated by compute_from_term_reports()).
+        """
         try:
-            report = (
-                SeniorSecondarySessionReport.objects.select_related(
-                    "student", "student__user", "academic_session", "stream"
-                )
-                .prefetch_related("subject_results__subject")
-                .get(id=report_id)
-            )
+            report = SeniorSecondarySessionReport.objects.select_related(
+                "student", "student__user", "academic_session", "stream"
+            ).get(id=report_id)
         except SeniorSecondarySessionReport.DoesNotExist:
             return JsonResponse(
                 {"error": f"Session report {report_id} not found"}, status=404
@@ -419,26 +497,7 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
             return JsonResponse({"error": str(e)}, status=500)
 
         try:
-            subject_results = (
-                report.subject_results.all()
-                .select_related("subject")
-                .order_by("subject__name")
-            )
-            subjects_data = [
-                {
-                    "name": r.subject.name,
-                    "code": r.subject.code,
-                    "first_term_score": float(r.first_term_score or 0),
-                    "second_term_score": float(r.second_term_score or 0),
-                    "third_term_score": float(r.third_term_score or 0),
-                    "obtained": float(r.obtained or 0),
-                    "obtainable": float(r.obtainable or 0),
-                    "average_for_year": float(r.average_for_year or 0),
-                    "position": self.format_grade_suffix(r.subject_position),
-                    "remark": r.teacher_remark or "",
-                }
-                for r in subject_results
-            ]
+            term_totals = report.term_totals or []
 
             context = {
                 "report_type": "SESSION_REPORT",
@@ -446,7 +505,7 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                 "student": {
                     "name": report.student.full_name,
                     "admission_number": report.student.registration_number or "",
-                    "class": report.student.get_student_class_display(),
+                    "class": _student_class_name(report.student),
                     "stream": report.stream.name if report.stream else "",
                 },
                 "session": {
@@ -461,22 +520,19 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                         else "In Progress"
                     ),
                 },
-                "subjects": subjects_data,
+                "term_totals": term_totals,
                 "summary": {
-                    "total_subjects": len(subjects_data),
-                    "obtained": float(report.obtained or 0),
-                    "obtainable": float(report.obtainable or 0),
-                    "taa_score": float(report.taa_score or 0),
-                    "average_for_year": float(report.average_for_year or 0),
+                    "overall_total": float(report.overall_total or 0),
+                    "overall_average": float(report.overall_average or 0),
                     "overall_grade": report.overall_grade or "",
-                    "position": self.format_grade_suffix(report.class_position),
+                    "overall_position": self.format_grade_suffix(
+                        report.overall_position
+                    ),
                     "total_students": report.total_students or 0,
-                    "term1_total": float(report.term1_total or 0),
-                    "term2_total": float(report.term2_total or 0),
-                    "term3_total": float(report.term3_total or 0),
+                    "terms_completed": len(term_totals),
                 },
                 "remarks": {
-                    "class_teacher": report.teacher_remark or "",
+                    "class_teacher": report.class_teacher_remark or "",
                     "head_teacher": report.head_teacher_remark or "",
                 },
                 "signatures": self.get_signatures(report),
@@ -570,7 +626,7 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
                 "student": {
                     "name": report.student.full_name,
                     "admission_number": report.student.registration_number or "",
-                    "class": report.student.get_student_class_display(),
+                    "class": _student_class_name(report.student),
                     "age": self.calculate_student_age(
                         getattr(report.student, "date_of_birth", None)
                     ),
@@ -618,6 +674,37 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
 
         except Exception as e:
             logger.error(f"Error generating JSS term report: {e}", exc_info=True)
+            return JsonResponse({"error": str(e)}, status=500)
+
+    def generate_session_report(self, report_id):
+        """
+        Build a JSS session report PDF from the term_totals JSONField.
+        No stream field — JSS session reports aggregate across all terms only.
+        """
+        try:
+            report = JuniorSecondarySessionReport.objects.select_related(
+                "student", "student__user", "academic_session"
+            ).get(id=report_id)
+        except JuniorSecondarySessionReport.DoesNotExist:
+            return JsonResponse(
+                {"error": f"Session report {report_id} not found"}, status=404
+            )
+        except Exception as e:
+            logger.error(
+                f"Error fetching JSS session report {report_id}: {e}", exc_info=True
+            )
+            return JsonResponse({"error": str(e)}, status=500)
+
+        try:
+            context = self._build_session_context(report, "Junior Secondary")
+            html = render_to_string(self.get_template("session"), context)
+            filename = self.sanitize_filename(
+                f"{report.student.registration_number or report.student.user.username}"
+                f"_session_report.pdf"
+            )
+            return self.generate_pdf(html, filename)
+        except Exception as e:
+            logger.error(f"Error generating JSS session report: {e}", exc_info=True)
             return JsonResponse({"error": str(e)}, status=500)
 
 
@@ -714,7 +801,7 @@ class PrimaryReportGenerator(ReportGenerator):
                 "student": {
                     "name": report.student.full_name,
                     "admission_number": report.student.registration_number or "",
-                    "class": report.student.get_student_class_display(),
+                    "class": _student_class_name(report.student),
                     "age": self.calculate_student_age(
                         getattr(report.student, "date_of_birth", None)
                     ),
@@ -764,9 +851,41 @@ class PrimaryReportGenerator(ReportGenerator):
             logger.error(f"Error generating primary term report: {e}", exc_info=True)
             return JsonResponse({"error": str(e)}, status=500)
 
+    def generate_session_report(self, report_id):
+        """
+        Build a Primary session report PDF from the term_totals JSONField.
+        No stream field — Primary session reports aggregate across terms only.
+        """
+        try:
+            report = PrimarySessionReport.objects.select_related(
+                "student", "student__user", "academic_session"
+            ).get(id=report_id)
+        except PrimarySessionReport.DoesNotExist:
+            return JsonResponse(
+                {"error": f"Session report {report_id} not found"}, status=404
+            )
+        except Exception as e:
+            logger.error(
+                f"Error fetching primary session report {report_id}: {e}",
+                exc_info=True,
+            )
+            return JsonResponse({"error": str(e)}, status=500)
+
+        try:
+            context = self._build_session_context(report, "Primary")
+            html = render_to_string(self.get_template("session"), context)
+            filename = self.sanitize_filename(
+                f"{report.student.registration_number or report.student.user.username}"
+                f"_session_report.pdf"
+            )
+            return self.generate_pdf(html, filename)
+        except Exception as e:
+            logger.error(f"Error generating primary session report: {e}", exc_info=True)
+            return JsonResponse({"error": str(e)}, status=500)
+
 
 # ============================================================
-# NURSERY  (unchanged — reads mark_obtained / max_marks_obtainable)
+# NURSERY  (reads mark_obtained / max_marks_obtainable directly)
 # ============================================================
 
 
@@ -774,16 +893,26 @@ class NurseryReportGenerator(ReportGenerator):
     EDUCATION_LEVEL = "NURSERY"
 
     def _overall_grade(self, report):
+        """
+        Derive an overall grade from the report's overall_percentage.
+        NurseryTermReport has no grading_system FK — grading systems live
+        on NurseryResult rows. We sample the first subject result's grading
+        system for the percentage→grade lookup. Falls back to "N/A".
+        """
         try:
-            if report.overall_percentage and hasattr(report, "grading_system"):
-                grade_obj = report.grading_system.grades.filter(
-                    min_score__lte=report.overall_percentage,
-                    max_score__gte=report.overall_percentage,
+            pct = float(report.overall_percentage or 0)
+            first_result = report.subject_results.select_related(
+                "grading_system__grades"
+            ).first()
+            if first_result and first_result.grading_system:
+                gs = first_result.grading_system
+                grade_obj = gs.grades.filter(
+                    min_score__lte=pct, max_score__gte=pct
                 ).first()
                 if grade_obj:
                     return grade_obj.grade
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"_overall_grade fallback: {e}")
         return "N/A"
 
     def generate_term_report(self, report_id):
@@ -797,7 +926,8 @@ class NurseryReportGenerator(ReportGenerator):
                     "exam_session__term",
                 )
                 .prefetch_related(
-                    "subject_results__subject", "subject_results__grading_system"
+                    "subject_results__subject",
+                    "subject_results__grading_system__grades",
                 )
                 .get(id=report_id)
             )
@@ -838,7 +968,7 @@ class NurseryReportGenerator(ReportGenerator):
                 "student": {
                     "name": report.student.full_name,
                     "admission_number": report.student.registration_number or "",
-                    "class": report.student.get_student_class_display(),
+                    "class": _student_class_name(report.student),
                     "age": self.calculate_student_age(
                         getattr(report.student, "date_of_birth", None)
                     ),
@@ -912,6 +1042,42 @@ class NurseryReportGenerator(ReportGenerator):
 
         except Exception as e:
             logger.error(f"Error generating nursery term report: {e}", exc_info=True)
+            return JsonResponse({"error": str(e)}, status=500)
+
+    def generate_session_report(self, report_id):
+        """
+        Build a Nursery session report PDF from the term_totals JSONField.
+
+        Nursery session reports carry the same BaseSessionReport shape as
+        the other levels. In addition, the context includes the student's
+        age — useful for nursery-level reports that typically display
+        developmental information even at the session level.
+        """
+        try:
+            report = NurserySessionReport.objects.select_related(
+                "student", "student__user", "academic_session"
+            ).get(id=report_id)
+        except NurserySessionReport.DoesNotExist:
+            return JsonResponse(
+                {"error": f"Session report {report_id} not found"}, status=404
+            )
+        except Exception as e:
+            logger.error(
+                f"Error fetching nursery session report {report_id}: {e}",
+                exc_info=True,
+            )
+            return JsonResponse({"error": str(e)}, status=500)
+
+        try:
+            context = self._build_session_context(report, "Nursery")
+            html = render_to_string(self.get_template("session"), context)
+            filename = self.sanitize_filename(
+                f"{report.student.registration_number or report.student.user.username}"
+                f"_session_report.pdf"
+            )
+            return self.generate_pdf(html, filename)
+        except Exception as e:
+            logger.error(f"Error generating nursery session report: {e}", exc_info=True)
             return JsonResponse({"error": str(e)}, status=500)
 
 

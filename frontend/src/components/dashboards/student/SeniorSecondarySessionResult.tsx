@@ -53,7 +53,7 @@ interface SeniorSecondarySessionResultProps {
   showOnlyPublished?: boolean; // NEW: Control whether to show only published results
 }
 
-export default function SeniorSecondarySessionResult({ 
+export default function SeniorSecondarySessionReport({ 
   studentId, 
   academicSessionId, 
   templateId,

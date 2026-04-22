@@ -1,5 +1,5 @@
 // import React from 'react';
-// import SeniorSecondarySessionResult from './SeniorSecondarySessionResult';
+// import SeniorSecondarySessionReport from './SeniorSecondarySessionReport';
 // import SeniorSecondaryTermlyResult from './SeniorSecondaryTermlyResult';
 // import PrimaryResult from './PrimaryResult';
 // import JuniorSecondaryResult from './JuniorSecondaryResult';
@@ -74,7 +74,7 @@
 //         // Use SessionResult for Annually, TermlyResult for Termly
 //         if (selections.resultType === 'annually') {
 //           return (
-//             <SeniorSecondarySessionResult 
+//             <SeniorSecondarySessionReport 
 //               studentData={{ 
 //                 name: studentName,
 //                 class: selections.class,
@@ -101,7 +101,7 @@
     
 //     // Default to PortalContent for any other classes
 //     return (
-//       <SeniorSecondarySessionResult 
+//       <SeniorSecondarySessionReport 
 //         studentData={{ 
 //           name: studentName,
 //           class: selections.class,

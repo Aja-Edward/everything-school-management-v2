@@ -1,6 +1,5 @@
-# result/signals.py
 """
-Signal handlers for the result app.
+result/signals.py
 
 Design principles:
   1. Signals are LIGHTWEIGHT. They only:
@@ -25,6 +24,15 @@ Design principles:
 
   5. All signal code lives here. The signal blocks at the bottom of
      models.py have been removed to prevent double-firing.
+
+  6. Delete handlers call BaseTermReport.bulk_recalculate_positions()
+     (a classmethod using SQL RANK) — there is no calculate_class_position()
+     instance method on any term report model.
+
+  7. The SeniorSecondarySessionReport post_save receiver has been removed.
+     That model has no inbound FK from a result model (session reports are
+     created explicitly or via compute_from_term_reports()), so the signal
+     was dead code.
 """
 
 import logging
@@ -65,8 +73,11 @@ def handle_senior_secondary_result_save(sender, instance, created, **kwargs):
 def handle_senior_secondary_result_delete(sender, instance, **kwargs):
     """
     On deletion, recalculate the remaining subject stats and term report
-    metrics for the affected class.  We use on_commit so the deleted row
+    positions for the affected class.  We use on_commit so the deleted row
     is gone before we re-aggregate.
+
+    Note: calculate_class_position() does not exist on any term report model.
+    Position recalculation uses the classmethod bulk_recalculate_positions().
     """
     exam_session_id = instance.exam_session_id
     subject_id = instance.subject_id
@@ -92,7 +103,12 @@ def handle_senior_secondary_result_delete(sender, instance, **kwargs):
                 try:
                     report = SeniorSecondaryTermReport.objects.get(id=term_report_id)
                     report.calculate_metrics()
-                    report.calculate_class_position()
+                    # Recalculate positions for the whole class via SQL RANK().
+                    SeniorSecondaryTermReport.bulk_recalculate_positions(
+                        exam_session=exam_session,
+                        student_class=student_class,
+                        education_level=education_level,
+                    )
                 except SeniorSecondaryTermReport.DoesNotExist:
                     pass
         except Exception as e:
@@ -131,7 +147,6 @@ def handle_junior_secondary_result_save(sender, instance, created, **kwargs):
 
 @receiver(post_delete, sender="result.JuniorSecondaryResult")
 def handle_junior_secondary_result_delete(sender, instance, **kwargs):
-
     exam_session_id = instance.exam_session_id
     subject_id = instance.subject_id
     student_class_id = instance.student.student_class_id
@@ -156,7 +171,11 @@ def handle_junior_secondary_result_delete(sender, instance, **kwargs):
                 try:
                     report = JuniorSecondaryTermReport.objects.get(id=term_report_id)
                     report.calculate_metrics()
-                    report.calculate_class_position()
+                    JuniorSecondaryTermReport.bulk_recalculate_positions(
+                        exam_session=exam_session,
+                        student_class=student_class,
+                        education_level=education_level,
+                    )
                 except JuniorSecondaryTermReport.DoesNotExist:
                     pass
         except Exception as e:
@@ -215,14 +234,18 @@ def handle_primary_result_delete(sender, instance, **kwargs):
                 exam_session,
                 subject,
                 student_class,
-                education_level,  # ✅ object, not ID
+                education_level,
             )
 
             if term_report_id:
                 try:
                     report = PrimaryTermReport.objects.get(id=term_report_id)
                     report.calculate_metrics()
-                    report.calculate_class_position()
+                    PrimaryTermReport.bulk_recalculate_positions(
+                        exam_session=exam_session,
+                        student_class=student_class,
+                        education_level=education_level,
+                    )
                 except PrimaryTermReport.DoesNotExist:
                     pass
         except Exception as e:
@@ -244,6 +267,10 @@ def handle_nursery_result_save(sender, instance, created, **kwargs):
     Slim handler: only creates/links the NurseryTermReport shell.
     Uses on_commit because NurseryTermReport.save() has a double-save
     pattern internally — deferring avoids nested transaction conflicts.
+
+    No transaction.atomic() wrapper inside the callback: on_commit already
+    runs after the outer transaction has committed, and wrapping in a new
+    atomic block would defer any further on_commit hooks registered inside it.
     """
     if kwargs.get("raw", False):
         return
@@ -267,22 +294,22 @@ def handle_nursery_result_save(sender, instance, created, **kwargs):
             student = Student.objects.get(id=student_id)
             exam_session = ExamSession.objects.get(id=exam_session_id)
 
-            with transaction.atomic():
-                term_report, created = NurseryTermReport.objects.get_or_create(
-                    student=student,
-                    exam_session=exam_session,
-                    defaults={"status": "DRAFT", "is_published": False},
-                )
-                # Link the result to its term report if not already linked
-                NurseryResult.objects.filter(
-                    id=result_id, term_report__isnull=True
-                ).update(term_report=term_report)
+            term_report, created = NurseryTermReport.objects.get_or_create(
+                student=student,
+                exam_session=exam_session,
+                defaults={"status": "DRAFT", "is_published": False},
+            )
+            # Link the result to its term report if not already linked.
+            # Uses update() to bypass save() and avoid re-triggering this signal.
+            NurseryResult.objects.filter(id=result_id, term_report__isnull=True).update(
+                term_report=term_report
+            )
 
-                if created:
-                    logger.info(
-                        f"Created NurseryTermReport {term_report.id} "
-                        f"for student {student_id}"
-                    )
+            if created:
+                logger.info(
+                    f"Created NurseryTermReport {term_report.id} "
+                    f"for student {student_id}"
+                )
         except Exception as e:
             logger.error(
                 f"Error creating NurseryTermReport for student {student_id}: {e}",
@@ -294,6 +321,13 @@ def handle_nursery_result_save(sender, instance, created, **kwargs):
 
 @receiver(post_delete, sender="result.NurseryResult")
 def handle_nursery_result_delete(sender, instance, **kwargs):
+    """
+    On deletion, recalculate subject stats and class positions.
+
+    Note: NurseryTermReport has no calculate_class_position() instance method.
+    Position recalculation uses NurseryTermReport.bulk_recalculate_positions()
+    (classmethod, SQL RANK).
+    """
     exam_session_id = instance.exam_session_id
     subject_id = instance.subject_id
     student_class_id = instance.student.student_class_id
@@ -316,14 +350,20 @@ def handle_nursery_result_delete(sender, instance, **kwargs):
                 exam_session,
                 subject,
                 student_class,
-                education_level,  # ✅ object, not ID
+                education_level,
             )
 
             if term_report_id:
                 try:
                     report = NurseryTermReport.objects.get(id=term_report_id)
                     report.calculate_metrics()
-                    report.calculate_class_position()
+                    # NurseryTermReport.bulk_recalculate_positions() is the correct
+                    # classmethod — there is no calculate_class_position() instance method.
+                    NurseryTermReport.bulk_recalculate_positions(
+                        exam_session=exam_session,
+                        student_class=student_class,
+                        education_level=education_level,
+                    )
                 except NurseryTermReport.DoesNotExist:
                     pass
         except Exception as e:
@@ -332,72 +372,6 @@ def handle_nursery_result_delete(sender, instance, **kwargs):
             )
 
     transaction.on_commit(_recalc)
-
-
-# ---------------------------------------------------------------------------
-# SENIOR SECONDARY SESSION RESULT
-# ---------------------------------------------------------------------------
-
-
-@receiver(post_save, sender="result.SeniorSecondarySessionResult")
-def handle_senior_session_result_save(sender, instance, created, **kwargs):
-    """
-    Slim handler for session results: only creates/links the
-    SeniorSecondarySessionReport shell. Position and stats recalculation
-    is deferred to on_commit to avoid recursive saves.
-    """
-    if kwargs.get("raw", False):
-        return
-    if getattr(instance, "_skip_signals", False):
-        return
-    if instance.status not in ("APPROVED", "PUBLISHED"):
-        return
-
-    student_id = instance.student_id
-    academic_session_id = instance.academic_session_id
-    result_id = instance.id
-    stream_id = instance.stream_id
-
-    def _create_session_report():
-        try:
-            from result.models import (
-                SeniorSecondarySessionResult,
-                SeniorSecondarySessionReport,
-            )
-            from students.models import Student
-            from academics.models import AcademicSession
-
-            student = Student.objects.get(id=student_id)
-            academic_session = AcademicSession.objects.get(id=academic_session_id)
-
-            with transaction.atomic():
-                defaults = {"status": "DRAFT", "is_published": False}
-                if stream_id:
-                    defaults["stream"] = stream_id
-
-                session_report, created = (
-                    SeniorSecondarySessionReport.objects.get_or_create(
-                        student=student,
-                        academic_session=academic_session,
-                        defaults=defaults,
-                    )
-                )
-                SeniorSecondarySessionResult.objects.filter(
-                    id=result_id, session_report__isnull=True
-                ).update(session_report=session_report)
-
-                if created:
-                    logger.info(
-                        f"Created SeniorSecondarySessionReport {session_report.id} "
-                        f"for student {student_id}"
-                    )
-        except Exception as e:
-            logger.error(
-                f"Error creating SeniorSecondarySessionReport for student {student_id}: {e}",
-                exc_info=True,
-            )
-
-    transaction.on_commit(_create_session_report)
 
 
 # ---------------------------------------------------------------------------
@@ -606,8 +580,16 @@ def fix_specific_student_report(student_id, exam_session_id, education_level):
 
     if existing:
         existing.calculate_metrics()
-        if hasattr(existing, "calculate_class_position"):
-            existing.calculate_class_position()
+        # Use bulk_recalculate_positions (classmethod) — no instance method exists.
+        from classroom.models import Class as StudentClass
+
+        student_class = StudentClass.objects.filter(id=student.student_class_id).first()
+        if student_class:
+            ReportModel.bulk_recalculate_positions(
+                exam_session=exam_session,
+                student_class=student_class,
+                education_level=student.education_level,
+            )
         logger.info(
             f"fix_specific_student_report: recalculated existing report {existing.id}"
         )
@@ -641,8 +623,16 @@ def fix_specific_student_report(student_id, exam_session_id, education_level):
             student=student, exam_session=exam_session, **defaults
         )
         term_report.calculate_metrics()
-        if hasattr(term_report, "calculate_class_position"):
-            term_report.calculate_class_position()
+
+        from classroom.models import Class as StudentClass
+
+        student_class = StudentClass.objects.filter(id=student.student_class_id).first()
+        if student_class:
+            ReportModel.bulk_recalculate_positions(
+                exam_session=exam_session,
+                student_class=student_class,
+                education_level=student.education_level,
+            )
 
     logger.info(f"fix_specific_student_report: created report {term_report.id}")
     return term_report

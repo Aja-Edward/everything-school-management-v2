@@ -1,15 +1,15 @@
 import { useState, useEffect } from "react";
 import {
   User, Calendar, BookOpen, Trophy, Clock, CreditCard, MessageSquare, Settings,
-  GraduationCap, Home, AlertTriangle, ArrowLeft, Loader2, Download, Eye,
-  LogOut, Menu, X, ChevronRight, Check
+  GraduationCap, Home, AlertTriangle, ArrowLeft, Download, Eye,
+  LogOut, Menu, X, Check
 } from 'lucide-react';
 
 // Import your actual components
 import PortalLogin from './PortalLogin';
 import ResultSelection from './ResultSelection';
-import StudentResultDisplay from '../admin/StudentResultDisplay';
-import StudentResultDisplay2 from '../admin/StudentResultDisplay2';
+
+import StudentResultDisplay2 from '@/components/dashboards/admin/StudentResultDisplay2'
 import DashboardContent from './DashboardContent';
 import ProfileTab from './ProfileTab';
 import StudentLessons from '@/pages/student/StudentLessons';

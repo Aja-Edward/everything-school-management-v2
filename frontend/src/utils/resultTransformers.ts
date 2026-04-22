@@ -19,7 +19,7 @@ import {
   JuniorSecondaryTermReport,
   SeniorSecondaryResult,
   SeniorSecondaryTermReport,
-  SeniorSecondarySessionResult,
+  SeniorSecondarySessionReport,
   SeniorSecondarySessionReport,
   EducationLevel,
   Term,
@@ -578,7 +578,7 @@ export function transformDataForSeniorSecondary(
   // ANNUAL/SESSION RESULT
   // ============================================================================
   if (resultType === 'annually') {
-    const subjectResults: SeniorSecondarySessionResult[] = results.map(result => ({
+    const subjectResults: SeniorSecondarySessionReport[] = results.map(result => ({
       id: result.id || `senior-session-result-${Math.random()}`,
       student: studentInfo,
       subject: result.subject || createDefaultSubject(result, educationLevel),

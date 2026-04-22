@@ -25,7 +25,7 @@ import type {
   PrimaryResult,
   JuniorSecondaryResult,
   SeniorSecondaryResult,
-  SeniorSecondarySessionResult
+  SeniorSecondarySessionReport
 } from '@/services/ResultSettingsService';
 
 export const useResultService = () => {
@@ -223,11 +223,11 @@ export const useResultService = () => {
       ResultSettingsService.publishResult('senior-secondary', id),
 
     // Senior Secondary Session Results
-    getSeniorSecondarySessionResults: (filters?: ResultFilters): Promise<SeniorSecondarySessionResult[]> => 
+    getSeniorSecondarySessionResults: (filters?: ResultFilters): Promise<SeniorSecondarySessionReport[]> => 
       ResultSettingsService.getSeniorSecondarySessionResults(filters),
-    createSeniorSecondarySessionResult: (data: Partial<SeniorSecondarySessionResult>): Promise<SeniorSecondarySessionResult> => 
+    createSeniorSecondarySessionResult: (data: Partial<SeniorSecondarySessionReport>): Promise<SeniorSecondarySessionReport> => 
       ResultSettingsService.createSeniorSecondarySessionResult(data),
-    updateSeniorSecondarySessionResult: (id: string, data: Partial<SeniorSecondarySessionResult>): Promise<SeniorSecondarySessionResult> => 
+    updateSeniorSecondarySessionResult: (id: string, data: Partial<SeniorSecondarySessionReport>): Promise<SeniorSecondarySessionReport> => 
       ResultSettingsService.updateSeniorSecondarySessionResult(id, data),
     deleteSeniorSecondarySessionResult: (id: string): Promise<void> => 
       ResultSettingsService.deleteSeniorSecondarySessionResult(id),
@@ -321,5 +321,5 @@ export type {
   PrimaryResult,
   JuniorSecondaryResult,
   SeniorSecondaryResult,
-  SeniorSecondarySessionResult
+  SeniorSecondarySessionReport
 };

@@ -263,7 +263,7 @@ export interface SeniorSecondaryResult {
   [key: string]: any;
 }
 
-export interface SeniorSecondarySessionResult {
+export interface SeniorSecondarySessionReport {
   id: string;
   student: string;
   subject: string;
@@ -1027,9 +1027,9 @@ class ResultSettingsService {
     }
   }
 
-  async getSeniorSecondarySessionResults(filters?: ResultFilters): Promise<SeniorSecondarySessionResult[]> {
+  async getSeniorSecondarySessionResults(filters?: ResultFilters): Promise<SeniorSecondarySessionReport[]> {
     try {
-      return this.list<SeniorSecondarySessionResult>(
+      return this.list<SeniorSecondarySessionReport>(
         await api.get('/api/results/senior-secondary/session-results/', filters)
       );
     } catch (error) {
@@ -1039,10 +1039,10 @@ class ResultSettingsService {
   }
 
   async createSeniorSecondarySessionResult(
-    data: Partial<SeniorSecondarySessionResult>
-  ): Promise<SeniorSecondarySessionResult> {
+    data: Partial<SeniorSecondarySessionReport>
+  ): Promise<SeniorSecondarySessionReport> {
     try {
-      return this.single<SeniorSecondarySessionResult>(
+      return this.single<SeniorSecondarySessionReport>(
         await api.post('/api/results/senior-secondary/session-results/', data)
       );
     } catch (error) {
@@ -1053,10 +1053,10 @@ class ResultSettingsService {
 
   async updateSeniorSecondarySessionResult(
     id: string,
-    data: Partial<SeniorSecondarySessionResult>
-  ): Promise<SeniorSecondarySessionResult> {
+    data: Partial<SeniorSecondarySessionReport>
+  ): Promise<SeniorSecondarySessionReport> {
     try {
-      return this.single<SeniorSecondarySessionResult>(
+      return this.single<SeniorSecondarySessionReport>(
         await api.patch(`/api/results/senior-secondary/session-results/${id}/`, data)
       );
     } catch (error) {

@@ -12,7 +12,7 @@ from .views import (
     StudentTermResultViewSet,
     # Senior Secondary ViewSets
     SeniorSecondaryResultViewSet,
-    SeniorSecondarySessionResultViewSet,
+    SeniorSecondarySessionReportViewSet,
     SeniorSecondaryTermReportViewSet,
     SeniorSecondarySessionReportViewSet,
     # Junior Secondary ViewSets
@@ -67,7 +67,7 @@ router.register(
 )
 router.register(
     r"senior-secondary/session-results",
-    SeniorSecondarySessionResultViewSet,
+    SeniorSecondarySessionReportViewSet,
     basename="senior-secondary-session-result",
 )
 router.register(

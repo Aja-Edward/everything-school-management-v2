@@ -1,698 +1,819 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  Eye, Edit, Trash2, CheckCircle, XCircle, 
-  FileText, Filter, Search,
-  User, Award, AlertCircle, Plus, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import {
+  Eye, Trash2, CheckCircle, Award, FileText,
+  Filter, Search, User, AlertCircle, ChevronLeft,
+  ChevronRight, ChevronsLeft, ChevronsRight, Download,
+  RefreshCw, Clock, X,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
-import ResultService from '@/services/ResultService';
-import { useSettings } from '@/contexts/SettingsContext';
-import { AcademicSession } from '@/types/types';
-import EditSubjectResultForm from './EditSubjectResultForm';
-import AddResultForm from './AddResultForm';
-import { PDFDownloadButton, BulkPDFDownload } from './PDFDownloadComponents';
+import ResultService, {
+  AnyTermReport,
+  EducationLevelType,
+  ResultStatus,
+  NurseryTermReport,
+} from '@/services/ResultService';
 
-// Enhanced interfaces for result management
-interface StudentResult {
-  id: string;
-  student: {
-    id: string;
-    full_name: string;
-    username: string;
-    student_class: string;
-    education_level: string;
-    profile_picture?: string;
-  };
-  academic_session:AcademicSession;
-  term: string;
-  total_subjects: number;
-  subjects_passed: number;
-  subjects_failed: number;
-  total_score: number;
-  average_score: number;
-  gpa: number;
-  class_position: number | null;
-  total_students: number;
-  status: 'DRAFT' | 'APPROVED' | 'PUBLISHED';
-  remarks: string;
-  next_term_begins?: string;
-  subject_results: SubjectResult[];
-  created_at: string;
-  updated_at: string;
-  entered_by?: {
-    id: string;
-    full_name: string;
-  };
-  approved_by?: {
-    id: string;
-    full_name: string;
-  };
-  published_by?: {
-    id: string;
-    full_name: string;
-  };
-  approved_date?: string;
-  published_date?: string;
-  subject_name?: string;
-  education_level?: string;
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────────────────────────────────────
 
-interface SubjectResult {
-  id: string;
-  subject: {
-    name: string;
-    code: string;
-  };
-  total_ca_score: number;
-  ca_total?: number;
-  exam_score: number;
-  total_score: number;
-  percentage: number;
-  grade: string;
-  grade_point: number;
-  is_passed: boolean;
-  status: string;
-  continuous_assessment_score?: number;
-  take_home_test_score?: number;
-  practical_score?: number;
-  project_score?: number;
-  appearance_score?: number;
-  note_copying_score?: number;
-  first_test_score?: number;
-  second_test_score?: number;
-  third_test_score?: number;
-}
+const EDUCATION_LEVELS: EducationLevelType[] = [
+  'NURSERY',
+  'PRIMARY',
+  'JUNIOR_SECONDARY',
+  'SENIOR_SECONDARY',
+];
 
-interface StatusAction {
-  id: string;
-  label: string;
-  icon: React.ReactNode;
-  color: string;
-  bgColor: string;
-  hoverColor: string;
-}
-
-const EnhancedResultsManagement: React.FC = () => {
-  const { settings } = useSettings();
-  
-  const [studentResults, setStudentResults] = useState<StudentResult[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'term-reports' | 'subject-results'>('subject-results');
-  
-  const [selectedResults, setSelectedResults] = useState<string[]>([]);
-  const [showFilters, setShowFilters] = useState(false);
-  const [selectedStudent, setSelectedStudent] = useState<StudentResult | null>(null);
-  const [activeTab, setActiveTab] = useState<string>('ALL');
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  const [editingResult, setEditingResult] = useState<StudentResult | null>(null);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [resultToDelete, setResultToDelete] = useState<StudentResult | null>(null);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [showAddForm, setShowAddForm] = useState(false);
-  
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [educationLevelFilter, setEducationLevelFilter] = useState<string>('all');
-  const [classFilter, setClassFilter] = useState<string>('all');
-  const [termFilter, setTermFilter] = useState<string>('all');
-  const [sessionFilter, setSessionFilter] = useState<string>('all');
-  
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(20);
-
-  const statusActions: StatusAction[] = [
-    {
-      id: 'APPROVED',
-      label: 'Approve Result',
-      icon: <CheckCircle className="w-4 h-4" />,
-      color: 'text-green-700',
-      bgColor: 'bg-green-100',
-      hoverColor: 'hover:bg-green-200'
-    },
-    {
-      id: 'PUBLISHED',
-      label: 'Publish Result',
-      icon: <Award className="w-4 h-4" />,
-      color: 'text-purple-700',
-      bgColor: 'bg-purple-100',
-      hoverColor: 'hover:bg-purple-200'
-    }
-  ];
-
-  useEffect(() => {
-    loadResults();
-  }, [viewMode]);
-
-  const loadResults = async () => {
-  try {
-    setLoading(true);
-    setError(null);
-    
-    let data: any[] = [];
-    
-    if (viewMode === 'term-reports') {
-      console.log('🔄 Loading ALL TERM REPORTS (with pagination)...');
-      
-      // ✅ This will now fetch ALL pages automatically
-      const allResults = await ResultService.getTermResults();
-      
-      console.log(`📊 [Term Reports] Loaded ${allResults.length} total results`);
-      
-      // CALCULATE MISSING FIELDS FROM SUBJECT RESULTS
-      data = allResults.map((report: any) => {
-        const subjectResults = report.subject_results || [];
-        
-        // Calculate totals from subject results
-        let totalScore = 0;
-        let totalGradePoints = 0;
-        let passedCount = 0;
-        
-        subjectResults.forEach((subject: any) => {
-          totalScore += subject.total_score || 0;
-          totalGradePoints += subject.grade_point || 0;
-          if (subject.is_passed) passedCount++;
-        });
-        
-        // Average score is the average of all subject scores (already percentages)
-        const averageScore = subjectResults.length > 0 
-          ? (totalScore / subjectResults.length) 
-          : 0;
-        
-        const gpa = subjectResults.length > 0 
-          ? (totalGradePoints / subjectResults.length) 
-          : 0;
-        
-        // Calculate overall grade from average
-        let overallGrade = 'F';
-        if (averageScore >= 70) overallGrade = 'A';
-        else if (averageScore >= 60) overallGrade = 'B';
-        else if (averageScore >= 50) overallGrade = 'C';
-        else if (averageScore >= 45) overallGrade = 'D';
-        else if (averageScore >= 39) overallGrade = 'E';
-        
-        console.log(`📊 Calculated for ${report.student?.full_name}:`, {
-          totalScore,
-          averageScore,
-          gpa,
-          overallGrade,
-          subjectsCount: subjectResults.length
-        });
-        
-        // Return report with calculated values
-        return {
-          ...report,
-          total_score: totalScore,
-          average_score: averageScore,
-          gpa: parseFloat(gpa.toFixed(2)),
-          overall_grade: overallGrade,
-          total_subjects: subjectResults.length,
-          subjects_passed: passedCount,
-          subjects_failed: subjectResults.length - passedCount,
-          class_position: report.class_position || null,
-          total_students: report.total_students || 0
-        };
-      });
-      
-      if (data && data.length > 0) {
-        const seniorResult = data.find((r: any) => r.student?.education_level === 'SENIOR_SECONDARY');
-        if (seniorResult) {
-          console.log('🎓 [Senior Secondary Term Report] Sample:', {
-            student: seniorResult.student?.full_name,
-            total_score: seniorResult.total_score,
-            average_score: seniorResult.average_score,
-            gpa: seniorResult.gpa,
-            class_position: seniorResult.class_position,
-            total_students: seniorResult.total_students,
-          });
-        }
-      }
-      
-    } else {
-      console.log('🔄 Loading ALL SUBJECT RESULTS (with pagination)...');
-      
-      // ✅ These will now fetch ALL pages automatically
-      const [nursery, primary, junior, senior] = await Promise.all([
-        ResultService.getNurseryResults(),
-        ResultService.getPrimaryResults(),
-        ResultService.getJuniorSecondaryResults(),
-        ResultService.getSeniorSecondaryResults()
-      ]);
-      
-      console.log(`📊 Subject Results Loaded: Nursery=${nursery.length}, Primary=${primary.length}, Junior=${junior.length}, Senior=${senior.length}`);
-      
-      data = [
-        ...nursery.map(r => transformSubjectResult(r, 'NURSERY')),
-        ...primary.map(r => transformSubjectResult(r, 'PRIMARY')),
-        ...junior.map(r => transformSubjectResult(r, 'JUNIOR_SECONDARY')),
-        ...senior.map(r => transformSubjectResult(r, 'SENIOR_SECONDARY'))
-      ];
-    }
-    
-    console.log(`✅ TOTAL LOADED: ${data?.length || 0} results in ${viewMode} mode`);
-    setStudentResults(data || []);
-    
-  } catch (err) {
-    console.error('❌ Error loading results:', err);
-    setError('Failed to load results. Please try again.');
-  } finally {
-    setLoading(false);
-  }
+const LEVEL_LABELS: Record<EducationLevelType, string> = {
+  NURSERY: 'Nursery',
+  PRIMARY: 'Primary',
+  JUNIOR_SECONDARY: 'Junior Secondary',
+  SENIOR_SECONDARY: 'Senior Secondary',
 };
 
-  const transformSubjectResult = (result: any, educationLevel: string): StudentResult => {
-    console.log(`🔄 [transformSubjectResult] Transforming ${educationLevel}:`, result.student?.full_name);
-    
-    const sessionName = result.exam_session?.academic_session_name || 
-                       result.exam_session?.academic_session?.name || 
-                       result.exam_session?.academic_session?.academic_session_name || 
-                       'N/A';
-    
-    const sessionObj = typeof result.exam_session?.academic_session === 'object' 
-      ? result.exam_session.academic_session 
-      : { name: sessionName };
-    
-    let examScore = 0;
-    let totalScore = 0;
-    let caTotal = 0;
-    let percentage = 0;
-    
-    if (educationLevel === 'NURSERY') {
-      examScore = result.exam_score || result.mark_obtained || 0;
-      totalScore = result.total_score || examScore || 0;
-      caTotal = 0;
-      percentage = result.percentage || result.total_percentage || totalScore;
-    } else if (educationLevel === 'SENIOR_SECONDARY') {
-      const firstTest = result.first_test_score || 0;
-      const secondTest = result.second_test_score || 0;
-      const thirdTest = result.third_test_score || 0;
-      examScore = result.exam_score || 0;
-      
-      caTotal = firstTest + secondTest + thirdTest;
-      totalScore = result.total_score || (caTotal + examScore);
-      percentage = result.percentage || totalScore;
-      
-      console.log(`📊 [SS Calc] ${result.subject?.name}:`, {
-        tests: [firstTest, secondTest, thirdTest],
-        exam: examScore,
-        ca: caTotal,
-        total: totalScore
-      });
-    } else {
-      examScore = result.exam_score || result.mark_obtained || 0;
-      caTotal = result.ca_total || result.total_ca_score || 0;
-      totalScore = result.total_score || (caTotal + examScore);
-      percentage = result.percentage || result.total_percentage || totalScore;
-    }
-    
-    const subjectResult: any = {
-      id: result.id,
-      subject: result.subject,
-      total_ca_score: caTotal,
-      ca_total: caTotal,
-      exam_score: examScore,
-      total_score: totalScore,
-      percentage: percentage,
-      grade: result.grade || 'N/A',
-      grade_point: result.grade_point || 0,
-      is_passed: result.is_passed,
-      status: result.status
-    };
-    
-    if (educationLevel === 'SENIOR_SECONDARY') {
-      subjectResult.first_test_score = result.first_test_score || 0;
-      subjectResult.second_test_score = result.second_test_score || 0;
-      subjectResult.third_test_score = result.third_test_score || 0;
-    }
-    
-    return {
-      id: result.id,
-      student: result.student,
-      academic_session: sessionObj,
-      term: result.exam_session?.term || 'N/A',
-      total_subjects: 1,
-      subjects_passed: result.is_passed ? 1 : 0,
-      subjects_failed: result.is_passed ? 0 : 1,
-      total_score: totalScore,
-      average_score: percentage,
-      gpa: result.grade_point || 0,
-      class_position: result.position || null,
-      total_students: 0,
-      status: result.status,
-      remarks: result.class_teacher_remark || result.teacher_remark || result.academic_comment || '',
-      subject_results: [subjectResult],
-      created_at: result.created_at,
-      updated_at: result.updated_at,
-      education_level: educationLevel,
-      subject_name: result.subject?.name || 'N/A',
-      overall_grade: result.grade || 'N/A',
-    } as any;
+const LEVEL_COLORS: Record<EducationLevelType, string> = {
+  NURSERY: 'bg-pink-100 text-pink-800 border-pink-200',
+  PRIMARY: 'bg-blue-100 text-blue-800 border-blue-200',
+  JUNIOR_SECONDARY: 'bg-amber-100 text-amber-800 border-amber-200',
+  SENIOR_SECONDARY: 'bg-purple-100 text-purple-800 border-purple-200',
+};
+
+const STATUS_CONFIG: Record<
+  ResultStatus,
+  { label: string; color: string; dot: string }
+> = {
+  DRAFT: {
+    label: 'Draft',
+    color: 'bg-slate-100 text-slate-700 border-slate-200',
+    dot: 'bg-slate-400',
+  },
+  APPROVED: {
+    label: 'Approved',
+    color: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+    dot: 'bg-emerald-500',
+  },
+  PUBLISHED: {
+    label: 'Published',
+    color: 'bg-violet-100 text-violet-700 border-violet-200',
+    dot: 'bg-violet-500',
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────────────────────
+
+type EnrichedReport = AnyTermReport & { education_level: EducationLevelType };
+
+interface Filters {
+  search: string;
+  status: ResultStatus | 'all';
+  level: EducationLevelType | 'all';
+  session: string;
+  term: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UTILITY HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function formatScore(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === '') return 'N/A';
+  const n = typeof value === 'string' ? parseFloat(value) : value;
+  if (isNaN(n)) return 'N/A';
+  return `${n.toFixed(1)}%`;
+}
+
+function formatDate(iso: string): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function getAverageScore(report: AnyTermReport): number {
+  return ResultService.getAverageScore(report);
+}
+
+function getTotalStudents(report: AnyTermReport): number {
+  return ResultService.getTotalStudents(report);
+}
+
+function getSubjectCount(report: AnyTermReport): number {
+  if ('total_subjects' in report) return (report as NurseryTermReport).total_subjects;
+  return report.subject_results?.length ?? 0;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUB-COMPONENTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: ResultStatus }) {
+  const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.DRAFT;
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${cfg.color}`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+      {cfg.label}
+    </span>
+  );
+}
+
+function LevelBadge({ level }: { level: EducationLevelType }) {
+  return (
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${LEVEL_COLORS[level]}`}
+    >
+      {LEVEL_LABELS[level]}
+    </span>
+  );
+}
+
+function GradeChip({ grade }: { grade: string }) {
+  const colors: Record<string, string> = {
+    A: 'text-emerald-700 bg-emerald-50',
+    B: 'text-blue-700 bg-blue-50',
+    C: 'text-amber-700 bg-amber-50',
+    D: 'text-orange-700 bg-orange-50',
+    E: 'text-red-600 bg-red-50',
+    F: 'text-red-800 bg-red-100',
   };
+  const color = colors[grade] || 'text-slate-600 bg-slate-50';
+  return (
+    <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${color}`}>
+      {grade || '—'}
+    </span>
+  );
+}
 
-  const filteredResults = useMemo(() => {
-    return studentResults.filter(result => {
-      const matchesSearch = searchTerm === '' || 
-        result.student?.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        result.student?.username?.toLowerCase().includes(searchTerm.toLowerCase());
-      
-      const matchesStatus = statusFilter === 'all' || result.status === statusFilter;
-      const matchesEducationLevel = educationLevelFilter === 'all' || 
-        result.student?.education_level === educationLevelFilter;
-      const matchesClass = classFilter === 'all' || 
-        result.student?.student_class === classFilter;
-      const matchesTerm = termFilter === 'all' || result.term === termFilter;
-      const matchesSession = sessionFilter === 'all' || 
-        result.academic_session?.name === sessionFilter;
-      
-      const matchesTab = activeTab === 'ALL' || result.term === activeTab;
-      
-      return matchesSearch && matchesStatus && matchesEducationLevel && 
-             matchesClass && matchesTerm && matchesSession && matchesTab;
-    });
-  }, [studentResults, searchTerm, statusFilter, educationLevelFilter, classFilter, termFilter, sessionFilter, activeTab]);
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+  color,
+  sub,
+}: {
+  label: string;
+  value: number | string;
+  icon: React.ElementType;
+  color: string;
+  sub?: string;
+}) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-5 flex items-center gap-4">
+      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${color}`}>
+        <Icon className="w-6 h-6 text-white" />
+      </div>
+      <div>
+        <p className="text-2xl font-bold text-slate-900">{value}</p>
+        <p className="text-sm text-slate-500">{label}</p>
+        {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
+      </div>
+    </div>
+  );
+}
 
-  const uniqueEducationLevels = useMemo(() => 
-    Array.from(new Set(studentResults.map(r => r.student?.education_level).filter(Boolean))), 
-    [studentResults]);
-  
-  const uniqueClasses = useMemo(() => 
-    Array.from(new Set(studentResults.map(r => r.student?.student_class).filter(Boolean))), 
-    [studentResults]);
-  
-  const uniqueTerms = useMemo(() => 
-    Array.from(new Set(studentResults.map(r => r.term).filter(Boolean))), 
-    [studentResults]);
-  
-  const uniqueSessions = useMemo(() => 
-    Array.from(new Set(studentResults.map(r => r.academic_session?.name).filter(Boolean))), 
-    [studentResults]);
+// ─────────────────────────────────────────────────────────────────────────────
+// DETAIL MODAL
+// ─────────────────────────────────────────────────────────────────────────────
 
-  // Pagination calculations
-  const totalPages = Math.ceil(filteredResults.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedResults = filteredResults.slice(startIndex, endIndex);
-  
-  // Reset to first page when filters change
+function DetailModal({
+  report,
+  level,
+  onClose,
+  onApprove,
+  onPublish,
+  onDownload,
+}: {
+  report: EnrichedReport;
+  level: EducationLevelType;
+  onClose: () => void;
+  onApprove: () => void;
+  onPublish: () => void;
+  onDownload: () => void;
+}) {
+  const avgScore = getAverageScore(report);
+  const overallGrade = ResultService.getOverallGrade(report);
+  const isNursery = level === 'NURSERY';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-start justify-between rounded-t-2xl">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">
+              {report.student?.full_name}
+            </h2>
+            <div className="flex items-center gap-2 mt-1">
+              <LevelBadge level={level} />
+              <span className="text-sm text-slate-500">
+                {report.student?.student_class_name}
+              </span>
+              <span className="text-slate-300">•</span>
+              <span className="text-sm text-slate-500">
+                {report.exam_session?.term_name}
+              </span>
+              <span className="text-slate-300">•</span>
+              <span className="text-sm text-slate-500">
+                {report.exam_session?.academic_session?.name}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {report.status === 'DRAFT' && (
+              <button
+                onClick={onApprove}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors"
+              >
+                <CheckCircle className="w-4 h-4" />
+                Approve
+              </button>
+            )}
+            {report.status === 'APPROVED' && (
+              <button
+                onClick={onPublish}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700 transition-colors"
+              >
+                <Award className="w-4 h-4" />
+                Publish
+              </button>
+            )}
+            <button
+              onClick={onDownload}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-200 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              PDF
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-slate-50 rounded-xl p-4 text-center">
+              <p className="text-2xl font-bold text-slate-900">{formatScore(avgScore)}</p>
+              <p className="text-xs text-slate-500 mt-1">
+                {isNursery ? 'Overall %' : 'Average Score'}
+              </p>
+            </div>
+            <div className="bg-slate-50 rounded-xl p-4 text-center">
+              <GradeChip grade={overallGrade} />
+              <p className="text-xs text-slate-500 mt-2">Overall Grade</p>
+            </div>
+            <div className="bg-slate-50 rounded-xl p-4 text-center">
+              <p className="text-2xl font-bold text-slate-900">
+                {report.class_position
+                  ? `${report.class_position}/${getTotalStudents(report)}`
+                  : '—'}
+              </p>
+              <p className="text-xs text-slate-500 mt-1">Class Position</p>
+            </div>
+            <div className="bg-slate-50 rounded-xl p-4 text-center">
+              <StatusBadge status={report.status} />
+              <p className="text-xs text-slate-500 mt-2">Status</p>
+            </div>
+          </div>
+
+          {/* Subject results table */}
+          <div>
+            <h3 className="text-sm font-semibold text-slate-700 mb-3">
+              Subject Results ({report.subject_results?.length ?? 0})
+            </h3>
+            <div className="overflow-x-auto rounded-xl border border-slate-200">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                      Subject
+                    </th>
+                    {isNursery ? (
+                      <>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                          Marks
+                        </th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                          Max
+                        </th>
+                      </>
+                    ) : (
+                      <>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                          CA
+                        </th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                          Total
+                        </th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                          %
+                        </th>
+                      </>
+                    )}
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                      Grade
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                      Result
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                      Position
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                      Status
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(report.subject_results ?? []).length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
+                        No subject results available
+                      </td>
+                    </tr>
+                  ) : (
+                    (report.subject_results ?? []).map((sr, i) => {
+                      const nursery = sr as any;
+                      return (
+                        <tr key={sr.id || i} className="hover:bg-slate-50">
+                          <td className="px-4 py-3">
+                            <div className="font-medium text-slate-900">
+                              {sr.subject?.name}
+                            </div>
+                            <div className="text-xs text-slate-400">
+                              {sr.subject?.code}
+                            </div>
+                          </td>
+                          {isNursery ? (
+                            <>
+                              <td className="px-4 py-3 text-center text-slate-700 font-medium">
+                                {nursery.mark_obtained ?? '—'}
+                              </td>
+                              <td className="px-4 py-3 text-center text-slate-500">
+                                {nursery.max_marks_obtainable ?? '—'}
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              <td className="px-4 py-3 text-center text-slate-700">
+                                {parseFloat(sr.ca_total || '0').toFixed(1)}
+                              </td>
+                              <td className="px-4 py-3 text-center font-medium text-slate-900">
+                                {parseFloat(sr.total_score || '0').toFixed(1)}
+                              </td>
+                              <td className="px-4 py-3 text-center text-slate-700">
+                                {formatScore(sr.percentage)}
+                              </td>
+                            </>
+                          )}
+                          <td className="px-4 py-3 text-center">
+                            <GradeChip grade={sr.grade} />
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {sr.is_passed ? (
+                              <span className="text-emerald-600 font-semibold text-xs">Pass</span>
+                            ) : (
+                              <span className="text-red-500 font-semibold text-xs">Fail</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-center text-slate-500 text-xs">
+                            {(sr as any).position || '—'}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <StatusBadge status={sr.status} />
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Component scores breakdown (if available and non-nursery) */}
+          {!isNursery && report.subject_results?.some((sr) => sr.component_scores?.length > 0) && (
+            <div>
+              <h3 className="text-sm font-semibold text-slate-700 mb-3">
+                Score Breakdown
+              </h3>
+              <div className="space-y-3">
+                {report.subject_results.map((sr) => (
+                  sr.component_scores?.length > 0 && (
+                    <div key={sr.id} className="bg-slate-50 rounded-lg p-4">
+                      <p className="text-sm font-medium text-slate-700 mb-2">
+                        {sr.subject?.name}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {sr.component_scores.map((cs) => (
+                          <div
+                            key={cs.id}
+                            className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-center min-w-[80px]"
+                          >
+                            <p className="text-xs text-slate-500">{cs.component_name}</p>
+                            <p className="text-sm font-bold text-slate-900 mt-0.5">
+                              {cs.score}/{cs.max_score}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Remarks */}
+          {(report.class_teacher_remark || report.head_teacher_remark) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {report.class_teacher_remark && (
+                <div className="bg-blue-50 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-blue-700 mb-1">
+                    Class Teacher Remark
+                  </p>
+                  <p className="text-sm text-blue-900">{report.class_teacher_remark}</p>
+                </div>
+              )}
+              {report.head_teacher_remark && (
+                <div className="bg-violet-50 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-violet-700 mb-1">
+                    Head Teacher Remark
+                  </p>
+                  <p className="text-sm text-violet-900">{report.head_teacher_remark}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE CONFIRM MODAL
+// ─────────────────────────────────────────────────────────────────────────────
+
+function DeleteModal({
+  report,
+  onConfirm,
+  onCancel,
+  loading,
+}: {
+  report: EnrichedReport;
+  onConfirm: () => void;
+  onCancel: () => void;
+  loading: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+            <AlertCircle className="w-5 h-5 text-red-600" />
+          </div>
+          <div>
+            <h3 className="font-bold text-slate-900">Delete Term Report</h3>
+            <p className="text-sm text-slate-500">This cannot be undone</p>
+          </div>
+        </div>
+        <p className="text-sm text-slate-600 mb-6">
+          Delete the term report for{' '}
+          <strong>{report.student?.full_name}</strong>? All associated subject
+          results will also be deleted.
+        </p>
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 px-4 py-2 border border-slate-300 rounded-xl text-slate-700 text-sm font-medium hover:bg-slate-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex-1 px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+          >
+            {loading ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+const AdminResultsManagement: React.FC = () => {
+  // ── State ──────────────────────────────────────────────────────────────────
+  const [reports, setReports] = useState<EnrichedReport[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [filters, setFilters] = useState<Filters>({
+    search: '',
+    status: 'all',
+    level: 'all',
+    session: 'all',
+    term: 'all',
+  });
+  const [showFilters, setShowFilters] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
+  const [detailReport, setDetailReport] = useState<EnrichedReport | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<EnrichedReport | null>(null);
+
+  const [actionLoading, setActionLoading] = useState<string | null>(null); // report id or 'bulk'
+
+  // ── Data loading ────────────────────────────────────────────────────────────
+
+  const loadReports = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    else setRefreshing(true);
+    setError(null);
+    try {
+      const data = await ResultService.getAllTermReports();
+      setReports(data);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load results. Please try again.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadReports();
+  }, [loadReports]);
+
+  // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, educationLevelFilter, classFilter, termFilter, sessionFilter, activeTab, itemsPerPage]);
+  }, [filters, pageSize]);
 
-  const goToPage = (page: number) => {
-    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+  // ── Derived data ────────────────────────────────────────────────────────────
+
+  const uniqueSessions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          reports
+            .map((r) => r.exam_session?.academic_session?.name)
+            .filter(Boolean) as string[]
+        )
+      ),
+    [reports]
+  );
+
+  const uniqueTerms = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          reports
+            .map((r) => r.exam_session?.term_name)
+            .filter(Boolean) as string[]
+        )
+      ),
+    [reports]
+  );
+
+  const filtered = useMemo(() => {
+    return reports.filter((r) => {
+      if (
+        filters.search &&
+        !r.student?.full_name?.toLowerCase().includes(filters.search.toLowerCase()) &&
+        !r.student?.student_class_name
+          ?.toLowerCase()
+          .includes(filters.search.toLowerCase())
+      )
+        return false;
+      if (filters.status !== 'all' && r.status !== filters.status) return false;
+      if (filters.level !== 'all' && r.education_level !== filters.level) return false;
+      if (
+        filters.session !== 'all' &&
+        r.exam_session?.academic_session?.name !== filters.session
+      )
+        return false;
+      if (filters.term !== 'all' && r.exam_session?.term_name !== filters.term)
+        return false;
+      return true;
+    });
+  }, [reports, filters]);
+
+  const totalPages = Math.ceil(filtered.length / pageSize);
+  const paginated = filtered.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+
+  // ── Summary counts ──────────────────────────────────────────────────────────
+
+  const counts = useMemo(
+    () => ({
+      total: reports.length,
+      draft: reports.filter((r) => r.status === 'DRAFT').length,
+      approved: reports.filter((r) => r.status === 'APPROVED').length,
+      published: reports.filter((r) => r.status === 'PUBLISHED').length,
+    }),
+    [reports]
+  );
+
+  // ── Actions ─────────────────────────────────────────────────────────────────
+
+  const handleApprove = async (report: EnrichedReport) => {
+    setActionLoading(report.id);
+    try {
+      await ResultService.approveTermReport(report.education_level, report.id);
+      toast.success('Term report approved successfully');
+      setReports((prev) =>
+        prev.map((r) => (r.id === report.id ? { ...r, status: 'APPROVED' } : r))
+      );
+      if (detailReport?.id === report.id) {
+        setDetailReport((prev) => prev ? { ...prev, status: 'APPROVED' } : null);
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to approve report');
+    } finally {
+      setActionLoading(null);
+    }
   };
 
-  const getPageNumbers = () => {
-    const pages: (number | string)[] = [];
-    const maxVisiblePages = 5;
-    
-    if (totalPages <= maxVisiblePages) {
-      for (let i = 1; i <= totalPages; i++) {
-        pages.push(i);
+  const handlePublish = async (report: EnrichedReport) => {
+    setActionLoading(report.id);
+    try {
+      await ResultService.publishTermReport(report.education_level, report.id);
+      toast.success('Term report published successfully');
+      setReports((prev) =>
+        prev.map((r) => (r.id === report.id ? { ...r, status: 'PUBLISHED' } : r))
+      );
+      if (detailReport?.id === report.id) {
+        setDetailReport((prev) => prev ? { ...prev, status: 'PUBLISHED' } : null);
       }
-    } else {
-      if (currentPage <= 3) {
-        for (let i = 1; i <= 4; i++) {
-          pages.push(i);
-        }
-        pages.push('...');
-        pages.push(totalPages);
-      } else if (currentPage >= totalPages - 2) {
-        pages.push(1);
-        pages.push('...');
-        for (let i = totalPages - 3; i <= totalPages; i++) {
-          pages.push(i);
-        }
-      } else {
-        pages.push(1);
-        pages.push('...');
-        pages.push(currentPage - 1);
-        pages.push(currentPage);
-        pages.push(currentPage + 1);
-        pages.push('...');
-        pages.push(totalPages);
-      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to publish report');
+    } finally {
+      setActionLoading(null);
     }
-    
+  };
+
+  const handleDelete = async (report: EnrichedReport) => {
+    setActionLoading('delete');
+    try {
+      await ResultService.deleteTermReport(report.education_level, report.id);
+      setReports((prev) => prev.filter((r) => r.id !== report.id));
+      setDeleteTarget(null);
+      toast.success('Term report deleted successfully');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to delete report');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleBulkApprove = async () => {
+    if (selectedIds.length === 0) return;
+    setActionLoading('bulk');
+    try {
+      // Group by level for efficient bulk calls
+      const byLevel = new Map<EducationLevelType, string[]>();
+      for (const id of selectedIds) {
+        const report = reports.find((r) => r.id === id);
+        if (!report) continue;
+        const list = byLevel.get(report.education_level) || [];
+        list.push(id);
+        byLevel.set(report.education_level, list);
+      }
+      let totalApproved = 0;
+      for (const [level, ids] of byLevel) {
+        const res = await ResultService.bulkApproveTermReports(level, ids);
+        totalApproved += res.approved_reports;
+      }
+      setReports((prev) =>
+        prev.map((r) =>
+          selectedIds.includes(r.id) && r.status === 'DRAFT'
+            ? { ...r, status: 'APPROVED' }
+            : r
+        )
+      );
+      setSelectedIds([]);
+      toast.success(`${totalApproved} report(s) approved`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Bulk approve failed');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleBulkPublish = async () => {
+    if (selectedIds.length === 0) return;
+    setActionLoading('bulk');
+    try {
+      const byLevel = new Map<EducationLevelType, string[]>();
+      for (const id of selectedIds) {
+        const report = reports.find((r) => r.id === id);
+        if (!report) continue;
+        const list = byLevel.get(report.education_level) || [];
+        list.push(id);
+        byLevel.set(report.education_level, list);
+      }
+      let totalPublished = 0;
+      for (const [level, ids] of byLevel) {
+        const res = await ResultService.bulkPublishTermReports(level, ids);
+        totalPublished += res.published_reports;
+      }
+      setReports((prev) =>
+        prev.map((r) =>
+          selectedIds.includes(r.id) && r.status === 'APPROVED'
+            ? { ...r, status: 'PUBLISHED' }
+            : r
+        )
+      );
+      setSelectedIds([]);
+      toast.success(`${totalPublished} report(s) published`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Bulk publish failed');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDownloadPDF = async (report: EnrichedReport) => {
+    setActionLoading(report.id + '_pdf');
+    try {
+      const blob = await ResultService.downloadTermReportPDF(
+        report.id,
+        report.education_level
+      );
+      const termName = report.exam_session?.term_name?.replace(/\s/g, '_') || 'Term';
+      const session = report.exam_session?.academic_session?.name?.replace(/\s/g, '_') || 'Session';
+      ResultService.triggerDownload(
+        blob,
+        `${report.student?.full_name}_${termName}_${session}.pdf`
+      );
+    } catch (err: any) {
+      toast.error(err?.message || 'PDF download failed');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // ── Selection ───────────────────────────────────────────────────────────────
+
+  const handleSelectAll = () => {
+    if (selectedIds.length === paginated.length && paginated.length > 0) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(paginated.map((r) => r.id));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  // ── Pagination ──────────────────────────────────────────────────────────────
+
+  const getPageNumbers = (): (number | '…')[] => {
+    if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
+    const pages: (number | '…')[] = [];
+    if (currentPage <= 4) {
+      for (let i = 1; i <= 5; i++) pages.push(i);
+      pages.push('…', totalPages);
+    } else if (currentPage >= totalPages - 3) {
+      pages.push(1, '…');
+      for (let i = totalPages - 4; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1, '…', currentPage - 1, currentPage, currentPage + 1, '…', totalPages);
+    }
     return pages;
   };
 
-  const updateResultStatus = async (resultId: string, newStatus: string, educationLevel: string) => {
-    try {
-      setActionLoading(resultId);
-      
-      let response;
-      
-      if (viewMode === 'subject-results') {
-        switch (newStatus) {
-          case 'APPROVED':
-            response = await ResultService.approveSubjectResult(resultId, educationLevel);
-            break;
-          case 'PUBLISHED':
-            response = await ResultService.publishSubjectResult(resultId, educationLevel);
-            break;
-          default:
-            throw new Error(`Unsupported status change: ${newStatus}`);
-        }
-        
-        toast.success(`Subject result ${newStatus.toLowerCase()} successfully`);
-      } else {
-        switch (newStatus) {
-          case 'APPROVED':
-            response = await ResultService.approveResult(resultId, educationLevel);
-            break;
-          case 'PUBLISHED':
-            response = await ResultService.publishResult(resultId, educationLevel);
-            break;
-          default:
-            throw new Error(`Unsupported status change: ${newStatus}`);
-        }
-        
-        toast.success(`Term report ${newStatus.toLowerCase()} successfully`);
-      }
-      
-      setStudentResults(prev => prev.map(result => 
-        result.id === resultId 
-          ? { ...result, status: newStatus as any, ...response }
-          : result
-      ));
-      
-    } catch (error) {
-      console.error('Error updating result status:', error);
-      toast.error(`Failed to ${newStatus.toLowerCase()} result`);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleResultAdded = () => {
-    setShowAddForm(false);
-    loadResults();
-    toast.success('Result recorded successfully!');
-  };
-
-  const bulkUpdateStatus = async (resultIds: string[], newStatus: string) => {
-    try {
-      setActionLoading('bulk');
-      
-      const promises = resultIds.map(id => {
-        const result = studentResults.find(r => r.id === id);
-        return updateResultStatus(id, newStatus, result?.student?.education_level || '');
-      });
-      
-      await Promise.all(promises);
-      setSelectedResults([]);
-      toast.success(`${resultIds.length} results ${newStatus.toLowerCase()} successfully`);
-    } catch (error) {
-      console.error('Error bulk updating results:', error);
-      toast.error('Failed to update results');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const deleteResult = async (result: StudentResult) => {
-  try {
-    setActionLoading('delete');
-    const educationLevel = (result as any).education_level || result.student?.education_level;
-    
-    if (!educationLevel) {
-      toast.error('Cannot determine education level for this result');
-      return;
-    }
-    
-    console.log('🗑️ Deleting result:', {
-      id: result.id,
-      education_level: educationLevel,
-      view_mode: viewMode,
-      status: result.status
-    });
-    
-    // Determine if this is a term report or subject result
-    if (viewMode === 'term-reports') {
-      await ResultService.deleteTermResult(result.id, educationLevel);
-      toast.success('Term report deleted successfully');
-    } else {
-      await ResultService.deleteStudentResult(result.id, educationLevel);
-      toast.success('Subject result deleted successfully');
-    }
-    
-    // Remove from UI
-    setStudentResults(prev => prev.filter(r => r.id !== result.id));
-    setShowDeleteModal(false);
-    setResultToDelete(null);
-    
-  } catch (error: any) {
-    console.error('Error deleting result:', error);
-    
-    // Show detailed error message from backend
-    const errorMessage = error.response?.data?.error || 
-                         error.response?.data?.detail || 
-                         error.message || 
-                         'Failed to delete result';
-    
-    toast.error(errorMessage);
-  } finally {
-    setActionLoading(null);
-  }
-};
-
-  const getStatusBadge = (status: string) => {
-    const statusConfig = {
-      DRAFT: { color: 'bg-gray-100 text-gray-800', icon: <Edit className="w-3 h-3" /> },
-      APPROVED: { color: 'bg-green-100 text-green-800', icon: <CheckCircle className="w-3 h-3" /> },
-      PUBLISHED: { color: 'bg-purple-100 text-purple-800', icon: <Award className="w-3 h-3" /> }
-    };
-    
-    const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.DRAFT;
-    
-    return (
-      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${config.color}`}>
-        {config.icon}
-        {status}
-      </span>
-    );
-  };
-
-  const getGradeColor = (grade: string) => {
-    if (grade === 'A' || grade === 'A+') return 'text-green-600';
-    if (grade === 'B' || grade === 'B+') return 'text-blue-600';
-    if (grade === 'C' || grade === 'C+') return 'text-yellow-600';
-    if (grade === 'D' || grade === 'D+') return 'text-purple-600';
-    return 'text-red-600';
-  };
-
-  const getOverallGrade = (student: StudentResult): string => {
-    if ((student as any).overall_grade) {
-      return (student as any).overall_grade;
-    }
-    
-    if (!student.average_score || typeof student.average_score !== 'number' || isNaN(student.average_score)) {
-      return 'N/A';
-    }
-    
-    const avg = student.average_score;
-    if (avg >= 70) return 'A';
-    if (avg >= 60) return 'B';
-    if (avg >= 50) return 'C';
-    if (avg >= 45) return 'D';
-    if (avg >= 39) return 'E';
-    return 'F';
-  };
-
-  const formatScore = (score: any): string => {
-    if (score === null || score === undefined) return 'N/A';
-    const numScore = typeof score === 'string' ? parseFloat(score) : score;
-    if (typeof numScore !== 'number' || isNaN(numScore)) return 'N/A';
-    return `${numScore.toFixed(1)}%`;
-  };
-
-  const formatTermDisplay = (term: string): string => {
-    if (!term) return 'N/A';
-    
-    const termMap: { [key: string]: string } = {
-      'FIRST': '1st Term',
-      'SECOND': '2nd Term',
-      'THIRD': '3rd Term',
-      '1st Term': '1st Term',
-      '2nd Term': '2nd Term',
-      '3rd Term': '3rd Term'
-    };
-    
-    return termMap[term.toUpperCase()] || term;
-  };
-
-  const getTermColor = (term: string): string => {
-    if (!term) return 'bg-gray-100 text-gray-800';
-    
-    switch (term.toUpperCase()) {
-      case 'FIRST':
-      case '1ST TERM':
-        return 'bg-blue-100 text-blue-800';
-      case 'SECOND':
-      case '2ND TERM':
-        return 'bg-green-100 text-green-800';
-      case 'THIRD':
-      case '3RD TERM':
-        return 'bg-purple-100 text-purple-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const handleRowClick = (result: StudentResult) => {
-    console.log('🎯 ============ ROW CLICK DEBUG ============');
-    console.log('🎯 View Mode:', viewMode);
-    console.log('🎯 Student:', result.student?.full_name);
-    console.log('🎯 Education Level:', result.student?.education_level);
-    console.log('🎯 Performance Stats:', {
-      total_score: result.total_score,
-      average_score: result.average_score,
-      gpa: result.gpa,
-      class_position: result.class_position,
-      total_students: result.total_students
-    });
-    console.log('🎯 Subject Results Count:', result.subject_results?.length);
-    if (result.subject_results?.[0]) {
-      console.log('🎯 First Subject:', {
-        name: result.subject_results[0].subject?.name,
-        first_test: result.subject_results[0].first_test_score,
-        second_test: result.subject_results[0].second_test_score,
-        third_test: result.subject_results[0].third_test_score,
-        exam: result.subject_results[0].exam_score,
-        total: result.subject_results[0].total_score
-      });
-    }
-    console.log('🎯 ========================================');
-    
-    setSelectedStudent(result);
-    setShowDetailModal(true);
-  };
-
-  const handleSelectResult = (resultId: string) => {
-    setSelectedResults(prev => 
-      prev.includes(resultId) 
-        ? prev.filter(id => id !== resultId)
-        : [...prev, resultId]
-    );
-  };
-
-  const handleSelectAll = () => {
-    if (selectedResults.length === paginatedResults.length && paginatedResults.length > 0) {
-      setSelectedResults([]);
-    } else {
-      setSelectedResults(paginatedResults.map(r => r.id));
-    }
-  };
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading results...</p>
+          <div className="w-12 h-12 border-4 border-violet-200 border-t-violet-600 rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-slate-600 font-medium">Loading results…</p>
         </div>
       </div>
     );
@@ -700,12 +821,13 @@ const EnhancedResultsManagement: React.FC = () => {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-red-600 text-xl mb-4">{error}</div>
-          <button 
-            onClick={loadResults}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="bg-white rounded-2xl border border-red-200 p-8 text-center max-w-sm">
+          <AlertCircle className="w-10 h-10 text-red-500 mx-auto mb-3" />
+          <p className="text-slate-700 font-medium mb-4">{error}</p>
+          <button
+            onClick={() => loadReports()}
+            className="px-4 py-2 bg-slate-900 text-white rounded-xl text-sm font-medium hover:bg-slate-800"
           >
             Retry
           </button>
@@ -715,906 +837,508 @@ const EnhancedResultsManagement: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Results Management</h1>
-              <p className="text-gray-600 mt-2">
-                Manage student results, approve, and publish for report cards
-              </p>
-              <p className="text-sm text-blue-600 mt-1">
-                Currently viewing: <strong>{viewMode === 'subject-results' ? 'Individual Subject Results' : 'Consolidated Term Reports'}</strong>
-              </p>
-            </div>
-            
-            <div className="flex gap-3 flex-wrap items-center">
-              <div className="flex bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200 rounded-lg p-1.5 shadow-md">
-                <button
-                  onClick={() => setViewMode('subject-results')}
-                  className={`px-6 py-2.5 rounded-md text-sm font-bold transition-all duration-200 ${
-                    viewMode === 'subject-results'
-                      ? 'bg-blue-600 text-white shadow-lg scale-105'
-                      : 'bg-white text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  📝 Subject Results
-                </button>
-                <button
-                  onClick={() => setViewMode('term-reports')}
-                  className={`px-6 py-2.5 rounded-md text-sm font-bold transition-all duration-200 ${
-                    viewMode === 'term-reports'
-                      ? 'bg-purple-600 text-white shadow-lg scale-105'
-                      : 'bg-white text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  📊 Term Reports
-                </button>
-              </div>
-              
-              <button
-                onClick={() => setShowAddForm(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-              >
-                <Plus className="w-4 h-4" />
-                Record Result
-              </button>
-              
-              <button
-                onClick={() => setShowFilters(!showFilters)}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2"
-              >
-                <Filter className="w-4 h-4" />
-                Filters
-              </button>
-              
-              {selectedResults.length > 0 && (
-                <div className="flex gap-2">
-                  {statusActions.map(action => (
-                    <button
-                      key={action.id}
-                      onClick={() => bulkUpdateStatus(selectedResults, action.id)}
-                      disabled={actionLoading === 'bulk'}
-                      className={`px-3 py-2 rounded-lg transition-colors flex items-center gap-2 text-sm ${action.bgColor} ${action.color} ${action.hoverColor} disabled:opacity-50`}
-                    >
-                      {action.icon}
-                      {action.label}
-                    </button>
-                  ))}
-                  <BulkPDFDownload
-                    selectedResults={filteredResults.filter(r => selectedResults.includes(r.id))}
-                    className="ml-2"
-                  />
-                </div>
-              )}
-            </div>
+    <div className="min-h-screen bg-slate-50">
+      <div className="max-w-screen-xl mx-auto px-4 py-8 space-y-6">
+
+        {/* ── Header ── */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Results Management</h1>
+            <p className="text-slate-500 text-sm mt-1">
+              Review, approve, and publish student term reports across all education levels
+            </p>
           </div>
-          
-          {/* Status Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
-            <div className="bg-white border border-gray-200 rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Total Results</p>
-                  <p className="text-2xl font-bold text-gray-900">{studentResults.length}</p>
-                </div>
-                <FileText className="w-8 h-8 text-blue-500" />
-              </div>
-            </div>
-            
-            <div className="bg-white border border-gray-200 rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Draft</p>
-                  <p className="text-2xl font-bold text-gray-700">
-                    {studentResults.filter(r => r.status === 'DRAFT').length}
-                  </p>
-                </div>
-                <Edit className="w-8 h-8 text-gray-500" />
-              </div>
-            </div>
-            
-            <div className="bg-white border border-gray-200 rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Approved</p>
-                  <p className="text-2xl font-bold text-green-700">
-                    {studentResults.filter(r => r.status === 'APPROVED').length}
-                  </p>
-                </div>
-                <CheckCircle className="w-8 h-8 text-green-500" />
-              </div>
-            </div>
-            
-            <div className="bg-white border border-gray-200 rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Published</p>
-                  <p className="text-2xl font-bold text-purple-700">
-                    {studentResults.filter(r => r.status === 'PUBLISHED').length}
-                  </p>
-                </div>
-                <Award className="w-8 h-8 text-purple-500" />
-              </div>
-            </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => loadReports(true)}
+              disabled={refreshing}
+              className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 rounded-xl text-slate-600 text-sm hover:bg-white transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+            <button
+              onClick={() => setShowFilters((v) => !v)}
+              className={`flex items-center gap-1.5 px-3 py-2 border rounded-xl text-sm transition-colors ${
+                showFilters
+                  ? 'border-violet-400 bg-violet-50 text-violet-700'
+                  : 'border-slate-300 text-slate-600 hover:bg-white'
+              }`}
+            >
+              <Filter className="w-4 h-4" />
+              Filters
+              {(filters.status !== 'all' ||
+                filters.level !== 'all' ||
+                filters.session !== 'all' ||
+                filters.term !== 'all' ||
+                filters.search) && (
+                <span className="w-2 h-2 rounded-full bg-violet-500" />
+              )}
+            </button>
           </div>
         </div>
 
-        {/* Filters */}
+        {/* ── Stat Cards ── */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            label="Total Reports"
+            value={counts.total}
+            icon={FileText}
+            color="bg-slate-600"
+          />
+          <StatCard
+            label="Draft"
+            value={counts.draft}
+            icon={Clock}
+            color="bg-amber-500"
+            sub="Awaiting approval"
+          />
+          <StatCard
+            label="Approved"
+            value={counts.approved}
+            icon={CheckCircle}
+            color="bg-emerald-500"
+            sub="Ready to publish"
+          />
+          <StatCard
+            label="Published"
+            value={counts.published}
+            icon={Award}
+            color="bg-violet-600"
+            sub="Visible to students"
+          />
+        </div>
+
+        {/* ── Filters Panel ── */}
         {showFilters && (
-          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Search</label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                  <input
-                    type="text"
-                    placeholder="Search students..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
+          <div className="bg-white rounded-2xl border border-slate-200 p-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search student or class…"
+                  value={filters.search}
+                  onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+                  className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 focus:border-transparent outline-none"
+                />
               </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="all">All Statuses</option>
-                  <option value="DRAFT">Draft</option>
-                  <option value="APPROVED">Approved</option>
-                  <option value="PUBLISHED">Published</option>
-                </select>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Education Level</label>
-                <select
-                  value={educationLevelFilter}
-                  onChange={(e) => setEducationLevelFilter(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="all">All Levels</option>
-                  {uniqueEducationLevels.map(level => (
-                    <option key={level} value={level}>{level}</option>
-                  ))}
-                </select>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Class</label>
-                <select
-                  value={classFilter}
-                  onChange={(e) => setClassFilter(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="all">All Classes</option>
-                  {uniqueClasses.map(cls => (
-                    <option key={cls} value={cls}>{cls}</option>
-                  ))}
-                </select>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Term</label>
-                <select
-                  value={termFilter}
-                  onChange={(e) => setTermFilter(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="all">All Terms</option>
-                  {uniqueTerms.map(term => (
-                    <option key={term} value={term}>{term}</option>
-                  ))}
-                </select>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Session</label>
-                <select
-                  value={sessionFilter}
-                  onChange={(e) => setSessionFilter(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="all">All Sessions</option>
-                  {uniqueSessions.map(session => (
-                    <option key={session} value={session}>{session}</option>
-                  ))}
-                </select>
-              </div>
+              <select
+                value={filters.status}
+                onChange={(e) =>
+                  setFilters((f) => ({ ...f, status: e.target.value as any }))
+                }
+                className="px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 outline-none"
+              >
+                <option value="all">All Statuses</option>
+                <option value="DRAFT">Draft</option>
+                <option value="APPROVED">Approved</option>
+                <option value="PUBLISHED">Published</option>
+              </select>
+              <select
+                value={filters.level}
+                onChange={(e) =>
+                  setFilters((f) => ({ ...f, level: e.target.value as any }))
+                }
+                className="px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 outline-none"
+              >
+                <option value="all">All Levels</option>
+                {EDUCATION_LEVELS.map((l) => (
+                  <option key={l} value={l}>
+                    {LEVEL_LABELS[l]}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={filters.session}
+                onChange={(e) =>
+                  setFilters((f) => ({ ...f, session: e.target.value }))
+                }
+                className="px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 outline-none"
+              >
+                <option value="all">All Sessions</option>
+                {uniqueSessions.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={filters.term}
+                onChange={(e) =>
+                  setFilters((f) => ({ ...f, term: e.target.value }))
+                }
+                className="px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 outline-none"
+              >
+                <option value="all">All Terms</option>
+                {uniqueTerms.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
             </div>
+            {(filters.status !== 'all' ||
+              filters.level !== 'all' ||
+              filters.session !== 'all' ||
+              filters.term !== 'all' ||
+              filters.search) && (
+              <button
+                onClick={() =>
+                  setFilters({
+                    search: '',
+                    status: 'all',
+                    level: 'all',
+                    session: 'all',
+                    term: 'all',
+                  })
+                }
+                className="mt-3 text-xs text-violet-600 hover:underline"
+              >
+                Clear all filters
+              </button>
+            )}
           </div>
         )}
 
-        {/* Term Tabs */}
-        <div className="bg-white rounded-lg shadow-sm mb-4">
-          <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8 px-6">
-              <button
-                onClick={() => setActiveTab('ALL')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'ALL'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                All Results ({studentResults.length})
-              </button>
-              <button
-                onClick={() => setActiveTab('FIRST')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'FIRST'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium mr-2 ${getTermColor('FIRST')}`}>
-                  1st Term
-                </span>
-                ({studentResults.filter(r => r.term === 'FIRST').length})
-              </button>
-              <button
-                onClick={() => setActiveTab('SECOND')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'SECOND'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium mr-2 ${getTermColor('SECOND')}`}>
-                  2nd Term
-                </span>
-                ({studentResults.filter(r => r.term === 'SECOND').length})
-              </button>
-              <button
-                onClick={() => setActiveTab('THIRD')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'THIRD'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium mr-2 ${getTermColor('THIRD')}`}>
-                  3rd Term
-                </span>
-                ({studentResults.filter(r => r.term === 'THIRD').length})
-              </button>
-            </nav>
-          </div>
-        </div>
-
-        {/* Results Table */}
-        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-          <div className="p-6 border-b border-gray-200">
-            <div className="flex justify-between items-center">
-              <div>
-                <h2 className="text-xl font-semibold text-gray-900">
-                  {activeTab === 'ALL' ? 'All Results' : `${formatTermDisplay(activeTab)} Results`} ({filteredResults.length})
-                </h2>
-                <p className="text-sm text-gray-500 mt-1">
-                  {viewMode === 'subject-results' 
-                    ? '📝 Showing individual subject results with all statuses' 
-                    : '📊 Showing consolidated term reports'}
-                </p>
-              </div>
-              {selectedResults.length > 0 && (
-                <span className="text-sm text-gray-600">
-                  {selectedResults.length} selected
-                </span>
-              )}
+        {/* ── Table ── */}
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+          {/* Table header row */}
+          <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">
+                Term Reports{' '}
+                <span className="text-slate-400 font-normal">({filtered.length})</span>
+              </h2>
             </div>
+
+            {selectedIds.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-500">
+                  {selectedIds.length} selected
+                </span>
+                <button
+                  onClick={handleBulkApprove}
+                  disabled={actionLoading === 'bulk'}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  Approve
+                </button>
+                <button
+                  onClick={handleBulkPublish}
+                  disabled={actionLoading === 'bulk'}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700 disabled:opacity-50"
+                >
+                  <Award className="w-3.5 h-3.5" />
+                  Publish
+                </button>
+                <button
+                  onClick={() => setSelectedIds([])}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
-          
+
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  <th className="px-6 py-3 text-left">
+                  <th className="px-4 py-3 text-left w-10">
                     <input
                       type="checkbox"
-                      checked={selectedResults.length === paginatedResults.length && paginatedResults.length > 0}
+                      checked={
+                        selectedIds.length === paginated.length &&
+                        paginated.length > 0
+                      }
                       onChange={handleSelectAll}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      className="rounded border-slate-300 text-violet-600 focus:ring-violet-400"
                     />
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Student
                   </th>
-                  {viewMode === 'subject-results' && (
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Subject
-                    </th>
-                  )}
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Class
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Level
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Term
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Term / Session
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Subjects
+                  </th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Average
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Grade
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Position
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Last Updated
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Updated
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {paginatedResults.length === 0 ? (
+              <tbody className="divide-y divide-slate-100">
+                {paginated.length === 0 ? (
                   <tr>
-                    <td colSpan={viewMode === 'subject-results' ? 10 : 9} className="px-6 py-12 text-center text-gray-500">
-                      <FileText className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                      <p>No results found</p>
-                      {searchTerm && (
-                        <p className="text-sm mt-2">Try adjusting your search criteria</p>
+                    <td colSpan={11} className="px-4 py-16 text-center">
+                      <FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                      <p className="text-slate-500 font-medium">No results found</p>
+                      {filters.search && (
+                        <p className="text-slate-400 text-xs mt-1">
+                          Try adjusting your filters
+                        </p>
                       )}
                     </td>
                   </tr>
                 ) : (
-                  paginatedResults.map((result) => (
-                    <tr key={result.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4">
-                        <input
-                          type="checkbox"
-                          checked={selectedResults.includes(result.id)}
-                          onChange={() => handleSelectResult(result.id)}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <div className="flex-shrink-0 h-10 w-10">
-                            {result.student?.profile_picture ? (
-                              <img
-                                className="h-10 w-10 rounded-full"
-                                src={result.student.profile_picture}
-                                alt={result.student.full_name}
-                              />
-                            ) : (
-                              <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                                <User className="h-5 w-5 text-blue-600" />
-                              </div>
-                            )}
-                          </div>
-                          <div className="ml-4">
-                            <div className="text-sm font-medium text-gray-900">
-                              {result.student?.full_name || 'N/A'}
-                            </div>
-                            <div className="text-sm text-gray-500">
-                              {result.student?.username || 'N/A'}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                      {viewMode === 'subject-results' && (
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">
-                            {(result as any).subject_name || result.subject_results?.[0]?.subject?.name || 'N/A'}
-                          </div>
-                          <div className="text-sm text-gray-500">
-                            {result.subject_results?.[0]?.subject?.code || ''}
-                          </div>
-                        </td>
-                      )}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
-                          {result.student?.student_class || 'N/A'}
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {result.student?.education_level || 'N/A'}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center space-x-2">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getTermColor(result.term)}`}>
-                            {formatTermDisplay(result.term)}
-                          </span>
-                        </div>
-                        <div className="text-sm text-gray-500 mt-1">
-                          {result.academic_session?.name || 'N/A'}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">
-                          {formatScore(result.average_score)}
-                        </div>
-                        {result.class_position && (
-                          <div className="text-sm text-gray-500">
-                            Position: {result.class_position}/{result.total_students}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`text-sm font-medium ${getGradeColor(getOverallGrade(result))}`}>
-                          {getOverallGrade(result)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {getStatusBadge(result.status)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
-                          {new Date(result.updated_at).toLocaleDateString()}
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {new Date(result.updated_at).toLocaleTimeString()}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleRowClick(result)}
-                            className="text-blue-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50 transition-colors"
-                            title="View Details"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <PDFDownloadButton
-                              reportId={result.id}
-                              educationLevel={
-                              (result as any).education_level || 
-                              result.student?.education_level || 
-                              'PRIMARY'
-                              }
-                              studentName={result.student?.full_name || 'Student'}
-                              term={result.term}
-                              session={result.academic_session?.name || 'Session'}
-                              variant="icon"
-                              size="md"
-                            />
-                          <button
-                            onClick={() => {
-                              setEditingResult(result);
-                              setShowEditModal(true);
-                            }}
-                            className="text-blue-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50 transition-colors"
-                            title="Edit Result"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          
-                          {statusActions.map(action => (
-                            <button
-                              key={action.id}
-                              onClick={() => updateResultStatus(result.id, action.id, result.student?.education_level || '')}
-                              disabled={actionLoading === result.id || result.status === action.id}
-                              className={`p-1 rounded transition-colors ${action.bgColor} ${action.color} ${action.hoverColor} disabled:opacity-50 disabled:cursor-not-allowed`}
-                              title={action.label}
-                            >
-                              {action.icon}
-                            </button>
-                          ))}
-                          
-                          <button
-                            onClick={() => {
-                              setResultToDelete(result);
-                              setShowDeleteModal(true);
-                            }}
-                            className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50 transition-colors"
-                            title="Delete Result"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-          
-          {/* Pagination Controls */}
-          {filteredResults.length > 0 && (
-            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                {/* Items per page selector */}
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-700">Show</span>
-                  <select
-                    value={itemsPerPage}
-                    onChange={(e) => setItemsPerPage(Number(e.target.value))}
-                    className="px-3 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white"
-                  >
-                    <option value={10}>10</option>
-                    <option value={20}>20</option>
-                    <option value={50}>50</option>
-                    <option value={100}>100</option>
-                  </select>
-                  <span className="text-sm text-gray-700">
-                    per page
-                  </span>
-                </div>
+                  paginated.map((report) => {
+                    const avg = getAverageScore(report);
+                    const grade = ResultService.getOverallGrade(report);
+                    const isActing = actionLoading === report.id;
+                    const totalStudents = getTotalStudents(report);
 
-                {/* Pagination info */}
-                <div className="text-sm text-gray-700 font-medium">
-                  Showing <span className="text-blue-600">{startIndex + 1}</span> to{' '}
-                  <span className="text-blue-600">{Math.min(endIndex, filteredResults.length)}</span> of{' '}
-                  <span className="text-blue-600">{filteredResults.length}</span> results
-                </div>
-
-                {/* Page navigation */}
-                {totalPages > 1 && (
-                  <div className="flex items-center gap-1">
-                    {/* First page button */}
-                    <button
-                      onClick={() => goToPage(1)}
-                      disabled={currentPage === 1}
-                      className="p-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors bg-white shadow-sm"
-                      title="First page"
-                    >
-                      <ChevronsLeft className="w-4 h-4" />
-                    </button>
-
-                    {/* Previous page button */}
-                    <button
-                      onClick={() => goToPage(currentPage - 1)}
-                      disabled={currentPage === 1}
-                      className="p-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors bg-white shadow-sm"
-                      title="Previous page"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-
-                    {/* Page numbers */}
-                    <div className="hidden sm:flex items-center gap-1">
-                      {getPageNumbers().map((page, index) => (
-                        page === '...' ? (
-                          <span key={`ellipsis-${index}`} className="px-3 py-2 text-gray-500">
-                            ...
-                          </span>
-                        ) : (
-                          <button
-                            key={page}
-                            onClick={() => goToPage(page as number)}
-                            className={`min-w-[2.5rem] px-3 py-2 border rounded-lg text-sm font-medium transition-all shadow-sm ${
-                              currentPage === page
-                                ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
-                                : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
-                            }`}
-                          >
-                            {page}
-                          </button>
-                        )
-                      ))}
-                    </div>
-
-                    {/* Mobile: Current page indicator */}
-                    <div className="sm:hidden px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700">
-                      Page {currentPage} of {totalPages}
-                    </div>
-
-                    {/* Next page button */}
-                    <button
-                      onClick={() => goToPage(currentPage + 1)}
-                      disabled={currentPage === totalPages}
-                      className="p-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors bg-white shadow-sm"
-                      title="Next page"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-
-                    {/* Last page button */}
-                    <button
-                      onClick={() => goToPage(totalPages)}
-                      disabled={currentPage === totalPages}
-                      className="p-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors bg-white shadow-sm"
-                      title="Last page"
-                    >
-                      <ChevronsRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Detail Modal */}
-        {showDetailModal && selectedStudent && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-    <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-      <div className="p-6 border-b border-gray-200">
-        <div className="flex justify-between items-center">
-          <div>
-            <h3 className="text-xl font-semibold text-gray-900">
-              Result Details - {selectedStudent.student?.full_name}
-            </h3>
-            <div className="mt-1 flex items-center space-x-2">
-              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getTermColor(selectedStudent.term)}`}>
-                {formatTermDisplay(selectedStudent.term)}
-              </span>
-              <span className="text-sm text-gray-500">
-                {selectedStudent.academic_session?.name}
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center space-x-2">
-            <PDFDownloadButton
-              reportId={selectedStudent.id}
-              educationLevel={
-                (selectedStudent as any).education_level || 
-                selectedStudent.student?.education_level || 
-                'PRIMARY'
-              }
-              studentName={selectedStudent.student?.full_name || 'Student'}
-              term={selectedStudent.term}
-              session={selectedStudent.academic_session?.name || 'Session'}
-              variant="button"
-              size="sm"
-            />
-            <button
-              onClick={() => {
-                setShowDetailModal(false);
-                setEditingResult(selectedStudent);
-                setShowEditModal(true);
-              }}
-              className="text-blue-600 hover:text-blue-900 p-2 rounded-lg hover:bg-blue-50 transition-colors"
-              title="Edit Result"
-            >
-              <Edit className="w-5 h-5" />
-            </button>
-            <button
-              onClick={() => {
-                setShowDetailModal(false);
-                setSelectedStudent(null);
-              }}
-              className="text-gray-400 hover:text-gray-600"
-            >
-              <XCircle className="w-6 h-6" />
-            </button>
-          </div>
-        </div>
-      </div>
-      
-      <div className="p-6">
-        <div className="grid grid-cols-2 gap-6 mb-6">
-          <div>
-            <h4 className="text-lg font-medium text-gray-900 mb-3">Student Information</h4>
-            <div className="space-y-2 text-sm">
-              <p><span className="font-medium">Name:</span> {selectedStudent.student?.full_name}</p>
-              <p><span className="font-medium">Class:</span> {selectedStudent.student?.student_class}</p>
-              <p><span className="font-medium">Term:</span> 
-                <span className={`ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getTermColor(selectedStudent.term)}`}>
-                  {formatTermDisplay(selectedStudent.term)}
-                </span>
-              </p>
-              <p><span className="font-medium">Session:</span> {selectedStudent.academic_session?.name}</p>
-            </div>
-          </div>
-          
-          <div>
-            <h4 className="text-lg font-medium text-gray-900 mb-3">Performance Summary</h4>
-            <div className="space-y-2 text-sm">
-              <p><span className="font-medium">Average Score:</span> {formatScore(selectedStudent.average_score)}</p>
-              <p><span className="font-medium">Overall Grade:</span> <span className={getGradeColor(getOverallGrade(selectedStudent))}>{getOverallGrade(selectedStudent)}</span></p>
-              <p><span className="font-medium">Position:</span> {selectedStudent.class_position ? `${selectedStudent.class_position}/${selectedStudent.total_students}` : 'N/A'}</p>
-              <p><span className="font-medium">Status:</span> {getStatusBadge(selectedStudent.status)}</p>
-            </div>
-          </div>
-        </div>
-        
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h4 className="text-lg font-medium text-gray-900">Subject Results</h4>
-            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getTermColor(selectedStudent.term)}`}>
-              {formatTermDisplay(selectedStudent.term)} Results
-            </span>
-          </div>
-          
-          <div className="overflow-x-auto">
-            <table className="w-full border border-gray-200 rounded-lg">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Subject</th>
-                  
-                  {/* Show headers based on education level */}
-                  {(() => {
-                    const eduLevel = (selectedStudent as any).education_level || selectedStudent.student?.education_level;
-                    
-                    if (eduLevel === 'NURSERY') {
-                      return (
-                        <th className="px-4 py-2 text-center text-sm font-medium text-gray-700">Score</th>
-                      );
-                    } else if (eduLevel === 'PRIMARY' || eduLevel === 'JUNIOR_SECONDARY') {
-                      return (
-                        <>
-                          <th className="px-4 py-2 text-center text-sm font-medium text-gray-700">CA</th>
-                          <th className="px-4 py-2 text-center text-sm font-medium text-gray-700">Exam</th>
-                        </>
-                      );
-                    } else if (eduLevel === 'SENIOR_SECONDARY') {
-                      return (
-                        <>
-                          <th className="px-4 py-2 text-center text-sm font-medium text-gray-700 bg-blue-100">1st Test</th>
-                          <th className="px-4 py-2 text-center text-sm font-medium text-gray-700 bg-blue-100">2nd Test</th>
-                          <th className="px-4 py-2 text-center text-sm font-medium text-gray-700 bg-blue-100">3rd Test</th>
-                          <th className="px-4 py-2 text-center text-sm font-medium text-gray-700 bg-green-100">Exam</th>
-                        </>
-                      );
-                    }
-                    return null;
-                  })()}
-                  
-                  <th className="px-4 py-2 text-center text-sm font-medium text-gray-700">Total</th>
-                  <th className="px-4 py-2 text-center text-sm font-medium text-gray-700">Grade</th>
-                  <th className="px-4 py-2 text-center text-sm font-medium text-gray-700">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {selectedStudent.subject_results?.length > 0 ? (
-                  selectedStudent.subject_results.map((subject, index) => {
-                    const eduLevel = (selectedStudent as any).education_level || selectedStudent.student?.education_level;
-                    
                     return (
-                      <tr key={index} className="hover:bg-gray-50">
-                        <td className="px-4 py-2 text-sm font-medium text-gray-900">
-                          {subject.subject?.name || 'N/A'}
-                          <div className="text-xs text-gray-500">{subject.subject?.code || ''}</div>
+                      <tr
+                        key={report.id}
+                        className="hover:bg-slate-50 transition-colors"
+                      >
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.includes(report.id)}
+                            onChange={() => toggleSelect(report.id)}
+                            className="rounded border-slate-300 text-violet-600 focus:ring-violet-400"
+                          />
                         </td>
-                        
-                        {/* Show data based on education level */}
-                        {(() => {
-                          if (eduLevel === 'NURSERY') {
-                            return (
-                              <td className="px-4 py-2 text-center text-sm text-gray-900">
-                                {subject.exam_score ?? 'N/A'}
-                              </td>
-                            );
-                          } else if (eduLevel === 'PRIMARY' || eduLevel === 'JUNIOR_SECONDARY') {
-                            return (
-                              <>
-                                <td className="px-4 py-2 text-center text-sm text-gray-900">
-                                  {subject.ca_total ?? subject.total_ca_score ?? 'N/A'}
-                                </td>
-                                <td className="px-4 py-2 text-center text-sm text-gray-900">
-                                  {subject.exam_score ?? 'N/A'}
-                                </td>
-                              </>
-                            );
-                          } else if (eduLevel === 'SENIOR_SECONDARY') {
-                            return (
-                              <>
-                                <td className="px-4 py-2 text-center text-sm font-bold text-blue-900 bg-blue-50">
-                                  {subject.first_test_score ?? 0}
-                                </td>
-                                <td className="px-4 py-2 text-center text-sm font-bold text-blue-900 bg-blue-50">
-                                  {subject.second_test_score ?? 0}
-                                </td>
-                                <td className="px-4 py-2 text-center text-sm font-bold text-blue-900 bg-blue-50">
-                                  {subject.third_test_score ?? 0}
-                                </td>
-                                <td className="px-4 py-2 text-center text-sm font-bold text-green-900 bg-green-50">
-                                  {subject.exam_score ?? 0}
-                                </td>
-                              </>
-                            );
-                          }
-                          return null;
-                        })()}
-                        
-                        <td className="px-4 py-2 text-center text-sm font-medium text-gray-900">
-                          {subject.total_score ?? 'N/A'}
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0">
+                              <User className="w-4 h-4 text-violet-600" />
+                            </div>
+                            <div>
+                              <p className="font-medium text-slate-900 leading-tight">
+                                {report.student?.full_name || 'N/A'}
+                              </p>
+                              <p className="text-xs text-slate-400">
+                                {report.student?.student_class_name || '—'}
+                              </p>
+                            </div>
+                          </div>
                         </td>
-                        <td className="px-4 py-2 text-center text-sm">
-                          <span className={getGradeColor(subject.grade)}>
-                            {subject.grade || 'N/A'}
-                          </span>
+                        <td className="px-4 py-3">
+                          <LevelBadge level={report.education_level} />
                         </td>
-                        <td className="px-4 py-2 text-center text-sm">
-                          {subject.is_passed ? (
-                            <span className="text-green-600 font-medium">Pass</span>
-                          ) : (
-                            <span className="text-red-600 font-medium">Fail</span>
-                          )}
+                        <td className="px-4 py-3">
+                          <p className="text-slate-700 font-medium leading-tight">
+                            {report.exam_session?.term_name || 'N/A'}
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            {report.exam_session?.academic_session?.name || '—'}
+                          </p>
+                        </td>
+                        <td className="px-4 py-3 text-center text-slate-600">
+                          {getSubjectCount(report)}
+                        </td>
+                        <td className="px-4 py-3 text-center font-medium text-slate-900">
+                          {formatScore(avg)}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <GradeChip grade={grade} />
+                        </td>
+                        <td className="px-4 py-3 text-center text-slate-500 text-xs">
+                          {report.class_position
+                            ? `${report.class_position}${totalStudents ? `/${totalStudents}` : ''}`
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <StatusBadge status={report.status} />
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-400">
+                          {formatDate(report.updated_at)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-center gap-1">
+                            {/* View */}
+                            <button
+                              onClick={() => setDetailReport(report)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                              title="View details"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+
+                            {/* Approve */}
+                            {report.status === 'DRAFT' && (
+                              <button
+                                onClick={() => handleApprove(report)}
+                                disabled={isActing}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors disabled:opacity-40"
+                                title="Approve"
+                              >
+                                <CheckCircle className="w-4 h-4" />
+                              </button>
+                            )}
+
+                            {/* Publish */}
+                            {report.status === 'APPROVED' && (
+                              <button
+                                onClick={() => handlePublish(report)}
+                                disabled={isActing}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-violet-600 hover:bg-violet-50 transition-colors disabled:opacity-40"
+                                title="Publish"
+                              >
+                                <Award className="w-4 h-4" />
+                              </button>
+                            )}
+
+                            {/* Download PDF */}
+                            <button
+                              onClick={() => handleDownloadPDF(report)}
+                              disabled={actionLoading === report.id + '_pdf'}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-40"
+                              title="Download PDF"
+                            >
+                              <Download className="w-4 h-4" />
+                            </button>
+
+                            {/* Delete */}
+                            <button
+                              onClick={() => setDeleteTarget(report)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
                   })
-                ) : (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
-                      No subject results available
-                    </td>
-                  </tr>
                 )}
               </tbody>
             </table>
           </div>
+
+          {/* Pagination */}
+          {filtered.length > 0 && (
+            <div className="px-6 py-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50">
+              <div className="flex items-center gap-2 text-sm text-slate-500">
+                <span>Show</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="px-2 py-1 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-violet-400 outline-none"
+                >
+                  {[10, 20, 50, 100].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+                <span>
+                  Showing{' '}
+                  <strong>
+                    {(currentPage - 1) * pageSize + 1}–
+                    {Math.min(currentPage * pageSize, filtered.length)}
+                  </strong>{' '}
+                  of <strong>{filtered.length}</strong>
+                </span>
+              </div>
+
+              {totalPages > 1 && (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage === 1}
+                    className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <ChevronsLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage((p) => p - 1)}
+                    disabled={currentPage === 1}
+                    className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <div className="hidden sm:flex items-center gap-1">
+                    {getPageNumbers().map((p, i) =>
+                      p === '…' ? (
+                        <span key={`e${i}`} className="px-2 text-slate-400">
+                          …
+                        </span>
+                      ) : (
+                        <button
+                          key={p}
+                          onClick={() => setCurrentPage(p as number)}
+                          className={`min-w-[2.25rem] h-9 rounded-lg border text-sm font-medium transition-colors ${
+                            currentPage === p
+                              ? 'bg-violet-600 border-violet-600 text-white'
+                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      )
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setCurrentPage((p) => p + 1)}
+                    disabled={currentPage === totalPages}
+                    className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage === totalPages}
+                    className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <ChevronsRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
-    </div>
-  </div>
-)}
 
-        {/* Edit Modal */}
-        {showEditModal && editingResult && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-              <div className="p-6">
-                <EditSubjectResultForm
-                  result={editingResult as any}
-                  onClose={() => {
-                    setShowEditModal(false);
-                    setEditingResult(null);
-                  }}
-                  onSuccess={() => {
-                    setShowEditModal(false);
-                    setEditingResult(null);
-                    loadResults();
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-        )}
+      {/* ── Detail Modal ── */}
+      {detailReport && (
+        <DetailModal
+          report={detailReport}
+          level={detailReport.education_level}
+          onClose={() => setDetailReport(null)}
+          onApprove={() => handleApprove(detailReport)}
+          onPublish={() => handlePublish(detailReport)}
+          onDownload={() => handleDownloadPDF(detailReport)}
+        />
+      )}
 
-        {/* Delete Confirmation Modal */}
-        {showDeleteModal && resultToDelete && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-              <div className="p-6">
-                <div className="flex items-center mb-4">
-                  <AlertCircle className="w-6 h-6 text-red-600 mr-3" />
-                  <h3 className="text-lg font-semibold text-gray-900">Confirm Delete</h3>
-                </div>
-                <p className="text-gray-600 mb-6">
-                  Are you sure you want to delete the result for <strong>{resultToDelete.student?.full_name}</strong>? 
-                  This action cannot be undone.
-                </p>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => {
-                      setShowDeleteModal(false);
-                      setResultToDelete(null);
-                    }}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => deleteResult(resultToDelete)}
-                    disabled={actionLoading === 'delete'}
-                    className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
-                  >
-                    {actionLoading === 'delete' ? 'Deleting...' : 'Delete'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Add Result Modal */}
-        {showAddForm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-              <AddResultForm
-                onClose={() => setShowAddForm(false)}
-                onSuccess={handleResultAdded}
-              />
-            </div>
-          </div>
-        )}
-      </div>
+      {/* ── Delete Modal ── */}
+      {deleteTarget && (
+        <DeleteModal
+          report={deleteTarget}
+          onConfirm={() => handleDelete(deleteTarget)}
+          onCancel={() => setDeleteTarget(null)}
+          loading={actionLoading === 'delete'}
+        />
+      )}
     </div>
   );
 };
 
-export default EnhancedResultsManagement;
+export default AdminResultsManagement;

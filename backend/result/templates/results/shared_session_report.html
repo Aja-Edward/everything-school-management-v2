@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>{{ student.name }} - Primary Term Report</title>
+<title>{{ student.name }} - {{ report_type_label }} Session Report</title>
 
 <style>
 @page {
@@ -130,17 +130,21 @@ body {
     font-weight: 800;
     margin-top: 6px;
     color: #1e40af;
+    letter-spacing: 0.5px;
 }
 
-.session-info {
+.session-badge {
     text-align: center;
+    margin: 5px auto 0;
+}
+
+.session-badge span {
+    display: inline-block;
     font-size: 9pt;
     background: #1e40af;
     color: #ffffff;
-    padding: 4px 14px;
+    padding: 3px 16px;
     border-radius: 20px;
-    width: fit-content;
-    margin: 6px auto 0;
 }
 
 /* ================= STUDENT INFO ================= */
@@ -169,7 +173,6 @@ body {
 .info-value {
     font-size: 8.5pt;
     color: #111827;
-    margin-right: 6px;
 }
 
 /* ================= SECTION TITLE ================= */
@@ -182,21 +185,20 @@ body {
     padding-bottom: 2px;
 }
 
-/* ================= TABLE ================= */
+/* ================= TERM TOTALS TABLE ================= */
 .table-wrapper {
-    margin-bottom: 8px;
-    overflow-x: auto;
+    margin-bottom: 10px;
 }
 
 table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 7.5pt;
+    font-size: 8.5pt;
 }
 
 th, td {
     border: 1px solid #6b7280;
-    padding: 4px 3px;
+    padding: 5px 6px;
     text-align: center;
 }
 
@@ -206,12 +208,11 @@ thead th {
     color: #1e3a8a;
 }
 
-.subject-name,
-th.col-subject {
+.col-term {
     text-align: left;
-    padding-left: 6px;
+    padding-left: 8px;
     font-weight: 700;
-    min-width: 100px;
+    width: 160px;
 }
 
 .bold {
@@ -223,29 +224,8 @@ tbody tr:nth-child(even) {
     background: #f9fafb;
 }
 
-/* ================= NO-DATA NOTICE ================= */
-.no-components {
-    font-style: italic;
-    color: #6b7280;
-    font-size: 7.5pt;
-    text-align: center;
-    padding: 6px;
-}
-
-/* ================= GRADE KEY ================= */
-.grade-key-section {
-    margin: 8px 0;
-}
-
-.grade-key-title {
-    font-weight: 700;
-    font-size: 8.5pt;
-    color: #1e3a8a;
-    margin-bottom: 4px;
-}
-
-/* ================= SUMMARY & ATTENDANCE (SIDE BY SIDE) ================= */
-.summary-attendance-row {
+/* ================= SUMMARY + SESSION INFO GRID ================= */
+.bottom-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
@@ -272,7 +252,7 @@ tbody tr:nth-child(even) {
     display: flex;
     justify-content: space-between;
     font-size: 8.5pt;
-    margin-bottom: 4px;
+    margin-bottom: 5px;
     padding: 2px 0;
 }
 
@@ -282,7 +262,7 @@ tbody tr:nth-child(even) {
 }
 
 .summary-item .value {
-    font-weight: 700;
+    font-weight: 800;
     color: #1e40af;
 }
 
@@ -413,8 +393,10 @@ tbody tr:nth-child(even) {
         <div></div>
     </div>
 
-    <div class="report-title">Primary School Termly Report</div>
-    <div class="session-info">{{ term.name }} Term &nbsp;|&nbsp; {{ term.session }} Academic Session</div>
+    <div class="report-title">{{ report_type_label }} School Session Report</div>
+    <div class="session-badge">
+        <span>{{ session.name }} Academic Session</span>
+    </div>
 </div>
 
 <!-- STUDENT INFO -->
@@ -424,151 +406,119 @@ tbody tr:nth-child(even) {
         <span class="info-value">{{ student.name|upper }}</span>
         <span class="info-label">ADMISSION NO:</span>
         <span class="info-value">{{ student.admission_number|default:"—" }}</span>
-        <span class="info-label">AGE:</span>
-        <span class="info-value">{{ student.age|default:"N/A" }}</span>
     </div>
     <div class="info-row">
         <span class="info-label">CLASS:</span>
         <span class="info-value">{{ student.class }}</span>
-        <span class="info-label">NO. IN CLASS:</span>
-        <span class="info-value">{{ summary.total_students }}</span>
-        <span class="info-label">POSITION:</span>
-        <span class="info-value">{{ summary.position }} of {{ summary.total_students }}</span>
-        <span class="info-label">NEXT TERM:</span>
-        <span class="info-value">{{ next_term_begins|default:"TBA" }}</span>
+        {% if student.age and student.age != "N/A" %}
+        <span class="info-label">AGE:</span>
+        <span class="info-value">{{ student.age }} yrs</span>
+        {% endif %}
+        <span class="info-label">SESSION:</span>
+        <span class="info-value">
+            {{ session.start_date }}{% if session.end_date %} – {{ session.end_date }}{% endif %}
+        </span>
     </div>
 </div>
 
-<!-- ACADEMICS -->
-<div class="section-title">Academic Performance</div>
-
+<!-- TERM PERFORMANCE TABLE -->
+<div class="section-title">Term-by-Term Performance</div>
 <div class="table-wrapper">
-    {% if subjects %}
-        {% with first=subjects.0 %}
-        <table>
-            <thead>
+    <table>
+        <thead>
+            <tr>
+                <th class="col-term">Term</th>
+                <th>Total Score</th>
+                <th>Average (%)</th>
+                <th>Class Position</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if term_totals %}
+                {% for t in term_totals %}
                 <tr>
-                    <th class="col-subject" rowspan="2">SUBJECT</th>
-
-                    {# ── CA components grouped under one spanning header ── #}
-                    {% if first.ca_components %}
-                        <th colspan="{{ first.ca_components|length }}">
-                            CONTINUOUS ASSESSMENT
-                        </th>
-                    {% endif %}
-
-                    {# ── Non-CA (exam) components get their own header cell ── #}
-                    {% for c in first.exam_components %}
-                        <th rowspan="2">{{ c.name|upper }}<br>({{ c.max|floatformat:0 }})</th>
-                    {% endfor %}
-
-                    <th rowspan="2">CA TOTAL</th>
-                    <th rowspan="2">TOTAL (100)</th>
-                    <th rowspan="2">POSITION</th>
-                    <th rowspan="2">GRADE</th>
-                    <th rowspan="2">REMARK</th>
-                </tr>
-                <tr>
-                    {# ── Individual CA sub-headers ── #}
-                    {% for c in first.ca_components %}
-                        <th>{{ c.name|upper }}<br>({{ c.max|floatformat:0 }})</th>
-                    {% endfor %}
-                </tr>
-            </thead>
-            <tbody>
-                {% for subject in subjects %}
-                <tr>
-                    <td class="subject-name">{{ subject.name }}</td>
-
-                    {% for c in subject.ca_components %}
-                        <td>{{ c.score|floatformat:1 }}</td>
-                    {% endfor %}
-
-                    {% for c in subject.exam_components %}
-                        <td>{{ c.score|floatformat:1 }}</td>
-                    {% endfor %}
-
-                    <td class="bold">{{ subject.ca_total|floatformat:1 }}</td>
-                    <td class="bold">{{ subject.total|floatformat:1 }}</td>
-                    <td>{{ subject.position }}</td>
-                    <td class="bold">{{ subject.grade }}</td>
-                    <td>{{ subject.remark }}</td>
+                    <td class="col-term">{{ t.term_name }}</td>
+                    <td class="bold">{{ t.total_score|floatformat:1 }}</td>
+                    <td>{{ t.average_score|floatformat:1 }}%</td>
+                    <td>
+                        {% if t.class_position %}
+                            {{ t.class_position }}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
-            </tbody>
-        </table>
-        {% endwith %}
-    {% else %}
-        <p class="no-components">No subject results available for this report.</p>
-    {% endif %}
-</div>
-
-<!-- GRADE KEY -->
-<div class="grade-key-section">
-    <span class="grade-key-title">Grading Scale:</span>
-    <table style="width:auto; display:inline-table; margin-left:8px;">
-        <tr>
-            <td><strong>A</strong> 70–100</td>
-            <td><strong>B</strong> 60–69</td>
-            <td><strong>C</strong> 50–59</td>
-            <td><strong>D</strong> 45–49</td>
-            <td><strong>E</strong> 40–44</td>
-            <td><strong>F</strong> 0–39</td>
-        </tr>
+            {% else %}
+                <tr>
+                    <td colspan="4" style="text-align:center; color:#6b7280; font-style:italic;">
+                        No term data available. Run "Compute" to populate from approved term reports.
+                    </td>
+                </tr>
+            {% endif %}
+        </tbody>
     </table>
 </div>
 
-<!-- PERFORMANCE SUMMARY & ATTENDANCE -->
-<div class="summary-attendance-row">
+<!-- SUMMARY + SESSION INFO -->
+<div class="bottom-grid">
+    <!-- Session Summary -->
     <div class="summary-box">
-        <h3>Performance Summary</h3>
+        <h3>Session Summary</h3>
         <div class="summary-item">
-            <span class="label">Total Subjects</span>
-            <span class="value">{{ summary.total_subjects }}</span>
+            <span class="label">Terms Completed</span>
+            <span class="value">{{ summary.terms_completed }}</span>
         </div>
         <div class="summary-item">
-            <span class="label">Total Score</span>
-            <span class="value">{{ summary.total_score|floatformat:1 }}</span>
+            <span class="label">Overall Total</span>
+            <span class="value">{{ summary.overall_total|floatformat:1 }}</span>
         </div>
         <div class="summary-item">
-            <span class="label">Average</span>
-            <span class="value">{{ summary.average|floatformat:1 }}%</span>
+            <span class="label">Overall Average</span>
+            <span class="value">{{ summary.overall_average|floatformat:1 }}%</span>
         </div>
         <div class="summary-item">
             <span class="label">Overall Grade</span>
-            <span class="value">{{ summary.grade }}</span>
+            <span class="value">{{ summary.overall_grade|default:"—" }}</span>
         </div>
         <div class="summary-item">
-            <span class="label">Position</span>
-            <span class="value">{{ summary.position }} of {{ summary.total_students }}</span>
+            <span class="label">Position in Class</span>
+            <span class="value">
+                {{ summary.overall_position|default:"—" }}
+                {% if summary.total_students %} of {{ summary.total_students }}{% endif %}
+            </span>
         </div>
     </div>
 
+    <!-- Session Info -->
     <div class="summary-box">
-        <h3>Attendance Record</h3>
+        <h3>Session Information</h3>
         <div class="summary-item">
-            <span class="label">School Opened</span>
-            <span class="value">{{ attendance.times_opened }}</span>
+            <span class="label">Academic Session</span>
+            <span class="value">{{ session.name }}</span>
         </div>
         <div class="summary-item">
-            <span class="label">Times Present</span>
-            <span class="value">{{ attendance.times_present }}</span>
-        </div>
-        {% if attendance.times_opened %}
-        <div class="summary-item">
-            <span class="label">Times Absent</span>
-            <span class="value">{{ attendance.times_opened|add:"-"|add:attendance.times_present }}</span>
+            <span class="label">Session Start</span>
+            <span class="value">{{ session.start_date }}</span>
         </div>
         <div class="summary-item">
-            <span class="label">Attendance Rate</span>
-            <span class="value">{% widthratio attendance.times_present attendance.times_opened 100 %}%</span>
+            <span class="label">Session End</span>
+            <span class="value">{{ session.end_date }}</span>
         </div>
-        {% endif %}
+        <div class="summary-item">
+            <span class="label">No. of Students</span>
+            <span class="value">{{ summary.total_students|default:"—" }}</span>
+        </div>
+        <div class="summary-item">
+            <span class="label">Report Generated</span>
+            <span class="value">{{ generated_date }}</span>
+        </div>
     </div>
 </div>
 
 <!-- REMARKS -->
 <div class="remarks-row">
+    <!-- Class Teacher -->
     <div class="remark-block">
         <div class="remark-label">Class Teacher's Remark</div>
         <p class="remark-text">{{ remarks.class_teacher|default:"" }}</p>
@@ -585,6 +535,7 @@ tbody tr:nth-child(even) {
         </div>
     </div>
 
+    <!-- Head Teacher -->
     <div class="remark-block">
         <div class="remark-label">Head Teacher's Remark</div>
         <p class="remark-text">{{ remarks.head_teacher|default:"" }}</p>
@@ -602,6 +553,7 @@ tbody tr:nth-child(even) {
     </div>
 </div>
 
+<!-- FOOTER -->
 <div class="footer">
     <p>Report generated on {{ generated_date }} &nbsp;|&nbsp; This is an official school document.</p>
 </div>

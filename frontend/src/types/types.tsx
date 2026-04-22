@@ -2874,7 +2874,7 @@ export interface SeniorSecondaryTermReport {
 }
 
 
-export interface SeniorSecondarySessionResult {
+export interface SeniorSecondarySessionReport {
   id: string;
   student: StudentInfo;
   subject: Subject;
@@ -2942,7 +2942,7 @@ export interface SeniorSecondarySessionReport {
   is_published: boolean;
   
   // Relationships
-  subject_results: SeniorSecondarySessionResult[];
+  subject_results: SeniorSecondarySessionReport[];
   
   created_at: string;
   updated_at: string;

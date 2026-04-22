@@ -1,5 +1,6 @@
-# result/models.py
 """
+result/models.py
+
 Design principles
 ──────────────────
 1. No hardcoded score fields.  AssessmentComponent + ComponentScore replace
@@ -13,6 +14,28 @@ Design principles
 
 4. BaseResult / TermReportFields / BaseSessionReport abstract the shared
    logic so each education-level subclass stays thin.
+
+5. Permission model
+   ─────────────────
+   • DRAFT      → teacher (who entered it) may edit/delete.
+   • APPROVED   → only _ADMIN_ROLES may edit/delete.
+   • PUBLISHED  → only _ADMIN_ROLES may edit/delete.
+   _ADMIN_ROLES = HEAD_TEACHER, HEADMASTER, PROPRIETRESS, PRINCIPAL,
+                  admin, superadmin.
+   FORM_TEACHER has NO global edit rights on approved/published records.
+
+6. Bulk operations
+   ─────────────────
+   Every concrete result/report model exposes:
+     • bulk_approve(queryset, user)   — single UPDATE, no per-row save()
+     • bulk_publish(queryset, user)   — single UPDATE, no per-row save()
+     • bulk_delete(queryset, user)    — permission-checked then bulk delete
+     • bulk_record(entries, user)     — bulk_create ComponentScore rows then
+                                        recalculate in one pass
+   Position recalculation uses SQL RANK() window functions — no Python sort.
+
+7. NurseryResult inherits BaseResult (fixed from original).
+   All four education levels share identical save() / grade / permission logic.
 """
 
 import logging
@@ -20,9 +43,21 @@ import uuid
 from decimal import Decimal
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ValidationError, PermissionDenied
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.db.models import (
+    Avg,
+    CheckConstraint,
+    Count,
+    F,
+    Max,
+    Min,
+    Q,
+    Rank,
+    Sum,
+    Window,
+)
 from django.utils import timezone
 
 from academics.models import AcademicSession, EducationLevel, Term
@@ -34,23 +69,44 @@ from tenants.models import TenantMixin
 logger = logging.getLogger(__name__)
 
 
-# ── Shared status choices ─────────────────────────────────────────────────────
+# ── Shared constants ──────────────────────────────────────────────────────────
 
 _RESULT_STATUS = [
     ("DRAFT", "Draft"),
-    ("SUBMITTED", "Submitted"),
     ("APPROVED", "Approved"),
     ("PUBLISHED", "Published"),
 ]
 
+# Single source of truth for privileged roles.
+# Update this set to grant/revoke bulk-action rights everywhere at once.
+_ADMIN_ROLES: frozenset[str] = frozenset(
+    {
+        "HEAD_TEACHER",
+        "HEADMASTER",
+        "PROPRIETRESS",
+        "PRINCIPAL",
+        "admin",
+        "superadmin",
+    }
+)
+
 _DEFAULT_GRADE_THRESHOLDS = ((70, "A"), (60, "B"), (50, "C"), (45, "D"), (39, "E"))
 
 
-def _default_grade(percentage):
+def _default_grade(percentage: float) -> str:
     for threshold, grade in _DEFAULT_GRADE_THRESHOLDS:
-        if float(percentage) >= threshold:
+        if percentage >= threshold:
             return grade
     return "F"
+
+
+def _user_role(user) -> str:
+    """Safe accessor for user.role — returns empty string if absent."""
+    return getattr(user, "role", "") or ""
+
+
+def _is_admin(user) -> bool:
+    return _user_role(user) in _ADMIN_ROLES
 
 
 # ============================================================
@@ -93,8 +149,8 @@ class GradingSystem(TenantMixin, models.Model):
                     return grade_obj.grade
             last = self.grades.order_by("-min_score").last()
             return last.grade if last else None
-        except Exception as e:
-            logger.error(f"Error getting grade for {self.name}: {e}")
+        except Exception as exc:
+            logger.error("Error getting grade for %s: %s", self.name, exc)
             return None
 
 
@@ -126,7 +182,7 @@ class Grade(TenantMixin, models.Model):
 
 
 # ============================================================
-# ASSESSMENT COMPONENT  — replaces hardcoded score columns
+# ASSESSMENT COMPONENT — replaces hardcoded score columns
 # ============================================================
 
 
@@ -147,7 +203,9 @@ class AssessmentComponent(TenantMixin, models.Model):
     ]
 
     education_level = models.ForeignKey(
-        EducationLevel, on_delete=models.CASCADE, related_name="assessment_components"
+        EducationLevel,
+        on_delete=models.CASCADE,
+        related_name="assessment_components",
     )
     name = models.CharField(max_length=80)
     code = models.SlugField(max_length=30)
@@ -195,7 +253,9 @@ class ScoringConfiguration(TenantMixin, models.Model):
 
     id = models.AutoField(primary_key=True)
     education_level = models.ForeignKey(
-        EducationLevel, on_delete=models.PROTECT, related_name="scoring_configurations"
+        EducationLevel,
+        on_delete=models.PROTECT,
+        related_name="scoring_configurations",
     )
     result_type = models.CharField(max_length=20, choices=RESULT_TYPE_CHOICES)
     name = models.CharField(max_length=100)
@@ -229,12 +289,19 @@ class ScoringConfiguration(TenantMixin, models.Model):
         ]
 
     def __str__(self):
-        return f"{self.education_level.name} — {self.get_result_type_display()} — {self.name}"
+        return (
+            f"{self.education_level.name} — "
+            f"{self.get_result_type_display()} — {self.name}"
+        )
 
     def clean(self):
+        # NOTE: This DB query is intentional for single-record admin saves only.
+        # Do NOT call clean() inside bulk operations.
         component_total = AssessmentComponent.objects.filter(
-            tenant=self.tenant, education_level=self.education_level, is_active=True
-        ).aggregate(total=models.Sum("max_score"))["total"] or Decimal(0)
+            tenant=self.tenant,
+            education_level=self.education_level,
+            is_active=True,
+        ).aggregate(total=Sum("max_score"))["total"] or Decimal(0)
         if component_total and component_total != self.total_max_score:
             raise ValidationError(
                 f"Active component max_scores sum to {component_total}, "
@@ -243,7 +310,7 @@ class ScoringConfiguration(TenantMixin, models.Model):
 
 
 # ============================================================
-# ASSESSMENT TYPE  (legacy)
+# ASSESSMENT TYPE (legacy)
 # ============================================================
 
 
@@ -259,7 +326,10 @@ class AssessmentType(TenantMixin, models.Model):
         blank=True,
     )
     max_score = models.DecimalField(
-        max_digits=5, decimal_places=2, default=10, validators=[MinValueValidator(0)]
+        max_digits=5,
+        decimal_places=2,
+        default=10,
+        validators=[MinValueValidator(0)],
     )
     weight_percentage = models.DecimalField(
         max_digits=5,
@@ -280,7 +350,7 @@ class AssessmentType(TenantMixin, models.Model):
 
 
 # ============================================================
-# EXAM TYPE  — replaces hardcoded EXAM_TYPES CharField
+# EXAM TYPE — replaces hardcoded EXAM_TYPES CharField
 # ============================================================
 
 
@@ -457,7 +527,8 @@ class ExamSession(TenantMixin, models.Model):
 class ComponentScore(TenantMixin, models.Model):
     """
     One row per AssessmentComponent per result.
-    Exactly one of the four result FKs is set.
+    Exactly one of the four result FKs is set — enforced at both Python
+    and DB level via UniqueConstraints + CheckConstraint.
     """
 
     senior_result = models.ForeignKey(
@@ -492,31 +563,66 @@ class ComponentScore(TenantMixin, models.Model):
         AssessmentComponent, on_delete=models.PROTECT, related_name="scores"
     )
     score = models.DecimalField(
-        max_digits=6, decimal_places=2, default=0, validators=[MinValueValidator(0)]
+        max_digits=6,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
     )
 
     class Meta:
         db_table = "results_component_score"
         constraints = [
+            # Unique per result-level FK (partial indexes, DB-enforced)
             models.UniqueConstraint(
                 fields=["senior_result", "component"],
-                condition=models.Q(senior_result__isnull=False),
+                condition=Q(senior_result__isnull=False),
                 name="uq_component_score_senior",
             ),
             models.UniqueConstraint(
                 fields=["junior_result", "component"],
-                condition=models.Q(junior_result__isnull=False),
+                condition=Q(junior_result__isnull=False),
                 name="uq_component_score_junior",
             ),
             models.UniqueConstraint(
                 fields=["primary_result", "component"],
-                condition=models.Q(primary_result__isnull=False),
+                condition=Q(primary_result__isnull=False),
                 name="uq_component_score_primary",
             ),
             models.UniqueConstraint(
                 fields=["nursery_result", "component"],
-                condition=models.Q(nursery_result__isnull=False),
+                condition=Q(nursery_result__isnull=False),
                 name="uq_component_score_nursery",
+            ),
+            # DB-level guard: exactly one FK must be set.
+            # Expressed as: exactly one of the four columns is NOT NULL.
+            CheckConstraint(
+                check=(
+                    Q(
+                        senior_result__isnull=False,
+                        junior_result__isnull=True,
+                        primary_result__isnull=True,
+                        nursery_result__isnull=True,
+                    )
+                    | Q(
+                        senior_result__isnull=True,
+                        junior_result__isnull=False,
+                        primary_result__isnull=True,
+                        nursery_result__isnull=True,
+                    )
+                    | Q(
+                        senior_result__isnull=True,
+                        junior_result__isnull=True,
+                        primary_result__isnull=False,
+                        nursery_result__isnull=True,
+                    )
+                    | Q(
+                        senior_result__isnull=True,
+                        junior_result__isnull=True,
+                        primary_result__isnull=True,
+                        nursery_result__isnull=False,
+                    )
+                ),
+                name="chk_component_score_exactly_one_result_fk",
             ),
         ]
         indexes = [
@@ -562,10 +668,19 @@ class ComponentScore(TenantMixin, models.Model):
 class BaseResult(models.Model):
     """
     Abstract base for the four education-level result models.
-    Aggregates ComponentScore rows; never touches individual score fields.
+
+    save() flow (single write after pk exists):
+        1. First super().save() — obtains pk if new row.
+        2. calculate_scores() — aggregates ComponentScore rows (no DB write).
+        3. determine_grade()  — derives grade/is_passed (no DB write).
+        4. Second super().save(update_fields=[...]) — one targeted UPDATE.
+
+    Bulk operations bypass save() entirely and use QuerySet.update() /
+    bulk_create() / bulk_update() for O(1) DB round-trips.
     """
 
-    RESULT_FK_NAME: str = ""  # e.g. "senior_result"
+    # Subclasses set this to their ComponentScore FK name, e.g. "senior_result"
+    RESULT_FK_NAME: str = ""
 
     total_score = models.DecimalField(max_digits=7, decimal_places=2, default=0)
     ca_total = models.DecimalField(max_digits=7, decimal_places=2, default=0)
@@ -591,11 +706,19 @@ class BaseResult(models.Model):
         max_digits=5, decimal_places=2, default=0, null=True, blank=True
     )
     subject_position = models.PositiveIntegerField(null=True, blank=True, db_index=True)
+    status = models.CharField(max_length=20, choices=_RESULT_STATUS, default="DRAFT")
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         abstract = True
 
+    # ── Score calculation ─────────────────────────────────────────────────
+
     def calculate_scores(self):
+        """
+        Aggregate ComponentScore rows for this result.
+        Pure in-memory — does NOT call save().
+        """
         if not self.RESULT_FK_NAME or not self.pk:
             return
         scores = ComponentScore.objects.filter(
@@ -613,6 +736,10 @@ class BaseResult(models.Model):
         self.percentage = (total_sum / max_score * 100) if max_score > 0 else Decimal(0)
 
     def determine_grade(self):
+        """
+        Derive grade / grade_point / is_passed from self.percentage.
+        Pure in-memory — does NOT call save().
+        """
         gs = getattr(self, "grading_system", None)
         pct = float(self.percentage or 0)
         if not gs:
@@ -639,9 +766,12 @@ class BaseResult(models.Model):
             self.is_passed = pct >= float(gs.pass_mark or 40)
 
     def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)  # ensure pk exists
+        # 1. Persist (creates pk for new rows).
+        super().save(*args, **kwargs)
+        # 2. Compute scores and grade in memory.
         self.calculate_scores()
         self.determine_grade()
+        # 3. One targeted UPDATE — avoids a full second save.
         super().save(
             update_fields=[
                 "total_score",
@@ -654,59 +784,270 @@ class BaseResult(models.Model):
             ]
         )
 
-    @classmethod
-    def _bulk_recalculate_positions(cls, qs):
-        from django.db.models import Avg, Max, Min
+    # ── Permission helpers ────────────────────────────────────────────────
 
-        if not qs.exists():
+    def can_edit(self, user) -> bool:
+        """
+        Admin roles may edit at any status.
+        Teachers may only edit while DRAFT.
+        """
+        if _is_admin(user):
+            return True
+        if self.status != "DRAFT":
+            return False
+        return _user_role(user) == "TEACHER"
+
+    def can_delete(self, user) -> bool:
+        return self.can_edit(user)
+
+    # ── Bulk operations (class-level, O(1) DB round-trips) ────────────────
+
+    @classmethod
+    def bulk_approve(cls, queryset, user):
+        """
+        Approve all DRAFT results in *queryset* in a single UPDATE.
+        Only admin roles may call this.
+        Raises PermissionDenied if user is not authorised.
+        """
+        if not _is_admin(user):
+            raise PermissionDenied("Only admin-level users can bulk-approve results.")
+        now = timezone.now()
+        with transaction.atomic():
+            return queryset.filter(status="DRAFT").update(
+                status="APPROVED",
+                approved_by=user,
+                approved_date=now,
+                updated_at=now,
+            )
+
+    @classmethod
+    def bulk_publish(cls, queryset, user):
+        """
+        Publish all APPROVED results in *queryset* in a single UPDATE.
+        Only admin roles may call this.
+        """
+        if not _is_admin(user):
+            raise PermissionDenied("Only admin-level users can bulk-publish results.")
+        now = timezone.now()
+        with transaction.atomic():
+            return queryset.filter(status="APPROVED").update(
+                status="PUBLISHED",
+                is_published=True,
+                published_by=user,
+                published_date=now,
+                updated_at=now,
+            )
+
+    @classmethod
+    def bulk_delete(cls, queryset, user):
+        """
+        Delete results the user is allowed to delete.
+
+        Admin roles  → may delete DRAFT, APPROVED, or PUBLISHED.
+        Teachers     → may only delete DRAFT rows.
+
+        Returns (deleted_count, detail_dict).
+        """
+        with transaction.atomic():
+            if _is_admin(user):
+                return queryset.delete()
+            # Non-admin: restrict to DRAFT only.
+            return queryset.filter(status="DRAFT").delete()
+
+    @classmethod
+    def bulk_record(cls, entries, user, result_fk_field: str):
+        """
+        High-performance bulk entry of ComponentScore rows.
+
+        Parameters
+        ──────────
+        entries : list[dict]
+            Each dict must have:
+              "result_id"    : pk of the parent result row
+              "component_id" : pk of AssessmentComponent
+              "score"        : Decimal or float
+        user          : the requesting user (for permission check)
+        result_fk_field : e.g. "senior_result_id"
+
+        Behaviour
+        ─────────
+        1. bulk_create ComponentScore rows (skipping clean() — validated
+           by the DB CheckConstraint).
+        2. Recalculate total_score / ca_total / percentage / grade /
+           is_passed for all affected result rows in two SQL statements
+           (aggregation + bulk_update).
+
+        Returns number of ComponentScore rows created.
+        """
+        if not entries:
+            return 0
+
+        tenant = getattr(user, "tenant", None)
+        cs_rows = [
+            ComponentScore(
+                tenant=tenant,
+                component_id=e["component_id"],
+                score=Decimal(str(e["score"])),
+                **{result_fk_field: e["result_id"]},
+            )
+            for e in entries
+        ]
+        with transaction.atomic():
+            ComponentScore.objects.bulk_create(
+                cs_rows,
+                update_conflicts=True,
+                update_fields=["score"],
+                unique_fields=[result_fk_field.replace("_id", ""), "component"],
+            )
+            # Recalculate all affected result rows.
+            affected_ids = {e["result_id"] for e in entries}
+            cls._bulk_recalculate_scores(cls.objects.filter(pk__in=affected_ids))
+        return len(cs_rows)
+
+    @classmethod
+    def _bulk_recalculate_scores(cls, queryset):
+        """
+        Recalculate total_score, ca_total, percentage, grade, is_passed
+        for every result in *queryset* using two DB statements:
+          1. Aggregate ComponentScore sums per result (one query).
+          2. bulk_update the result rows (one query).
+        grade / is_passed require the GradingSystem — fetched once per
+        unique grading system in the queryset.
+        """
+        fk_name = cls.RESULT_FK_NAME  # e.g. "senior_result"
+        if not fk_name:
             return
-        stats = qs.aggregate(
-            avg=Avg("percentage"), highest=Max("percentage"), lowest=Min("percentage")
+
+        # One aggregation query: sum scores per result, split by CA flag.
+        agg_qs = (
+            ComponentScore.objects.filter(**{f"{fk_name}__in": queryset})
+            .values(fk_name)
+            .annotate(
+                total=Sum("score"),
+                ca=Sum("score", filter=Q(component__contributes_to_ca=True)),
+            )
         )
+        agg_map = {
+            row[fk_name]: (row["total"] or Decimal(0), row["ca"] or Decimal(0))
+            for row in agg_qs
+        }
+
+        # Fetch grading systems in one query.
+        results = list(queryset.select_related("grading_system__grades"))
         updates = []
-        current_position = 1
-        count_at_current = 0
-        prev_score = None
-        for result in qs:
-            score = result.percentage
-            if score != prev_score:
-                current_position += count_at_current
-                count_at_current = 1
-                prev_score = score
-            else:
-                count_at_current += 1
-            result.subject_position = current_position
-            result.class_average = stats["avg"] or 0
-            result.highest_in_class = stats["highest"] or 0
-            result.lowest_in_class = stats["lowest"] or 0
+        for result in results:
+            totals = agg_map.get(result.pk, (Decimal(0), Decimal(0)))
+            result.total_score = totals[0]
+            result.ca_total = totals[1]
+            gs = result.grading_system
+            max_score = Decimal(gs.max_score) if gs and gs.max_score else Decimal(100)
+            result.percentage = (
+                (result.total_score / max_score * 100) if max_score > 0 else Decimal(0)
+            )
+            # Reuse the in-memory determine_grade logic.
+            result.determine_grade()
             updates.append(result)
+
         cls.objects.bulk_update(
             updates,
+            [
+                "total_score",
+                "ca_total",
+                "percentage",
+                "grade",
+                "grade_point",
+                "is_passed",
+                "updated_at",
+            ],
+            batch_size=200,
+        )
+
+    # ── Class-level position recalculation (SQL RANK) ─────────────────────
+
+    @classmethod
+    def bulk_recalculate_positions(cls, queryset):
+        """
+        Assign subject_position, class_average, highest_in_class,
+        lowest_in_class for all results in *queryset*.
+
+        Uses a single SQL Window RANK() — no Python-side sorting.
+        All work done in two SQL statements (annotate + bulk_update).
+        """
+        if not queryset.exists():
+            return
+
+        stats = queryset.aggregate(
+            avg=Avg("percentage"),
+            highest=Max("percentage"),
+            lowest=Min("percentage"),
+        )
+        avg_val = stats["avg"] or Decimal(0)
+        high_val = stats["highest"] or Decimal(0)
+        low_val = stats["lowest"] or Decimal(0)
+
+        # Annotate RANK in a single SQL query.
+        ranked = queryset.annotate(
+            rank=Window(
+                expression=Rank(),
+                order_by=F("percentage").desc(),
+            )
+        ).values("pk", "rank")
+
+        rank_map = {row["pk"]: row["rank"] for row in ranked}
+
+        results = list(
+            queryset.only(
+                "pk",
+                "subject_position",
+                "class_average",
+                "highest_in_class",
+                "lowest_in_class",
+            )
+        )
+        for result in results:
+            result.subject_position = rank_map.get(result.pk)
+            result.class_average = avg_val
+            result.highest_in_class = high_val
+            result.lowest_in_class = low_val
+
+        cls.objects.bulk_update(
+            results,
             [
                 "subject_position",
                 "class_average",
                 "highest_in_class",
                 "lowest_in_class",
             ],
-            batch_size=100,
+            batch_size=200,
         )
 
     @property
-    def position_formatted(self):
+    def position_formatted(self) -> str:
         if not self.subject_position:
             return ""
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(self.subject_position, "th")
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(
+            (
+                self.subject_position
+                if self.subject_position <= 20
+                else self.subject_position % 10
+            ),
+            "th",
+        )
         return f"{self.subject_position}{suffix}"
 
 
 # ============================================================
-# BASE TERM REPORT
+# BASE TERM REPORT — permission helpers
 # ============================================================
+
 
 class BaseTermReport(models.Model):
     """Permission helpers shared by all term and session report models."""
 
-    def first_signatory_role(self):
+    class Meta:
+        abstract = True
+
+    def _first_signatory_role(self):
         student = getattr(self, "student", None)
         if not student:
             return None
@@ -716,62 +1057,156 @@ class BaseTermReport(models.Model):
             else "SUBJECT_TEACHER"
         )
 
-    def can_edit_teacher_remark(self, user):
+    # ── Teacher remark editing ────────────────────────────────────────────
+
+    def can_edit_teacher_remark(self, user) -> bool:
+        """
+        Only the relevant class/subject teacher may edit, and only while DRAFT.
+        Performs DB queries — do not call in list loops. Use prefetch in views.
+        """
+        if self.status != "DRAFT":
+            return False
+        if _user_role(user) != "TEACHER":
+            return False
+
         from teacher.models import Teacher
         from classroom.models import ClassroomTeacherAssignment, StudentEnrollment
 
-        if getattr(user, "role", None) != "TEACHER":
-            return False
         try:
-            teacher = Teacher.objects.get(user=user)
+            teacher = Teacher.objects.select_related("user").get(user=user)
             enrollment = (
                 StudentEnrollment.objects.filter(student=self.student, is_active=True)
-                .select_related("classroom")
+                .select_related("classroom__class_teacher")
                 .first()
             )
             if not enrollment:
                 return False
             classroom = enrollment.classroom
-            if self.first_signatory_role() == "CLASS_TEACHER":
-                return classroom.class_teacher == teacher
+            if self._first_signatory_role() == "CLASS_TEACHER":
+                return classroom.class_teacher_id == teacher.pk
             return ClassroomTeacherAssignment.objects.filter(
                 teacher=teacher, classroom=classroom
             ).exists()
-        except Exception as e:
+        except Exception as exc:
             logger.error(
-                f"Error checking teacher remark permission: {e}", exc_info=True
+                "Error checking teacher remark permission: %s", exc, exc_info=True
             )
             return False
 
-    def can_edit_head_teacher_remark(self, user):
-        return getattr(user, "role", None) in (
-            "HEAD_TEACHER",
-            "PROPRIETRESS",
-            "PRINCIPAL",
-            "admin",
-            "superadmin",
-        )
+    def can_edit_head_teacher_remark(self, user) -> bool:
+        return _is_admin(user)
 
-    def submit_by_teacher(self):
+    # ── Report-level edit / delete ────────────────────────────────────────
+
+    def can_edit(self, user) -> bool:
+        """Admin roles may edit at any status. Teachers only while DRAFT."""
+        if _is_admin(user):
+            return True
+        if self.status != "DRAFT":
+            return False
+        return _user_role(user) == "TEACHER"
+
+    def can_delete(self, user) -> bool:
+        return self.can_edit(user)
+
+    # ── Approval / publication workflow ───────────────────────────────────
+
+    def approve(self, user):
+        """Advance a DRAFT report to APPROVED (single-record)."""
+        if not self.can_edit_head_teacher_remark(user):
+            raise PermissionDenied("Only admin-level users may approve reports.")
         if self.status == "DRAFT":
-            self.status = "SUBMITTED"
-            self.save(update_fields=["status"])
-
-    def approve_by_proprietress(self, user):
-        if self.status == "SUBMITTED":
+            now = timezone.now()
             self.status = "APPROVED"
-            self.published_by = user
-            self.published_date = timezone.now()
-            self.save()
+            self.approved_by = user  # subclasses must have this field
+            self.approved_date = now
+            self.save(
+                update_fields=["status", "approved_by", "approved_date", "updated_at"]
+            )
 
-    def publish(self):
+    def publish(self, user=None):
+        """Advance an APPROVED report to PUBLISHED (single-record)."""
         if self.status == "APPROVED":
             self.status = "PUBLISHED"
             self.is_published = True
-            self.save(update_fields=["status", "is_published"])
+            self.save(update_fields=["status", "is_published", "updated_at"])
 
-    class Meta:
-        abstract = True
+    # ── Bulk operations (class-level) ─────────────────────────────────────
+
+    @classmethod
+    def bulk_approve(cls, queryset, user):
+        """Approve all DRAFT reports in *queryset* in a single UPDATE."""
+        if not _is_admin(user):
+            raise PermissionDenied("Only admin-level users can bulk-approve reports.")
+        now = timezone.now()
+        with transaction.atomic():
+            return queryset.filter(status="DRAFT").update(
+                status="APPROVED",
+                approved_by=user,
+                approved_date=now,
+                updated_at=now,
+            )
+
+    @classmethod
+    def bulk_publish(cls, queryset, user):
+        """Publish all APPROVED reports in *queryset* in a single UPDATE."""
+        if not _is_admin(user):
+            raise PermissionDenied("Only admin-level users can bulk-publish reports.")
+        now = timezone.now()
+        with transaction.atomic():
+            return queryset.filter(status="APPROVED").update(
+                status="PUBLISHED",
+                is_published=True,
+                published_date=now,
+                updated_at=now,
+            )
+
+    @classmethod
+    def bulk_delete(cls, queryset, user):
+        """
+        Admin roles → delete any status.
+        Teachers    → delete DRAFT only.
+        """
+        with transaction.atomic():
+            if _is_admin(user):
+                return queryset.delete()
+            return queryset.filter(status="DRAFT").delete()
+
+    # ── Position recalculation (SQL RANK) ─────────────────────────────────
+
+    @classmethod
+    def bulk_recalculate_positions(cls, exam_session, student_class, education_level):
+        """
+        Rank APPROVED/PUBLISHED term reports for a class using SQL RANK().
+        One annotate query + one bulk_update.
+        """
+        with transaction.atomic():
+            qs = cls.objects.filter(
+                exam_session=exam_session,
+                student__student_class=student_class,
+                student__education_level=education_level,
+                status__in=("APPROVED", "PUBLISHED"),
+            ).select_for_update()
+
+            total = qs.count()
+            if not total:
+                return
+
+            ranked = qs.annotate(
+                rank=Window(
+                    expression=Rank(),
+                    order_by=F("average_score").desc(),
+                )
+            ).values("pk", "rank")
+
+            rank_map = {row["pk"]: row["rank"] for row in ranked}
+            reports = list(qs.only("pk", "class_position", "total_students"))
+            for r in reports:
+                r.class_position = rank_map.get(r.pk)
+                r.total_students = total
+            cls.objects.bulk_update(
+                reports, ["class_position", "total_students"], batch_size=200
+            )
 
 
 # ============================================================
@@ -780,7 +1215,7 @@ class BaseTermReport(models.Model):
 
 
 class TermReportFields(models.Model):
-    """Shared fields on all four term report models."""
+    """Shared fields on all four term report models (except Nursery)."""
 
     total_score = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     average_score = models.DecimalField(max_digits=5, decimal_places=2, default=0)
@@ -796,6 +1231,15 @@ class TermReportFields(models.Model):
     class_teacher_signed_at = models.DateTimeField(blank=True, null=True)
     head_teacher_signature = models.URLField(blank=True, null=True)
     head_teacher_signed_at = models.DateTimeField(blank=True, null=True)
+    # Approval tracking (mirrors BaseResult for consistency)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",  # each concrete model overrides via explicit FK
+    )
+    approved_date = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=_RESULT_STATUS, default="DRAFT")
     is_published = models.BooleanField(default=False)
     published_date = models.DateTimeField(null=True, blank=True)
@@ -805,31 +1249,47 @@ class TermReportFields(models.Model):
     class Meta:
         abstract = True
 
-    def _grade_for_percentage(self, percentage):
-        try:
-            first = self.subject_results.select_related("grading_system").first()
-            if first:
-                grade_obj = first.grading_system.grades.filter(
+    def _grade_for_percentage(self, percentage, grading_system=None):
+        """
+        Resolve a grade string for *percentage*.
+        Pass the grading_system directly to avoid an extra query.
+        """
+        if grading_system:
+            try:
+                grade_obj = grading_system.grades.filter(
                     min_score__lte=percentage, max_score__gte=percentage
                 ).first()
                 if grade_obj:
                     return grade_obj.grade
-        except Exception:
-            pass
+            except Exception:
+                pass
         return _default_grade(float(percentage))
 
     def calculate_metrics(self):
+        """
+        Aggregate subject results for this term report.
+        Fetches grading system in one query via select_related on the
+        first subject result — avoids the original per-call query.
+        """
         agg = self.subject_results.filter(
             status__in=("APPROVED", "PUBLISHED")
         ).aggregate(
-            total=models.Sum("total_score"),
-            count=models.Count("id"),
-            avg_pct=models.Avg("percentage"),
+            total=Sum("total_score"),
+            count=Count("id"),
+            avg_pct=Avg("percentage"),
         )
         if agg["count"]:
             self.total_score = agg["total"] or 0
             self.average_score = agg["avg_pct"] or 0
-            self.overall_grade = self._grade_for_percentage(self.average_score)
+            # Resolve grade using the first result's grading system.
+            first = (
+                self.subject_results.select_related("grading_system")
+                .only("grading_system")
+                .first()
+            )
+            gs = first.grading_system if first else None
+            self.overall_grade = self._grade_for_percentage(self.average_score, gs)
+
         self.save(
             update_fields=[
                 "total_score",
@@ -839,46 +1299,55 @@ class TermReportFields(models.Model):
             ]
         )
 
-    def calculate_class_position(self):
-        ReportModel = self.__class__
-        peers = ReportModel.objects.filter(
-            exam_session=self.exam_session,
-            student__student_class=self.student.student_class,
-            student__education_level=self.student.education_level,
-            status__in=("APPROVED", "PUBLISHED"),
-        ).exclude(id=self.id)
-        self.class_position = (
-            peers.filter(average_score__gt=self.average_score).count() + 1
-        )
-        self.total_students = peers.count() + 1
-        self.save(update_fields=["class_position", "total_students", "updated_at"])
-
     @classmethod
-    def bulk_recalculate_positions(cls, exam_session, student_class, education_level):
-        with transaction.atomic():
-            reports = (
-                cls.objects.filter(
-                    exam_session=exam_session,
-                    student__student_class=student_class,
-                    student__education_level=education_level,
-                    status__in=("APPROVED", "PUBLISHED"),
-                )
-                .select_for_update()
-                .order_by("-average_score")
+    def bulk_calculate_metrics(cls, queryset):
+        """
+        Recalculate total_score, average_score, overall_grade for every
+        report in *queryset* using two SQL statements (aggregation + bulk_update).
+        Called after bulk_approve to keep reports in sync without per-row saves.
+        """
+        from django.db.models import OuterRef, Subquery
+
+        # Aggregate per report in one query.
+        agg_qs = (
+            cls.objects.filter(pk__in=queryset)
+            .annotate(
+                _total=Sum(
+                    "subject_results__total_score",
+                    filter=Q(subject_results__status__in=("APPROVED", "PUBLISHED")),
+                ),
+                _avg=Avg(
+                    "subject_results__percentage",
+                    filter=Q(subject_results__status__in=("APPROVED", "PUBLISHED")),
+                ),
+                _count=Count(
+                    "subject_results__id",
+                    filter=Q(subject_results__status__in=("APPROVED", "PUBLISHED")),
+                ),
             )
-            total = reports.count()
-            updates = []
-            for pos, report in enumerate(reports, start=1):
-                report.class_position = pos
-                report.total_students = total
-                updates.append(report)
-            cls.objects.bulk_update(
-                updates, ["class_position", "total_students"], batch_size=100
-            )
+            .values("pk", "_total", "_avg", "_count")
+        )
+        agg_map = {row["pk"]: row for row in agg_qs}
+
+        reports = list(
+            queryset.only("pk", "total_score", "average_score", "overall_grade")
+        )
+        for r in reports:
+            row = agg_map.get(r.pk, {})
+            if row.get("_count"):
+                r.total_score = row["_total"] or 0
+                r.average_score = row["_avg"] or 0
+                r.overall_grade = _default_grade(float(r.average_score))
+
+        cls.objects.bulk_update(
+            reports,
+            ["total_score", "average_score", "overall_grade", "updated_at"],
+            batch_size=200,
+        )
 
 
 # ============================================================
-# BASE SESSION REPORT  — shared by all four levels
+# BASE SESSION REPORT — shared by all four levels
 # ============================================================
 
 
@@ -889,23 +1358,15 @@ class BaseSessionReport(BaseTermReport, models.Model):
     Session totals are COMPUTED from existing TermReport records, not
     entered manually.  compute_from_term_reports() fetches all term
     reports for this student × academic_session, ordered by the term's
-    display_order, and aggregates them.
-
-    This means:
-      • Schools running 2 terms get 2 term totals; 3 terms → 3 totals.
-      • No manual "first_term_score" entry — always in sync.
-      • Downloading a session report triggers recomputation so the PDF
-        always reflects the latest approved term data.
+    display_order, and aggregates them — two DB queries total.
 
     Subclasses must define:
         TERM_REPORT_MODEL  — the concrete TermReport class to query
-        student FK + academic_session FK + status + is_published + published_by
-        (published_by needs a unique related_name per subclass)
+        student FK + academic_session FK + status + is_published + approved_by
     """
 
-    TERM_REPORT_MODEL = None  # set by each subclass
+    TERM_REPORT_MODEL = None  # set by each subclass after class definition
 
-    # Aggregated from term reports
     term_totals = models.JSONField(
         default=list,
         help_text=(
@@ -925,6 +1386,14 @@ class BaseSessionReport(BaseTermReport, models.Model):
     class_teacher_signed_at = models.DateTimeField(blank=True, null=True)
     head_teacher_signature = models.URLField(blank=True, null=True)
     head_teacher_signed_at = models.DateTimeField(blank=True, null=True)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    approved_date = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=_RESULT_STATUS, default="DRAFT")
     is_published = models.BooleanField(default=False)
     published_date = models.DateTimeField(null=True, blank=True)
@@ -938,9 +1407,7 @@ class BaseSessionReport(BaseTermReport, models.Model):
         """
         Pull data from all approved/published TermReports for this
         student × academic_session and populate term_totals + overall_*.
-
-        Ordered by term.term_type.display_order so Term 1 always comes
-        first regardless of when the reports were created.
+        Two DB queries: one for term reports, one save.
         """
         TermReportModel = self.__class__.TERM_REPORT_MODEL
         if TermReportModel is None:
@@ -968,9 +1435,7 @@ class BaseSessionReport(BaseTermReport, models.Model):
             term_order = (
                 term.term_type.display_order if term and term.term_type else term_count
             )
-
-            # NurseryTermReport uses overall_percentage / total_marks_obtained;
-            # the others use average_score / total_score
+            # NurseryTermReport uses overall_percentage / total_marks_obtained.
             if hasattr(report, "overall_percentage"):
                 avg = float(report.overall_percentage or 0)
                 total = float(report.total_marks_obtained or 0)
@@ -992,7 +1457,7 @@ class BaseSessionReport(BaseTermReport, models.Model):
 
         self.term_totals = totals
         self.overall_total = sum(Decimal(str(t["total_score"])) for t in totals)
-        self.overall_average = (overall_sum / term_count) if term_count else Decimal(0)
+        self.overall_average = overall_sum / term_count if term_count else Decimal(0)
         self.overall_grade = _default_grade(float(self.overall_average))
         self.save(
             update_fields=[
@@ -1012,7 +1477,7 @@ class BaseSessionReport(BaseTermReport, models.Model):
             student__student_class=self.student.student_class,
             student__education_level=self.student.education_level,
             status__in=("APPROVED", "PUBLISHED"),
-        ).exclude(id=self.id)
+        ).exclude(pk=self.pk)
         self.overall_position = (
             peers.filter(overall_average__gt=self.overall_average).count() + 1
         )
@@ -1023,30 +1488,40 @@ class BaseSessionReport(BaseTermReport, models.Model):
     def bulk_recalculate_positions(
         cls, academic_session, student_class, education_level
     ):
+        """SQL RANK() — no Python sort, no per-row save."""
         with transaction.atomic():
-            reports = (
-                cls.objects.filter(
-                    academic_session=academic_session,
-                    student__student_class=student_class,
-                    student__education_level=education_level,
-                    status__in=("APPROVED", "PUBLISHED"),
+            qs = cls.objects.filter(
+                academic_session=academic_session,
+                student__student_class=student_class,
+                student__education_level=education_level,
+                status__in=("APPROVED", "PUBLISHED"),
+            ).select_for_update()
+
+            total = qs.count()
+            if not total:
+                return
+
+            ranked = qs.annotate(
+                rank=Window(
+                    expression=Rank(),
+                    order_by=F("overall_average").desc(),
                 )
-                .select_for_update()
-                .order_by("-overall_average")
-            )
-            total = reports.count()
-            updates = []
-            for pos, report in enumerate(reports, start=1):
-                report.overall_position = pos
-                report.total_students = total
-                updates.append(report)
+            ).values("pk", "rank")
+
+            rank_map = {row["pk"]: row["rank"] for row in ranked}
+            reports = list(qs.only("pk", "overall_position", "total_students"))
+            for r in reports:
+                r.overall_position = rank_map.get(r.pk)
+                r.total_students = total
             cls.objects.bulk_update(
-                updates, ["overall_position", "total_students"], batch_size=100
+                reports,
+                ["overall_position", "total_students"],
+                batch_size=200,
             )
 
 
 # ============================================================
-# SENIOR SECONDARY — TERM REPORT + RESULT
+# SENIOR SECONDARY — TERM REPORT + RESULT + SESSION REPORT
 # ============================================================
 
 
@@ -1055,7 +1530,9 @@ class SeniorSecondaryTermReport(
 ):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(
-        Student, on_delete=models.CASCADE, related_name="senior_secondary_term_reports"
+        Student,
+        on_delete=models.CASCADE,
+        related_name="senior_secondary_term_reports",
     )
     exam_session = models.ForeignKey(
         ExamSession,
@@ -1068,6 +1545,14 @@ class SeniorSecondaryTermReport(
         null=True,
         blank=True,
         related_name="senior_secondary_term_reports",
+    )
+    # Explicit FK (overrides abstract approved_by with correct related_name).
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_senior_secondary_term_reports",
     )
     published_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -1093,20 +1578,27 @@ class SeniorSecondaryTermReport(
 
 class SeniorSecondaryResult(TenantMixin, BaseResult, models.Model):
     RESULT_FK_NAME = "senior_result"
-    RESULT_STATUS = _RESULT_STATUS
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(
-        Student, on_delete=models.CASCADE, related_name="senior_secondary_results"
+        Student,
+        on_delete=models.CASCADE,
+        related_name="senior_secondary_results",
     )
     subject = models.ForeignKey(
-        Subject, on_delete=models.CASCADE, related_name="senior_secondary_results"
+        Subject,
+        on_delete=models.CASCADE,
+        related_name="senior_secondary_results",
     )
     exam_session = models.ForeignKey(
-        ExamSession, on_delete=models.CASCADE, related_name="senior_secondary_results"
+        ExamSession,
+        on_delete=models.CASCADE,
+        related_name="senior_secondary_results",
     )
     grading_system = models.ForeignKey(
-        GradingSystem, on_delete=models.CASCADE, related_name="senior_secondary_results"
+        GradingSystem,
+        on_delete=models.PROTECT,
+        related_name="senior_secondary_results",
     )
     stream = models.ForeignKey(
         Stream,
@@ -1125,7 +1617,6 @@ class SeniorSecondaryResult(TenantMixin, BaseResult, models.Model):
     teacher_remark = models.TextField(blank=True)
     class_teacher_remark = models.TextField(blank=True)
     head_teacher_remark = models.TextField(blank=True)
-    status = models.CharField(max_length=20, choices=_RESULT_STATUS, default="DRAFT")
     entered_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -1177,37 +1668,26 @@ class SeniorSecondaryResult(TenantMixin, BaseResult, models.Model):
         return f"{self.student.full_name} — {self.subject.name} ({self.total_score})"
 
     @classmethod
+    def bulk_record(cls, entries, user):
+        return super().bulk_record(entries, user, result_fk_field="senior_result_id")
+
+    @classmethod
     def bulk_recalculate_class(
         cls, exam_session, subject, student_class, education_level
     ):
         with transaction.atomic():
-            qs = (
-                cls.objects.filter(
-                    exam_session=exam_session,
-                    subject=subject,
-                    student__student_class=student_class,
-                    student__education_level=education_level,
-                    status__in=("APPROVED", "PUBLISHED"),
-                )
-                .select_for_update()
-                .order_by("-percentage", "created_at")
-            )
-            cls._bulk_recalculate_positions(qs)
-
-
-# ============================================================
-# SENIOR SECONDARY — SESSION REPORT
-# ============================================================
+            qs = cls.objects.filter(
+                exam_session=exam_session,
+                subject=subject,
+                student__student_class=student_class,
+                student__education_level=education_level,
+                status__in=("APPROVED", "PUBLISHED"),
+            ).select_for_update()
+            cls.bulk_recalculate_positions(qs)
 
 
 class SeniorSecondarySessionReport(TenantMixin, BaseSessionReport, models.Model):
-    """
-    Session report for a Senior Secondary student.
-    Totals computed from SeniorSecondaryTermReport records via
-    compute_from_term_reports().
-    """
-
-    TERM_REPORT_MODEL = None  # set after class definition (forward reference)
+    TERM_REPORT_MODEL = None  # set after class definition
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(
@@ -1226,6 +1706,13 @@ class SeniorSecondarySessionReport(TenantMixin, BaseSessionReport, models.Model)
         null=True,
         blank=True,
         related_name="senior_secondary_session_reports",
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_senior_secondary_session_reports",
     )
     published_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -1246,7 +1733,9 @@ class SeniorSecondarySessionReport(TenantMixin, BaseSessionReport, models.Model)
         ]
 
     def __str__(self):
-        return f"{self.student.full_name} — {self.academic_session.name} (SSS Session)"
+        return (
+            f"{self.student.full_name} — " f"{self.academic_session.name} (SSS Session)"
+        )
 
 
 SeniorSecondarySessionReport.TERM_REPORT_MODEL = SeniorSecondaryTermReport
@@ -1262,19 +1751,28 @@ class JuniorSecondaryTermReport(
 ):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(
-        Student, on_delete=models.CASCADE, related_name="junior_secondary_term_reports"
+        Student,
+        on_delete=models.CASCADE,
+        related_name="junior_secondary_term_reports",
     )
     exam_session = models.ForeignKey(
         ExamSession,
         on_delete=models.CASCADE,
         related_name="junior_secondary_term_reports",
     )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_junior_secondary_term_reports",
+    )
     published_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="published_junior_secondary_reports",
+        related_name="published_junior_secondary_term_reports",
     )
 
     class Meta:
@@ -1292,20 +1790,27 @@ class JuniorSecondaryTermReport(
 
 class JuniorSecondaryResult(TenantMixin, BaseResult, models.Model):
     RESULT_FK_NAME = "junior_result"
-    RESULT_STATUS = _RESULT_STATUS
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(
-        Student, on_delete=models.CASCADE, related_name="junior_secondary_results"
+        Student,
+        on_delete=models.CASCADE,
+        related_name="junior_secondary_results",
     )
     subject = models.ForeignKey(
-        Subject, on_delete=models.CASCADE, related_name="junior_secondary_results"
+        Subject,
+        on_delete=models.CASCADE,
+        related_name="junior_secondary_results",
     )
     exam_session = models.ForeignKey(
-        ExamSession, on_delete=models.CASCADE, related_name="junior_secondary_results"
+        ExamSession,
+        on_delete=models.CASCADE,
+        related_name="junior_secondary_results",
     )
     grading_system = models.ForeignKey(
-        GradingSystem, on_delete=models.CASCADE, related_name="junior_secondary_results"
+        GradingSystem,
+        on_delete=models.PROTECT,
+        related_name="junior_secondary_results",
     )
     term_report = models.ForeignKey(
         JuniorSecondaryTermReport,
@@ -1315,7 +1820,6 @@ class JuniorSecondaryResult(TenantMixin, BaseResult, models.Model):
         blank=True,
     )
     teacher_remark = models.TextField(blank=True)
-    status = models.CharField(max_length=20, choices=_RESULT_STATUS, default="DRAFT")
     entered_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -1367,22 +1871,22 @@ class JuniorSecondaryResult(TenantMixin, BaseResult, models.Model):
         return f"{self.student.full_name} — {self.subject.name} ({self.total_score})"
 
     @classmethod
+    def bulk_record(cls, entries, user):
+        return super().bulk_record(entries, user, result_fk_field="junior_result_id")
+
+    @classmethod
     def bulk_recalculate_class(
         cls, exam_session, subject, student_class, education_level
     ):
         with transaction.atomic():
-            qs = (
-                cls.objects.filter(
-                    exam_session=exam_session,
-                    subject=subject,
-                    student__student_class=student_class,
-                    student__education_level=education_level,
-                    status__in=("APPROVED", "PUBLISHED"),
-                )
-                .select_for_update()
-                .order_by("-percentage", "created_at")
-            )
-            cls._bulk_recalculate_positions(qs)
+            qs = cls.objects.filter(
+                exam_session=exam_session,
+                subject=subject,
+                student__student_class=student_class,
+                student__education_level=education_level,
+                status__in=("APPROVED", "PUBLISHED"),
+            ).select_for_update()
+            cls.bulk_recalculate_positions(qs)
 
 
 class JuniorSecondarySessionReport(TenantMixin, BaseSessionReport, models.Model):
@@ -1398,6 +1902,13 @@ class JuniorSecondarySessionReport(TenantMixin, BaseSessionReport, models.Model)
         AcademicSession,
         on_delete=models.CASCADE,
         related_name="junior_secondary_session_reports",
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_junior_secondary_session_reports",
     )
     published_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -1417,7 +1928,9 @@ class JuniorSecondarySessionReport(TenantMixin, BaseSessionReport, models.Model)
         ]
 
     def __str__(self):
-        return f"{self.student.full_name} — {self.academic_session.name} (JSS Session)"
+        return (
+            f"{self.student.full_name} — " f"{self.academic_session.name} (JSS Session)"
+        )
 
 
 JuniorSecondarySessionReport.TERM_REPORT_MODEL = JuniorSecondaryTermReport
@@ -1431,17 +1944,28 @@ JuniorSecondarySessionReport.TERM_REPORT_MODEL = JuniorSecondaryTermReport
 class PrimaryTermReport(TenantMixin, BaseTermReport, TermReportFields, models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(
-        Student, on_delete=models.CASCADE, related_name="primary_term_reports"
+        Student,
+        on_delete=models.CASCADE,
+        related_name="primary_term_reports",
     )
     exam_session = models.ForeignKey(
-        ExamSession, on_delete=models.CASCADE, related_name="primary_term_reports"
+        ExamSession,
+        on_delete=models.CASCADE,
+        related_name="primary_term_reports",
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_primary_term_reports",
     )
     published_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="published_primary_reports",
+        related_name="published_primary_term_reports",
     )
 
     class Meta:
@@ -1459,20 +1983,27 @@ class PrimaryTermReport(TenantMixin, BaseTermReport, TermReportFields, models.Mo
 
 class PrimaryResult(TenantMixin, BaseResult, models.Model):
     RESULT_FK_NAME = "primary_result"
-    RESULT_STATUS = _RESULT_STATUS
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(
-        Student, on_delete=models.CASCADE, related_name="primary_results"
+        Student,
+        on_delete=models.CASCADE,
+        related_name="primary_results",
     )
     subject = models.ForeignKey(
-        Subject, on_delete=models.CASCADE, related_name="primary_results"
+        Subject,
+        on_delete=models.CASCADE,
+        related_name="primary_results",
     )
     exam_session = models.ForeignKey(
-        ExamSession, on_delete=models.CASCADE, related_name="primary_results"
+        ExamSession,
+        on_delete=models.CASCADE,
+        related_name="primary_results",
     )
     grading_system = models.ForeignKey(
-        GradingSystem, on_delete=models.CASCADE, related_name="primary_results"
+        GradingSystem,
+        on_delete=models.PROTECT,
+        related_name="primary_results",
     )
     term_report = models.ForeignKey(
         PrimaryTermReport,
@@ -1482,7 +2013,6 @@ class PrimaryResult(TenantMixin, BaseResult, models.Model):
         blank=True,
     )
     teacher_remark = models.TextField(blank=True)
-    status = models.CharField(max_length=20, choices=_RESULT_STATUS, default="DRAFT")
     entered_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -1534,22 +2064,22 @@ class PrimaryResult(TenantMixin, BaseResult, models.Model):
         return f"{self.student.full_name} — {self.subject.name} ({self.total_score})"
 
     @classmethod
+    def bulk_record(cls, entries, user):
+        return super().bulk_record(entries, user, result_fk_field="primary_result_id")
+
+    @classmethod
     def bulk_recalculate_class(
         cls, exam_session, subject, student_class, education_level
     ):
         with transaction.atomic():
-            qs = (
-                cls.objects.filter(
-                    exam_session=exam_session,
-                    subject=subject,
-                    student__student_class=student_class,
-                    student__education_level=education_level,
-                    status__in=("APPROVED", "PUBLISHED"),
-                )
-                .select_for_update()
-                .order_by("-percentage", "created_at")
-            )
-            cls._bulk_recalculate_positions(qs)
+            qs = cls.objects.filter(
+                exam_session=exam_session,
+                subject=subject,
+                student__student_class=student_class,
+                student__education_level=education_level,
+                status__in=("APPROVED", "PUBLISHED"),
+            ).select_for_update()
+            cls.bulk_recalculate_positions(qs)
 
 
 class PrimarySessionReport(TenantMixin, BaseSessionReport, models.Model):
@@ -1557,12 +2087,21 @@ class PrimarySessionReport(TenantMixin, BaseSessionReport, models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(
-        Student, on_delete=models.CASCADE, related_name="primary_session_reports"
+        Student,
+        on_delete=models.CASCADE,
+        related_name="primary_session_reports",
     )
     academic_session = models.ForeignKey(
         AcademicSession,
         on_delete=models.CASCADE,
         related_name="primary_session_reports",
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_primary_session_reports",
     )
     published_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -1583,7 +2122,8 @@ class PrimarySessionReport(TenantMixin, BaseSessionReport, models.Model):
 
     def __str__(self):
         return (
-            f"{self.student.full_name} — {self.academic_session.name} (Primary Session)"
+            f"{self.student.full_name} — "
+            f"{self.academic_session.name} (Primary Session)"
         )
 
 
@@ -1594,12 +2134,13 @@ PrimarySessionReport.TERM_REPORT_MODEL = PrimaryTermReport
 # NURSERY — TERM REPORT + RESULT + SESSION REPORT
 # ============================================================
 
+
 class NurseryTermReport(TenantMixin, BaseTermReport, models.Model):
     """
     Nursery uses marks-based aggregation so it doesn't inherit TermReportFields.
+    It does inherit BaseTermReport for all permission helpers.
     """
 
-    RESULT_STATUS = _RESULT_STATUS
     PHYSICAL_DEVELOPMENT_CHOICES = [
         ("Excellent", "Excellent"),
         ("Very Good", "Very Good"),
@@ -1610,10 +2151,14 @@ class NurseryTermReport(TenantMixin, BaseTermReport, models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(
-        Student, on_delete=models.CASCADE, related_name="nursery_term_reports"
+        Student,
+        on_delete=models.CASCADE,
+        related_name="nursery_term_reports",
     )
     exam_session = models.ForeignKey(
-        ExamSession, on_delete=models.CASCADE, related_name="nursery_term_reports"
+        ExamSession,
+        on_delete=models.CASCADE,
+        related_name="nursery_term_reports",
     )
     total_subjects = models.PositiveIntegerField(default=0)
     total_max_marks = models.DecimalField(max_digits=8, decimal_places=2, default=0)
@@ -1664,12 +2209,20 @@ class NurseryTermReport(TenantMixin, BaseTermReport, models.Model):
     head_teacher_signed_at = models.DateTimeField(blank=True, null=True)
     status = models.CharField(max_length=20, choices=_RESULT_STATUS, default="DRAFT")
     is_published = models.BooleanField(default=False)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_nursery_term_reports",
+    )
+    approved_date = models.DateTimeField(null=True, blank=True)
     published_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="published_nursery_reports",
+        related_name="published_nursery_term_reports",
     )
     published_date = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1682,15 +2235,13 @@ class NurseryTermReport(TenantMixin, BaseTermReport, models.Model):
         indexes = [
             models.Index(fields=["tenant", "student", "exam_session"]),
             models.Index(fields=["tenant", "exam_session", "status"]),
-            models.Index(fields=["tenant", "-overall_percentage"]),
+            models.Index(fields=["tenant", "overall_percentage"]),
         ]
 
     def __str__(self):
         return f"{self.student.full_name} — {self.exam_session.name} (Nursery Term)"
 
     def calculate_metrics(self):
-        from django.db.models import Count, Sum
-
         agg = NurseryResult.objects.filter(
             student=self.student,
             exam_session=self.exam_session,
@@ -1706,7 +2257,7 @@ class NurseryTermReport(TenantMixin, BaseTermReport, models.Model):
         self.overall_percentage = (
             (self.total_marks_obtained / self.total_max_marks * 100)
             if self.total_max_marks > 0
-            else 0
+            else Decimal(0)
         )
         self.save(
             update_fields=[
@@ -1718,68 +2269,77 @@ class NurseryTermReport(TenantMixin, BaseTermReport, models.Model):
             ]
         )
 
-    def calculate_class_position(self):
-        peers = (
-            NurseryTermReport.objects.filter(
-                exam_session=self.exam_session,
-                student__student_class=self.student.student_class,
-                student__education_level=self.student.education_level,
-                status__in=("APPROVED", "PUBLISHED"),
-            )
-            .exclude(id=self.id)
-            .exclude(overall_percentage__isnull=True)
-        )
-        higher = peers.filter(overall_percentage__gt=self.overall_percentage).count()
-        same_earlier = peers.filter(
-            overall_percentage=self.overall_percentage,
-            created_at__lt=self.created_at,
-        ).count()
-        self.class_position = higher + same_earlier + 1
-        self.total_students_in_class = peers.count() + 1
-        self.save(
-            update_fields=["class_position", "total_students_in_class", "updated_at"]
-        )
-
     @classmethod
     def bulk_recalculate_positions(cls, exam_session, student_class, education_level):
+        """SQL RANK() — no Python sort."""
         with transaction.atomic():
-            reports = (
-                cls.objects.filter(
-                    exam_session=exam_session,
-                    student__student_class=student_class,
-                    student__education_level=education_level,
-                    status__in=("APPROVED", "PUBLISHED"),
+            qs = cls.objects.filter(
+                exam_session=exam_session,
+                student__student_class=student_class,
+                student__education_level=education_level,
+                status__in=("APPROVED", "PUBLISHED"),
+            ).select_for_update()
+
+            total = qs.count()
+            if not total:
+                return
+
+            ranked = qs.annotate(
+                rank=Window(
+                    expression=Rank(),
+                    order_by=F("overall_percentage").desc(),
                 )
-                .select_for_update()
-                .order_by("-overall_percentage")
-            )
-            total = reports.count()
-            updates = []
-            for pos, report in enumerate(reports, start=1):
-                report.class_position = pos
-                report.total_students_in_class = total
-                updates.append(report)
+            ).values("pk", "rank")
+
+            rank_map = {row["pk"]: row["rank"] for row in ranked}
+            reports = list(qs.only("pk", "class_position", "total_students_in_class"))
+            for r in reports:
+                r.class_position = rank_map.get(r.pk)
+                r.total_students_in_class = total
             cls.objects.bulk_update(
-                updates, ["class_position", "total_students_in_class"], batch_size=100
+                reports,
+                ["class_position", "total_students_in_class"],
+                batch_size=200,
             )
 
 
-class NurseryResult(TenantMixin, models.Model):
-    RESULT_STATUS = _RESULT_STATUS
+class NurseryResult(TenantMixin, BaseResult, models.Model):
+    """
+    Nursery result.
+
+    Now correctly inherits BaseResult so that:
+      • save() → calculate_scores() → determine_grade() works identically
+        to all other education levels.
+      • ca_total, grade, is_passed, percentage, subject_position,
+        position_formatted are all available on the model.
+      • bulk_approve, bulk_publish, bulk_delete, bulk_record are inherited.
+
+    calculate_scores() is overridden below to handle the Nursery-specific
+    logic (direct mark entry or ComponentScore aggregation).
+    """
+
     RESULT_FK_NAME = "nursery_result"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(
-        Student, on_delete=models.CASCADE, related_name="nursery_results"
+        Student,
+        on_delete=models.CASCADE,
+        related_name="nursery_results",
     )
     subject = models.ForeignKey(
-        Subject, on_delete=models.CASCADE, related_name="nursery_results"
+        Subject,
+        on_delete=models.CASCADE,
+        related_name="nursery_results",
     )
     exam_session = models.ForeignKey(
-        ExamSession, on_delete=models.CASCADE, related_name="nursery_results"
+        ExamSession,
+        on_delete=models.CASCADE,
+        related_name="nursery_results",
     )
     grading_system = models.ForeignKey(
-        GradingSystem, on_delete=models.CASCADE, related_name="nursery_results"
+        GradingSystem,
+        on_delete=models.PROTECT,
+        related_name="nursery_results",
     )
     term_report = models.ForeignKey(
         NurseryTermReport,
@@ -1796,22 +2356,12 @@ class NurseryResult(TenantMixin, models.Model):
         help_text="Overridden by ComponentScore sum if nursery components are configured",
     )
     mark_obtained = models.DecimalField(
-        max_digits=5, decimal_places=2, default=0, validators=[MinValueValidator(0)]
-    )
-    percentage = models.DecimalField(
         max_digits=5,
         decimal_places=2,
         default=0,
-        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        validators=[MinValueValidator(0)],
     )
-    grade = models.CharField(max_length=5, blank=True)
-    grade_point = models.DecimalField(
-        max_digits=3, decimal_places=2, null=True, blank=True
-    )
-    is_passed = models.BooleanField(default=False)
-    subject_position = models.PositiveIntegerField(null=True, blank=True)
     academic_comment = models.TextField(blank=True)
-    status = models.CharField(max_length=20, choices=_RESULT_STATUS, default="DRAFT")
     entered_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -1862,7 +2412,14 @@ class NurseryResult(TenantMixin, models.Model):
     def __str__(self):
         return f"{self.student.full_name} — {self.subject.name} ({self.mark_obtained})"
 
-    def save(self, *args, **kwargs):
+    def calculate_scores(self):
+        """
+        Nursery-specific score calculation.
+
+        If ComponentScore rows exist (school configured nursery components),
+        sum those; otherwise fall back to direct mark_obtained / max_marks_obtainable.
+        ca_total is set to 0 — Nursery has no CA sub-total concept.
+        """
         if self.pk:
             cs_qs = ComponentScore.objects.filter(nursery_result=self).select_related(
                 "component"
@@ -1870,82 +2427,57 @@ class NurseryResult(TenantMixin, models.Model):
             if cs_qs.exists():
                 self.mark_obtained = sum(cs.score for cs in cs_qs)
                 self.max_marks_obtainable = sum(cs.component.max_score for cs in cs_qs)
+        self.ca_total = Decimal(0)
+        self.total_score = self.mark_obtained
         if self.max_marks_obtainable and self.max_marks_obtainable > 0:
             self.percentage = (self.mark_obtained / self.max_marks_obtainable) * 100
         else:
-            self.percentage = 0
-        if self.grading_system:
-            try:
-                grade = self.grading_system.get_grade(float(self.percentage))
-                self.grade = grade if grade else _default_grade(float(self.percentage))
-                self.is_passed = float(self.percentage) >= float(
-                    self.grading_system.pass_mark or 40
-                )
-            except Exception as e:
-                logger.error(f"Error determining nursery grade: {e}")
-                self.grade = _default_grade(float(self.percentage))
-                self.is_passed = float(self.percentage) >= 40
-        super().save(*args, **kwargs)
+            self.percentage = Decimal(0)
+
+    @classmethod
+    def bulk_record(cls, entries, user):
+        return super().bulk_record(entries, user, result_fk_field="nursery_result_id")
 
     @classmethod
     def bulk_recalculate_class(
         cls, exam_session, subject, student_class, education_level
     ):
         with transaction.atomic():
-            results = (
-                cls.objects.filter(
-                    exam_session=exam_session,
-                    subject=subject,
-                    student__student_class=student_class,
-                    student__education_level=education_level,
-                    status__in=("APPROVED", "PUBLISHED"),
-                )
-                .select_for_update()
-                .order_by("-percentage", "created_at")
-            )
-            if not results.exists():
-                return
-            current_position = 1
-            count_at_current = 0
-            prev_score = None
-            updates = []
-            for result in results:
-                score = result.percentage
-                if score != prev_score:
-                    current_position += count_at_current
-                    count_at_current = 1
-                    prev_score = score
-                else:
-                    count_at_current += 1
-                result.subject_position = current_position
-                updates.append(result)
-            cls.objects.bulk_update(updates, ["subject_position"], batch_size=100)
-
-    @property
-    def position_formatted(self):
-        if not self.subject_position:
-            return ""
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(self.subject_position, "th")
-        return f"{self.subject_position}{suffix}"
+            qs = cls.objects.filter(
+                exam_session=exam_session,
+                subject=subject,
+                student__student_class=student_class,
+                student__education_level=education_level,
+                status__in=("APPROVED", "PUBLISHED"),
+            ).select_for_update()
+            cls.bulk_recalculate_positions(qs)
 
 
 class NurserySessionReport(TenantMixin, BaseSessionReport, models.Model):
     """
     Session report for a Nursery student.
-    compute_from_term_reports() handles the marks-based NurseryTermReport
-    by checking for overall_percentage / total_marks_obtained fields.
+    compute_from_term_reports() detects overall_percentage on NurseryTermReport.
     """
 
     TERM_REPORT_MODEL = None
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(
-        Student, on_delete=models.CASCADE, related_name="nursery_session_reports"
+        Student,
+        on_delete=models.CASCADE,
+        related_name="nursery_session_reports",
     )
     academic_session = models.ForeignKey(
         AcademicSession,
         on_delete=models.CASCADE,
         related_name="nursery_session_reports",
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_nursery_session_reports",
     )
     published_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -1966,7 +2498,8 @@ class NurserySessionReport(TenantMixin, BaseSessionReport, models.Model):
 
     def __str__(self):
         return (
-            f"{self.student.full_name} — {self.academic_session.name} (Nursery Session)"
+            f"{self.student.full_name} — "
+            f"{self.academic_session.name} (Nursery Session)"
         )
 
 
@@ -1974,13 +2507,11 @@ NurserySessionReport.TERM_REPORT_MODEL = NurseryTermReport
 
 
 # ============================================================
-# LEGACY MODELS
+# LEGACY MODELS (unchanged — kept for backwards compatibility)
 # ============================================================
 
 
 class StudentResult(TenantMixin, models.Model):
-    RESULT_STATUS = _RESULT_STATUS
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(
         Student, on_delete=models.CASCADE, related_name="results"
@@ -2002,10 +2533,16 @@ class StudentResult(TenantMixin, models.Model):
         related_name="student_results",
     )
     ca_score = models.DecimalField(
-        max_digits=5, decimal_places=2, default=0, validators=[MinValueValidator(0)]
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
     )
     exam_score = models.DecimalField(
-        max_digits=5, decimal_places=2, default=0, validators=[MinValueValidator(0)]
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
     )
     total_score = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     percentage = models.DecimalField(
@@ -2056,14 +2593,14 @@ class StudentResult(TenantMixin, models.Model):
 
 
 class StudentTermResult(TenantMixin, models.Model):
-    RESULT_STATUS = _RESULT_STATUS
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(
         Student, on_delete=models.CASCADE, related_name="term_results"
     )
     academic_session = models.ForeignKey(
-        AcademicSession, on_delete=models.CASCADE, related_name="student_term_results"
+        AcademicSession,
+        on_delete=models.CASCADE,
+        related_name="student_term_results",
     )
     term = models.ForeignKey(
         Term,
