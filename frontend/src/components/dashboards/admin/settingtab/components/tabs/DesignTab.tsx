@@ -1,398 +1,237 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Palette, Save, Loader2, RotateCcw, Check, AlertCircle } from 'lucide-react';
 import { useDesign } from '@/contexts/DesignContext';
-import ToggleSwitch from '../ToggleSwitch';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import DesignSettingsService, { DesignSettings } from '@/services/DesignSettingsService';
 
 interface DesignTabProps {
-  settings?: any;
   onSettingsUpdate?: (settings: any) => void;
 }
 
-const DesignTab: React.FC<DesignTabProps> = ({ settings: initialSettings, onSettingsUpdate }) => {
-  const { settings: designSettings, updateSettings: updateDesignSettings } = useDesign();
-  const [settings, setSettings] = useState<DesignSettings>({
-    primary_color: '#3B82F6',
-    secondary_color: '#10B981',
-    theme: 'default',
-    typography: 'Inter',
-    border_radius: 'rounded-lg',
-    shadow_style: 'shadow-md',
-    animations_enabled: true,
-    compact_mode: false,
-    dark_mode: false,
-    high_contrast: false,
-  });
+const themes = [
+  { id: 'default',   name: 'Default',         preview: 'bg-gradient-to-br from-slate-950 via-indigo-950 to-purple-950' },
+  { id: 'modern',    name: 'Modern',           preview: 'bg-gradient-to-br from-blue-500 to-purple-600' },
+  { id: 'classic',   name: 'Classic',          preview: 'bg-gradient-to-br from-slate-600 to-slate-800' },
+  { id: 'vibrant',   name: 'Vibrant',          preview: 'bg-gradient-to-br from-pink-500 to-orange-500' },
+  { id: 'minimal',   name: 'Minimal',          preview: 'bg-gradient-to-br from-gray-100 to-gray-200' },
+  { id: 'corporate', name: 'Corporate',        preview: 'bg-gradient-to-br from-indigo-600 to-blue-700' },
+  { id: 'premium',   name: 'Premium',          preview: 'bg-gradient-to-br from-rose-950 via-slate-950 to-blue-950' },
+  { id: 'dark',      name: 'Dark',             preview: 'bg-gradient-to-br from-gray-900 to-gray-800' },
+  { id: 'obsidian',  name: 'Obsidian',         preview: 'bg-gradient-to-br from-gray-950 via-black to-slate-950' },
+  { id: 'aurora',    name: 'Aurora',           preview: 'bg-gradient-to-br from-indigo-950 via-violet-950 to-pink-950' },
+  { id: 'midnight',  name: 'Midnight',         preview: 'bg-gradient-to-br from-slate-950 via-blue-950 to-indigo-950' },
+  { id: 'crimson',   name: 'Crimson',          preview: 'bg-gradient-to-br from-red-950 via-rose-950 to-pink-950' },
+  { id: 'forest',    name: 'Forest',           preview: 'bg-gradient-to-br from-green-950 via-emerald-950 to-teal-950' },
+  { id: 'golden',    name: 'Golden',           preview: 'bg-gradient-to-br from-yellow-950 via-amber-950 to-orange-950' },
+];
 
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [success, setSuccess] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [hasChanges, setHasChanges] = useState(false);
-  const initialized = useRef(false);
-  const [originalSettings, setOriginalSettings] = useState<DesignSettings | null>(null);
+const fonts = [
+  { value: 'Inter',       label: 'Inter',         sample: 'Aa' },
+  { value: 'Roboto',      label: 'Roboto',        sample: 'Aa' },
+  { value: 'Open Sans',   label: 'Open Sans',     sample: 'Aa' },
+  { value: 'Poppins',     label: 'Poppins',       sample: 'Aa' },
+  { value: 'Montserrat',  label: 'Montserrat',    sample: 'Aa' },
+];
 
-  const themes = [
-    { id: 'default', name: 'Default (Recommended)', preview: 'bg-gradient-to-br from-slate-950 via-indigo-950 to-purple-950' },
-    { id: 'modern', name: 'Modern', preview: 'bg-gradient-to-br from-blue-500 to-purple-600' },
-    { id: 'classic', name: 'Classic', preview: 'bg-gradient-to-br from-slate-600 to-slate-800' },
-    { id: 'vibrant', name: 'Vibrant', preview: 'bg-gradient-to-br from-pink-500 to-orange-500' },
-    { id: 'minimal', name: 'Minimal', preview: 'bg-gradient-to-br from-gray-100 to-gray-200' },
-    { id: 'corporate', name: 'Corporate', preview: 'bg-gradient-to-br from-indigo-600 to-blue-700' },
-    { id: 'premium', name: 'Premium', preview: 'bg-gradient-to-br from-rose-950 via-slate-950 to-blue-950' },
-    { id: 'dark', name: 'Dark Mode', preview: 'bg-gradient-to-br from-gray-900 to-gray-800' },
-    { id: 'obsidian', name: 'Obsidian (Ultra Premium)', preview: 'bg-gradient-to-br from-gray-950 via-black to-slate-950' },
-    { id: 'aurora', name: 'Aurora (Ultra Premium)', preview: 'bg-gradient-to-br from-indigo-950 via-violet-950 to-pink-950' },
-    { id: 'midnight', name: 'Midnight (Ultra Premium)', preview: 'bg-gradient-to-br from-slate-950 via-blue-950 to-indigo-950' },
-    { id: 'crimson', name: 'Crimson (Ultra Premium)', preview: 'bg-gradient-to-br from-red-950 via-rose-950 to-pink-950' },
-    { id: 'forest', name: 'Forest (Ultra Premium)', preview: 'bg-gradient-to-br from-green-950 via-emerald-950 to-teal-950' },
-    { id: 'golden', name: 'Golden (Ultra Premium)', preview: 'bg-gradient-to-br from-yellow-950 via-amber-950 to-orange-950' }
-  ];
+const DEFAULTS: Pick<DesignSettings, 'primary_color' | 'theme' | 'typography'> = {
+  primary_color: '#3B82F6',
+  theme: 'default',
+  typography: 'Inter',
+};
 
-  const typographyOptions = [
-    { value: 'Inter', label: 'Inter (Recommended)' },
-    { value: 'Roboto', label: 'Roboto' },
-    { value: 'Open Sans', label: 'Open Sans' },
-    { value: 'Poppins', label: 'Poppins' },
-    { value: 'Montserrat', label: 'Montserrat' }
-  ];
+const DesignTab: React.FC<DesignTabProps> = ({ onSettingsUpdate }) => {
+  const { updateSettings: updateDesignCtx } = useDesign();
 
-  const borderRadiusOptions = [
-    { value: 'rounded-none', label: 'Sharp' },
-    { value: 'rounded', label: 'Slightly Rounded' },
-    { value: 'rounded-lg', label: 'Rounded' },
-    { value: 'rounded-xl', label: 'More Rounded' },
-    { value: 'rounded-2xl', label: 'Very Rounded' }
-  ];
+  const [s, setS] = useState(DEFAULTS);
+  const [orig, setOrig] = useState(DEFAULTS);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const ready = useRef(false);
 
-  const shadowOptions = [
-    { value: 'shadow-none', label: 'No Shadow' },
-    { value: 'shadow-sm', label: 'Subtle Shadow' },
-    { value: 'shadow-md', label: 'Medium Shadow' },
-    { value: 'shadow-lg', label: 'Large Shadow' },
-    { value: 'shadow-xl', label: 'Extra Large Shadow' }
-  ];
-
-  // Load design settings on mount
   useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-        
-        const loadedSettings = await DesignSettingsService.getDesignSettings();
-        console.log('📥 Loaded settings:', loadedSettings);
-        
-        setSettings(loadedSettings);
-        setOriginalSettings(loadedSettings);
-        DesignSettingsService.applyDesignSettings(loadedSettings);
-        updateDesignSettings(loadedSettings);
-      } catch (err) {
-        console.error('Failed to load design settings:', err);
-        setError('Failed to load design settings');
-      } finally {
-        setIsLoading(false);
-        initialized.current = true;
-      }
-    };
-
-    if (!initialized.current) {
-      loadSettings();
-    }
+    if (ready.current) return;
+    ready.current = true;
+    DesignSettingsService.getDesignSettings().then(d => {
+      const cur = { primary_color: d.primary_color, theme: d.theme, typography: d.typography };
+      setS(cur); setOrig(cur);
+      DesignSettingsService.applyDesignSettings(d);
+      updateDesignCtx(d);
+    }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  // Check for changes whenever settings change
-  useEffect(() => {
-    if (originalSettings) {
-      const changed = JSON.stringify(settings) !== JSON.stringify(originalSettings);
-      setHasChanges(changed);
-    }
-  }, [settings, originalSettings]);
+  const changed = JSON.stringify(s) !== JSON.stringify(orig);
 
-  const handleSave = async () => {
-    setIsSaving(true);
-    setError(null);
-    setSuccess(null);
-
+  const save = async () => {
+    setSaving(true);
     try {
-      console.log('💾 Saving design settings:', settings);
-      const savedSettings = await DesignSettingsService.updateDesignSettings(settings);
-      
-      // Apply the settings to the page
-      DesignSettingsService.applyDesignSettings(savedSettings);
-      updateDesignSettings(savedSettings);
-      setOriginalSettings(savedSettings);
-      
-      setSuccess('✨ Design settings saved successfully!');
-      setHasChanges(false);
-      
-      if (onSettingsUpdate) {
-        onSettingsUpdate(savedSettings);
-      }
-
-      // Clear success message after 3 seconds
-      setTimeout(() => setSuccess(null), 3000);
-    } catch (err) {
-      console.error('Error saving:', err);
-      setError(err instanceof Error ? err.message : 'Failed to save design settings');
-      setTimeout(() => setError(null), 5000);
+      const full = await DesignSettingsService.getDesignSettings();
+      const payload = { ...full, ...s };
+      const saved = await DesignSettingsService.updateDesignSettings(payload);
+      DesignSettingsService.applyDesignSettings(saved);
+      updateDesignCtx(saved);
+      const next = { primary_color: saved.primary_color, theme: saved.theme, typography: saved.typography };
+      setOrig(next); setS(next);
+      setToast({ msg: 'Design saved!', ok: true });
+      if (onSettingsUpdate) onSettingsUpdate(saved);
+    } catch {
+      setToast({ msg: 'Failed to save. Please try again.', ok: false });
     } finally {
-      setIsSaving(false);
+      setSaving(false);
+      setTimeout(() => setToast(null), 3000);
     }
   };
 
-  const handleResetToDefault = async () => {
-    const defaultSettings: DesignSettings = {
-      primary_color: '#3B82F6',
-      secondary_color: '#10B981',
-      theme: 'default',
-      animations_enabled: true,
-      compact_mode: false,
-      dark_mode: false,
-      high_contrast: false,
-      typography: 'Inter',
-      border_radius: 'rounded-lg',
-      shadow_style: 'shadow-md'
-    };
+  const reset = () => { setS({ ...DEFAULTS }); };
 
-    setSettings(defaultSettings);
-    setHasChanges(true);
-  };
-
-  const updateSetting = (key: keyof DesignSettings, value: any) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
-  };
-
-  if (isLoading) {
+  if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
-          <p className="text-slate-600">Loading design settings...</p>
-        </div>
+      <div className="flex items-center justify-center py-24">
+        <Loader2 className="w-7 h-7 animate-spin text-blue-600" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-8">
-      {/* Success Message */}
-      {success && (
-        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 flex items-start gap-3">
-          <Check className="w-5 h-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-          <p className="text-green-800 dark:text-green-200 text-sm">{success}</p>
+    <div className="p-6 space-y-8 max-w-4xl">
+
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed top-5 right-5 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg text-sm font-medium text-white
+          ${toast.ok ? 'bg-green-600' : 'bg-red-600'}`}>
+          {toast.ok ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+          {toast.msg}
         </div>
       )}
 
-      {/* Error Message */}
-      {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
-          <p className="text-red-800 dark:text-red-200 text-sm">{error}</p>
+      {/* Header + actions */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-gradient-to-br from-pink-500 to-orange-500 rounded-xl flex items-center justify-center">
+            <Palette className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">Design</h2>
+            <p className="text-xs text-gray-500">Theme, colour, and font — applied across the entire portal</p>
+          </div>
         </div>
-      )}
-
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 shadow-sm border border-slate-200 dark:border-slate-700 transition-colors duration-300">
-        <div className="flex justify-between items-center mb-8">
-          <h3 className="text-2xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-pink-500 to-orange-500 rounded-lg flex items-center justify-center">
-              <Palette className="w-5 h-5 text-white" />
-            </div>
-            Design Customization
-          </h3>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleResetToDefault}
-              disabled={isSaving}
-              className="flex items-center gap-2 px-4 py-2 bg-slate-600 dark:bg-slate-700 text-white rounded-lg hover:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 transition-colors duration-200"
-              title="Reset to default settings"
-            >
-              <RotateCcw className="w-4 h-4" />
-              Reset
+        <div className="flex items-center gap-2">
+          <button onClick={reset} title="Reset to defaults"
+            className="p-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors">
+            <RotateCcw className="w-4 h-4" />
+          </button>
+          {changed && (
+            <button onClick={save} disabled={saving}
+              className="inline-flex items-center gap-2 px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {saving ? 'Saving…' : 'Save'}
             </button>
-            {hasChanges && (
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="flex items-center gap-2 px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-              >
-                {isSaving ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Save className="w-4 h-4" />
-                )}
-                {isSaving ? 'Saving...' : 'Save Changes'}
-              </button>
-            )}
-          </div>
+          )}
         </div>
+      </div>
 
-        {/* Theme Selection */}
-        <div className="mb-8">
-          <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4">Theme Selection</label>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {themes.map((theme) => {
-              const isSelected = settings.theme === theme.id;
-              return (
-                <div
-                  key={theme.id}
-                  onClick={() => updateSetting('theme', theme.id)}
-                  className={`p-4 rounded-xl border-2 cursor-pointer transition-all duration-200 ${
-                    isSelected
-                      ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20 ring-2 ring-blue-300 dark:ring-blue-700'
-                      : 'border-slate-200 dark:border-slate-600 hover:border-slate-300 dark:hover:border-slate-500'
-                  }`}
-                >
-                  <div className={`w-full h-20 rounded-lg mb-3 ${theme.preview}`} />
-                  <p className="font-medium text-slate-900 dark:text-slate-100 text-sm">{theme.name}</p>
+      {/* ── Theme ── */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-4">Theme</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+          {themes.map(t => (
+            <button key={t.id} onClick={() => setS(p => ({ ...p, theme: t.id as DesignSettings['theme'] }))}
+              className={`group relative rounded-2xl overflow-hidden border-2 transition-all focus:outline-none
+                ${s.theme === t.id ? 'border-blue-500 ring-2 ring-blue-200' : 'border-transparent hover:border-gray-300'}`}>
+              {/* Preview swatch */}
+              <div className={`h-16 w-full ${t.preview}`} />
+              {/* Label */}
+              <div className={`py-2 px-2 text-center text-xs font-medium truncate
+                ${s.theme === t.id ? 'bg-blue-50 text-blue-700' : 'bg-white text-gray-700'}`}>
+                {t.name}
+              </div>
+              {/* Selected indicator */}
+              {s.theme === t.id && (
+                <div className="absolute top-1.5 right-1.5 w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center">
+                  <Check className="w-3 h-3 text-white" />
                 </div>
-              );
-            })}
+              )}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Primary Colour ── */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-4">Primary Colour</h3>
+        <div className="flex items-center gap-4 p-5 bg-gray-50 rounded-2xl border border-gray-100 max-w-sm">
+          {/* Native colour picker */}
+          <label className="cursor-pointer">
+            <div
+              className="w-14 h-14 rounded-xl border-2 border-white shadow-md transition-transform hover:scale-105"
+              style={{ backgroundColor: s.primary_color }}
+            />
+            <input type="color" value={s.primary_color}
+              onChange={e => setS(p => ({ ...p, primary_color: e.target.value }))}
+              className="sr-only" />
+          </label>
+
+          {/* Hex input */}
+          <div className="flex-1">
+            <p className="text-xs text-gray-500 mb-1 font-medium">Hex value</p>
+            <input type="text" value={s.primary_color}
+              onChange={e => {
+                const v = e.target.value;
+                if (/^#[0-9A-Fa-f]{0,6}$/.test(v)) setS(p => ({ ...p, primary_color: v }));
+              }}
+              className="w-full font-mono text-sm px-3 py-2 rounded-lg border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
+
+          {/* Live preview dot */}
+          <div className="w-8 h-8 rounded-full shadow-inner"
+            style={{ background: `radial-gradient(circle at 35% 35%, ${s.primary_color}cc, ${s.primary_color})` }} />
         </div>
 
-        {/* Color & Typography Section */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Primary Color</label>
-            <div className="flex items-center gap-3">
-              <input
-                type="color"
-                value={settings.primary_color}
-                onChange={(e) => updateSetting('primary_color', e.target.value)}
-                className="w-16 h-12 rounded-lg border-2 border-slate-200 dark:border-slate-600 cursor-pointer hover:border-slate-300 transition-colors"
-              />
-              <input
-                type="text"
-                value={settings.primary_color}
-                onChange={(e) => updateSetting('primary_color', e.target.value)}
-                className="flex-1 px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Typography</label>
-            <select
-              value={settings.typography}
-              onChange={(e) => updateSetting('typography', e.target.value)}
-              className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              {typographyOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
+        {/* Quick colour palette */}
+        <div className="flex flex-wrap gap-2 mt-3">
+          {['#3B82F6','#8B5CF6','#EF4444','#F97316','#10B981','#06B6D4','#EC4899','#6366F1','#84CC16','#F59E0B','#1E293B','#334155'].map(c => (
+            <button key={c} onClick={() => setS(p => ({ ...p, primary_color: c }))}
+              title={c}
+              className={`w-7 h-7 rounded-lg border-2 transition-transform hover:scale-110 focus:outline-none
+                ${s.primary_color === c ? 'border-gray-900 scale-110' : 'border-transparent'}`}
+              style={{ backgroundColor: c }} />
+          ))}
         </div>
+      </section>
 
-        {/* Border & Shadow Section */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Border Radius</label>
-            <select
-              value={settings.border_radius}
-              onChange={(e) => updateSetting('border_radius', e.target.value)}
-              className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              {borderRadiusOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Shadow Style</label>
-            <select
-              value={settings.shadow_style}
-              onChange={(e) => updateSetting('shadow_style', e.target.value)}
-              className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              {shadowOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Display Preferences */}
-        <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-6">
-          <h4 className="font-semibold text-slate-900 dark:text-slate-100 mb-4">Display Preferences</h4>
-          <div className="space-y-3">
-            <ToggleSwitch
-              id="animations"
-              checked={settings.animations_enabled}
-              onChange={(checked) => updateSetting('animations_enabled', checked)}
-              label="Enable Animations"
-              description="Smooth transitions and micro-interactions"
-            />
-            
-            <ToggleSwitch
-              id="compact-mode"
-              checked={settings.compact_mode}
-              onChange={(checked) => updateSetting('compact_mode', checked)}
-              label="Compact Mode"
-              description="Reduce spacing for more content density"
-            />
-            
-            <ToggleSwitch
-              id="dark-mode"
-              checked={settings.dark_mode}
-              onChange={(checked) => updateSetting('dark_mode', checked)}
-              label="Dark Mode"
-              description="Darker color scheme for reduced eye strain"
-            />
-            
-            <ToggleSwitch
-              id="high-contrast"
-              checked={settings.high_contrast}
-              onChange={(checked) => updateSetting('high_contrast', checked)}
-              label="High Contrast"
-              description="Enhanced contrast for better accessibility"
-            />
-          </div>
-        </div>
-
-        {/* Save Button */}
-        {hasChanges && (
-          <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700">
-            <div className="flex justify-between items-center">
-              <p className="text-sm text-amber-600 dark:text-amber-400 font-medium">
-                💡 You have unsaved changes
+      {/* ── Typography ── */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-4">Typography</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+          {fonts.map(f => (
+            <button key={f.value} onClick={() => setS(p => ({ ...p, typography: f.value as DesignSettings['typography'] }))}
+              className={`p-4 rounded-xl border-2 text-left transition-all focus:outline-none
+                ${s.typography === f.value ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
+              <span className="block text-2xl font-bold text-gray-800 mb-1" style={{ fontFamily: f.value }}>
+                Aa
+              </span>
+              <span className={`text-sm font-medium ${s.typography === f.value ? 'text-blue-700' : 'text-gray-600'}`}>
+                {f.label}
+              </span>
+              <p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily: f.value }}>
+                The quick brown fox
               </p>
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-              >
-                {isSaving ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-5 h-5" />
-                    Save All Changes
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+            </button>
+          ))}
+        </div>
+      </section>
 
-      {/* Info Card */}
-      <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-6 border border-blue-200 dark:border-blue-800">
-        <p className="text-sm text-blue-900 dark:text-blue-100">
-          <strong>📌 Note:</strong> Your design settings are saved per-tenant (school). Every school has their own unique design. When users log in with your school's slug, they'll see your custom colors, theme, and UI preferences.
-        </p>
-      </div>
+      {/* Unsaved indicator */}
+      {changed && (
+        <div className="flex items-center justify-between pt-4 border-t border-gray-100">
+          <p className="text-sm text-amber-600 font-medium">You have unsaved changes</p>
+          <button onClick={save} disabled={saving}
+            className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {saving ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      )}
     </div>
   );
 };
