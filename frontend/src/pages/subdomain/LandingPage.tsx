@@ -203,7 +203,7 @@ const SubdomainLandingPage: React.FC = () => {
           <div className={`flex items-center justify-between text-xs text-white/50 transition-all duration-700 delay-300 ${mounted ? 'opacity-100' : 'opacity-0'}`}>
             <span>&copy; {new Date().getFullYear()} {schoolName}</span>
             <a href="https://www.nuventacloud.com" className="hover:text-white/80 transition-colors">
-              Powered by SchoolPlatform
+              Powered by Nuventa Cloud
             </a>
           </div>
         </div>
@@ -366,7 +366,7 @@ const SubdomainLandingPage: React.FC = () => {
 
         {/* Mobile footer */}
         <div className={`lg:hidden px-6 py-4 text-center text-xs text-gray-400 transition-all duration-500 delay-300 ${mounted ? 'opacity-100' : 'opacity-0'}`}>
-          &copy; {new Date().getFullYear()} {schoolName} &middot; Powered by SchoolPlatform
+          &copy; {new Date().getFullYear()} {schoolName} &middot; Powered by Nuventa Cloud
         </div>
         <Link to="/supabase-login" className="text-sm text-blue-600 hover:text-blue-800 transition-colors">
           Go to Admin Login

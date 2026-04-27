@@ -53,7 +53,7 @@ const Nav: React.FC = () => {
             <span className={`hidden sm:block text-sm font-semibold truncate max-w-[140px] ${
               scrolled ? 'text-gray-900 dark:text-white' : 'text-white'
             }`}>
-              {settings?.school_name || 'SchoolPlatform'}
+              {settings?.school_name || 'NuventaCloud'}
             </span>
           </Link>
 

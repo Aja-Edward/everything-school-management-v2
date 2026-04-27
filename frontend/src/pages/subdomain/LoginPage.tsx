@@ -54,6 +54,7 @@ const SubdomainLoginPage: React.FC = () => {
     password: '',
     role: 'student' as UserRole,
     rememberMe: false,
+    email: '',
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +71,7 @@ const SubdomainLoginPage: React.FC = () => {
 
   const handleLogin = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.username.trim() || !form.password) {
+    if (!form.username?.trim() || !form.password) {
       setError('Please fill in all fields');
       return;
     }
@@ -298,7 +299,7 @@ const SubdomainLoginPage: React.FC = () => {
           <div className="max-w-sm mx-auto flex items-center justify-between text-xs text-gray-400">
             <span>&copy; {new Date().getFullYear()} {schoolName}</span>
             <a href="http://localhost:5173" className="hover:text-gray-600 transition-colors">
-              SchoolPlatform
+              NuventaCloud
             </a>
           </div>
         </footer>
