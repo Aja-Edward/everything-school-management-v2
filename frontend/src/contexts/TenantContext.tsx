@@ -29,6 +29,9 @@ const RESERVED_SUBDOMAINS = ['www', 'api', 'admin', 'app', 'dashboard', 'mail', 
 // Main domain patterns (customize based on your deployment)
 const MAIN_DOMAINS = ['localhost', 'schoolplatform.com', '127.0.0.1'];
 
+// Hosting platform domains — treat as main domain, never as tenant subdomains
+const HOSTING_PLATFORM_DOMAINS = ['vercel.app', 'onrender.com', 'netlify.app', 'herokuapp.com', 'railway.app'];
+
 /**
  * Extracts the subdomain from the current hostname
  * Returns null if we're on the main domain
@@ -54,6 +57,11 @@ function extractSubdomain(): string | null {
       return null;
     }
     return subdomain || null;
+  }
+
+  // If the hostname ends with a known hosting platform domain, treat as main domain
+  if (HOSTING_PLATFORM_DOMAINS.some(d => hostname === d || hostname.endsWith(`.${d}`))) {
+    return null;
   }
 
   // Split hostname into parts
