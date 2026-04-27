@@ -78,7 +78,7 @@ const Footer: React.FC<FooterProps> = ({ isDashboard = false }) => {
                 />
               ) : (
                 <div className="w-8 h-8 rounded bg-blue-600 flex items-center justify-center text-white text-sm font-bold">
-                  S
+                N
                 </div>
               )}
               <span className="text-sm font-semibold text-gray-900 dark:text-white">
