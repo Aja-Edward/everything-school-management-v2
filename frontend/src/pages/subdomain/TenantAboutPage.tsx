@@ -12,7 +12,8 @@ const TenantAboutPage: React.FC = () => {
   const { tenant, settings } = useTenant();
   const [landing, setLanding] = useState<TenantLandingPage | null>(null);
   const [section, setSection] = useState<LandingSection | null>(null);
-  const [ribbonEvent, setRibbonEvent] = useState<any>(null);
+  const [ribbonText, setRibbonText] = useState<string | null>(null);
+  const [ribbonSpeed, setRibbonSpeed] = useState<'slow' | 'medium' | 'fast'>('medium');
 
   const primaryColor = settings?.primary_color || '#1e40af';
 
@@ -20,20 +21,27 @@ const TenantAboutPage: React.FC = () => {
     LandingPageService.getPublic().then(d => {
       setLanding(d);
       setSection(d.sections.find(s => s.section_type === 'about' && s.is_enabled) ?? null);
+      if (d.ribbon_enabled && d.ribbon_text) {
+        setRibbonText(d.ribbon_text);
+        setRibbonSpeed(d.ribbon_speed ?? 'medium');
+      }
     }).catch(() => {});
     api.get('/events/events/?is_active=true&is_published=true&display_type=ribbon')
-      .then((d: any) => setRibbonEvent((d?.results ?? d)?.[0] ?? null))
+      .then((d: any) => {
+        const evt = (d?.results ?? d)?.[0];
+        if (evt) { setRibbonText(evt.ribbon_text || evt.title); setRibbonSpeed(evt.ribbon_speed ?? 'medium'); }
+      })
       .catch(() => {});
   }, []);
 
   return (
     <div className="min-h-screen bg-white">
-      {ribbonEvent && (
+      {ribbonText && (
         <div className="fixed top-0 left-0 right-0 z-50">
-          <RibbonBanner text={ribbonEvent.ribbon_text || ribbonEvent.title} speed={ribbonEvent.ribbon_speed} primaryColor={primaryColor} />
+          <RibbonBanner text={ribbonText} speed={ribbonSpeed} primaryColor={primaryColor} />
         </div>
       )}
-      <div className={ribbonEvent ? 'pt-8' : ''}>
+      <div className={ribbonText ? 'pt-8' : ''}>
         <TenantNavbar schoolName={tenant?.name ?? ''} logo={settings?.logo} primaryColor={primaryColor} navLinks={landing?.nav_links ?? []} portalLabel="Portal Login" />
       </div>
 

@@ -1,5 +1,5 @@
-import React, { useEffect, useState, lazy, Suspense } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTenant } from '@/contexts/TenantContext';
 import LandingPageService, { TenantLandingPage as LandingData } from '@/services/LandingPageService';
 import RibbonBanner from '@/components/tenant/RibbonBanner';
@@ -9,7 +9,7 @@ import TenantFooter from '@/components/tenant/TenantFooter';
 import api from '@/services/api';
 import {
   BookOpen, Users, Award, MapPin, Phone, Mail, Calendar,
-  ChevronRight, GraduationCap, Star, Clock, ArrowRight,
+  ChevronRight, GraduationCap, Star, ArrowRight,
 } from 'lucide-react';
 
 const PageLoader = () => (
@@ -33,7 +33,6 @@ interface EventItem {
 
 const TenantLandingPage: React.FC = () => {
   const { tenant, settings, isLoading: tenantLoading } = useTenant();
-  const navigate = useNavigate();
 
   const [landing, setLanding] = useState<LandingData | null>(null);
   const [carouselImages, setCarouselImages] = useState<CarouselImage[]>([]);
@@ -48,12 +47,10 @@ const TenantLandingPage: React.FC = () => {
     Promise.all([
       LandingPageService.getPublic().catch(() => null),
       api.get('/events/events/?is_active=true&is_published=true').catch(() => ({ results: [] })),
-      api.get('/school-settings/school-settings/').catch(() => null),
     ]).then(([landingData, eventsData]) => {
       if (!landingData) { setError('not_published'); setLoading(false); return; }
       setLanding(landingData);
 
-      const imgs = api.get('/school-settings/school-settings/').catch(() => null);
       const evts: EventItem[] = eventsData?.results ?? eventsData ?? [];
       setActiveEvents(evts.filter((e: EventItem) => e.is_active && e.is_published));
       setLoading(false);
@@ -71,6 +68,12 @@ const TenantLandingPage: React.FC = () => {
   const ribbonEvent = activeEvents.find(e => e.display_type === 'ribbon');
   const bannerEvent = activeEvents.find(e => e.display_type === 'banner');
   const carouselEvents = activeEvents.filter(e => e.display_type === 'carousel');
+
+  // Event ribbon takes priority over landing-page ribbon config
+  const activeRibbonText = ribbonEvent
+    ? (ribbonEvent.ribbon_text || ribbonEvent.title)
+    : (landing?.ribbon_enabled && landing.ribbon_text ? landing.ribbon_text : null);
+  const activeRibbonSpeed = ribbonEvent?.ribbon_speed ?? landing?.ribbon_speed ?? 'medium';
 
   // Carousel images: prefer events if landing hero_type is carousel and there are carousel events
   const effectiveCarousel: CarouselImage[] = carouselEvents.length > 0
@@ -111,19 +114,19 @@ const TenantLandingPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-white font-sans">
-      {/* ── Ribbon (always on top when active) ── */}
-      {ribbonEvent && (
+      {/* ── Ribbon (event or landing-page config) ── */}
+      {activeRibbonText && (
         <div className="fixed top-0 left-0 right-0 z-50">
           <RibbonBanner
-            text={ribbonEvent.ribbon_text || ribbonEvent.title}
-            speed={ribbonEvent.ribbon_speed || 'medium'}
+            text={activeRibbonText}
+            speed={activeRibbonSpeed}
             primaryColor={primaryColor}
           />
         </div>
       )}
 
       {/* ── Navbar ── */}
-      <div className={ribbonEvent ? 'pt-8' : ''}>
+      <div className={activeRibbonText ? 'pt-8' : ''}>
         <TenantNavbar
           schoolName={tenant?.name ?? ''}
           logo={settings?.logo}

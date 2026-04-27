@@ -395,6 +395,7 @@ const LandingPageTab: React.FC = () => {
   const tabs: { key: TabKey; label: string; icon: React.ReactNode }[] = [
     { key: 'general', label: 'General', icon: <Globe className="w-4 h-4" /> },
     { key: 'hero', label: 'Hero', icon: <Image className="w-4 h-4" /> },
+    { key: 'ribbon', label: 'Ribbon', icon: <Megaphone className="w-4 h-4" /> },
     { key: 'sections', label: 'Sections', icon: <Layers className="w-4 h-4" /> },
     { key: 'navigation', label: 'Navigation', icon: <Navigation className="w-4 h-4" /> },
     { key: 'footer', label: 'Footer', icon: <Layout className="w-4 h-4" /> },
@@ -564,6 +565,91 @@ const LandingPageTab: React.FC = () => {
         </div>
       )}
 
+      {/* ── RIBBON TAB ── */}
+      {activeTab === 'ribbon' && (
+        <div className="space-y-6">
+          <div className="p-6 bg-white rounded-2xl border border-gray-100 shadow-sm space-y-5">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="font-semibold text-gray-900">Scrolling Ribbon Banner</h3>
+                <p className="text-xs text-gray-500 mt-0.5">A thin scrolling text strip shown above the navbar</p>
+              </div>
+              <Toggle
+                checked={landing?.ribbon_enabled ?? false}
+                onChange={v => upd({ ribbon_enabled: v })}
+                label={landing?.ribbon_enabled ? 'Enabled' : 'Disabled'}
+              />
+            </div>
+
+            {landing?.ribbon_enabled && (
+              <div className="space-y-4 pt-2">
+                <Field label="Ribbon Text" hint="The message that scrolls across the ribbon">
+                  <Input
+                    value={landing.ribbon_text ?? ''}
+                    onChange={e => upd({ ribbon_text: e.target.value })}
+                    placeholder="e.g. 🎓 Now accepting applications for 2025/2026 session!"
+                  />
+                </Field>
+
+                <Field label="Scroll Speed">
+                  <div className="grid grid-cols-3 gap-3">
+                    {(['slow', 'medium', 'fast'] as const).map(speed => (
+                      <button
+                        key={speed}
+                        onClick={() => upd({ ribbon_speed: speed })}
+                        className={`p-3 rounded-xl border-2 text-sm font-medium capitalize transition-all ${
+                          landing.ribbon_speed === speed
+                            ? 'border-blue-500 bg-blue-50 text-blue-700'
+                            : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                        }`}
+                      >
+                        {speed}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+
+                {landing.ribbon_text && (
+                  <div className="rounded-xl overflow-hidden border border-gray-200">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-2 bg-gray-50 border-b border-gray-200">
+                      Preview
+                    </p>
+                    <div className="overflow-hidden py-2" style={{ backgroundColor: primaryColor }}>
+                      <style>{`
+                        @keyframes ribbon-preview {
+                          0% { transform: translateX(0); }
+                          100% { transform: translateX(-50%); }
+                        }
+                        .ribbon-preview-track {
+                          display: flex;
+                          width: max-content;
+                          animation: ribbon-preview ${{ slow: '40s', medium: '22s', fast: '12s' }[landing.ribbon_speed ?? 'medium']} linear infinite;
+                          white-space: nowrap;
+                        }
+                      `}</style>
+                      <div className="ribbon-preview-track">
+                        <span className="text-white text-sm font-semibold tracking-wide px-4">
+                          {Array(6).fill(landing.ribbon_text).join('   ✦   ')}
+                          &nbsp;&nbsp;&nbsp;✦&nbsp;&nbsp;&nbsp;
+                          {Array(6).fill(landing.ribbon_text).join('   ✦   ')}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+            <p className="font-medium mb-1">Event-based ribbons</p>
+            <p className="text-xs text-amber-600">
+              For time-limited announcements, go to <strong>Advanced → Event Management</strong> and create an event with display type "Ribbon". Event ribbons override this setting while active.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ── SECTIONS TAB ── */}
       {activeTab === 'sections' && (
         <div className="space-y-4">
@@ -603,25 +689,46 @@ const LandingPageTab: React.FC = () => {
       {/* ── NAVIGATION TAB ── */}
       {activeTab === 'navigation' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Manage the links shown in your school's navigation bar.</p>
-              <p className="text-xs text-gray-400 mt-0.5">The "Portal Login" button is always included automatically.</p>
+          {/* Quick presets */}
+          <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Quick Add</p>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { label: 'About', url: '/about', link_type: 'internal' as const },
+                { label: 'Contact', url: '/contact', link_type: 'internal' as const },
+                { label: 'Admissions', url: '/admissions', link_type: 'internal' as const },
+                { label: 'School Activities', url: '/school_activities', link_type: 'internal' as const },
+                { label: 'Portal Login', url: '/login', link_type: 'internal' as const },
+              ].map(preset => (
+                <button
+                  key={preset.label}
+                  onClick={() => setNavLinks(prev => [
+                    ...prev,
+                    { id: 0, label: preset.label, url: preset.url, link_type: preset.link_type, open_in_new_tab: false, is_enabled: true, display_order: prev.length },
+                  ])}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-white border border-gray-200 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 text-gray-700 transition-colors"
+                >
+                  <Plus className="w-3 h-3" /> {preset.label}
+                </button>
+              ))}
+              <button
+                onClick={addNavLink}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-white border border-dashed border-gray-300 hover:border-gray-400 text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                <Plus className="w-3 h-3" /> Custom Link
+              </button>
             </div>
-            <button onClick={addNavLink}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-700 transition-colors">
-              <Plus className="w-4 h-4" /> Add Link
-            </button>
+            <p className="text-xs text-gray-400">The "Portal Login" button is always shown in the navbar — adding it here creates an extra link.</p>
           </div>
 
           {navLinks.length === 0 ? (
-            <div className="py-16 text-center border-2 border-dashed border-gray-200 rounded-2xl">
+            <div className="py-12 text-center border-2 border-dashed border-gray-200 rounded-2xl">
               <Navigation className="w-8 h-8 text-gray-300 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">No navigation links yet.</p>
+              <p className="text-sm text-gray-500">No links yet. Use the quick-add buttons above.</p>
             </div>
           ) : (
             <div className="space-y-2">
-              <div className="grid grid-cols-4 gap-2 px-3 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider hidden sm:grid">
+              <div className="hidden sm:grid grid-cols-4 gap-2 px-3 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">
                 <span>Label</span><span className="col-span-2">URL</span><span>Type</span>
               </div>
               {navLinks.map((link, i) => (
