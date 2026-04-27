@@ -8,24 +8,13 @@ import type {
   AssessmentType, 
   ExamSession, 
   ScoringConfiguration,
-  StudentResult,
-  StudentTermResult,
-  ApiResultSheet,
-  AssessmentScore,
-  ResultComment,
-  EnhancedResultSheet,
+  
   GradingSystemCreateUpdate,
   AssessmentTypeCreateUpdate,
   ExamSessionCreateUpdate,
   ScoringConfigurationCreateUpdate,
   GradeCreateUpdate,
-  ResultFilters,
-  ExamSessionFilters,
-  NurseryResult,
-  PrimaryResult,
-  JuniorSecondaryResult,
-  SeniorSecondaryResult,
-  SeniorSecondarySessionReport
+  
 } from '@/services/ResultSettingsService';
 
 export const useResultService = () => {
@@ -304,22 +293,10 @@ export type {
   AssessmentType,
   ExamSession,
   ScoringConfiguration,
-  StudentResult,
-  StudentTermResult,
-  ApiResultSheet,
-  AssessmentScore,
-  ResultComment,
-  EnhancedResultSheet,
   GradingSystemCreateUpdate,
   AssessmentTypeCreateUpdate,
   ExamSessionCreateUpdate,
   ScoringConfigurationCreateUpdate,
   GradeCreateUpdate,
-  ResultFilters,
-  ExamSessionFilters,
-  NurseryResult,
-  PrimaryResult,
-  JuniorSecondaryResult,
-  SeniorSecondaryResult,
-  SeniorSecondarySessionReport
+  
 };

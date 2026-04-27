@@ -127,7 +127,7 @@ const SubdomainLandingPage: React.FC = () => {
             This portal doesn't exist or has been deactivated.
           </p>
           <a
-            href="http://localhost:5173"
+            href="https://www.nuventacloud.com"
             className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700"
           >
             Go to main site
@@ -202,7 +202,7 @@ const SubdomainLandingPage: React.FC = () => {
           {/* Footer */}
           <div className={`flex items-center justify-between text-xs text-white/50 transition-all duration-700 delay-300 ${mounted ? 'opacity-100' : 'opacity-0'}`}>
             <span>&copy; {new Date().getFullYear()} {schoolName}</span>
-            <a href="http://localhost:5173" className="hover:text-white/80 transition-colors">
+            <a href="https://www.nuventacloud.com" className="hover:text-white/80 transition-colors">
               Powered by SchoolPlatform
             </a>
           </div>

@@ -17,7 +17,7 @@ export const useAuthenticatedStudent = (): AuthenticatedStudentData => {
   useEffect(() => {
     const fetchAuthenticatedStudent = async () => {
       try {
-        console.log('🔍 Fetching authenticated user...');
+
         const userResponse = await api.get('/api/dj-rest-auth/user/');
         
         const authUserId = userResponse.pk?.toString() || userResponse.id?.toString();
@@ -26,13 +26,10 @@ export const useAuthenticatedStudent = (): AuthenticatedStudentData => {
           throw new Error('No user ID found in authentication response');
         }
         
-        console.log('✅ Authenticated User ID:', authUserId);
+
 
         const studentsResponse = await api.get(`/api/students/students/?user=${authUserId}`);
-        console.log('📦 Students API Response:', studentsResponse);
-        console.log('📦 Response type:', typeof studentsResponse);
-        console.log('📦 Is array?:', Array.isArray(studentsResponse));
-        console.log('📦 Has results?:', studentsResponse?.results);
+        
 
         let students = [];
         if (Array.isArray(studentsResponse)) {
@@ -44,8 +41,7 @@ export const useAuthenticatedStudent = (): AuthenticatedStudentData => {
           students = [studentsResponse];
         }
 
-        console.log('📊 Parsed students array:', students);
-        console.log('📊 Students length:', students.length);
+       
 
         if (students.length > 0) {
           const studentRecord = students[0];
@@ -56,12 +52,7 @@ export const useAuthenticatedStudent = (): AuthenticatedStudentData => {
             throw new Error(`Student record found but missing ID for user ${authUserId}`);
           }
 
-          console.log('✅ Found student record:', {
-            userId: authUserId,
-            studentId: realStudentId,
-            studentName: studentRecord.full_name || studentRecord.user?.first_name || 'Unknown'
-          });
-
+         
           setAuthenticatedStudentId(realStudentId);
           setStudentRecord(studentRecord);
         } else {

@@ -19,14 +19,13 @@ import {
   JuniorSecondaryTermReport,
   SeniorSecondaryResult,
   SeniorSecondaryTermReport,
-  SeniorSecondarySessionReport,
-  SeniorSecondarySessionReport,
   EducationLevel,
   Term,
   StandardResult,
   TermReport
 } from '@/types/types'; // Import from single source of truth
 
+import {SeniorSecondarySessionReport} from '@/services/ResultService'
 import {
   isAcademicSessionObject,
   getAcademicSessionString,
