@@ -60,6 +60,15 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: 'dist',
+      rollupOptions: {
+        onwarn(warning, warn) {
+          // Suppress unresolvable optional deps from node_modules (e.g. canvas, canvg)
+          if (warning.code === 'UNRESOLVED_IMPORT' && warning.id?.includes('node_modules')) {
+            return
+          }
+          warn(warning)
+        },
+      },
     },
     preview: {
       port: 4173,
