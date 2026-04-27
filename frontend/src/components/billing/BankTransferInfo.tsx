@@ -25,8 +25,8 @@ interface BankTransferInfoProps {
 
 // Bank account details (should be fetched from settings in production)
 const BANK_DETAILS = {
-  bankName: 'Guaranty Trust Bank (GTB)',
-  accountName: 'SchoolPlatform Ltd',
+  bankName: 'Fidelity Bank PLC (FBP)',
+  accountName: 'Nuventa Ltd',
   accountNumber: '0123456789',
 };
 

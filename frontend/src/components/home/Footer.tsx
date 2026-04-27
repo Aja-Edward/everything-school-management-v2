@@ -82,7 +82,7 @@ const Footer: React.FC<FooterProps> = ({ isDashboard = false }) => {
                 </div>
               )}
               <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                {settings?.school_name || 'SchoolApp'}
+                {settings?.school_name || 'Nuventa Cloud'}
               </span>
             </div>
             <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed mb-4">
@@ -122,7 +122,7 @@ const Footer: React.FC<FooterProps> = ({ isDashboard = false }) => {
         <div className="py-6 border-t border-gray-100 dark:border-gray-800">
           <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              © {currentYear} {settings?.school_name || 'SchoolApp'}. All rights reserved.
+              © {currentYear} {settings?.school_name || 'Nuventa Cloud'}. All rights reserved.
             </p>
             <div className="flex items-center gap-4">
               <a href="#" className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
