@@ -1,12 +1,4 @@
-// PromotionSettingsPage.tsx
-//
-// School-level settings for promotion thresholds.
-// All data-fetching and persistence is handled by usePromotionRules().
-// This file contains only UI.
-//
-// Route suggestion: /settings/promotions
 
-import React from "react";
 import { usePromotionRules } from "@/hooks/usePromotionThreshold";
 import { PromotionRuleRow } from "@/types/student_promotions";
 
@@ -89,6 +81,7 @@ function Toggle({
 const DEFAULT_THRESHOLD = 49;
 
 const LEVEL_PILL_COLORS: Record<string, string> = {
+  NURSERY: "bg-yellow-50 border-yellow-200 text-yellow-800",
   PRIMARY: "bg-teal-50 border-teal-200 text-teal-800",
   JUNIOR_SECONDARY: "bg-purple-50 border-purple-200 text-purple-800",
   SENIOR_SECONDARY: "bg-indigo-50 border-indigo-200 text-indigo-800",

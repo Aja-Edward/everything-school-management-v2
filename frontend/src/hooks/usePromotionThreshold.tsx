@@ -40,7 +40,10 @@ export function usePromotionThreshold(
   const levelId = (() => {
     if (!classId || !classes.length) return null;
     const cls = classes.find((c) => String(c.id) === String(classId));
-    return cls?.education_level ?? cls?.education_level_id ?? null;
+    const raw = cls?.education_level ?? cls?.education_level_id ?? null;
+    // Unwrap nested object e.g. { id: 3, name: "Primary" } → 3
+    if (raw && typeof raw === "object" && "id" in raw) return raw.id;
+    return raw;
   })();
 
   useEffect(() => {
@@ -57,20 +60,25 @@ export function usePromotionThreshold(
 
     // Cache miss — fetch from API
     setLoading(true);
-    api
-      .get("/api/student_promotions/rules/", {
-        params: { education_level: levelId, _v: version }, // _v busts HTTP cache
-      })
+    api.get("/api/student_promotions/rules/", { education_level: levelId, _v: version })
       .then((res) => {
         const raw = (res?.data ?? res) as { results?: PromotionRule[] } | PromotionRule[];
         const rules: PromotionRule[] = Array.isArray(raw) ? raw : raw.results ?? [];
-        const rule = rules.find(
-          (r) => String(r.education_level_detail?.id ?? r.education_level) === String(levelId)
-        );
-        const t = rule ? parseFloat(rule.pass_threshold) : FALLBACK_THRESHOLD;
-        setCache(levelId, t);
-        setThreshold(t);
-      })
+
+        const rule = rules.find((r) => {
+        const detail = r.education_level_detail as any;
+        const byCode =
+          String(detail?.code ?? "").toLowerCase() === String(levelId).toLowerCase() ||
+          String(detail?.level_type ?? "").toLowerCase().replace(/-/g, "_") ===
+            String(levelId).toLowerCase().replace(/-/g, "_");
+        const byId = String(detail?.id ?? r.education_level) === String(levelId);
+        return byCode || byId;
+      });
+
+      const t = rule ? parseFloat(rule.pass_threshold) : FALLBACK_THRESHOLD;
+      setCache(levelId, t);
+      setThreshold(t);
+    })
       .catch(() => setThreshold(FALLBACK_THRESHOLD))
       .finally(() => setLoading(false));
 
@@ -334,12 +342,8 @@ export function usePromotionDashboard(): UsePromotionDashboardReturn {
 
     try {
       const [promoRes, summaryRes] = await Promise.all([
-        api.get("/api/student_promotions/", {
-          params: { academic_session_id: selectedSession, student_class_id: selectedClass },
-        }),
-        api.get("/api/student_promotions/summary/", {
-          params: { academic_session_id: selectedSession, student_class_id: selectedClass },
-        }),
+        api.get("/api/student_promotions/", { academic_session_id: selectedSession, student_class_id: selectedClass }),
+        api.get("/api/student_promotions/summary/", { academic_session_id: selectedSession, student_class_id: selectedClass }),
       ]);
 
       const raw = promoRes?.data ?? promoRes;
@@ -358,15 +362,13 @@ export function usePromotionDashboard(): UsePromotionDashboardReturn {
   const refreshSummary = useCallback(async () => {
     if (!selectedSession || !selectedClass) return;
     try {
-      const res = await api.get("/api/student_promotions/summary/", {
-        params: { academic_session_id: selectedSession, student_class_id: selectedClass },
-      });
+      const res = await api.get("/api/student_promotions/summary/", { academic_session_id: selectedSession, student_class_id: selectedClass });
       setSummary((res?.data ?? res) as PromotionSummary);
     } catch {}
   }, [selectedSession, selectedClass]);
 
   const applyAutoRunResult = useCallback((result: AutoPromotionResult) => {
-    setPromotions(result.promotions);
+    setPromotions(result.student_promotions ?? []);
     setSummary(result.summary);
   }, []);
 

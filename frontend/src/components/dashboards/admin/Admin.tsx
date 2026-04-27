@@ -14,7 +14,6 @@ import {
   User,
   Settings,
   LogOut,
-  Search,
   ChevronLeft,
   ChevronRight,
   Key,
@@ -22,7 +21,6 @@ import {
   Menu,
   X,
   PenTool,
-  MarsStrokeIcon,
   Award
 } from 'lucide-react';
 // import StudentResultChecker from './StudentResultChecker';

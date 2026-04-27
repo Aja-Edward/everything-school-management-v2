@@ -118,7 +118,10 @@ class StudentPromotionViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
 
         Returns a list of per-student outcomes plus a summary.
         """
-        serializer = RunAutoPromotionSerializer(data=request.data)
+        serializer = RunAutoPromotionSerializer(
+            data=request.data,
+            context={"tenant": self.get_tenant()},
+        )
         serializer.is_valid(raise_exception=True)
 
         tenant = self.get_tenant()

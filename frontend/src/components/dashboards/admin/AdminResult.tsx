@@ -1,134 +1,213 @@
 import { useState, useMemo, useEffect } from 'react';
-import ResultService, { ExamSession } from '@/services/ResultService';
-// import { StudentTermResult } from '@/types/types';
+import ResultService from '@/services/ResultService';
+import type { EducationLevelType, AnyTermReport } from '@/services/ResultService';
 import { useSettings } from '@/contexts/SettingsContext';
 import { getAbsoluteUrl } from '@/utils/urlUtils';
-import { Eye, Edit, Trash2, Download, Printer } from 'lucide-react';
+import { Eye, Edit, Trash2, Download, Printer, X } from 'lucide-react';
 
-interface SubjectResult {
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+/** Flattened view-model built from AnyTermReport for this component */
+interface FlatResult {
   id: string;
-  subject: {
-    name: string;
-    code: string;
-  };
-  exam_session: {
-    id: string;
-    name: string;
-    exam_type: string;
-    term: string;
-  };
-  // Stream support for Senior Secondary
-  stream?: {
-    id: string;
-    name: string;
-    stream_type: string;
-  } | null;
-  stream_name?: string;
-  stream_type?: string;
+  education_level: EducationLevelType;
+  student_id: string;
+  full_name: string;
+  username: string;
+  student_class: string | null;
+  education_level_raw: string;
+  academic_session_name: string;
+  term_name: string;
+  total_subjects: number;
+  total_score: number;
+  average_score: number;
+  class_position: number | null;
+  total_students: number;
+  subjects_passed: number;
+  subjects_failed: number;
+  gpa: number;
+  status: string;
+  remarks: string;
+  next_term_begins: string;
+  profile_picture?: string;
+  subject_results: SubjectRow[];
+  stream_name: string;
+  raw: AnyTermReport;
+}
+
+interface SubjectRow {
+  name: string;
+  code: string;
   ca_score: number;
   exam_score: number;
   total_score: number;
   percentage: number;
   grade: string;
-  grade_point: number;
-  is_passed: boolean;
-  position: number | null;
   remarks: string;
-  status: string;
-  assessment_scores: any[];
-  created_at: string;
+  stream_name?: string;
+  stream_id?: string;
 }
 
-interface StudentResult {
-  id: string;
-  student: {
-    id: string;
-    full_name: string;
-    username: string;
-    student_class: string;
-    education_level: string;
-    profile_picture?: string;
+// ─── All four levels we fetch ──────────────────────────────────────────────
+
+const ALL_LEVELS: EducationLevelType[] = [
+  'NURSERY', 'PRIMARY', 'JUNIOR_SECONDARY', 'SENIOR_SECONDARY',
+];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const getUnique = (arr: string[]): string[] =>
+  Array.from(new Set(arr.filter(Boolean)));
+
+const getTermDisplay = (term: string): string => {
+  const map: Record<string, string> = {
+    FIRST: '1st Term', SECOND: '2nd Term', THIRD: '3rd Term',
   };
-  academic_session: {
-    id: string;
-    name: string;
-    start_date: string;
-    end_date: string;
+  return map[(term || '').toUpperCase()] || term || 'N/A';
+};
+
+const getLevelDisplay = (level: string): string => {
+  const map: Record<string, string> = {
+    NURSERY: 'Nursery', PRIMARY: 'Primary',
+    JUNIOR_SECONDARY: 'Junior Secondary', SENIOR_SECONDARY: 'Senior Secondary',
   };
-  term: string;
-  total_subjects: number;
-  subjects_passed: number;
-  subjects_failed: number;
-  total_score: number;
-  average_score: number;
-  gpa: number;
-  class_position: number | null;
-  total_students: number;
-  status: string;
-  remarks: string;
-  next_term_begins?: string;
-  subject_results: SubjectResult[];
-  comments: any[];
-  created_at: string;
+  return map[(level || '').toUpperCase()] || level || 'N/A';
+};
+
+const safeFloat = (v: any): number => {
+  const n = Number(v);
+  return isNaN(n) ? 0 : n;
+};
+
+const gradeFromAvg = (avg: number): string => {
+  if (avg >= 80) return 'A';
+  if (avg >= 70) return 'B';
+  if (avg >= 60) return 'C';
+  if (avg >= 50) return 'D';
+  return 'F';
+};
+
+const gradeColor = (grade: string): string => {
+  if (!grade || grade === 'N/A') return 'bg-gray-100 text-gray-700';
+  if (grade.startsWith('A')) return 'bg-green-100 text-green-800';
+  if (grade.startsWith('B')) return 'bg-blue-100 text-blue-800';
+  if (grade.startsWith('C')) return 'bg-yellow-100 text-yellow-800';
+  return 'bg-red-100 text-red-800';
+};
+
+/**
+ * Flatten an AnyTermReport into the FlatResult view-model.
+ * Handles both Nursery (overall_percentage / total_students_in_class)
+ * and standard (average_score / total_students) shapes.
+ */
+function flatten(report: AnyTermReport, level: EducationLevelType): FlatResult {
+  const s = report.student;
+  const es = report.exam_session;
+
+  // Average score
+  const avg = 'overall_percentage' in report
+    ? safeFloat(report.overall_percentage)
+    : safeFloat((report as any).average_score);
+
+  // Total students
+  const totalStudents = 'total_students_in_class' in report
+    ? (report as any).total_students_in_class
+    : safeFloat((report as any).total_students);
+
+  // Subject results → SubjectRow[]
+  const subjectResults: SubjectRow[] = ((report as any).subject_results || []).map((sr: any) => ({
+    name:       sr.subject?.name  ?? sr.subject_name ?? 'Unknown',
+    code:       sr.subject?.code  ?? sr.subject_code ?? '',
+    ca_score:   safeFloat(sr.ca_total ?? sr.mark_obtained ?? 0),
+    exam_score: safeFloat(sr.exam_score ?? 0),
+    total_score: safeFloat(sr.total_score ?? sr.mark_obtained ?? 0),
+    percentage: safeFloat(sr.percentage ?? 0),
+    grade:      sr.grade ?? '',
+    remarks:    sr.teacher_remark ?? sr.remarks ?? '',
+    stream_name: sr.stream?.name ?? sr.stream_name ?? '',
+    stream_id:   sr.stream?.id ?? '',
+  }));
+
+  // Stream (SSS only)
+  const streamName = (report as any).stream_name
+    ?? subjectResults.find(r => r.stream_name)?.stream_name
+    ?? '';
+
+  return {
+    id:                   report.id,
+    education_level:      level,
+    education_level_raw:  level,
+    student_id:           String(s.id),
+    full_name:            s.full_name,
+    username:             (s as any).username ?? (s as any).admission_number ?? '',
+    student_class:        s.student_class_name ?? s.student_class ?? null,
+    academic_session_name: es.academic_session?.name ?? es.academic_session_name ?? '',
+    term_name:            es.term_name ?? '',
+    total_subjects:       safeFloat((report as any).total_subjects ?? subjectResults.length),
+    total_score:          safeFloat((report as any).total_score ?? 0),
+    average_score:        avg,
+    class_position:       report.class_position ?? null,
+    total_students:       totalStudents,
+    subjects_passed:      subjectResults.filter(r => r.grade && r.grade !== 'F').length,
+    subjects_failed:      subjectResults.filter(r => r.grade === 'F').length,
+    gpa:                  safeFloat((report as any).gpa ?? 0),
+    status:               report.status ?? '',
+    remarks:              (report as any).class_teacher_remark ?? '',
+    next_term_begins:     report.next_term_begins ?? '',
+    profile_picture:      (s as any).profile_picture,
+    subject_results:      subjectResults,
+    stream_name:          streamName,
+    raw:                  report,
+  };
 }
 
-interface SchoolData {
-  name: string;
-  address: string;
-  logo: string;
-  nextTermBegins: string;
-}
-
-// Dynamic school data from settings
-const getSchoolData = (settings: any) => ({
-  name: settings?.school_name || "School Name",
-  address: settings?.school_address || "No 54 Dagbana Road, Opp. St. Kevin's Catholic Church, Phase III Jikwoyi, Abuja",
-  logo: getAbsoluteUrl(settings?.logo_url) || "🏫",
-  nextTermBegins: settings?.current_term || ""
-});
-
-const getUnique = (arr: string[]): string[] => Array.from(new Set(arr));
+// ─── Component ────────────────────────────────────────────────────────────────
 
 const SchoolResultTemplate = () => {
   const { settings } = useSettings();
-  // State for API data
-  const [studentResults, setStudentResults] = useState<StudentResult[]>([]);
-  const [examSessions, setExamSessions] = useState<ExamSession[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  const schoolName    = settings?.school_name    || 'School Name';
+  const schoolAddress = settings?.address || '';
+  const schoolLogo    = getAbsoluteUrl(settings?.logo) || '';
+
+  const [results, setResults]           = useState<FlatResult[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [error, setError]               = useState<string | null>(null);
 
   // Filters
-  const [classFilter, setClassFilter] = useState('all');
-  const [yearFilter, setYearFilter] = useState('all');
-  const [termFilter, setTermFilter] = useState('all');
-  const [sectionFilter, setSectionFilter] = useState('all');
-  const [streamFilter, setStreamFilter] = useState('all');
-  const [search, setSearch] = useState('');
-  const [selectedStudent, setSelectedStudent] = useState<StudentResult | null>(null);
-  const [showModal, setShowModal] = useState(false);
+  const [classFilter,   setClassFilter]   = useState('all');
+  const [yearFilter,    setYearFilter]    = useState('all');
+  const [termFilter,    setTermFilter]    = useState('all');
+  const [levelFilter,   setLevelFilter]   = useState('all');
+  const [streamFilter,  setStreamFilter]  = useState('all');
+  const [search,        setSearch]        = useState('');
 
-  // Edit/Delete states
-  const [editingResult, setEditingResult] = useState<StudentResult | null>(null);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [resultToDelete, setResultToDelete] = useState<StudentResult | null>(null);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  // Modals
+  const [viewTarget,   setViewTarget]   = useState<FlatResult | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<FlatResult | null>(null);
+  const [deleting,     setDeleting]     = useState(false);
 
-  // Load data from API
+  // ── Fetch all levels in parallel ───────────────────────────────────────────
+
   useEffect(() => {
-    const loadData = async () => {
+    const load = async () => {
       try {
         setLoading(true);
         setError(null);
-        
-        // Load term results and exam sessions using the correct service methods
-        const [termResultsData, examSessionsData] = await Promise.all([
-          ResultService.getTermResults(),
-          ResultService.getExamSessions({ is_active: true })
-        ]);
-        
-        setStudentResults(termResultsData || []);
-        setExamSessions(examSessionsData || []);
+
+        const settled = await Promise.allSettled(
+          ALL_LEVELS.map((level) =>
+            ResultService.getTermReports(level).then((reports) =>
+              reports.map((r) => flatten(r, level))
+            )
+          )
+        );
+
+        const all: FlatResult[] = settled.flatMap((res) =>
+          res.status === 'fulfilled' ? res.value : []
+        );
+
+        setResults(all);
       } catch (err) {
         console.error('Error loading results:', err);
         setError('Failed to load results. Please try again.');
@@ -136,564 +215,348 @@ const SchoolResultTemplate = () => {
         setLoading(false);
       }
     };
-
-    loadData();
+    load();
   }, []);
 
-  // Unique filter options
-  const classes = useMemo(() => getUnique(
-    studentResults
-      .map(s => s.student?.student_class)
-      .filter(Boolean)
-  ), [studentResults]);
-  
-  const years = useMemo(() => getUnique(
-    studentResults
-      .map(s => s.academic_session?.name)
-      .filter(Boolean)
-  ), [studentResults]);
-  
-  const terms = useMemo(() => getUnique(
-    studentResults
-      .map(s => s.term)
-      .filter(Boolean)
-  ), [studentResults]);
-  
-  const sections = useMemo(() => getUnique(
-    studentResults
-      .map(s => s.student?.education_level)
-      .filter(Boolean)
-  ), [studentResults]);
-  
+  // ── Derived filter options ─────────────────────────────────────────────────
+
+  const classes = useMemo(() =>
+    getUnique(results.map((r) => r.student_class ?? '')), [results]);
+
+  const years = useMemo(() =>
+    getUnique(results.map((r) => r.academic_session_name)), [results]);
+
+  const terms = useMemo(() =>
+    getUnique(results.map((r) => r.term_name)), [results]);
+
   const streams = useMemo(() => {
-    const allStreams = studentResults.flatMap(s => 
-      (s.subject_results || [])
-        .filter(sr => sr.stream)
-        .map(sr => ({ id: sr.stream!.id, name: sr.stream!.name }))
-    );
-    return allStreams.filter((stream, index, self) => 
-      index === self.findIndex(s => s.id === stream.id)
-    ).sort((a, b) => a.name.localeCompare(b.name));
-  }, [studentResults]);
-
-  // Filtered students
-  const filtered = useMemo(() => {
-    return studentResults.filter(s => {
-      // Null checks for safety
-      if (!s || !s.student) return false;
-      
-      return (classFilter === 'all' || s.student.student_class === classFilter) &&
-        (yearFilter === 'all' || s.academic_session?.name === yearFilter) &&
-        (termFilter === 'all' || s.term === termFilter) &&
-        (sectionFilter === 'all' || s.student.education_level === sectionFilter) &&
-        (streamFilter === 'all' || (s.subject_results || []).some(sr => sr.stream?.id === streamFilter)) &&
-        (search === '' ||
-          s.student.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-          s.student.username?.toLowerCase().includes(search.toLowerCase())
-        );
+    const map = new Map<string, string>();
+    results.forEach((r) => {
+      if (r.stream_name) map.set(r.stream_name, r.stream_name);
+      r.subject_results.forEach((sr) => {
+        if (sr.stream_id && sr.stream_name)
+          map.set(sr.stream_id, sr.stream_name);
+      });
     });
-  }, [studentResults, classFilter, yearFilter, termFilter, sectionFilter, streamFilter, search]);
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [results]);
 
-  // Safe average score calculation
-  const getSafeAverageScore = (student: StudentResult): string => {
-    const avg = Number(student.average_score);
-    if (isNaN(avg) || avg === 0) return 'N/A';
-    return avg.toFixed(1) + '%';
-  };
+  // ── Filtered list ──────────────────────────────────────────────────────────
 
-  const handleRowClick = (student: StudentResult): void => {
-    setSelectedStudent(student);
-    setShowModal(true);
-  };
+  const filtered = useMemo(() =>
+    results.filter((r) => {
+      const q = search.toLowerCase();
+      return (
+        (classFilter  === 'all' || r.student_class === classFilter) &&
+        (yearFilter   === 'all' || r.academic_session_name === yearFilter) &&
+        (termFilter   === 'all' || r.term_name === termFilter) &&
+        (levelFilter  === 'all' || r.education_level_raw === levelFilter) &&
+        (streamFilter === 'all' ||
+          r.stream_name === streamFilter ||
+          r.subject_results.some((sr) => sr.stream_id === streamFilter)) &&
+        (q === '' ||
+          r.full_name.toLowerCase().includes(q) ||
+          r.username.toLowerCase().includes(q))
+      );
+    }),
+  [results, classFilter, yearFilter, termFilter, levelFilter, streamFilter, search]);
 
-  const handleCloseModal = () => {
-    setShowModal(false);
-    setSelectedStudent(null);
-  };
+  // ── Delete ─────────────────────────────────────────────────────────────────
 
-  const handleEdit = (student: StudentResult) => {
-    setEditingResult(student);
-    setShowEditModal(true);
-  };
-
-  const handleDelete = (student: StudentResult) => {
-    setResultToDelete(student);
-    setShowDeleteModal(true);
-  };
-
-  // Fixed delete function - using the term results endpoint correctly
   const confirmDelete = async () => {
-    if (!resultToDelete) return;
-    
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      setActionLoading('delete');
-      // Since we're dealing with term results, we need to delete differently
-      // The service doesn't have a direct deleteStudentResult for term results
-      // You may need to implement this in the service or use a different approach
-      await ResultService.deleteStudentResult(resultToDelete.id, resultToDelete.student.education_level);
-      
-      // Remove from local state
-      setStudentResults(prev => prev.filter(r => r.id !== resultToDelete.id));
-      setShowDeleteModal(false);
-      setResultToDelete(null);
-    } catch (error) {
-      console.error('Error deleting result:', error);
+      await ResultService.deleteTermReport(deleteTarget.education_level, deleteTarget.id);
+      setResults((prev) => prev.filter((r) => r.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (err) {
+      console.error('Delete failed:', err);
       alert('Failed to delete result. Please try again.');
     } finally {
-      setActionLoading(null);
+      setDeleting(false);
     }
   };
 
-  const handlePrint = () => {
-    window.print();
-  };
+  // ── Guards ─────────────────────────────────────────────────────────────────
 
-  const handleDownload = (student: StudentResult) => {
-    // Implement PDF download functionality
-    console.log('Downloading result for:', student.student.full_name);
-    // You can implement PDF generation here
-  };
-
-  const getGradeColor = (grade: string) => {
-    if (!grade) return 'bg-gray-100 text-gray-800';
-    if (grade === 'A' || grade === 'A+') return 'bg-green-100 text-green-800';
-    if (grade === 'B' || grade === 'B+') return 'bg-blue-100 text-blue-800';
-    if (grade === 'C' || grade === 'C+') return 'bg-yellow-100 text-yellow-800';
-    return 'bg-red-100 text-red-800';
-  };
-
-  const getTermDisplay = (term: string) => {
-    if (!term) return 'N/A';
-    const termMap: { [key: string]: string } = {
-      'FIRST': '1ST TERM',
-      'SECOND': '2ND TERM',
-      'THIRD': '3RD TERM'
-    };
-    return termMap[term.toUpperCase()] || term;
-  };
-
-  const getEducationLevelDisplay = (level: string) => {
-    if (!level) return 'N/A';
-    const levelMap: { [key: string]: string } = {
-      'PRIMARY': 'PRIMARY SCHOOL',
-      'JUNIOR_SECONDARY': 'JUNIOR SECONDARY SCHOOL',
-      'SENIOR_SECONDARY': 'SENIOR SECONDARY SCHOOL',
-      'NURSERY': 'NURSERY SCHOOL'
-    };
-    return levelMap[level.toUpperCase()] || level;
-  };
-
-  // Get overall grade from subject results
-  const getOverallGrade = (student: StudentResult): string => {
-    if (!student.subject_results || student.subject_results.length === 0) return 'N/A';
-    
-    // Calculate based on GPA or average score
-    const avg = student.average_score;
-    if (!avg || isNaN(avg)) return 'N/A';
-    
-    if (avg >= 80) return 'A';
-    if (avg >= 70) return 'B';
-    if (avg >= 60) return 'C';
-    if (avg >= 50) return 'D';
-    return 'F';
-  };
-
-  // Get stream name safely
-  const getStreamName = (student: StudentResult): string => {
-    if (!student.subject_results || student.subject_results.length === 0) return '-';
-    
-    const subjectWithStream = student.subject_results.find(sr => sr.stream);
-    return subjectWithStream?.stream?.name || subjectWithStream?.stream_name || '-';
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-100 p-4">
-        <div className="flex items-center justify-center h-64">
-          <div className="text-lg">Loading results...</div>
-        </div>
+  if (loading) return (
+    <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+      <div className="flex flex-col items-center gap-3">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-blue-600" />
+        <p className="text-gray-600">Loading results…</p>
       </div>
-    );
-  }
+    </div>
+  );
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-100 p-4">
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-          {error}
-        </div>
+  if (error) return (
+    <div className="min-h-screen bg-gray-100 p-6">
+      <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+        {error}
+        <button onClick={() => window.location.reload()}
+          className="ml-4 underline text-sm">Retry</button>
       </div>
-    );
-  }
+    </div>
+  );
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-gray-100 p-4">
       <h2 className="text-xl font-bold mb-4">Student Results Management</h2>
-      
-      {/* Filters */}
-      <div className="flex flex-wrap gap-4 mb-4">
-        <input
-          type="text"
-          placeholder="Search by name or username"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="border px-3 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <select 
-          value={sectionFilter} 
-          onChange={e => setSectionFilter(e.target.value)} 
-          className="border px-3 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="all">All Sections</option>
-          {sections.map(section => (
-            <option key={section} value={section}>
-              {getEducationLevelDisplay(section)}
-            </option>
-          ))}
-        </select>
-        <select 
-          value={classFilter} 
-          onChange={e => setClassFilter(e.target.value)} 
-          className="border px-3 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="all">All Classes</option>
-          {classes.map(cls => (
-            <option key={cls} value={cls}>{cls}</option>
-          ))}
-        </select>
-        <select 
-          value={yearFilter} 
-          onChange={e => setYearFilter(e.target.value)} 
-          className="border px-3 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="all">All Years</option>
-          {years.map(yr => (
-            <option key={yr} value={yr}>{yr}</option>
-          ))}
-        </select>
-        <select 
-          value={termFilter} 
-          onChange={e => setTermFilter(e.target.value)} 
-          className="border px-3 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="all">All Terms</option>
-          {terms.map(term => (
-            <option key={term} value={term}>{getTermDisplay(term)}</option>
-          ))}
-        </select>
-        <select 
-          value={streamFilter} 
-          onChange={e => setStreamFilter(e.target.value)} 
-          className="border px-3 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="all">All Streams</option>
-          {streams.map(stream => (
-            <option key={stream.id} value={stream.id}>{stream.name}</option>
-          ))}
-        </select>
+
+      {/* ── Filters ── */}
+      <div className="flex flex-wrap gap-3 mb-4">
+        <input type="text" placeholder="Search name or username…"
+          value={search} onChange={(e) => setSearch(e.target.value)}
+          className="border px-3 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+
+        {[
+          { label: 'All Sections', value: levelFilter, set: setLevelFilter,
+            opts: ALL_LEVELS.map((l) => ({ v: l, label: getLevelDisplay(l) })) },
+          { label: 'All Classes', value: classFilter, set: setClassFilter,
+            opts: classes.map((c) => ({ v: c, label: c })) },
+          { label: 'All Years', value: yearFilter, set: setYearFilter,
+            opts: years.map((y) => ({ v: y, label: y })) },
+          { label: 'All Terms', value: termFilter, set: setTermFilter,
+            opts: terms.map((t) => ({ v: t, label: getTermDisplay(t) })) },
+        ].map(({ label, value, set, opts }) => (
+          <select key={label} value={value} onChange={(e) => set(e.target.value)}
+            className="border px-3 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="all">{label}</option>
+            {opts.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+          </select>
+        ))}
+
+        {streams.length > 0 && (
+          <select value={streamFilter} onChange={(e) => setStreamFilter(e.target.value)}
+            className="border px-3 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="all">All Streams</option>
+            {streams.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        )}
       </div>
 
-      {/* Results Table */}
+      {/* ── Table ── */}
       <div className="overflow-x-auto bg-white rounded-lg shadow">
         <table className="min-w-full text-sm">
           <thead>
             <tr className="bg-gray-200">
-              <th className="px-4 py-3 border text-left font-semibold">Name</th>
-              <th className="px-4 py-3 border text-left font-semibold">Username</th>
-              <th className="px-4 py-3 border text-left font-semibold">Section</th>
-              <th className="px-4 py-3 border text-left font-semibold">Class</th>
-              <th className="px-4 py-3 border text-left font-semibold">Stream</th>
-              <th className="px-4 py-3 border text-left font-semibold">Term</th>
-              <th className="px-4 py-3 border text-left font-semibold">Year</th>
-              <th className="px-4 py-3 border text-left font-semibold">Average</th>
-              <th className="px-4 py-3 border text-left font-semibold">Grade</th>
-              <th className="px-4 py-3 border text-left font-semibold">Actions</th>
+              {['Name','Username','Section','Class','Stream','Term','Year','Average','Grade','Actions'].map((h) => (
+                <th key={h} className="px-4 py-3 border text-left font-semibold whitespace-nowrap">{h}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={10} className="text-center py-8 text-gray-500">No students found.</td></tr>
-            ) : (
-              filtered.map(student => (
-                <tr key={student.id} className="hover:bg-blue-50 transition-colors">
-                  <td className="border px-4 py-3">{student.student?.full_name || 'N/A'}</td>
-                  <td className="border px-4 py-3">{student.student?.username || 'N/A'}</td>
-                  <td className="border px-4 py-3 text-sm">
-                    {getEducationLevelDisplay(student.student?.education_level || '')}
+              <tr>
+                <td colSpan={10} className="text-center py-10 text-gray-400">
+                  No results found.
+                </td>
+              </tr>
+            ) : filtered.map((r) => {
+              const avg = r.average_score;
+              const grade = avg > 0 ? gradeFromAvg(avg) : 'N/A';
+              return (
+                <tr key={r.id} className="hover:bg-blue-50 transition-colors">
+                  <td className="border px-4 py-3 font-medium">{r.full_name}</td>
+                  <td className="border px-4 py-3 text-gray-600">{r.username || 'N/A'}</td>
+                  <td className="border px-4 py-3">{getLevelDisplay(r.education_level_raw)}</td>
+                  <td className="border px-4 py-3">{r.student_class || 'N/A'}</td>
+                  <td className="border px-4 py-3">{r.stream_name || '-'}</td>
+                  <td className="border px-4 py-3">{getTermDisplay(r.term_name)}</td>
+                  <td className="border px-4 py-3">{r.academic_session_name || 'N/A'}</td>
+                  <td className="border px-4 py-3 text-center font-semibold">
+                    {avg > 0 ? `${avg.toFixed(1)}%` : 'N/A'}
                   </td>
-                  <td className="border px-4 py-3">{student.student?.student_class || 'N/A'}</td>
-                  <td className="border px-4 py-3 text-sm">{getStreamName(student)}</td>
-                  <td className="border px-4 py-3">{getTermDisplay(student.term)}</td>
-                  <td className="border px-4 py-3">{student.academic_session?.name || 'N/A'}</td>
-                  <td className="border px-4 py-3 text-center font-semibold">{getSafeAverageScore(student)}</td>
                   <td className="border px-4 py-3 text-center">
-                    <span className={`px-2 py-1 rounded text-xs font-semibold ${getGradeColor(getOverallGrade(student))}`}>
-                      {getOverallGrade(student)}
+                    <span className={`px-2 py-1 rounded text-xs font-semibold ${gradeColor(grade)}`}>
+                      {grade}
                     </span>
                   </td>
                   <td className="border px-4 py-3">
-                    <div className="flex space-x-2">
-                      <button 
-                        className="bg-blue-600 text-white p-2 rounded hover:bg-blue-700 transition-colors"
-                        onClick={() => handleRowClick(student)}
-                        title="View Result"
-                      >
-                        <Eye size={16} />
+                    <div className="flex gap-1.5">
+                      <button onClick={() => setViewTarget(r)}
+                        className="bg-blue-600 text-white p-1.5 rounded hover:bg-blue-700" title="View">
+                        <Eye size={15} />
                       </button>
-                      <button 
-                        className="bg-green-600 text-white p-2 rounded hover:bg-green-700 transition-colors"
-                        onClick={() => handleEdit(student)}
-                        title="Edit Result"
-                      >
-                        <Edit size={16} />
+                      <button onClick={() => setDeleteTarget(r)}
+                        className="bg-red-600 text-white p-1.5 rounded hover:bg-red-700" title="Delete">
+                        <Trash2 size={15} />
                       </button>
-                      <button 
-                        className="bg-red-600 text-white p-2 rounded hover:bg-red-700 transition-colors"
-                        onClick={() => handleDelete(student)}
-                        title="Delete Result"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                      <button 
-                        className="bg-purple-600 text-white p-2 rounded hover:bg-purple-700 transition-colors"
-                        onClick={() => handleDownload(student)}
-                        title="Download Result"
-                      >
-                        <Download size={16} />
+                      <button onClick={() => {
+                        ResultService.downloadTermReportPDF(r.id, r.education_level)
+                          .then((blob) => ResultService.triggerDownload(blob, `${r.full_name}_report.pdf`))
+                          .catch(() => alert('PDF download failed'));
+                      }} className="bg-purple-600 text-white p-1.5 rounded hover:bg-purple-700" title="Download PDF">
+                        <Download size={15} />
                       </button>
                     </div>
                   </td>
                 </tr>
-              ))
-            )}
+              );
+            })}
           </tbody>
         </table>
       </div>
 
-      {/* Modal for detailed result sheet */}
-      {showModal && selectedStudent && (
+      {/* ── View Modal ── */}
+      {viewTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-          <div className="bg-white shadow-2xl rounded-lg w-full max-w-5xl max-h-[90vh] overflow-y-auto print:w-full print:max-w-none print:shadow-none print:rounded-none print:max-h-none print:overflow-visible">
-            
-            {/* Close button */}
-            <button 
-              onClick={handleCloseModal}
-              className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 print:hidden z-10"
-            >
-              ✕
+          <div className="bg-white rounded-lg w-full max-w-5xl max-h-[90vh] overflow-y-auto relative">
+            {/* Close */}
+            <button onClick={() => setViewTarget(null)}
+              className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 z-10">
+              <X size={20} />
             </button>
 
-            {/* Header */}
-            <div className="p-6 border-b print:border-none">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center space-x-4">
-                  <div className="text-2xl">{getSchoolData(settings).logo}</div>
-                  <div>
-                    <h1 className="text-xl font-bold">{getSchoolData(settings).name}</h1>
-                    <p className="text-sm text-gray-600">{getSchoolData(settings).address}</p>
-                  </div>
+            {/* School header */}
+            <div className="p-6 border-b flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                {schoolLogo && (
+                  <img src={schoolLogo} alt="Logo" className="h-14 w-14 object-contain" />
+                )}
+                <div>
+                  <h1 className="text-xl font-bold">{schoolName}</h1>
+                  <p className="text-sm text-gray-500">{schoolAddress}</p>
                 </div>
-                <div className="text-right">
-                  <h2 className="text-lg font-semibold">STUDENT'S REPORT CARD</h2>
-                  <p className="text-sm text-gray-600">
-                    Next Term Begins: {selectedStudent.next_term_begins || getSchoolData(settings).nextTermBegins}
+              </div>
+              <div className="text-right">
+                <h2 className="text-lg font-semibold">STUDENT REPORT CARD</h2>
+                {viewTarget.next_term_begins && (
+                  <p className="text-sm text-gray-500">
+                    Next Term: {viewTarget.next_term_begins}
                   </p>
-                </div>
+                )}
               </div>
             </div>
 
-            {/* Student Information */}
-            <div className="p-6 border-b print:border-none">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p><strong>Name:</strong> {selectedStudent.student?.full_name || 'N/A'}</p>
-                  <p><strong>Class:</strong> {selectedStudent.student?.student_class || 'N/A'}</p>
-                  <p><strong>Term:</strong> {getTermDisplay(selectedStudent.term)}</p>
-                </div>
-                <div>
-                  <p><strong>Academic Session:</strong> {selectedStudent.academic_session?.name || 'N/A'}</p>
-                  <p><strong>Total Subjects:</strong> {selectedStudent.total_subjects || 0}</p>
-                  <p><strong>Position:</strong> {
-                    selectedStudent.class_position && selectedStudent.total_students
-                      ? `${selectedStudent.class_position} of ${selectedStudent.total_students}`
-                      : 'N/A'
-                  }</p>
-                </div>
+            {/* Student info */}
+            <div className="p-6 border-b grid grid-cols-2 gap-4 text-sm">
+              <div className="space-y-1">
+                <p><strong>Name:</strong> {viewTarget.full_name}</p>
+                <p><strong>Class:</strong> {viewTarget.student_class || 'N/A'}</p>
+                <p><strong>Section:</strong> {getLevelDisplay(viewTarget.education_level_raw)}</p>
+                {viewTarget.stream_name && (
+                  <p><strong>Stream:</strong> {viewTarget.stream_name}</p>
+                )}
+              </div>
+              <div className="space-y-1">
+                <p><strong>Session:</strong> {viewTarget.academic_session_name || 'N/A'}</p>
+                <p><strong>Term:</strong> {getTermDisplay(viewTarget.term_name)}</p>
+                <p><strong>Position:</strong>{' '}
+                  {viewTarget.class_position && viewTarget.total_students
+                    ? `${viewTarget.class_position} of ${viewTarget.total_students}`
+                    : 'N/A'}
+                </p>
+                <p><strong>Subjects:</strong> {viewTarget.total_subjects}</p>
               </div>
             </div>
 
-            {/* Results Table */}
+            {/* Subjects table */}
             <div className="p-6">
-              <table className="w-full border-collapse border border-black text-sm">
+              <table className="w-full border-collapse border border-gray-300 text-sm">
                 <thead>
                   <tr className="bg-gray-100">
-                    <th className="border border-black p-2 text-center font-semibold">S/N</th>
-                    <th className="border border-black p-2 text-center font-semibold">Subject</th>
-                    <th className="border border-black p-2 text-center font-semibold">CA</th>
-                    <th className="border border-black p-2 text-center font-semibold">Exam</th>
-                    <th className="border border-black p-2 text-center font-semibold">Total</th>
-                    <th className="border border-black p-2 text-center font-semibold">Percentage</th>
-                    <th className="border border-black p-2 text-center font-semibold">Grade</th>
-                    <th className="border border-black p-2 text-center font-semibold">Remarks</th>
+                    {['S/N','Subject','CA','Exam','Total','%','Grade','Remarks'].map((h) => (
+                      <th key={h} className="border border-gray-300 px-3 py-2 text-center font-semibold">{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {(selectedStudent.subject_results || []).map((subject, index) => (
-                    <tr key={index} className="hover:bg-gray-50">
-                      <td className="border border-black p-2 text-center font-semibold">{index + 1}</td>
-                      <td className="border border-black p-2">{subject.subject?.name || 'N/A'}</td>
-                      <td className="border border-black p-2 text-center">{Number(subject.ca_score) || 0}</td>
-                      <td className="border border-black p-2 text-center">{Number(subject.exam_score) || 0}</td>
-                      <td className="border border-black p-2 text-center font-semibold">{Number(subject.total_score) || 0}</td>
-                      <td className="border border-black p-2 text-center">{
-                        (() => {
-                          const pct = Number(subject.percentage);
-                          return isNaN(pct) ? 'N/A' : `${pct.toFixed(1)}%`;
-                        })()
-                      }</td>
-                      <td className="border border-black p-2 text-center font-semibold">{subject.grade || 'N/A'}</td>
-                      <td className="border border-black p-2 text-center">{subject.remarks || '-'}</td>
+                  {viewTarget.subject_results.map((sr, i) => (
+                    <tr key={i} className="hover:bg-gray-50">
+                      <td className="border border-gray-300 px-3 py-2 text-center">{i + 1}</td>
+                      <td className="border border-gray-300 px-3 py-2">{sr.name}</td>
+                      <td className="border border-gray-300 px-3 py-2 text-center">{sr.ca_score}</td>
+                      <td className="border border-gray-300 px-3 py-2 text-center">{sr.exam_score}</td>
+                      <td className="border border-gray-300 px-3 py-2 text-center font-semibold">{sr.total_score}</td>
+                      <td className="border border-gray-300 px-3 py-2 text-center">
+                        {sr.percentage > 0 ? `${sr.percentage.toFixed(1)}%` : 'N/A'}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center">
+                        <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${gradeColor(sr.grade)}`}>
+                          {sr.grade || 'N/A'}
+                        </span>
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center">{sr.remarks || '-'}</td>
                     </tr>
                   ))}
-                  {/* Empty rows for additional subjects */}
-                  {Array.from({ 
-                    length: Math.max(0, 15 - (selectedStudent.subject_results || []).length) 
-                  }, (_, i) => (
-                    <tr key={`empty-${i}`}>
-                      <td className="border border-black p-2 text-center">
-                        {(selectedStudent.subject_results || []).length + i + 1}
+                  {/* Pad to 15 rows */}
+                  {Array.from({ length: Math.max(0, 15 - viewTarget.subject_results.length) }, (_, i) => (
+                    <tr key={`pad-${i}`}>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-gray-300">
+                        {viewTarget.subject_results.length + i + 1}
                       </td>
-                      <td className="border border-black p-2"></td>
-                      <td className="border border-black p-2"></td>
-                      <td className="border border-black p-2"></td>
-                      <td className="border border-black p-2"></td>
-                      <td className="border border-black p-2"></td>
-                      <td className="border border-black p-2"></td>
-                      <td className="border border-black p-2"></td>
+                      {Array.from({ length: 7 }, (_, j) => (
+                        <td key={j} className="border border-gray-300 px-3 py-2" />
+                      ))}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
 
-            {/* Summary Statistics */}
-            <div className="p-6">
-              <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
-                <div>
-                  <div className="flex">
-                    <span className="font-semibold w-32">Total Score:</span>
-                    <span>{selectedStudent.total_score || 0}</span>
-                  </div>
-                  <div className="flex">
-                    <span className="font-semibold w-32">Average Score:</span>
-                    <span>{getSafeAverageScore(selectedStudent)}</span>
-                  </div>
-                  <div className="flex">
-                    <span className="font-semibold w-32">GPA:</span>
-                    <span>{selectedStudent.gpa && typeof selectedStudent.gpa === 'number' ? selectedStudent.gpa.toFixed(2) : 'N/A'}</span>
-                  </div>
-                </div>
-                <div>
-                  <div className="flex">
-                    <span className="font-semibold w-32">Subjects Passed:</span>
-                    <span>{selectedStudent.subjects_passed || 0}</span>
-                  </div>
-                  <div className="flex">
-                    <span className="font-semibold w-32">Subjects Failed:</span>
-                    <span>{selectedStudent.subjects_failed || 0}</span>
-                  </div>
-                  <div className="flex">
-                    <span className="font-semibold w-32">Status:</span>
-                    <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                      selectedStudent.status === 'PASSED' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                    }`}>
-                      {selectedStudent.status || 'N/A'}
-                    </span>
-                  </div>
-                </div>
+            {/* Summary */}
+            <div className="px-6 pb-4 grid grid-cols-2 gap-4 text-sm">
+              <div className="space-y-1">
+                <p><strong>Total Score:</strong> {viewTarget.total_score}</p>
+                <p><strong>Average:</strong>{' '}
+                  {viewTarget.average_score > 0
+                    ? `${viewTarget.average_score.toFixed(1)}%`
+                    : 'N/A'}
+                </p>
+                {viewTarget.gpa > 0 && (
+                  <p><strong>GPA:</strong> {viewTarget.gpa.toFixed(2)}</p>
+                )}
+              </div>
+              <div className="space-y-1">
+                <p><strong>Passed:</strong> {viewTarget.subjects_passed}</p>
+                <p><strong>Failed:</strong> {viewTarget.subjects_failed}</p>
               </div>
             </div>
 
-            {/* Remarks */}
-            {selectedStudent.remarks && (
-              <div className="p-6 border-t print:border-none">
-                <h3 className="font-semibold mb-2">Remarks:</h3>
-                <p className="text-sm">{selectedStudent.remarks}</p>
+            {viewTarget.remarks && (
+              <div className="px-6 pb-4 text-sm">
+                <strong>Teacher's Remark:</strong> {viewTarget.remarks}
               </div>
             )}
 
-            {/* Action Buttons */}
-            <div className="p-6 border-t print:hidden">
-              <div className="flex justify-end space-x-4">
-                <button
-                  onClick={handlePrint}
-                  className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition-colors flex items-center space-x-2"
-                >
-                  <Printer size={16} />
-                  <span>Print</span>
-                </button>
-                <button
-                  onClick={() => handleDownload(selectedStudent)}
-                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-colors flex items-center space-x-2"
-                >
-                  <Download size={16} />
-                  <span>Download</span>
-                </button>
-              </div>
+            {/* Actions */}
+            <div className="px-6 py-4 border-t flex justify-end gap-3">
+              <button onClick={() => window.print()}
+                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 flex items-center gap-2 text-sm">
+                <Printer size={15} /> Print
+              </button>
+              <button onClick={() => {
+                ResultService.downloadTermReportPDF(viewTarget.id, viewTarget.education_level)
+                  .then((blob) => ResultService.triggerDownload(blob, `${viewTarget.full_name}_report.pdf`))
+                  .catch(() => alert('PDF download failed'));
+              }} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 flex items-center gap-2 text-sm">
+                <Download size={15} /> Download PDF
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      {showDeleteModal && resultToDelete && (
+      {/* ── Delete Modal ── */}
+      {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <h3 className="text-lg font-semibold mb-4">Confirm Delete</h3>
+            <h3 className="text-lg font-semibold mb-3">Confirm Delete</h3>
             <p className="text-gray-600 mb-6">
-              Are you sure you want to delete the result for <strong>{resultToDelete.student?.full_name || 'this student'}</strong>? 
-              This action cannot be undone.
+              Delete the term report for <strong>{deleteTarget.full_name}</strong>?
+              This will also remove all subject results for that term. This cannot be undone.
             </p>
-            <div className="flex justify-end space-x-4">
-              <button
-                onClick={() => {
-                  setShowDeleteModal(false);
-                  setResultToDelete(null);
-                }}
-                className="px-4 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-50 transition-colors"
-                disabled={actionLoading === 'delete'}
-              >
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setDeleteTarget(null)} disabled={deleting}
+                className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 text-sm">
                 Cancel
               </button>
-              <button
-                onClick={confirmDelete}
-                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50"
-                disabled={actionLoading === 'delete'}
-              >
-                {actionLoading === 'delete' ? 'Deleting...' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Modal - Placeholder for future implementation */}
-      {showEditModal && editingResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-          <div className="bg-white rounded-lg p-6 max-w-2xl w-full">
-            <h3 className="text-lg font-semibold mb-4">Edit Result</h3>
-            <p className="text-gray-600 mb-6">
-              Edit functionality will be implemented here for {editingResult.student?.full_name || 'this student'}
-            </p>
-            <div className="flex justify-end space-x-4">
-              <button
-                onClick={() => {
-                  setShowEditModal(false);
-                  setEditingResult(null);
-                }}
-                className="px-4 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-50 transition-colors"
-              >
-                Close
+              <button onClick={confirmDelete} disabled={deleting}
+                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 text-sm">
+                {deleting ? 'Deleting…' : 'Delete'}
               </button>
             </div>
           </div>

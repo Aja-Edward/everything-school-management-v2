@@ -1,53 +1,5 @@
-"""
-result/views.py
+# result/views.py
 
-All changes vs the previous version
-─────────────────────────────────────
-1.  Broken imports fixed:
-      REMOVED  BulkResultUpdateSerializer, BulkStatusUpdateSerializer,
-               PublishResultSerializer
-      ADDED    BulkApproveSerializer, BulkPublishSerializer,
-               BulkDeleteSerializer, BulkRecordSerializer,
-               SingleApproveSerializer
-
-2.  All role/permission checks consolidated around _is_admin(user) imported
-    from models.py.  No more hardcoded role strings scattered across handlers.
-    Role strings in _ADMIN_ROLES (HEAD_TEACHER, HEADMASTER, PROPRIETRESS,
-    PRINCIPAL, admin, superadmin) now work everywhere uniformly.
-
-3.  All four TermReport approve actions now set approved_by + approved_date
-    by delegating to BaseTermReport.bulk_approve(qs, user) — one SQL UPDATE.
-
-4.  _recalculate_subject_stats (Python-sort N+1) removed.
-    All callers now use ModelClass.bulk_recalculate_positions(qs) —
-    SQL RANK(), two statements total.
-
-5.  _bulk_create_component_scores replaced by ModelClass.bulk_record()
-    in the bulk_create action.
-
-6.  handle_approve / handle_publish delegate to
-    ModelClass.bulk_approve / bulk_publish (one UPDATE each).
-
-7.  destroy() delegates to instance.can_delete(user) — single source of truth.
-
-8.  NurseryTermReportViewSet.bulk_publish — O(N) subject_result UPDATEs
-    replaced with one NurseryResult.objects.filter(term_report__in=...).update().
-
-9.  All session-report publish actions call report.publish(user) — clean model
-    method, targeted update_fields save.
-
-10. All TermReport and SessionReport get_queryset calls now include
-    'approved_by' in select_related.
-
-11. NurseryTermReportViewSet prefetch chain now includes component_scores
-    (NurseryResult inherits BaseResult so the relation exists).
-
-12. BulkResultOperationsViewSet updated to use new bulk serializers and
-    model bulk methods instead of raw .update() loops.
-
-13. skip_permission_flags=True passed in context on all LIST serializer calls
-    to suppress per-row DB queries from _RemarkPermissionMixin.
-"""
 
 import csv
 import io

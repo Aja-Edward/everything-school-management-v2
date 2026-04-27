@@ -54,11 +54,11 @@ from django.db.models import (
     Max,
     Min,
     Q,
-    Rank,
     Sum,
     Window,
 )
 from django.utils import timezone
+from django.db.models.functions import Rank
 
 from academics.models import AcademicSession, EducationLevel, Term
 from classroom.models import Class as StudentClass, Stream

@@ -77,6 +77,7 @@ const AdminClassroomManagement = lazy(() => import('./../pages/admin/AdminClassr
 const ClassroomDetailPage = lazy(() => import('./../pages/admin/ClassroomDetailPage'));
 const AdminSubjectManagement = lazy(() => import('./../pages/admin/AdminSubjectManagement'));
 const AdminExamsManagement = lazy(() => import('./../pages/admin/AdminExamsManagement'));
+const AdminLessonAttendanceViewManagement = lazy(() => import ('./../components/dashboards/admin/AdminLessonAttendanceView'))
 const AdminExamScheduleManagement = lazy(() => import('./../pages/admin/AdminExamScheduleManagement'));
 const AdminLessonsManagement = lazy(() => import('./../pages/admin/AdminLessonsManagement'));
 const AdminAtendanceMangement = lazy(() => import('./../pages/admin/AdminAttendanceView'));
@@ -550,6 +551,12 @@ export const router = createBrowserRouter([
             path: 'attendance',
             element: <LazyWrapper><AdminAtendanceMangement /></LazyWrapper>,
           },
+          
+          {
+            path: 'lesson_attendance',
+            element: <LazyWrapper><AdminLessonAttendanceViewManagement /></LazyWrapper>,
+          },
+
           {
             path: 'teachers',
             element: <LazyWrapper><AllTeachers /></LazyWrapper>,

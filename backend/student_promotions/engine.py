@@ -170,8 +170,14 @@ class PromotionEngine:
                 education_level=education_level,
                 is_active=True,
             )
+
         except PromotionRule.DoesNotExist:
-            # Return a lightweight mock with defaults so callers don't branch
+            logger.warning(
+                "No active PromotionRule for tenant=%s education_level=%s — "
+                "falling back to defaults (threshold=49, require_all_three_terms=True)",
+                self.tenant,
+                education_level,
+            )
             class DefaultRule:
                 pass_threshold = Decimal("49.00")
                 require_all_three_terms = True
@@ -229,7 +235,17 @@ class PromotionEngine:
         each of the three terms and write them onto the student_promotions record.
         """
         student = student_promotions.student
-        level_type = student.education_level  # @property → level_type string
+        education_level = student.education_level
+        if hasattr(education_level, "level_type"):
+            level_type = education_level.level_type
+        elif isinstance(education_level, str):
+            level_type = education_level
+        else:
+            logger.warning(
+                "Could not resolve education level for student %s — skipping term averages",
+                student.id,
+            )
+            return
 
         term_report_model, avg_field = self._resolve_term_report_model(level_type)
         if term_report_model is None:

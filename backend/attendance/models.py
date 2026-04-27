@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import UniqueConstraint
 
 from tenants.models import TenantMixin
 from students.models import Student
@@ -18,24 +19,38 @@ class Attendance(TenantMixin, models.Model):
         Student, on_delete=models.CASCADE, related_name="attendances"
     )
     teacher = models.ForeignKey(
-        Teacher, on_delete=models.CASCADE, related_name="attendances", null=True, blank=True
+        Teacher,
+        on_delete=models.CASCADE,
+        related_name="attendances",
+        null=True,
+        blank=True,
     )
     section = models.ForeignKey(
         Section, on_delete=models.CASCADE, related_name="attendances"
     )
     status = models.CharField(max_length=1, choices=STATUS_CHOICES)
-    time_in = models.TimeField(null=True, blank=True, help_text="Time when student/teacher arrived")
-    time_out = models.TimeField(null=True, blank=True, help_text="Time when student/teacher left")
+    time_in = models.TimeField(
+        null=True, blank=True, help_text="Time when student arrived"
+    )
+    time_out = models.TimeField(
+        null=True, blank=True, help_text="Time when student left"
+    )
 
     class Meta:
-        unique_together = [("tenant", "date", "student", "section")]
+        constraints = [
+            UniqueConstraint(
+                fields=["tenant", "date", "student", "section"],
+                name="unique_attendance_per_student_section_date",
+            )
+        ]
         indexes = [
-            models.Index(fields=["date"]),  # For date-based queries
-            models.Index(fields=["teacher", "date"]),  # For teacher dashboard
-            models.Index(fields=["student", "date"]),  # For student queries
-            models.Index(fields=["date", "status"]),  # For attendance reports
-            models.Index(fields=["section", "date"]),  # For section queries
+            models.Index(fields=["tenant", "date"]),
+            models.Index(fields=["tenant", "teacher", "date"]),
+            models.Index(fields=["tenant", "student", "date"]),
+            models.Index(fields=["tenant", "date", "status"]),
+            models.Index(fields=["tenant", "section", "date"]),
         ]
 
     def __str__(self):
-        return f"{self.student} - {self.date} - {self.get_status_display()}"
+        student = str(self.student) if self.student_id else "Unknown"
+        return f"{student} - {self.date} - {self.get_status_display()}"

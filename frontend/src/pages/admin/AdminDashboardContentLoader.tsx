@@ -69,7 +69,6 @@ const AdminDashboardContentLoader = () => {
         api.get('/api/teachers/teachers/', { limit: 100 }),
         api.get('/api/classrooms/classrooms/', { limit: 200 }),
       ]);
-      console.log('enhancedStats raw:', JSON.stringify(enhancedStats, null, 2));
       if (!isMounted.current) return;
 
       // ─── Process list responses ───────────────────────────────────────────

@@ -37,6 +37,8 @@ from .views import (
     # ===== NEW: Professional Assignment ViewSets =====
     ProfessionalAssignmentViewSet,
     HeadTeacherAssignmentViewSet,
+    ExamTypeViewSet,
+    AssessmentComponentViewSet,
 )
 
 # Create the router
@@ -51,6 +53,12 @@ router.register(
     r"scoring-configurations",
     ScoringConfigurationViewSet,
     basename="scoring-configuration",
+)
+router.register(r"exam-types", ExamTypeViewSet, basename="exam-type")
+router.register(
+    r"assessment-components",
+    AssessmentComponentViewSet,
+    basename="assessment-component",
 )
 
 # ===== LEGACY/BASE RESULT ROUTES =====

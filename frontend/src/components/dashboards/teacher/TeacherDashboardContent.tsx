@@ -99,10 +99,11 @@ const TeacherDashboardContent: React.FC<TeacherDashboardContentProps> = ({
 }) => {
 
 const { user } = useAuth();
+
 const navigate = useNavigate();
 
   const teacher = user as TeacherUserData;
-  const teacherData = teacher?.teacher_data;
+  const teacherData = teacher?.profile?.teacher_data ?? teacher?.teacher_data ?? null;
 
   // Memoize safe stats to prevent recalculation on every render
   const safeStats = useMemo(() => {
@@ -159,6 +160,7 @@ const navigate = useNavigate();
             <div className="relative flex flex-col lg:flex-row gap-6 lg:items-center lg:justify-between">
               <div className="flex-1 min-w-0">
                 <p className="text-slate-400 text-sm font-medium mb-2">Teacher Dashboard</p>
+              
                 <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">
                   Welcome back, {teacherData?.user?.first_name || user?.first_name || 'Teacher'}
                 </h1>
@@ -603,9 +605,9 @@ const Section = memo<SectionProps>(({ title, icon: Icon, iconColor = 'text-slate
     {items && items.length > 0 ? (
       <div className="space-y-2 sm:space-y-3">
         {items.slice(0, 5).map((item, idx) => (
-          <div key={item.id || idx}>
+          <div key={`${item.id ?? 'item'}-${idx}`}>
             {renderItem(item, idx)}
-          </div>
+          </div>  
         ))}
       </div>
     ) : (

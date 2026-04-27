@@ -235,30 +235,40 @@ class SectionFilterMixin:
 
                 teacher = Teacher.objects.get(user=user)
 
-                # Get education levels from assigned classrooms via section
                 assigned_classrooms = Classroom.objects.filter(
                     Q(class_teacher=teacher)
                     | Q(classroomteacherassignment__teacher=teacher)
-                ).select_related("section__grade_level")
+                ).select_related("section__class_grade__education_level")
 
-                # Get education levels through section -> grade_level
                 education_levels = set()
                 for classroom in assigned_classrooms:
-                    if classroom.section and classroom.section.grade_level:
-                        education_levels.add(
-                            classroom.section.grade_level.education_level
-                        )
+                    try:
+                        # Correct path: section → class_grade → education_level
+                        edu = classroom.section.class_grade.education_level
+                        if edu:
+                            education_levels.add(edu.name)
+                    except AttributeError:
+                        pass
 
                 levels = list(education_levels)
+                if not levels:
+                    logger.warning(
+                        f"⚠️ No education levels found for teacher {user.username} "
+                        f"— granting full access via assignment filtering"
+                    )
+                    return [
+                        "NURSERY",
+                        "PRIMARY",
+                        "JUNIOR_SECONDARY",
+                        "SENIOR_SECONDARY",
+                    ]
+
                 logger.info(f"🔒 Teacher education level access: {levels}")
                 return levels
 
             except Exception as e:
                 logger.error(f"Error getting teacher education levels: {str(e)}")
                 return []
-
-        logger.warning(f"⚠️ No education level access for user {user.username}")
-        return []
 
     def apply_section_filters(self, queryset):
         """
@@ -336,6 +346,31 @@ class SectionFilterMixin:
         try:
             # STUDENT MODELS
             if model_name == "Student":
+                # For teachers, filter by students in their assigned classrooms
+                if role == "teacher":
+                    try:
+                        from teacher.models import Teacher
+
+                        teacher = Teacher.objects.get(user=user)
+                        filtered = queryset.filter(
+                            enrolled_classes__classroomteacherassignment__teacher=teacher
+                        ).distinct()
+
+                        # Fallback: if that returns nothing, try via class_teacher
+                        if not filtered.exists():
+                            filtered = queryset.filter(
+                                enrolled_classes__class_teacher=teacher
+                            ).distinct()
+
+                        logger.info(
+                            f"✅ Filtered Students (teacher assignments): {filtered.count()} of {queryset.count()}"
+                        )
+                        return filtered
+                    except Exception as e:
+                        logger.error(f"Error filtering students for teacher: {e}")
+                        return queryset.none()
+
+                # For section admins, filter by education level as before
                 filtered = queryset.filter(education_level__in=allowed_education_levels)
                 logger.info(
                     f"✅ Filtered Students: {filtered.count()} of {queryset.count()}"
@@ -344,8 +379,27 @@ class SectionFilterMixin:
 
             # CLASSROOM MODELS - Filter through section relationship
             elif model_name == "Classroom":
+                # For teachers, filter by direct assignments
+                if role == "teacher":
+                    try:
+                        from teacher.models import Teacher
+
+                        teacher = Teacher.objects.get(user=user)
+                        filtered = queryset.filter(
+                            Q(class_teacher=teacher)
+                            | Q(classroomteacherassignment__teacher=teacher)
+                        ).distinct()
+                        logger.info(
+                            f"✅ Filtered Classrooms (teacher assignments): {filtered.count()} of {queryset.count()}"
+                        )
+                        return filtered
+                    except Exception as e:
+                        logger.error(f"Error filtering classrooms for teacher: {e}")
+                        return queryset.none()
+
+                # For section admins — fix the ORM path
                 filtered = queryset.filter(
-                    section__grade_level__education_level__in=allowed_education_levels
+                    section__class_grade__education_level__name__in=allowed_education_levels
                 )
                 logger.info(
                     f"✅ Filtered Classrooms: {filtered.count()} of {queryset.count()}"

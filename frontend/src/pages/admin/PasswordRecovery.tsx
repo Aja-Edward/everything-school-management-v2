@@ -25,7 +25,7 @@ const PasswordRecovery: React.FC = () => {
     newPassword?: string;
     userDetails?: any;
   } | null>(null);
-
+console.log('teacher result', result?.userDetails)
   const handlePasswordReset = async () => {
     if (!username.trim()) {
       toast.error('Please enter a username');

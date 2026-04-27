@@ -1,7 +1,7 @@
 # result/filters.py
 import django_filters
 
-from .models import StudentTermResult
+from .models import StudentTermResult, _RESULT_STATUS
 
 
 class StudentTermResultFilter(django_filters.FilterSet):
@@ -15,7 +15,9 @@ class StudentTermResultFilter(django_filters.FilterSet):
     term = django_filters.NumberFilter(field_name="term_id")
 
     # ChoiceFilter validates the value before hitting the DB
-    status = django_filters.ChoiceFilter(choices=StudentTermResult.RESULT_STATUS)
+    # _RESULT_STATUS is the module-level list in models.py —
+    # StudentTermResult no longer carries RESULT_STATUS as a class attribute
+    status = django_filters.ChoiceFilter(choices=_RESULT_STATUS)
 
     class Meta:
         model = StudentTermResult

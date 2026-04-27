@@ -91,7 +91,7 @@ const SettingsDashboard = () => {
       case 'roles':         return <RolesPermissionsTab />;
       case 'academic':      return <AcademicTab />;
       case 'gradelevel':    return <AcademicGradeLevelTab  />;
-      case 'exams':         return <ExamsResultTab {...props} />;
+      case 'exams':         return <ExamsResultTab />;
       case 'calendar':      return <AcademicCalendarTab />;
       case 'finance':       return <FinanceTab />;
       case 'security':      return <SecurityTab {...props} />;

@@ -4,6 +4,7 @@ export type PromotionStatus = "PENDING" | "PROMOTED" | "HELD_BACK" | "FLAGGED";
 export type PromotionFilter = PromotionStatus | "ALL";
 export type PromotionType   = "AUTO" | "MANUAL";
 export type ManagedLevelType =
+  | "NURSERY"
   | "PRIMARY"
   | "JUNIOR_SECONDARY"
   | "SENIOR_SECONDARY";
@@ -130,7 +131,8 @@ export interface AutoPromotionSummary {
 
 export interface AutoPromotionResult {
   summary: AutoPromotionSummary;
-  promotions: StudentPromotion[];
+  outcomes: Record<string, unknown>[];   // raw per-student dicts from engine
+  student_promotions: StudentPromotion[];
 }
 
 // ─── Manual override ──────────────────────────────────────────────────────────
@@ -148,8 +150,8 @@ export type ManualOverrideResult = StudentPromotion;
 export interface ClassItem {
   id: string | number;
   name: string;
-  /** One of these two fields must be present for threshold lookup. */
-  education_level?: string | number;
+  /** May be a bare ID or a nested object depending on the serializer. */
+  education_level?: string | number | { id: string | number; name?: string };
   education_level_id?: string | number;
 }
 

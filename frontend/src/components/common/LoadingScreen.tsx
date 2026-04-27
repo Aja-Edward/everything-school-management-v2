@@ -1,213 +1,65 @@
 import React from 'react';
-import { GraduationCap, BookOpen, Users } from 'lucide-react';
 
 interface LoadingScreenProps {
   message?: string;
-  subMessage?: string;
   variant?: 'teacher' | 'student' | 'parent' | 'admin' | 'default';
 }
 
-export const LoadingScreen: React.FC<LoadingScreenProps> = ({ 
-  message = 'Loading Dashboard...', 
-  subMessage,
-  variant = 'default' 
+const LABELS: Record<string, string> = {
+  teacher: 'Loading Teacher Dashboard…',
+  student: 'Loading Student Dashboard…',
+  parent:  'Loading Parent Dashboard…',
+  admin:   'Loading Admin Dashboard…',
+  default: 'Loading…',
+};
+
+export const LoadingScreen: React.FC<LoadingScreenProps> = ({
+  message,
+  variant = 'default',
 }) => {
-  // Variant-specific configurations
-  const variantConfig = {
-    teacher: {
-      icon: BookOpen,
-      gradient: 'from-blue-600 to-indigo-600',
-      accentColor: 'bg-blue-500',
-      iconColor: 'text-blue-600'
-    },
-    student: {
-      icon: GraduationCap,
-      gradient: 'from-green-600 to-emerald-600',
-      accentColor: 'bg-green-500',
-      iconColor: 'text-green-600'
-    },
-    parent: {
-      icon: Users,
-      gradient: 'from-purple-600 to-pink-600',
-      accentColor: 'bg-purple-500',
-      iconColor: 'text-purple-600'
-    },
-    admin: {
-      icon: Users,
-      gradient: 'from-red-600 to-orange-600',
-      accentColor: 'bg-red-500',
-      iconColor: 'text-red-600'
-    },
-    default: {
-      icon: GraduationCap,
-      gradient: 'from-slate-600 to-slate-800',
-      accentColor: 'bg-slate-500',
-      iconColor: 'text-slate-600'
-    }
-  };
-
-  const config = variantConfig[variant];
-  const Icon = config.icon;
+  const label = message ?? LABELS[variant];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center p-4">
-      <style>{`
-        @keyframes shimmer {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(100%); }
-        }
-      `}</style>
-      <div className="relative">
-        {/* Animated background circles */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className={`absolute w-32 h-32 ${config.accentColor} rounded-full opacity-20 animate-ping`} 
-               style={{ animationDuration: '2s' }}></div>
-          <div className={`absolute w-24 h-24 ${config.accentColor} rounded-full opacity-30 animate-ping`} 
-               style={{ animationDuration: '1.5s', animationDelay: '0.3s' }}></div>
-        </div>
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: '1.25rem',
+      background: 'var(--color-background-tertiary, #f5f5f5)',
+    }}>
+      <svg
+        width="56" height="56" viewBox="0 0 56 56" fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        style={{ animation: 'spin 1s linear infinite' }}
+      >
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        <defs>
+          <linearGradient id="macloader-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%"   stopColor="#FF3B30" stopOpacity="1"/>
+            <stop offset="20%"  stopColor="#FF9500" stopOpacity="1"/>
+            <stop offset="40%"  stopColor="#FFCC00" stopOpacity="1"/>
+            <stop offset="60%"  stopColor="#34C759" stopOpacity="1"/>
+            <stop offset="80%"  stopColor="#007AFF" stopOpacity="1"/>
+            <stop offset="100%" stopColor="#AF52DE" stopOpacity="0"/>
+          </linearGradient>
+        </defs>
+        <circle cx="28" cy="28" r="22" stroke="#e0e0e0" strokeWidth="4" fill="none"/>
+        <circle cx="28" cy="28" r="22"
+          stroke="url(#macloader-grad)"
+          strokeWidth="4"
+          fill="none"
+          strokeLinecap="round"
+          strokeDasharray="100 40"
+        />
+      </svg>
 
-        {/* Main content card */}
-        <div className="relative bg-white rounded-2xl shadow-2xl p-8 w-80 border border-slate-200">
-          {/* Animated icon container with orbiting particles */}
-          <div className="flex justify-center mb-6">
-            <div className="relative w-24 h-24">
-              {/* Orbiting particles */}
-              {[...Array(3)].map((_, i) => (
-                <div
-                  key={i}
-                  className="absolute inset-0 animate-spin"
-                  style={{ 
-                    animationDuration: `${3 + i}s`,
-                    animationDelay: `${i * 0.5}s`
-                  }}
-                >
-                  <div 
-                    className={`absolute top-0 left-1/2 w-3 h-3 ${config.accentColor} rounded-full -translate-x-1/2 shadow-lg`}
-                    style={{
-                      opacity: 0.8 - (i * 0.2)
-                    }}
-                  ></div>
-                </div>
-              ))}
-              
-              {/* Pulsing rings */}
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className={`absolute w-20 h-20 border-2 border-${config.accentColor.replace('bg-', '')} rounded-full animate-ping`}
-                     style={{ animationDuration: '2s', opacity: 0.4 }}></div>
-                <div className={`absolute w-16 h-16 border-2 border-${config.accentColor.replace('bg-', '')} rounded-full animate-ping`}
-                     style={{ animationDuration: '2s', animationDelay: '0.5s', opacity: 0.3 }}></div>
-              </div>
-              
-              {/* Main icon with floating animation */}
-              <div className={`absolute inset-0 bg-gradient-to-br ${config.gradient} rounded-2xl flex items-center justify-center shadow-2xl animate-bounce`}
-                   style={{ animationDuration: '2s' }}>
-                {/* Shimmer effect */}
-                <div className="absolute inset-0 rounded-2xl overflow-hidden">
-                  <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/30 to-transparent"></div>
-                </div>
-                
-                <Icon className="text-white relative z-10 animate-pulse" size={40} strokeWidth={2.5} 
-                      style={{ animationDuration: '2s' }} />
-              </div>
-            </div>
-          </div>
-
-          {/* Loading bars animation */}
-          <div className="mb-6 space-y-2">
-            <div className="flex gap-1.5 justify-center">
-              {[...Array(5)].map((_, i) => (
-                <div
-                  key={i}
-                  className={`w-2 h-12 ${config.accentColor} rounded-full animate-pulse`}
-                  style={{
-                    animationDelay: `${i * 0.15}s`,
-                    animationDuration: '1s',
-                    opacity: 0.6
-                  }}
-                ></div>
-              ))}
-            </div>
-          </div>
-
-          {/* Text content */}
-          <div className="text-center space-y-2">
-            <h3 className="text-xl font-semibold text-slate-800">
-              {message}
-            </h3>
-            {subMessage && (
-              <p className="text-sm text-slate-500">
-                {subMessage}
-              </p>
-            )}
-          </div>
-
-          {/* Progress dots */}
-          <div className="flex justify-center gap-2 mt-6">
-            {[...Array(3)].map((_, i) => (
-              <div
-                key={i}
-                className={`w-2 h-2 ${config.accentColor} rounded-full animate-bounce`}
-                style={{
-                  animationDelay: `${i * 0.2}s`,
-                  animationDuration: '0.8s'
-                }}
-              ></div>
-            ))}
-          </div>
-        </div>
-
-        {/* Bottom floating particles effect */}
-        <div className="absolute -bottom-4 left-1/2 transform -translate-x-1/2 flex gap-4">
-          {[...Array(3)].map((_, i) => (
-            <div
-              key={i}
-              className={`w-3 h-3 ${config.accentColor} rounded-full opacity-40 animate-bounce`}
-              style={{
-                animationDelay: `${i * 0.3}s`,
-                animationDuration: '1.5s'
-              }}
-            ></div>
-          ))}
-        </div>
-      </div>
+      <p style={{ fontSize: '14px', color: '#888', margin: 0, letterSpacing: '0.01em' }}>
+        {label}
+      </p>
     </div>
   );
 };
 
-// Demo showing all variants
-const LoaderDemo: React.FC = () => {
-  const [currentVariant, setCurrentVariant] = React.useState<'teacher' | 'student' | 'parent' | 'admin'>('teacher');
-
-  return (
-    <div className="space-y-4">
-      {/* Variant selector */}
-      <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-        <p className="text-sm font-medium text-slate-700 mb-2">Select Dashboard Type:</p>
-        <div className="flex gap-2 flex-wrap">
-          {(['teacher', 'student', 'parent', 'admin'] as const).map((variant) => (
-            <button
-              key={variant}
-              onClick={() => setCurrentVariant(variant)}
-              className={`px-4 py-2 rounded-lg capitalize transition-all ${
-                currentVariant === variant
-                  ? 'bg-blue-600 text-white shadow-md'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              {variant}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Loader display */}
-      <LoadingScreen 
-        variant={currentVariant}
-        message={`Loading ${currentVariant.charAt(0).toUpperCase() + currentVariant.slice(1)} Dashboard...`}
-        subMessage="Please wait while we prepare your data"
-      />
-    </div>
-  );
-};
-
-export default LoaderDemo;
+export default LoadingScreen;

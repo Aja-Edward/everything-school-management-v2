@@ -145,6 +145,7 @@ class TenantMiddleware:
             "/api/check-schema/",
             "/api/school-settings/",
             "/api/platform/",
+            "/api/auth/",
         ]
         return any(path.startswith(p) for p in public_paths)
 

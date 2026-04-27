@@ -72,12 +72,10 @@ class IsStudentOwnerOrStaff(permissions.BasePermission):
         return False
 
 
-class ModulePermissionBase(permissions.BasePermission):
-    """
-    Base class for module permissions.
-    Set module_name as a class attribute in subclasses.
-    """
+# schoolSettings/permissions.py
 
+
+class ModulePermissionBase(permissions.BasePermission):
     module_name = None
     permission_type = None
 
@@ -88,23 +86,18 @@ class ModulePermissionBase(permissions.BasePermission):
         if not request.user.is_active:
             return False
 
-        # Get module name from class attribute or view
         module = self.module_name or getattr(view, "permission_module", None)
         if not module:
             return False
 
-        # Determine permission type based on HTTP method
-        if self.permission_type:
-            perm_type = self.permission_type
-        else:
-            perm_type = self.get_permission_type_from_method(request.method)
+        perm_type = self.permission_type or self.get_permission_type_from_method(
+            request.method
+        )
 
-        # Check if user has the required permission
         return self.user_has_permission(request.user, module, perm_type)
 
     def get_permission_type_from_method(self, method):
-        """Map HTTP methods to permission types"""
-        method_to_permission = {
+        return {
             "GET": "read",
             "HEAD": "read",
             "OPTIONS": "read",
@@ -112,21 +105,34 @@ class ModulePermissionBase(permissions.BasePermission):
             "PUT": "write",
             "PATCH": "write",
             "DELETE": "delete",
-        }
-        return method_to_permission.get(method.upper(), "read")
+        }.get(method.upper(), "read")
 
     def user_has_permission(self, user, module, permission_type):
-        """Check if user has specific permission through their role assignments"""
-        # Platform admins have full access to everything (both is_superuser flag and role='SUPERADMIN')
-        is_platform_admin = (
-            user.is_superuser or
-            (hasattr(user, 'role') and user.role.upper() == 'SUPERADMIN')
+        # Platform admins have full access
+        is_platform_admin = user.is_superuser or (
+            hasattr(user, "role") and user.role.upper() == "SUPERADMIN"
         )
-
         if is_platform_admin:
             return True
 
-        # Get all active role assignments for the user
+        # ── Teacher bypass ────────────────────────────────────────────────────
+        # Teachers can read/write attendance and results for their own classes.
+        # They cannot delete or access finance/settings modules.
+        if hasattr(user, "role") and user.role.upper() == "TEACHER":
+            TEACHER_ALLOWED_MODULES = {
+                "attendance": ["read", "write"],
+                "results": ["read", "write"],
+                "students": ["read"],
+                "classroom": ["read"],
+                "timetable": ["read"],
+                "subjects": ["read"],
+                "reports": ["read"],
+            }
+            allowed = TEACHER_ALLOWED_MODULES.get(module, [])
+            if permission_type in allowed:
+                return True
+        # ─────────────────────────────────────────────────────────────────────
+
         from schoolSettings.models import UserRole
 
         user_roles = UserRole.objects.filter(
@@ -134,19 +140,15 @@ class ModulePermissionBase(permissions.BasePermission):
         ).prefetch_related("role", "role__permissions", "custom_permissions")
 
         for user_role in user_roles:
-            # Skip expired assignments
             if user_role.is_expired():
                 continue
 
-            # Check custom permissions first (they override role permissions)
             custom_perm = user_role.custom_permissions.filter(
                 module=module, permission_type=permission_type, granted=True
             ).first()
-
             if custom_perm:
                 return True
 
-            # Check role permissions
             if user_role.role.has_permission(module, permission_type):
                 return True
 

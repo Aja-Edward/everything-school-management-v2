@@ -1,20 +1,24 @@
+import logging
 from rest_framework import serializers
 from .models import Attendance
-from students.models import Student
 from teacher.models import Teacher
-from classroom.models import Stream
+
+logger = logging.getLogger(__name__)
 
 
 class AttendanceSerializer(serializers.ModelSerializer):
     student_name = serializers.SerializerMethodField()
     teacher_name = serializers.SerializerMethodField()
-    teacher = serializers.PrimaryKeyRelatedField(queryset=Teacher.objects.all(), required=False, allow_null=True)
+    teacher = serializers.PrimaryKeyRelatedField(
+        queryset=Teacher.objects.all(), required=False, allow_null=True
+    )
     student_stream = serializers.SerializerMethodField()
     student_stream_name = serializers.SerializerMethodField()
     student_stream_type = serializers.SerializerMethodField()
     student_education_level = serializers.SerializerMethodField()
     student_education_level_display = serializers.SerializerMethodField()
     student_class_display = serializers.SerializerMethodField()
+    section_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Attendance
@@ -25,6 +29,7 @@ class AttendanceSerializer(serializers.ModelSerializer):
             "teacher",
             "teacher_name",
             "section",
+            "section_name",
             "date",
             "status",
             "time_in",
@@ -37,57 +42,62 @@ class AttendanceSerializer(serializers.ModelSerializer):
             "student_class_display",
         ]
         extra_kwargs = {
-            'student': {'required': True},
-            'section': {'required': True},
-            'date': {'required': True},
-            'status': {'required': True},
+            "student": {"required": True},
+            "section": {"required": True},
+            "date": {"required": True},
+            "status": {"required": True},
         }
 
     def get_student_name(self, obj):
-        return (
-            f"{obj.student.user.first_name} {obj.student.user.last_name}" if obj.student and obj.student.user else None
-        )
+        if obj.student and obj.student.user:
+            return f"{obj.student.user.first_name} {obj.student.user.last_name}"
+        return None
+
+    def get_section_name(self, obj):
+        if obj.section:
+            return obj.section.name
+        return None
 
     def get_teacher_name(self, obj):
-        return (
-            f"{obj.teacher.user.first_name} {obj.teacher.user.last_name}" if obj.teacher and obj.teacher.user else None
-        )
+        if obj.teacher and obj.teacher.user:
+            return f"{obj.teacher.user.first_name} {obj.teacher.user.last_name}"
+        return None
 
     def get_student_stream(self, obj):
-        return obj.student.stream.id if obj.student and obj.student.stream else None
+        if obj.student and obj.student.stream:
+            return obj.student.stream.id
+        return None
 
     def get_student_stream_name(self, obj):
-        return obj.student.stream.name if obj.student and obj.student.stream else None
+        if obj.student and obj.student.stream:
+            return obj.student.stream.name
+        return None
 
     def get_student_stream_type(self, obj):
-        return obj.student.stream.stream_type if obj.student and obj.student.stream else None
+        if obj.student and obj.student.stream:
+            return obj.student.stream.stream_type
+        return None
 
     def get_student_education_level(self, obj):
         return obj.student.education_level if obj.student else None
 
     def get_student_education_level_display(self, obj):
-        return obj.student.get_education_level_display() if obj.student else None
+        return obj.student.education_level_display if obj.student else None
 
     def get_student_class_display(self, obj):
-        return obj.student.get_student_class_display() if obj.student else None
+        return obj.student.get_class_display() if obj.student else None
 
     def validate(self, data):
-        """Add validation debugging"""
-        print(f"🔍 AttendanceSerializer.validate called")
-        print(f"🔍 Data to validate: {data}")
-        
-        # Check for existing attendance record
-        if 'student' in data and 'date' in data and 'section' in data:
-            from .models import Attendance
-            existing = Attendance.objects.filter(
-                student=data['student'],
-                date=data['date'],
-                section=data['section']
-            ).first()
-            
-            if existing:
-                print(f"🔍 Found existing attendance record: {existing}")
-                print(f"🔍 Existing record ID: {existing.id}")
-                print(f"🔍 Existing record status: {existing.status}")
-        
+        # Only check on create (not update)
+        if self.instance is None:
+            if all(k in data for k in ("student", "date", "section")):
+                exists = Attendance.objects.filter(
+                    student=data["student"],
+                    date=data["date"],
+                    section=data["section"],
+                ).exists()
+                if exists:
+                    raise serializers.ValidationError(
+                        "Attendance for this student, date, and section already exists."
+                    )
         return data

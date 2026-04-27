@@ -1,4 +1,3 @@
-
 """
 student_promotions/urls.py
 
@@ -11,8 +10,8 @@ from rest_framework.routers import DefaultRouter
 from .views import PromotionRuleViewSet, StudentPromotionViewSet
 
 router = DefaultRouter()
-router.register(r"rules", PromotionRuleViewSet, basename="student_promotions")
-router.register(r"", StudentPromotionViewSet, basename="student-student_promotions")
+router.register(r"rules", PromotionRuleViewSet, basename="promotion-rule")
+router.register(r"", StudentPromotionViewSet, basename="student-promotion")
 
 urlpatterns = [
     path("", include(router.urls)),

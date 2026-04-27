@@ -1,3123 +1,1952 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Plus, 
-  Edit, 
-  Trash2, 
-  Save, 
-  X, 
-  Settings, 
-  Calculator,
-  BookOpen,
-  FileText,
-  Award,
-  Users,
-  Eye,
-  EyeOff,
-  CheckCircle,
-  AlertCircle,
-  Info,
-  Star,
-  Calendar
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Plus, Edit, Trash2, Save, X, Calculator,
+  BookOpen, FileText, Award, Users, Eye, EyeOff,
+  CheckCircle, AlertCircle, Info, Star, Calendar, Layers,
+  AlertTriangle, ChevronRight,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { 
-  GradingSystem, 
-  GradeRange, 
-  AssessmentType, 
-  ExamSession,
-  ScoringConfiguration,
-  ScoringConfigurationCreateUpdate,
-  GradingSystemCreateUpdate,
-  AssessmentTypeCreateUpdate,
-  GradeCreateUpdate,
-  ExamSessionCreateUpdate,
-  
+import resultSettingsService, {
+  GradingSystem, GradeRange, AssessmentType, ExamSession, ExamType,
+  ScoringConfiguration, ScoringConfigurationCreateUpdate,
+  GradingSystemCreateUpdate, AssessmentTypeCreateUpdate,
+  GradeCreateUpdate, ExamSessionCreateUpdate, ExamTypeCreateUpdate,
+  AssessmentComponent, AssessmentComponentCreateUpdate,
 } from '@/services/ResultSettingsService';
-import resultSettingsService from '@/services/ResultSettingsService';
 import { AcademicSession } from '@/types/types';
 
-interface ExamsResultTabProps {
-  // Add any props if needed
+// ─────────────────────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface EducationLevel {
+  id: number;
+  name: string;
+  level_type: string; // e.g. 'NURSERY', 'PRIMARY', 'JUNIOR_SECONDARY', 'SENIOR_SECONDARY'
 }
 
-const ExamsResultTab: React.FC<ExamsResultTabProps> = () => {
-  // State for active sections
-  const [activeSections, setActiveSections] = useState<Set<string>>(new Set(['scoring-configurations']));
-  
-  // Data states
-  const [gradingSystems, setGradingSystems] = useState<GradingSystem[]>([]);
-  const [grades, setGrades] = useState<GradeRange[]>([]);
-  const [assessmentTypes, setAssessmentTypes] = useState<AssessmentType[]>([]);
-  const [examSessions, setExamSessions] = useState<ExamSession[]>([]);
-  const [academicSessions, setAcademicSessions] = useState<AcademicSession[]>([]);
-  const [scoringConfigurations, setScoringConfigurations] = useState<ScoringConfiguration[]>([]);
-  
-  const [selectedGradingSystem, setSelectedGradingSystem] = useState<GradingSystem | null>(null);
-  
+// ─────────────────────────────────────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────────────────────────────────────
 
-  // Form states
-  const [showScoringConfigForm, setShowScoringConfigForm] = useState(false);
-  const [showGradingSystemForm, setShowGradingSystemForm] = useState(false);
-  const [showAssessmentTypeForm, setShowAssessmentTypeForm] = useState(false);
-  const [showExamSessionForm, setShowExamSessionForm] = useState(false);
-  const [showGradesManagementModal, setShowGradesManagementModal] = useState(false);
-  const [showGradeForm, setShowGradeForm] = useState(false);
+const COMPONENT_TYPE_OPTIONS = [
+  { value: 'CA',         label: 'Continuous Assessment' },
+  { value: 'EXAM',       label: 'Examination'           },
+  { value: 'PRACTICAL',  label: 'Practical'             },
+  { value: 'PROJECT',    label: 'Project'               },
+  { value: 'ORAL',       label: 'Oral Assessment'       },
+  { value: 'OTHER',      label: 'Other'                 },
+];
 
-  // Form data states
+const RESULT_TYPE_OPTIONS = [
+  { value: 'TERMLY',  label: 'Termly Result'  },
+  { value: 'SESSION', label: 'Session Result' },
+];
 
-  const [scoringConfigForm, setScoringConfigForm] = useState<ScoringConfigurationCreateUpdate & { id?: string }>({
-    name: '',
-    education_level: 'SENIOR_SECONDARY',
-    result_type: 'TERMLY',
-    description: '',
-    first_test_max_score: 10,
-    second_test_max_score: 10,
-    third_test_max_score: 10,
-    exam_max_score: 70,
-    total_max_score: 100,
-    ca_weight_percentage: 30,
-    exam_weight_percentage: 70,
-    continuous_assessment_max_score: 15,
-    take_home_test_max_score: 5,
-    appearance_max_score: 5,
-    practical_max_score: 5,
-    project_max_score: 5,
-    note_copying_max_score: 5,
-    is_active: true,
-    is_default: false
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+const resolveEducationLevel = (raw: any): { id: number | string; name: string; level_type: string } => {
+  if (raw && typeof raw === 'object') {
+    return { id: raw.id, name: raw.name || raw.level_type, level_type: raw.level_type || '' };
+  }
+  return { id: raw, name: String(raw), level_type: String(raw) };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UI ATOMS
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SectionHeader = ({
+  title, subtitle, icon: Icon, count, sectionKey, activeSections, onToggle, onAdd, addLabel,
+}: {
+  title: string; subtitle: string; icon: React.ElementType; count: number;
+  sectionKey: string; activeSections: Set<string>;
+  onToggle: (k: string) => void; onAdd: () => void; addLabel: string;
+}) => (
+  <div className="bg-black px-8 py-6">
+    <div className="flex items-center justify-between">
+      <div className="flex items-center space-x-4">
+        <div className="bg-white/20 p-3 rounded-xl"><Icon className="h-6 w-6 text-white" /></div>
+        <div>
+          <h2 className="text-xl font-bold text-white">{title}</h2>
+          <p className="text-white/70 text-sm">{subtitle}</p>
+        </div>
+      </div>
+      <div className="flex items-center space-x-3">
+        <span className="bg-white/20 text-white text-sm font-medium px-3 py-1 rounded-full">{count}</span>
+        <button
+          onClick={() => onToggle(sectionKey)}
+          className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg flex items-center space-x-2 text-sm transition-colors"
+        >
+          {activeSections.has(sectionKey)
+            ? <><EyeOff className="h-4 w-4" /><span>Hide</span></>
+            : <><Eye className="h-4 w-4" /><span>Show</span></>}
+        </button>
+        <button
+          onClick={onAdd}
+          className="bg-white text-black hover:bg-gray-100 px-4 py-2 rounded-lg flex items-center space-x-2 font-medium text-sm transition-colors"
+        >
+          <Plus className="h-4 w-4" /><span>{addLabel}</span>
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+const ModalShell = ({ title, subtitle, icon: Icon, onClose, children, wide }: {
+  title: string; subtitle: string; icon: React.ElementType;
+  onClose: () => void; children: React.ReactNode; wide?: boolean;
+}) => (
+  <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 overflow-y-auto">
+    <div className={`bg-white rounded-2xl shadow-2xl w-full ${wide ? 'max-w-3xl' : 'max-w-2xl'} my-4`}>
+      <div className="bg-black px-8 py-6 rounded-t-2xl flex items-center justify-between">
+        <div className="flex items-center space-x-4">
+          <div className="bg-white/20 p-3 rounded-xl"><Icon className="h-6 w-6 text-white" /></div>
+          <div>
+            <h3 className="text-xl font-bold text-white">{title}</h3>
+            <p className="text-white/70 text-sm">{subtitle}</p>
+          </div>
+        </div>
+        <button onClick={onClose} className="bg-white/20 hover:bg-white/30 text-white p-2 rounded-lg transition-colors">
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+      <div className="p-8 space-y-6 max-h-[75vh] overflow-y-auto">{children}</div>
+    </div>
+  </div>
+);
+
+const FormField = ({ label, required, hint, children }: {
+  label: string; required?: boolean; hint?: string; children: React.ReactNode;
+}) => (
+  <div>
+    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+      {label}{required && <span className="text-red-500 ml-1">*</span>}
+    </label>
+    {children}
+    {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
+  </div>
+);
+
+const inputCls = "w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all text-sm";
+
+const SaveButton = ({ saving, label, onClick }: { saving: boolean; label: string; onClick: () => void }) => (
+  <button
+    onClick={onClick}
+    disabled={saving}
+    className="px-6 py-3 bg-black text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 flex items-center space-x-2 font-medium text-sm transition-colors"
+  >
+    {saving
+      ? <><div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" /><span>Saving…</span></>
+      : <><Save className="h-4 w-4" /><span>{label}</span></>}
+  </button>
+);
+
+const EmptyState = ({ icon: Icon, title, subtitle }: { icon: React.ElementType; title: string; subtitle?: string }) => (
+  <div className="text-center py-12 text-gray-400">
+    <Icon className="h-10 w-10 mx-auto mb-3 opacity-40" />
+    <p className="font-medium text-gray-500">{title}</p>
+    {subtitle && <p className="text-sm mt-1">{subtitle}</p>}
+  </div>
+);
+
+const InfoBanner = ({ children }: { children: React.ReactNode }) => (
+  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start gap-2 text-sm text-blue-800">
+    <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
+    <span>{children}</span>
+  </div>
+);
+
+const WarnBanner = ({ children }: { children: React.ReactNode }) => (
+  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2 text-sm text-amber-800">
+    <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+    <span>{children}</span>
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPONENT SUMMARY PANEL (used inside ScoringConfig modal)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ComponentSummaryPanel = ({
+  educationLevelId,
+  assessmentComponents,
+  totalMaxScore,
+}: {
+  educationLevelId: number | string | null;
+  assessmentComponents: AssessmentComponent[];
+  totalMaxScore: number;
+}) => {
+  if (!educationLevelId) return null;
+
+  const components = assessmentComponents.filter((c) => {
+    const elId = typeof c.education_level === 'object'
+      ? (c.education_level as any).id
+      : c.education_level;
+    return String(elId) === String(educationLevelId) && c.is_active;
   });
 
-  const [gradingSystemForm, setGradingSystemForm] = useState<GradingSystemCreateUpdate & { id?: string }>({
-    name: '',
-    grading_type: 'PERCENTAGE',
-    description: '',
-    min_score: 0,
-    max_score: 100,
-    pass_mark: 50,
-    is_active: true
-  });
-  const [assessmentTypeForm, setAssessmentTypeForm] = useState<AssessmentTypeCreateUpdate & { id?: string }>({
-    name: '',
-    code: '',
-    description: '',
-    education_level: 'ALL',
-    max_score: 10,
-    weight_percentage: 100,
-    is_active: true
-  });
-  const [examSessionForm, setExamSessionForm] = useState<ExamSessionCreateUpdate & { id?: string }>({
-    name: '',
-    exam_type: '',
-    term: '',
-    academic_session: '',
-    start_date: '',
-    end_date: '',
-    result_release_date: '',
-    is_published: false,
-    is_active: true
-  });
-
-//   Grade form state
-const [gradeForm, setGradeForm] = useState<GradeCreateUpdate & { id?: string }>({
-  grading_system: '',
-  grade: '',
-  remark: '',
-  min_score: 0,
-  max_score: 0,
-  grade_point: undefined,
-  description: '',
-  is_passing: true
-});
-
-  // Loading states
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const [
-        gradingSystemsData,
-        gradesData,
-        assessmentTypesData,
-        examSessionsData,
-        scoringConfigsData,
-         academicSessionsData
-      ] = await Promise.all([
-        resultSettingsService.getGradingSystems(),
-        resultSettingsService.getGrades(),
-        resultSettingsService.getAssessmentTypes(),
-        resultSettingsService.getExamSessions(),
-        resultSettingsService.getScoringConfigurations(),
-        resultSettingsService.getAcademicSessions()
-      ]);
-
-      
-      setGradingSystems(gradingSystemsData);
-      setGrades(gradesData);
-      setAssessmentTypes(assessmentTypesData);
-      setExamSessions(examSessionsData);
-      setScoringConfigurations(scoringConfigsData);
-       setAcademicSessions(academicSessionsData);
-      
-      console.log('loadData - State updated, scoringConfigurations should now have:', scoringConfigsData?.length, 'items');
-    } catch (error) {
-      console.error('Error loading data:', error);
-      toast.error('Failed to load data');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const toggleSection = (section: string) => {
-    const newSections = new Set(activeSections);
-    if (newSections.has(section)) {
-      newSections.delete(section);
-    } else {
-      newSections.add(section);
-    }
-    setActiveSections(newSections);
-  };
-
-   
-  const handleManageGrades = (system: GradingSystem) => {
-  setSelectedGradingSystem(system);
-  console.log("This is System", system)
-  setShowGradesManagementModal(true);
-};
-
-  const resetGradeForm = () => {
-  setGradeForm({
-    grading_system: selectedGradingSystem?.id || '',
-    grade: '',
-    remark: '',
-    min_score: 0,
-    max_score: 0,
-    grade_point: undefined,
-    description: '',
-    is_passing: true
-  });
-};
-
-const handleCreateGrade = async () => {
-  try {
-    setSaving(true);
-    
-    // Validate required fields
-    if (!gradeForm.grade || !gradeForm.remark) {
-      toast.error('Grade and remark are required');
-      setSaving(false);
-      return;
-    }
-    
-    // Validate score range
-    if (gradeForm.min_score >= gradeForm.max_score) {
-      toast.error('Minimum score must be less than maximum score');
-      setSaving(false);
-      return;
-    }
-    
-    const { id, ...createData } = gradeForm;
-    await resultSettingsService.createGrade(createData);
-    toast.success('Grade created successfully');
-    setShowGradeForm(false);
-    resetGradeForm();
-    loadData();
-  } catch (error: any) {
-    console.error('Error creating grade:', error);
-    if (error.response?.data) {
-      const errorData = error.response.data;
-      if (errorData.non_field_errors) {
-        toast.error(errorData.non_field_errors[0]);
-      } else if (typeof errorData === 'object') {
-        const errorMessages = Object.values(errorData).flat();
-        toast.error(errorMessages[0] as string);
-      } else {
-        toast.error('Failed to create grade');
-      }
-    } else {
-      toast.error('Failed to create grade');
-    }
-  } finally {
-    setSaving(false);
-  }
-};
-
-const handleUpdateGrade = async (id: string) => {
-  try {
-    setSaving(true);
-    
-    // Validate required fields
-    if (!gradeForm.grade || !gradeForm.remark) {
-      toast.error('Grade and remark are required');
-      setSaving(false);
-      return;
-    }
-    
-    // Validate score range
-    if (gradeForm.min_score >= gradeForm.max_score) {
-      toast.error('Minimum score must be less than maximum score');
-      setSaving(false);
-      return;
-    }
-    
-    const { id: formId, ...updateData } = gradeForm;
-    await resultSettingsService.updateGrade(id, updateData);
-    toast.success('Grade updated successfully');
-    setShowGradeForm(false);
-    resetGradeForm();
-    loadData();
-  } catch (error: any) {
-    console.error('Error updating grade:', error);
-    if (error.response?.data) {
-      const errorData = error.response.data;
-      if (errorData.non_field_errors) {
-        toast.error(errorData.non_field_errors[0]);
-      } else if (typeof errorData === 'object') {
-        const errorMessages = Object.values(errorData).flat();
-        toast.error(errorMessages[0] as string);
-      } else {
-        toast.error('Failed to update grade');
-      }
-    } else {
-      toast.error('Failed to update grade');
-    }
-  } finally {
-    setSaving(false);
-  }
-};
-
-const handleDeleteGrade = async (id: string) => {
-  if (window.confirm('Are you sure you want to delete this grade?')) {
-    try {
-      await resultSettingsService.deleteGrade(id);
-      toast.success('Grade deleted successfully');
-      loadData();
-    } catch (error) {
-      console.error('Error deleting grade:', error);
-      toast.error('Failed to delete grade');
-    }
-  }
-};
-
-  
-  // Scoring Configuration handlers
-  const handleCreateScoringConfig = async () => {
-    
-    try {
-      console.log('=== handleCreateScoringConfig START ===');
-      setSaving(true);
-      
-      // Check if data is loaded
-      if (loading) {
-        console.log('Loading check failed');
-        toast.error('Please wait for data to load before creating a configuration');
-        setSaving(false);
-        return;
-      }
-      console.log('Loading check passed');
-      
-      // Validate weight percentages before sending (only for TERMLY)
-      if (scoringConfigForm.result_type === 'TERMLY' && !validateWeightPercentages()) {
-        console.log('Weight validation failed');
-        toast.error('CA weight percentage and exam weight percentage must sum to 100%');
-        setSaving(false);
-        return;
-      }
-      console.log('Weight validation passed');
-
-      if (scoringConfigForm.result_type === 'TERMLY' && 
-        scoringConfigForm.education_level !== 'NURSERY' && 
-        !validateTotalScore()) {
-      console.log('Total score validation failed');
-      const caTotal = scoringConfigForm.education_level === 'SENIOR_SECONDARY' 
-        ? calculateTotalCA() 
-        : calculateTotalCAPrimaryJunior();
-      const examScore = Number(scoringConfigForm.exam_max_score) || 0;
-      const expectedTotal = caTotal + examScore;
-      toast.error(`Total max score must equal ${expectedTotal} (CA: ${caTotal} + Exam: ${examScore})`);
-      setSaving(false);
-      return;
-    }
-    console.log('Total score validation passed');
-     
-     // Validate default configuration
-     if (!validateDefaultConfiguration()) {
-       console.log('Default configuration validation failed');
-       toast.error('Only one default configuration is allowed per education level. Please set the existing default configuration to non-default first, or set this configuration as non-default.');
-       setSaving(false);
-       return;
-     }
-     console.log('Default configuration validation passed');
-     
-            // Prepare form data based on education level and result type
-       let formData: any = JSON.parse(JSON.stringify(scoringConfigForm));
-      
-      console.log('Original formData:', formData);
-      const level = scoringConfigForm.education_level?.toUpperCase();
-
-              // Remove fields that don't apply based on education level
-       if (level === 'SENIOR_SECONDARY') {
-         // For Senior Secondary, remove Junior Secondary/Primary fields
-         delete formData.continuous_assessment_max_score;
-         delete formData.take_home_test_max_score;
-         delete formData.appearance_max_score;
-         delete formData.practical_max_score;
-         delete formData.project_max_score;
-         delete formData.note_copying_max_score;
-         console.log('After removing Junior/Primary fields for Senior Secondary:', formData);
-       } else if (level === 'NURSERY') {
-         // For Nursery, remove all other fields except total_max_score
-         delete formData.first_test_max_score;
-         delete formData.second_test_max_score;
-         delete formData.third_test_max_score;
-         delete formData.continuous_assessment_max_score;
-         delete formData.take_home_test_max_score;
-         delete formData.appearance_max_score;
-         delete formData.practical_max_score;
-         delete formData.project_max_score;
-         delete formData.note_copying_max_score;
-         delete formData.ca_weight_percentage;
-         delete formData.exam_weight_percentage;
-         console.log('After removing all fields except total_max_score for Nursery:', formData);
-       } else {
-         // For Junior Secondary and Primary, remove Senior Secondary fields
-         delete formData.first_test_max_score;
-         delete formData.second_test_max_score;
-         delete formData.third_test_max_score;
-         console.log('After removing Senior Secondary fields for Junior/Primary:', formData);
-       }
-      
-      if (scoringConfigForm.result_type === 'SESSION') {
-        // Remove fields that don't apply to SESSION result type
-        delete formData.exam_max_score;
-        delete formData.ca_weight_percentage;
-        delete formData.exam_weight_percentage;
-        // delete formData.total_max_score;
-        console.log('After removing SESSION fields:', formData);
-      }
-      
-      console.log('Final formData being sent:', formData);
-     console.log('About to call resultSettingsService.createScoringConfiguration...');
-
-     console.log("Payload actually sent:", formData);
-     const response = await resultSettingsService.createScoringConfiguration(formData);
-     console.log('API Response:', response);
-     toast.success('Scoring configuration created successfully');
-     setShowScoringConfigForm(false);
-     setScoringConfigForm({
-       name: '',
-       education_level: 'SENIOR_SECONDARY',
-       result_type: 'TERMLY',
-       description: '',
-       first_test_max_score: 10,
-       second_test_max_score: 10,
-       third_test_max_score: 10,
-       exam_max_score: 70,
-       total_max_score: 100,
-       ca_weight_percentage: 30,
-       exam_weight_percentage: 70,
-       continuous_assessment_max_score: 15,
-       take_home_test_max_score: 5,
-       appearance_max_score: 5,
-       practical_max_score: 5,
-       project_max_score: 5,
-       note_copying_max_score: 5,
-       is_active: true,
-       is_default: false
-     });
-     console.log('About to reload data...');
-     await loadData();
-     console.log('Data reloaded successfully');
-   } catch (error: any) {
-     console.error('Error creating scoring configuration:', error);
-     
-     // Show specific validation errors if available
-     if (error.response?.data) {
-       const errorData = error.response.data;
-       if (errorData.non_field_errors) {
-         toast.error(errorData.non_field_errors[0]);
-       } else if (typeof errorData === 'object') {
-         const errorMessages = Object.values(errorData).flat();
-         toast.error(errorMessages[0] as string);
-       } else {
-         toast.error('Failed to create scoring configuration');
-       }
-     } else {
-       toast.error('Failed to create scoring configuration');
-     }
-   } finally {
-     setSaving(false);
-   }
- };
-
-    const handleUpdateScoringConfig = async (id: string) => {
-    try {
-      setSaving(true);
-      
-      // Check if data is loaded
-      if (loading) {
-        toast.error('Please wait for data to load before updating a configuration');
-        setSaving(false);
-        return;
-      }
-      
-      // Validate weight percentages before sending (only for TERMLY)
-      if (scoringConfigForm.result_type === 'TERMLY' && !validateWeightPercentages()) {
-        toast.error('CA weight percentage and exam weight percentage must sum to 100%');
-        setSaving(false);
-        return;
-      }
-
-      if (scoringConfigForm.result_type === 'TERMLY' && 
-        scoringConfigForm.education_level !== 'NURSERY' && 
-        !validateTotalScore()) {
-      const caTotal = scoringConfigForm.education_level === 'SENIOR_SECONDARY' 
-        ? calculateTotalCA() 
-        : calculateTotalCAPrimaryJunior();
-      const examScore = Number(scoringConfigForm.exam_max_score) || 0;
-      const expectedTotal = caTotal + examScore;
-      toast.error(`Total max score must equal ${expectedTotal} (CA: ${caTotal} + Exam: ${examScore})`);
-      setSaving(false);
-      return;
-    }
-     
-     // Validate default configuration
-     if (!validateDefaultConfiguration()) {
-       toast.error('Only one default configuration is allowed per education level. Please set the existing default configuration to non-default first, or set this configuration as non-default.');
-       setSaving(false);
-       return;
-     }
-     
-                        // Prepare form data based on education level and result type
-      let formData: any = JSON.parse(JSON.stringify(scoringConfigForm));
-      
-      console.log('Original formData (update):', formData);
-      const level = scoringConfigForm.education_level?.toUpperCase();
-              // Remove fields that don't apply based on education level
-       if (level === 'SENIOR_SECONDARY') {
-        formData.first_test_max_score ??= 10;
-        formData.second_test_max_score ??= 10;
-        formData.third_test_max_score ??= 10;
-        formData.exam_max_score ??= 70;
-        formData.total_max_score ??= 100;
-         // For Senior Secondary, remove Junior Secondary/Primary fields
-         delete formData.continuous_assessment_max_score;
-         delete formData.take_home_test_max_score;
-         delete formData.appearance_max_score;
-         delete formData.practical_max_score;
-         delete formData.project_max_score;
-         delete formData.note_copying_max_score;
-         console.log('After removing Junior/Primary fields for Senior Secondary (update):', formData);
-       } else if (level === 'NURSERY') {
-         // For Nursery, remove all other fields except total_max_score
-         delete formData.first_test_max_score;
-         delete formData.second_test_max_score;
-         delete formData.third_test_max_score;
-         delete formData.continuous_assessment_max_score;
-         delete formData.take_home_test_max_score;
-         delete formData.appearance_max_score;
-         delete formData.practical_max_score;
-         delete formData.project_max_score;
-         delete formData.note_copying_max_score;
-         delete formData.ca_weight_percentage;
-         delete formData.exam_weight_percentage;
-         console.log('After removing all fields except total_max_score for Nursery (update):', formData);
-       } else {
-         // For Junior Secondary and Primary, remove Senior Secondary fields
-         delete formData.first_test_max_score;
-         delete formData.second_test_max_score;
-         delete formData.third_test_max_score;
-         console.log('After removing Senior Secondary fields for Junior/Primary (update):', formData);
-       }
-      
-      if (scoringConfigForm.result_type === 'SESSION') {
-        // Remove fields that don't apply to SESSION result type
-        delete formData.exam_max_score;
-        delete formData.ca_weight_percentage;
-        delete formData.exam_weight_percentage;
-        // delete formData.total_max_score;
-        console.log('After removing SESSION fields (update):', formData);
-      }
-      
-      console.log('Final formData being sent (update):', formData);
-     await resultSettingsService.updateScoringConfiguration(id, formData);
-     toast.success('Scoring configuration updated successfully');
-     setShowScoringConfigForm(false);
-     loadData();
-   } catch (error: any) {
-     console.error('Error updating scoring configuration:', error);
-     
-     // Show specific validation errors if available
-     if (error.response?.data) {
-       const errorData = error.response.data;
-       if (errorData.non_field_errors) {
-         toast.error(errorData.non_field_errors[0]);
-       } else if (typeof errorData === 'object') {
-         const errorMessages = Object.values(errorData).flat();
-         toast.error(errorMessages[0] as string);
-       } else {
-         toast.error('Failed to update scoring configuration');
-       }
-     } else {
-       toast.error('Failed to update scoring configuration');
-     }
-   } finally {
-     setSaving(false);
-   }
- };
-
-  const handleDeleteScoringConfig = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this scoring configuration?')) {
-      try {
-        console.log('Attempting to delete scoring configuration with ID:', id);
-        await resultSettingsService.deleteScoringConfiguration(id);
-        console.log('Scoring configuration deleted successfully');
-        toast.success('Scoring configuration deleted successfully');
-        loadData();
-      } catch (error: any) {
-        console.error('Error deleting scoring configuration:', error);
-        console.error('Error details:', error.response?.data);
-        toast.error('Failed to delete scoring configuration');
-      }
-    }
-  };
-
-  const calculateTotalCA = () => {
-    const firstTest = Number(scoringConfigForm.first_test_max_score) || 0;
-    const secondTest = Number(scoringConfigForm.second_test_max_score) || 0;
-    const thirdTest = Number(scoringConfigForm.third_test_max_score) || 0;
-    return firstTest + secondTest + thirdTest;
-  };
-
-  const calculateTotalCAPrimaryJunior = () => {
-    const ca = Number(scoringConfigForm.continuous_assessment_max_score) || 0;
-    const takeHomeTest = Number(scoringConfigForm.take_home_test_max_score) || 0;
-    const appearance = Number(scoringConfigForm.appearance_max_score) || 0;
-    const practical = Number(scoringConfigForm.practical_max_score) || 0;
-    const project = Number(scoringConfigForm.project_max_score) || 0;
-    const noteCopying = Number(scoringConfigForm.note_copying_max_score) || 0;
-    return ca + takeHomeTest + appearance + practical + project + noteCopying;
-  };
-
-  const validateWeightPercentages = () => {
-    const caWeight = Number(scoringConfigForm.ca_weight_percentage) || 0;
-    const examWeight = Number(scoringConfigForm.exam_weight_percentage) || 0;
-    const total = caWeight + examWeight;
-    const isValid = total === 100;
-    console.log('validateWeightPercentages:', {
-      ca_weight: scoringConfigForm.ca_weight_percentage,
-      exam_weight: scoringConfigForm.exam_weight_percentage,
-      total,
-      isValid
-    });
-    return isValid;
-  };
-
-  const validateDefaultConfiguration = () => {
-    console.log('validateDefaultConfiguration:', {
-      is_default: scoringConfigForm.is_default,
-      education_level: scoringConfigForm.education_level,
-      configs_length: scoringConfigurations?.length,
-      existing_configs: scoringConfigurations?.filter(c => c.education_level === scoringConfigForm.education_level)
-    });
-    
-    if (scoringConfigForm.is_default && scoringConfigurations && scoringConfigurations.length > 0) {
-      const existingDefault = scoringConfigurations.find(
-        config => config.education_level === scoringConfigForm.education_level && 
-                  config.is_default && 
-                  config.id !== scoringConfigForm.id
-      );
-      console.log('Existing default found:', existingDefault);
-      return !existingDefault;
-    }
-    return true;
-  };
-
-  const validateTotalScore = () => {
-    const caTotal = calculateTotalCA();
-    const examScore = Number(scoringConfigForm.exam_max_score) || 0;
-    const expectedTotal = caTotal + examScore;
-    const actualTotal = Number(scoringConfigForm.total_max_score) || 0;
-    const isValid = expectedTotal === actualTotal;
-    return isValid;
-  };
-
-  // Grading System handlers
-  const handleDeleteGradingSystem = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this grading system?')) {
-      try {
-        await resultSettingsService.deleteGradingSystem(id);
-        toast.success('Grading system deleted successfully');
-        loadData();
-      } catch (error) {
-        console.error('Error deleting grading system:', error);
-        toast.error('Failed to delete grading system');
-      }
-    }
-  };
-
-  // Assessment Type handlers
-  const handleDeleteAssessmentType = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this assessment type?')) {
-      try {
-        await resultSettingsService.deleteAssessmentType(id);
-        toast.success('Assessment type deleted successfully');
-        loadData();
-      } catch (error) {
-        console.error('Error deleting assessment type:', error);
-        toast.error('Failed to delete assessment type');
-      }
-    }
-  };
-
-  // Exam Session handlers
-  const handleDeleteExamSession = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this exam session?')) {
-      try {
-        await resultSettingsService.deleteExamSession(id);
-        toast.success('Exam session deleted successfully');
-        loadData();
-      } catch (error) {
-        console.error('Error deleting exam session:', error);
-        toast.error('Failed to delete exam session');
-      }
-    }
-  };
-
-  // Grading System Create/Update handlers
-  const handleCreateGradingSystem = async () => {
-    try {
-      setSaving(true);
-      await resultSettingsService.createGradingSystem(gradingSystemForm);
-      toast.success('Grading system created successfully');
-      setShowGradingSystemForm(false);
-      resetGradingSystemForm();
-      loadData();
-    } catch (error: any) {
-      console.error('Error creating grading system:', error);
-      if (error.response?.data) {
-        const errorData = error.response.data;
-        if (errorData.non_field_errors) {
-          toast.error(errorData.non_field_errors[0]);
-        } else if (typeof errorData === 'object') {
-          const errorMessages = Object.values(errorData).flat();
-          toast.error(errorMessages[0] as string);
-        } else {
-          toast.error('Failed to create grading system');
-        }
-      } else {
-        toast.error('Failed to create grading system');
-      }
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleUpdateGradingSystem = async (id: string) => {
-    try {
-      setSaving(true);
-      await resultSettingsService.updateGradingSystem(id, gradingSystemForm);
-      toast.success('Grading system updated successfully');
-      setShowGradingSystemForm(false);
-      resetGradingSystemForm();
-      loadData();
-    } catch (error: any) {
-      console.error('Error updating grading system:', error);
-      if (error.response?.data) {
-        const errorData = error.response.data;
-        if (errorData.non_field_errors) {
-          toast.error(errorData.non_field_errors[0]);
-        } else if (typeof errorData === 'object') {
-          const errorMessages = Object.values(errorData).flat();
-          toast.error(errorMessages[0] as string);
-        } else {
-          toast.error('Failed to update grading system');
-        }
-      } else {
-        toast.error('Failed to update grading system');
-      }
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const resetGradingSystemForm = () => {
-    setGradingSystemForm({
-      name: '',
-      grading_type: 'PERCENTAGE',
-      description: '',
-      min_score: 0,
-      max_score: 100,
-      pass_mark: 50,
-      is_active: true
-    });
-  };
-
-  // Assessment Type Create/Update handlers
-  const handleCreateAssessmentType = async () => {
-    try {
-      setSaving(true);
-      await resultSettingsService.createAssessmentType(assessmentTypeForm);
-      toast.success('Assessment type created successfully');
-      setShowAssessmentTypeForm(false);
-      resetAssessmentTypeForm();
-      loadData();
-    } catch (error: any) {
-      console.error('Error creating assessment type:', error);
-      if (error.response?.data) {
-        const errorData = error.response.data;
-        if (errorData.non_field_errors) {
-          toast.error(errorData.non_field_errors[0]);
-        } else if (typeof errorData === 'object') {
-          const errorMessages = Object.values(errorData).flat();
-          toast.error(errorMessages[0] as string);
-        } else {
-          toast.error('Failed to create assessment type');
-        }
-      } else {
-        toast.error('Failed to create assessment type');
-      }
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleUpdateAssessmentType = async (id: string) => {
-    try {
-      setSaving(true);
-      await resultSettingsService.updateAssessmentType(id, assessmentTypeForm);
-      toast.success('Assessment type updated successfully');
-      setShowAssessmentTypeForm(false);
-      resetAssessmentTypeForm();
-      loadData();
-    } catch (error: any) {
-      console.error('Error updating assessment type:', error);
-      if (error.response?.data) {
-        const errorData = error.response.data;
-        if (errorData.non_field_errors) {
-          toast.error(errorData.non_field_errors[0]);
-        } else if (typeof errorData === 'object') {
-          const errorMessages = Object.values(errorData).flat();
-          toast.error(errorMessages[0] as string);
-        } else {
-          toast.error('Failed to update assessment type');
-        }
-      } else {
-        toast.error('Failed to update assessment type');
-      }
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const resetAssessmentTypeForm = () => {
-    setAssessmentTypeForm({
-      name: '',
-      code: '',
-      description: '',
-      education_level: 'ALL',
-      max_score: 10,
-      weight_percentage: 100,
-      is_active: true
-    });
-  };
-
-// goodExam Session Create/Update handlers
-const handleCreateExamSession = async () => {
-  try {
-    setSaving(true);
-
-    // Validate selections
-    if (!examSessionForm.academic_session) {
-      toast.error("Please select an academic session");
-      setSaving(false);
-      return;
-    }
-    if (!examSessionForm.exam_type) {
-      toast.error("Please select an exam type");
-      setSaving(false);
-      return;
-    }
-    if (!examSessionForm.term) {
-      toast.error("Please select a term");
-      setSaving(false);
-      return;
-    }
-
-    // goodConvert academic_session to integer before sending
-    const payload = {
-      ...examSessionForm,
-      academic_session: Number(examSessionForm.academic_session),
-    };
-
-    console.log("Creating exam session with payload:", payload);
-    await resultSettingsService.createExamSession(payload);
-
-    toast.success("Exam session created successfully");
-    setShowExamSessionForm(false);
-    resetExamSessionForm();
-    loadData();
-  } catch (error: any) {
-    console.error("Error creating exam session:", error);
-    if (error.response?.data) {
-      const errorData = error.response.data;
-      if (errorData.non_field_errors) {
-        toast.error(errorData.non_field_errors[0]);
-      } else if (typeof errorData === "object") {
-        const errorMessages = Object.values(errorData).flat();
-        toast.error(errorMessages[0] as string);
-      } else {
-        toast.error("Failed to create exam session");
-      }
-    } else {
-      toast.error("Failed to create exam session");
-    }
-  } finally {
-    setSaving(false);
-  }
-};
-
-const handleUpdateExamSession = async (id: string) => {
-  try {
-    setSaving(true);
-
-    if (!examSessionForm.academic_session) {
-      toast.error("Please select an academic session");
-      setSaving(false);
-      return;
-    }
-
-    // goodConvert academic_session to integer before sending
-    const payload = {
-      ...examSessionForm,
-      academic_session: Number(examSessionForm.academic_session),
-    };
-
-    console.log("Updating exam session with payload:", payload);
-    await resultSettingsService.updateExamSession(id, payload);
-
-    toast.success("Exam session updated successfully");
-    setShowExamSessionForm(false);
-    resetExamSessionForm();
-    loadData();
-  } catch (error: any) {
-    console.error("Error updating exam session:", error);
-    if (error.response?.data) {
-      const errorData = error.response.data;
-      if (errorData.non_field_errors) {
-        toast.error(errorData.non_field_errors[0]);
-      } else if (typeof errorData === "object") {
-        const errorMessages = Object.values(errorData).flat();
-        toast.error(errorMessages[0] as string);
-      } else {
-        toast.error("Failed to update exam session");
-      }
-    } else {
-      toast.error("Failed to update exam session");
-    }
-  } finally {
-    setSaving(false);
-  }
-};
-
-  const resetExamSessionForm = () => {
-    setExamSessionForm({
-      name: '',
-      exam_type: '',
-      term: '',
-      academic_session: '',
-      start_date: '',
-      end_date: '',
-      result_release_date: '',
-      is_published: false,
-      is_active: true
-    });
-  };
-
-  if (loading) {
+  if (components.length === 0) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent mx-auto mb-4"></div>
-          <p className="text-lg text-gray-700 font-medium">Loading Exams & Results Settings...</p>
-          <p className="text-sm text-gray-500 mt-2">Please wait while we fetch your configuration data</p>
+      <WarnBanner>
+        No active Assessment Components configured for this education level.
+        The <strong>Total Max Score</strong> you enter cannot be validated against components.
+        Add components first for best results.
+      </WarnBanner>
+    );
+  }
+
+  const componentSum = components.reduce((sum, c) => sum + Number(c.max_score), 0);
+  const mismatch = totalMaxScore > 0 && componentSum !== totalMaxScore;
+
+  return (
+    <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-gray-700">Active Components for this Level</p>
+        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+          mismatch ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+        }`}>
+          Sum: {componentSum}
+        </span>
+      </div>
+      <div className="space-y-1.5">
+        {components.sort((a, b) => a.display_order - b.display_order).map((c) => (
+          <div key={c.id} className="flex items-center justify-between text-xs">
+            <span className="flex items-center gap-1.5 text-gray-600">
+              <ChevronRight className="w-3 h-3 text-gray-400" />
+              {c.name}
+              {c.contributes_to_ca && (
+                <span className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded text-[10px]">CA</span>
+              )}
+            </span>
+            <span className="font-semibold text-gray-800">{c.max_score}</span>
+          </div>
+        ))}
+      </div>
+      {mismatch && (
+        <p className="text-xs text-red-600 font-medium pt-1 border-t border-red-200">
+          ⚠ Component sum ({componentSum}) ≠ Total Max Score ({totalMaxScore}). The backend will reject this.
+          Update Total Max Score to {componentSum}.
+        </p>
+      )}
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NURSERY MODE BANNER
+// ─────────────────────────────────────────────────────────────────────────────
+
+const NurseryModeBanner = ({
+  educationLevelId,
+  assessmentComponents,
+}: {
+  educationLevelId: number | string;
+  assessmentComponents: AssessmentComponent[];
+}) => {
+  const nurseryComponents = assessmentComponents.filter((c) => {
+    const elId = typeof c.education_level === 'object'
+      ? (c.education_level as any).id
+      : c.education_level;
+    const levelType = typeof c.education_level === 'object'
+      ? (c.education_level as any).level_type
+      : '';
+    return String(elId) === String(educationLevelId) || levelType === 'NURSERY';
+  });
+
+  if (nurseryComponents.length === 0) {
+    return (
+      <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 flex items-start gap-3">
+        <div className="bg-purple-100 p-2 rounded-lg flex-shrink-0">
+          <Info className="w-4 h-4 text-purple-700" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-purple-800">Single Score Mode (Active)</p>
+          <p className="text-xs text-purple-700 mt-0.5">
+            No components configured for this level. Teachers will enter <strong>Score Obtainable</strong> and{' '}
+            <strong>Score Obtained</strong> directly per subject — no CA breakdown.
+            Add components below to switch to component-based entry.
+          </p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
-      <div className="max-w-7xl mx-auto space-y-8">
-        {/* Header Section */}
-        <div className="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="bg-black p-3 rounded-xl">
-                <FileText className="h-8 w-8 text-white" />
-              </div>
-              <div>
-                <h1 className="text-3xl font-bold text-gray-900">Exams & Results Settings</h1>
-                <p className="text-gray-600 mt-1">
-                  Configure grading systems, assessment types, exam sessions, and result templates
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-3">
-              <div className="bg-gray-100 text-gray-800 hover:bg-green-100 hover:text-green-800 px-4 py-2 rounded-full text-sm font-medium">
-                <CheckCircle className="h-4 w-4 inline mr-2" />
-                System Active
-              </div>
-            </div>
-          </div>
-        </div>
+    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-start gap-3">
+      <div className="bg-emerald-100 p-2 rounded-lg flex-shrink-0">
+        <CheckCircle className="w-4 h-4 text-emerald-700" />
+      </div>
+      <div>
+        <p className="text-sm font-semibold text-emerald-800">Component Mode (Active)</p>
+        <p className="text-xs text-emerald-700 mt-0.5">
+          {nurseryComponents.length} component{nurseryComponents.length > 1 ? 's' : ''} configured.
+          Teachers will enter individual component scores. Remove all components to switch back to single score mode.
+        </p>
+      </div>
+    </div>
+  );
+};
 
-        {/* Quick Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Grading Systems</p>
-                <p className="text-2xl font-bold text-gray-900">{gradingSystems?.length || 0}</p>
-              </div>
-              <div className="bg-gray-100 p-3 rounded-lg">
-                <Award className="h-6 w-6 text-black" />
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Assessment Types</p>
-                <p className="text-2xl font-bold text-gray-900">{assessmentTypes?.length || 0}</p>
-              </div>
-              <div className="bg-gray-100 p-3 rounded-lg">
-                <BookOpen className="h-6 w-6 text-black" />
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Exam Sessions</p>
-                <p className="text-2xl font-bold text-gray-900">{examSessions?.length || 0}</p>
-              </div>
-              <div className="bg-gray-100 p-3 rounded-lg">
-                <Calendar className="h-6 w-6 text-black" />
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Scoring Configs</p>
-                <p className="text-2xl font-bold text-gray-900">{scoringConfigurations?.length || 0}</p>
-              </div>
-              <div className="bg-gray-100 p-3 rounded-lg">
-                <Calculator className="h-6 w-6 text-black" />
-              </div>
-            </div>
-          </div>
-        </div>
 
-        {/* Scoring Configurations Section */}
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-          <div className="bg-black px-8 py-6">
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ExamsResultTab: React.FC = () => {
+  const [activeSections, setActiveSections] = useState<Set<string>>(
+    new Set(['assessment-components'])
+  );
+
+  // ── Data ──────────────────────────────────────────────────────────────────
+  const [gradingSystems,        setGradingSystems]        = useState<GradingSystem[]>([]);
+  const [grades,                setGrades]                = useState<GradeRange[]>([]);
+  const [examSessions,          setExamSessions]          = useState<ExamSession[]>([]);
+  const [examTypes,             setExamTypes]             = useState<ExamType[]>([]);
+  const [academicSessions,      setAcademicSessions]      = useState<AcademicSession[]>([]);
+  const [scoringConfigurations, setScoringConfigurations] = useState<ScoringConfiguration[]>([]);
+  const [assessmentComponents,  setAssessmentComponents]  = useState<AssessmentComponent[]>([]);
+  const [educationLevels,       setEducationLevels]       = useState<EducationLevel[]>([]);
+  const [selectedGradingSystem, setSelectedGradingSystem] = useState<GradingSystem | null>(null);
+  const [academicTerms,         setAcademicTerms]         = useState<any[]>([]);
+
+  // ── Modal visibility ──────────────────────────────────────────────────────
+  const [showScoringConfigForm,   setShowScoringConfigForm]   = useState(false);
+  const [showGradingSystemForm,   setShowGradingSystemForm]   = useState(false);
+  const [showExamSessionForm,     setShowExamSessionForm]     = useState(false);
+  const [showExamTypeForm,        setShowExamTypeForm]        = useState(false);
+  const [showGradesModal,         setShowGradesModal]         = useState(false);
+  const [showGradeForm,           setShowGradeForm]           = useState(false);
+  const [showComponentForm,       setShowComponentForm]       = useState(false);
+
+  // ── Form state ────────────────────────────────────────────────────────────
+
+  // ScoringConfiguration — only fields that exist on the backend model
+  const blankScoringConfig = (): ScoringConfigurationCreateUpdate & { id?: string } => ({
+    name: '',
+    education_level: '' as any,
+    result_type: 'TERMLY',
+    description: '',
+    total_max_score: 100,
+    is_active: true,
+    is_default: false,
+  });
+  const [scoringConfigForm, setScoringConfigForm] = useState(blankScoringConfig());
+
+  const blankGradingSystem = (): GradingSystemCreateUpdate & { id?: string } => ({
+    name: '', grading_type: 'PERCENTAGE', description: '',
+    min_score: 0, max_score: 100, pass_mark: 50, is_active: true,
+  });
+  const [gradingSystemForm, setGradingSystemForm] = useState(blankGradingSystem());
+
+  const blankExamSession = (): ExamSessionCreateUpdate & { id?: string } => ({
+    name: '', exam_type: '', term: '', academic_session: '',
+    start_date: '', end_date: '', result_release_date: '', is_published: false, is_active: true,
+  });
+  const [examSessionForm, setExamSessionForm] = useState(blankExamSession());
+
+  const blankExamType = (): ExamTypeCreateUpdate & { id?: number } => ({
+    name: '', code: '', category: 'OTHER', description: '', display_order: 0, is_active: true,
+  });
+  const [examTypeForm, setExamTypeForm] = useState(blankExamType());
+
+  const blankGrade = (gsId = ''): GradeCreateUpdate & { id?: string } => ({
+    grading_system: gsId, grade: '', remark: '',
+    min_score: 0, max_score: 0, grade_point: undefined, description: '', is_passing: true,
+  });
+  const [gradeForm, setGradeForm] = useState(blankGrade());
+
+  const blankComponent = (): AssessmentComponentCreateUpdate & { id?: number } => ({
+    education_level: 0 as any, name: '', code: '', component_type: 'CA',
+    max_score: '10', contributes_to_ca: true, display_order: 0, is_active: true,
+  });
+  const [componentForm, setComponentForm] = useState(blankComponent());
+
+  const [loading, setLoading] = useState(true);
+  const [saving,  setSaving]  = useState(false);
+
+  // ── Derived — nursery level id ────────────────────────────────────────────
+  const nurseryLevelId = educationLevels.find(
+    (l) => l.level_type === 'NURSERY' || l.name.toUpperCase().includes('NURSERY')
+  )?.id ?? null;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // DATA LOADING
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [gs, gr, es, sc, as_, et, ac] = await Promise.all([
+        resultSettingsService.getGradingSystems(),
+        resultSettingsService.getGrades(),
+        resultSettingsService.getExamSessions(),
+        resultSettingsService.getScoringConfigurations(),
+        resultSettingsService.getAcademicSessions(),
+        resultSettingsService.getExamTypes(),
+        resultSettingsService.getAssessmentComponents(),
+      ]);
+      setGradingSystems(gs);
+      setGrades(gr);
+      setExamSessions(es);
+      setScoringConfigurations(sc);
+      setAcademicSessions(as_);
+      setExamTypes(et);
+      setAssessmentComponents(ac);
+
+      // Load education levels and academic terms
+      try {
+        const { default: api } = await import('@/services/api');
+        const [lvls, terms] = await Promise.all([
+          api.get('/api/academics/education-levels/'),
+          api.get('/api/academics/terms/').catch(() => ({ results: [] })),
+        ]);
+        setEducationLevels(Array.isArray(lvls) ? lvls : lvls?.results ?? []);
+        setAcademicTerms(Array.isArray(terms) ? terms : terms?.results ?? []);
+      } catch {
+        // graceful — education levels fall back to component-derived list
+      }
+    } catch {
+      toast.error('Failed to load settings');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const toggleSection = (key: string) => {
+    const s = new Set(activeSections);
+    s.has(key) ? s.delete(key) : s.add(key);
+    setActiveSections(s);
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // HELPERS — education level resolution
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Returns a display name for a component's education_level field,
+   * which may be an object (from API) or a raw ID.
+   */
+  const resolveELName = (el: any): string => {
+    if (!el) return '—';
+    if (typeof el === 'object') return el.name || el.level_type || String(el.id);
+    // It's a raw ID — look up in our loaded list
+    const found = educationLevels.find((l) => String(l.id) === String(el));
+    return found?.name ?? String(el);
+  };
+
+  /**
+   * Get the numeric ID from an education_level field (object or raw).
+   */
+  const resolveELId = (el: any): number | string => {
+    if (!el) return '';
+    if (typeof el === 'object') return el.id;
+    return el;
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // ASSESSMENT COMPONENTS CRUD
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const handleCreateComponent = async () => {
+    setSaving(true);
+    try {
+      if (!componentForm.name || !componentForm.code) { toast.error('Name and code are required'); return; }
+      if (!componentForm.education_level) { toast.error('Education level is required'); return; }
+      const { id, ...data } = componentForm;
+      await resultSettingsService.createAssessmentComponent(data);
+      toast.success('Assessment component created');
+      setShowComponentForm(false);
+      setComponentForm(blankComponent());
+      loadData();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || JSON.stringify(e?.response?.data) || 'Failed to create component');
+    } finally { setSaving(false); }
+  };
+
+  const handleUpdateComponent = async (id: number) => {
+    setSaving(true);
+    try {
+      const { id: _, ...data } = componentForm;
+      await resultSettingsService.updateAssessmentComponent(id, data);
+      toast.success('Assessment component updated');
+      setShowComponentForm(false);
+      setComponentForm(blankComponent());
+      loadData();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Failed to update component');
+    } finally { setSaving(false); }
+  };
+
+  const handleDeleteComponent = async (id: number) => {
+    if (!window.confirm('Delete this assessment component?')) return;
+    try {
+      await resultSettingsService.deleteAssessmentComponent(id);
+      toast.success('Component deleted');
+      loadData();
+    } catch { toast.error('Failed to delete component'); }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // EXAM TYPES CRUD
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const handleCreateExamType = async () => {
+    setSaving(true);
+    try {
+      if (!examTypeForm.name || !examTypeForm.code) { toast.error('Name and code are required'); return; }
+      const { id, ...data } = examTypeForm;
+      await resultSettingsService.createExamType(data);
+      toast.success('Exam type created');
+      setShowExamTypeForm(false);
+      setExamTypeForm(blankExamType());
+      loadData();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Failed to create exam type');
+    } finally { setSaving(false); }
+  };
+
+  const handleUpdateExamType = async (id: number) => {
+    setSaving(true);
+    try {
+      const { id: _, ...data } = examTypeForm;
+      await resultSettingsService.updateExamType(id, data);
+      toast.success('Exam type updated');
+      setShowExamTypeForm(false);
+      loadData();
+    } catch { toast.error('Failed to update exam type'); }
+    finally { setSaving(false); }
+  };
+
+  const handleDeleteExamType = async (id: number) => {
+    if (!window.confirm('Delete this exam type?')) return;
+    try { await resultSettingsService.deleteExamType(id); toast.success('Exam type deleted'); loadData(); }
+    catch { toast.error('Failed to delete exam type'); }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // EXAM SESSIONS CRUD
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const handleCreateExamSession = async () => {
+    setSaving(true);
+    try {
+      if (!examSessionForm.academic_session) { toast.error('Academic session required'); return; }
+      if (!examSessionForm.exam_type)        { toast.error('Exam type required');        return; }
+      if (!examSessionForm.term)             { toast.error('Term required');             return; }
+      await resultSettingsService.createExamSession({
+        ...examSessionForm,
+        academic_session: Number(examSessionForm.academic_session),
+        exam_type:        Number(examSessionForm.exam_type),
+        term:             examSessionForm.term, // keep as-is (term FK id)
+      });
+      toast.success('Exam session created');
+      setShowExamSessionForm(false);
+      setExamSessionForm(blankExamSession());
+      loadData();
+    } catch (e: any) {
+      const data = e?.response?.data;
+      if (data && typeof data === 'object') {
+        const msgs = Object.values(data).flat();
+        toast.error(String(msgs[0]));
+      } else { toast.error('Failed to create exam session'); }
+    } finally { setSaving(false); }
+  };
+
+  const handleUpdateExamSession = async (id: string) => {
+    setSaving(true);
+    try {
+      await resultSettingsService.updateExamSession(id, {
+        ...examSessionForm,
+        academic_session: Number(examSessionForm.academic_session),
+        exam_type:        Number(examSessionForm.exam_type),
+        term:             examSessionForm.term,
+      });
+      toast.success('Exam session updated');
+      setShowExamSessionForm(false);
+      setExamSessionForm(blankExamSession());
+      loadData();
+    } catch { toast.error('Failed to update exam session'); }
+    finally { setSaving(false); }
+  };
+
+  const handleDeleteExamSession = async (id: string) => {
+    if (!window.confirm('Delete this exam session?')) return;
+    try { await resultSettingsService.deleteExamSession(id); toast.success('Exam session deleted'); loadData(); }
+    catch { toast.error('Failed to delete exam session'); }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // GRADING SYSTEMS CRUD
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const handleCreateGradingSystem = async () => {
+    setSaving(true);
+    try {
+      await resultSettingsService.createGradingSystem(gradingSystemForm);
+      toast.success('Grading system created');
+      setShowGradingSystemForm(false);
+      setGradingSystemForm(blankGradingSystem());
+      loadData();
+    } catch { toast.error('Failed to create grading system'); }
+    finally { setSaving(false); }
+  };
+
+  const handleUpdateGradingSystem = async (id: string) => {
+    setSaving(true);
+    try {
+      await resultSettingsService.updateGradingSystem(id, gradingSystemForm);
+      toast.success('Grading system updated');
+      setShowGradingSystemForm(false);
+      loadData();
+    } catch { toast.error('Failed to update grading system'); }
+    finally { setSaving(false); }
+  };
+
+  const handleDeleteGradingSystem = async (id: string) => {
+    if (!window.confirm('Delete this grading system? This will remove all associated grades.')) return;
+    try { await resultSettingsService.deleteGradingSystem(id); toast.success('Deleted'); loadData(); }
+    catch { toast.error('Failed to delete — it may be in use'); }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // GRADES CRUD
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const handleCreateGrade = async () => {
+    setSaving(true);
+    try {
+      if (!gradeForm.grade || !gradeForm.remark) { toast.error('Grade and remark required'); return; }
+      if (Number(gradeForm.min_score) >= Number(gradeForm.max_score)) {
+        toast.error('Min score must be less than max score'); return;
+      }
+      const { id, ...data } = gradeForm;
+      await resultSettingsService.createGrade(data);
+      toast.success('Grade created');
+      setShowGradeForm(false);
+      setGradeForm(blankGrade(selectedGradingSystem?.id || ''));
+      loadData();
+    } catch { toast.error('Failed to create grade'); }
+    finally { setSaving(false); }
+  };
+
+  const handleUpdateGrade = async (id: string) => {
+    setSaving(true);
+    try {
+      const { id: _, ...data } = gradeForm;
+      await resultSettingsService.updateGrade(id, data);
+      toast.success('Grade updated');
+      setShowGradeForm(false);
+      loadData();
+    } catch { toast.error('Failed to update grade'); }
+    finally { setSaving(false); }
+  };
+
+  const handleDeleteGrade = async (id: string) => {
+    if (!window.confirm('Delete this grade?')) return;
+    try { await resultSettingsService.deleteGrade(id); toast.success('Deleted'); loadData(); }
+    catch { toast.error('Failed'); }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SCORING CONFIGURATION CRUD
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const handleSaveScoringConfig = async () => {
+    setSaving(true);
+    try {
+      if (!scoringConfigForm.name) { toast.error('Name is required'); return; }
+      if (!scoringConfigForm.education_level) { toast.error('Education level is required'); return; }
+
+      // Clean payload — only send fields the backend model actually has
+      const payload: ScoringConfigurationCreateUpdate = {
+        name:              scoringConfigForm.name,
+        education_level:   scoringConfigForm.education_level,
+        result_type:       scoringConfigForm.result_type,
+        description:       scoringConfigForm.description,
+        total_max_score:   scoringConfigForm.total_max_score,
+        is_active:         scoringConfigForm.is_active,
+        is_default:        scoringConfigForm.is_default,
+      };
+
+      if (scoringConfigForm.id) {
+        await resultSettingsService.updateScoringConfiguration(scoringConfigForm.id, payload);
+        toast.success('Configuration updated');
+      } else {
+        await resultSettingsService.createScoringConfiguration(payload);
+        toast.success('Configuration created');
+      }
+      setShowScoringConfigForm(false);
+      setScoringConfigForm(blankScoringConfig());
+      loadData();
+    } catch (e: any) {
+      const d = e?.response?.data;
+      if (d && typeof d === 'object') {
+        // Surface Django validation errors cleanly
+        const msgs = Object.entries(d)
+          .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
+          .join('\n');
+        toast.error(msgs || 'Failed to save configuration');
+      } else {
+        toast.error('Failed to save configuration');
+      }
+    } finally { setSaving(false); }
+  };
+
+  const handleDeleteScoringConfig = async (id: string) => {
+    if (!window.confirm('Delete this scoring configuration?')) return;
+    try { await resultSettingsService.deleteScoringConfiguration(id); toast.success('Deleted'); loadData(); }
+    catch { toast.error('Failed to delete — it may be in use'); }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // LOADING STATE
+  // ─────────────────────────────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <div className="min-h-[400px] flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-4 border-gray-200 border-t-black mx-auto mb-4" />
+          <p className="text-gray-600 font-medium">Loading settings…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Group components by level for the Nursery banner
+  const componentsByLevel = assessmentComponents.reduce<Record<string, AssessmentComponent[]>>((acc, c) => {
+    const id = String(resolveELId(c.education_level));
+    acc[id] = [...(acc[id] ?? []), c];
+    return acc;
+  }, {});
+
+  return (
+    <div className="space-y-6 p-6">
+
+      {/* ── Stats ── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { label: 'Grading Systems',   value: gradingSystems.length,       icon: Award    },
+          { label: 'Exam Types',        value: examTypes.length,            icon: FileText },
+          { label: 'Exam Sessions',     value: examSessions.length,         icon: Calendar },
+          { label: 'A. Components',     value: assessmentComponents.length, icon: Layers   },
+        ].map(({ label, value, icon: Icon }) => (
+          <div key={label} className="bg-white rounded-xl border border-gray-200 p-5">
             <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-4">
-                <div className="bg-white/20 p-3 rounded-xl">
-                  <Calculator className="h-6 w-6 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-xl font-bold text-white">Scoring Configurations</h2>
-                  <p className="text-blue-100 text-sm">Manage test and exam scoring systems</p>
-                </div>
+              <div>
+                <p className="text-sm text-gray-500">{label}</p>
+                <p className="text-2xl font-bold text-gray-900">{value}</p>
               </div>
-              <div className="flex items-center space-x-3">
-                <span className="bg-white/20 text-white text-sm font-medium px-3 py-1 rounded-full">
-                  {scoringConfigurations?.length || 0} Configurations
-                </span>
-                <button
-                  className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2"
-                  onClick={() => toggleSection('scoring-configurations')}
-                >
-                  {activeSections.has('scoring-configurations') ? (
-                    <>
-                      <EyeOff className="h-4 w-4" />
-                      <span>Hide</span>
-                    </>
-                  ) : (
-                    <>
-                      <Eye className="h-4 w-4" />
-                      <span>Show</span>
-                    </>
-                  )}
-                </button>
-                <button
-                  className="bg-white text-black hover:bg-gray-50 px-4 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2 font-medium"
-                  onClick={() => setShowScoringConfigForm(true)}
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>Add New</span>
-                </button>
+              <div className="bg-gray-100 p-3 rounded-lg">
+                <Icon className="h-5 w-5 text-gray-700" />
               </div>
             </div>
           </div>
-          
-          {activeSections.has('scoring-configurations') && scoringConfigurations && (
-            <div className="p-8">
-              {scoringConfigurations.length === 0 ? (
-                <div className="text-center py-12">
-                  <div className="bg-gray-100 rounded-full p-6 w-20 h-20 mx-auto mb-4 flex items-center justify-center">
-                    <Calculator className="h-10 w-10 text-gray-400" />
-                  </div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Scoring Configurations</h3>
-                  <p className="text-gray-600 mb-6">Get started by creating your first scoring configuration</p>
-                  <button
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition-all duration-200 flex items-center space-x-2 mx-auto"
-                    onClick={() => setShowScoringConfigForm(true)}
-                  >
-                    <Plus className="h-4 w-4" />
-                    <span>Create First Configuration</span>
-                  </button>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {scoringConfigurations.map((config) => (
-                    <div key={config.id} className="bg-gradient-to-br from-gray-50 to-white rounded-xl border border-gray-200 p-6 hover:shadow-lg transition-all duration-200">
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2 mb-2">
-                            <h3 className="text-lg font-semibold text-gray-900">{config.name}</h3>
-                            {config.is_default && (
-                              <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-1 rounded-full flex items-center">
-                                <Star className="h-3 w-3 mr-1" />
-                                Default
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-gray-600 text-sm mb-3">{config.description}</p>
-                          <div className="flex items-center space-x-3">
-                            <span className="bg-gray-100 text-gray-800 text-xs font-medium px-3 py-1 rounded-full">
-                              {config.education_level_display}
+        ))}
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          ASSESSMENT COMPONENTS
+      ══════════════════════════════════════════════════════════════════════ */}
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+        <SectionHeader
+          title="Assessment Components"
+          subtitle="Configure score columns per education level — drives result entry forms and report cards"
+          icon={Layers} count={assessmentComponents.length}
+          sectionKey="assessment-components" activeSections={activeSections} onToggle={toggleSection}
+          onAdd={() => { setComponentForm(blankComponent()); setShowComponentForm(true); }}
+          addLabel="Add Component"
+        />
+
+        {activeSections.has('assessment-components') && (
+          <div className="p-6 space-y-5">
+
+            {/* Nursery mode banners — one per nursery level */}
+            {educationLevels
+              .filter((l) => l.level_type === 'NURSERY' || l.name.toUpperCase().includes('NURSERY'))
+              .map((l) => (
+                <NurseryModeBanner
+                  key={l.id}
+                  educationLevelId={l.id}
+                  assessmentComponents={assessmentComponents}
+                />
+              ))}
+
+            {/* Level breakdown badges */}
+            <div className="flex flex-wrap gap-2">
+              {educationLevels.map((l) => {
+                const cnt = (componentsByLevel[String(l.id)] ?? []).length;
+                return (
+                  <span key={l.id} className="text-xs px-3 py-1 bg-gray-100 rounded-full font-medium text-gray-700">
+                    {l.name}: {cnt}
+                  </span>
+                );
+              })}
+            </div>
+
+            {assessmentComponents.length === 0 ? (
+              <EmptyState
+                icon={Layers}
+                title="No components configured"
+                subtitle="Add components to enable dynamic score entry in result forms"
+              />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      {['Name', 'Code', 'Level', 'Type', 'Max Score', 'CA?', 'Order', 'Status', ''].map((h) => (
+                        <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {[...assessmentComponents]
+                      .sort((a, b) => {
+                        const la = resolveELName(a.education_level);
+                        const lb = resolveELName(b.education_level);
+                        return la.localeCompare(lb) || a.display_order - b.display_order;
+                      })
+                      .map((comp) => (
+                        <tr key={comp.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 font-medium text-gray-900">{comp.name}</td>
+                          <td className="px-4 py-3 text-gray-500 font-mono text-xs">{comp.code}</td>
+                          <td className="px-4 py-3">
+                            <span className="text-xs bg-gray-100 px-2 py-0.5 rounded-full">
+                              {resolveELName(comp.education_level)}
                             </span>
-                            {config.is_active ? (
-                              <span className="bg-green-100 text-green-800 text-xs font-medium px-3 py-1 rounded-full flex items-center">
-                                <CheckCircle className="h-3 w-3 mr-1" />
-                                Active
-                              </span>
-                            ) : (
-                              <span className="bg-red-100 text-red-800 text-xs font-medium px-3 py-1 rounded-full flex items-center">
-                                <AlertCircle className="h-3 w-3 mr-1" />
-                                Inactive
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <button
-                            className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200"
-                            onClick={() => {
-                              setScoringConfigForm({
-                                ...config,
-                                result_type: config.result_type || 'TERMLY' // Ensure result_type is set
-                              });
-                              setShowScoringConfigForm(true);
-                            }}
-                            title="Edit Configuration"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </button>
-                          <button
-                            className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
-                            onClick={() => handleDeleteScoringConfig(config.id)}
-                            title="Delete Configuration"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
+                          </td>
+                          <td className="px-4 py-3 text-gray-600">
+                            {(comp as any).component_type_display || comp.component_type}
+                          </td>
+                          <td className="px-4 py-3 font-semibold text-gray-900">{comp.max_score}</td>
+                          <td className="px-4 py-3">
+                            {comp.contributes_to_ca
+                              ? <CheckCircle className="w-4 h-4 text-emerald-500" />
+                              : <X className="w-4 h-4 text-gray-300" />}
+                          </td>
+                          <td className="px-4 py-3 text-gray-500">{comp.display_order}</td>
+                          <td className="px-4 py-3">
+                            {comp.is_active
+                              ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Active</span>
+                              : <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Inactive</span>}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => {
+                                  const elId = resolveELId(comp.education_level);
+                                  setComponentForm({
+                                    id: comp.id,
+                                    education_level: elId as any,
+                                    name: comp.name,
+                                    code: comp.code,
+                                    component_type: comp.component_type as any,
+                                    max_score: comp.max_score,
+                                    contributes_to_ca: comp.contributes_to_ca,
+                                    display_order: comp.display_order,
+                                    is_active: comp.is_active,
+                                  });
+                                  setShowComponentForm(true);
+                                }}
+                                className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-gray-700 transition-colors"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteComponent(comp.id)}
+                                className="p-1.5 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-600 transition-colors"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          EXAM TYPES
+      ══════════════════════════════════════════════════════════════════════ */}
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+        <SectionHeader
+          title="Exam Types"
+          subtitle="Label the kind of exam event — used to categorise Exam Sessions"
+          icon={FileText} count={examTypes.length}
+          sectionKey="exam-types" activeSections={activeSections} onToggle={toggleSection}
+          onAdd={() => { setExamTypeForm(blankExamType()); setShowExamTypeForm(true); }}
+          addLabel="Add Exam Type"
+        />
+        {activeSections.has('exam-types') && (
+          <div className="p-6">
+            {examTypes.length === 0 ? (
+              <EmptyState icon={FileText} title="No exam types configured" subtitle="Default types are seeded when the school is created" />
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {examTypes.map((et) => (
+                  <div key={et.id} className="border border-gray-200 rounded-xl p-4 hover:shadow-md transition-shadow">
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <p className="font-semibold text-gray-900">{et.name}</p>
+                        <p className="text-xs text-gray-500 font-mono mt-0.5">{et.code}</p>
                       </div>
-                      
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                         {/* Senior Secondary Display */}
-                         {config.education_level === 'SENIOR_SECONDARY' && (
-                           <div className="bg-blue-50 rounded-lg p-3">
-                             <h4 className="font-medium text-blue-900 mb-2">
-                               {config.result_type === 'SESSION' ? 'Term Cumulative Scores' : 'Test Scores'}
-                             </h4>
-                             <div className="space-y-1 text-blue-800">
-                               <div className="flex justify-between">
-                                 <span>{config.result_type === 'SESSION' ? '1st Term (Tests+Exam):' : '1st Test:'}</span>
-                                 <span className="font-medium">{config.first_test_max_score}</span>
-                               </div>
-                               <div className="flex justify-between">
-                                 <span>{config.result_type === 'SESSION' ? '2nd Term (Tests+Exam):' : '2nd Test:'}</span>
-                                 <span className="font-medium">{config.second_test_max_score}</span>
-                               </div>
-                               <div className="flex justify-between">
-                                 <span>{config.result_type === 'SESSION' ? '3rd Term (Tests+Exam):' : '3rd Test:'}</span>
-                                 <span className="font-medium">{config.third_test_max_score}</span>
-                               </div>
-                             </div>
-                           </div>
-                         )}
-                         
-                         {/* Junior Secondary and Primary Display */}
-                         {(config.education_level === 'JUNIOR_SECONDARY' || config.education_level === 'PRIMARY') && (
-                           <div className="bg-blue-50 rounded-lg p-3">
-                             <h4 className="font-medium text-blue-900 mb-2">Continuous Assessment Scores</h4>
-                             <div className="space-y-1 text-blue-800">
-                               <div className="flex justify-between">
-                                 <span>CA Score:</span>
-                                 <span className="font-medium">{config.continuous_assessment_max_score}</span>
-                               </div>
-                               <div className="flex justify-between">
-                                 <span>Take Home Test:</span>
-                                 <span className="font-medium">{config.take_home_test_max_score}</span>
-                               </div>
-                               <div className="flex justify-between">
-                                 <span>Appearance:</span>
-                                 <span className="font-medium">{config.appearance_max_score}</span>
-                               </div>
-                               <div className="flex justify-between">
-                                 <span>Practical:</span>
-                                 <span className="font-medium">{config.practical_max_score}</span>
-                               </div>
-                               <div className="flex justify-between">
-                                 <span>Project:</span>
-                                 <span className="font-medium">{config.project_max_score}</span>
-                               </div>
-                               <div className="flex justify-between">
-                                 <span>Note Copying:</span>
-                                 <span className="font-medium">{config.note_copying_max_score}</span>
-                               </div>
-                             </div>
-                           </div>
-                         )}
-                         
-                         {/* Nursery Display */}
-                         {config.education_level === 'NURSERY' && (
-                           <div className="bg-pink-50 rounded-lg p-3">
-                             <h4 className="font-medium text-pink-900 mb-2">Nursery Configuration</h4>
-                             <div className="space-y-1 text-pink-800">
-                               <div className="flex justify-between">
-                                 <span>Max Mark Obtainable:</span>
-                                 <span className="font-medium">{config.total_max_score}</span>
-                               </div>
-                             </div>
-                           </div>
-                         )}
-                        
-                          {config.result_type === 'SESSION' ? (
-                           <div className="bg-green-50 rounded-lg p-3">
-                             <h4 className="font-medium text-green-900 mb-2">Session Info</h4>
-                             <div className="space-y-1 text-green-800">
-                               <div className="flex justify-between">
-                                 <span>Average of Year:</span>
-                                 <span className="font-medium">{(Number(config.first_test_max_score) + Number(config.second_test_max_score) + Number(config.third_test_max_score)) / 3}</span>
-                               </div>
-                               <div className="flex justify-between">
-                                 <span>Total Year Score:</span>
-                                 <span className="font-medium">{Number(config.first_test_max_score) + Number(config.second_test_max_score) + Number(config.third_test_max_score)}</span>
-                               </div>
-                             </div>
-                           </div>
-                         ) : (
-                           /* Hide Exam & Weights for Nursery */
-                           config.education_level !== 'NURSERY' && (
-                             <div className="bg-green-50 rounded-lg p-3">
-                               <h4 className="font-medium text-green-900 mb-2">Exam & Weights</h4>
-                               <div className="space-y-1 text-green-800">
-                                 <div className="flex justify-between">
-                                   <span>Exam Score:</span>
-                                   <span className="font-medium">{config.exam_max_score}</span>
-                                 </div>
-                                 <div className="flex justify-between">
-                                   <span>CA Weight:</span>
-                                   <span className="font-medium">{config.ca_weight_percentage}%</span>
-                                 </div>
-                                 <div className="flex justify-between">
-                                   <span>Exam Weight:</span>
-                                   <span className="font-medium">{config.exam_weight_percentage}%</span>
-                                 </div>
-                               </div>
-                             </div>
-                           )
-                         )}
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => {
+                            setExamTypeForm({ id: et.id, name: et.name, code: et.code, category: et.category, description: et.description, display_order: et.display_order, is_active: et.is_active });
+                            setShowExamTypeForm(true);
+                          }}
+                          className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteExamType(et.id)}
+                          className="p-1.5 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-600 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
-                      
-                  {/* Footer - Hide Total CA Score for Nursery */}
-                  {config.education_level !== 'NURSERY' && (
-                  <div className="mt-4 pt-4 border-t border-gray-200">
-                     <div className="flex items-center justify-between text-sm">
-                         <span className="text-gray-600">
-                         {config.result_type === 'SESSION' ? 'Total Year Score:' : 'Total CA Score:'}
-                         </span>
-                        <span className="font-semibold text-gray-900">{config.total_ca_max_score}</span>
-                        </div>
-                         {config.result_type === 'SESSION' && (
-                           <p className="text-xs text-gray-500 mt-1">
-                               Sum of all three terms (1st + 2nd + 3rd Term cumulative scores)
-                           </p>
-                        )}
-                        </div>
-                       )}
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Grading Systems Section */}
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-          <div className="bg-black px-8 py-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-4">
-                <div className="bg-white/20 p-3 rounded-xl">
-                  <Award className="h-6 w-6 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-xl font-bold text-white">Grading Systems</h2>
-                  <p className="text-green-100 text-sm">Manage grading scales and grade definitions</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-3">
-                <span className="bg-white/20 text-white text-sm font-medium px-3 py-1 rounded-full">
-                  {gradingSystems?.length || 0} Systems
-                </span>
-                <button
-                  className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2"
-                  onClick={() => toggleSection('grading-systems')}
-                >
-                  {activeSections.has('grading-systems') ? (
-                    <>
-                      <EyeOff className="h-4 w-4" />
-                      <span>Hide</span>
-                    </>
-                  ) : (
-                    <>
-                      <Eye className="h-4 w-4" />
-                      <span>Show</span>
-                    </>
-                  )}
-                </button>
-                <button
-                  className="bg-white text-black hover:bg-gray-50 px-4 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2 font-medium"
-                  onClick={() => setShowGradingSystemForm(true)}
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>Add New</span>
-                </button>
-              </div>
-            </div>
-          </div>
-          
-          {activeSections.has('grading-systems') && gradingSystems && (
-            <div className="p-8">
-              {gradingSystems.length === 0 ? (
-                <div className="text-center py-12">
-                  <div className="bg-gray-100 rounded-full p-6 w-20 h-20 mx-auto mb-4 flex items-center justify-center">
-                    <Award className="h-10 w-10 text-gray-400" />
+                    <div className="flex gap-2 flex-wrap">
+                      <span className="text-xs bg-gray-100 px-2 py-0.5 rounded-full">
+                        {(et as any).category_display || et.category}
+                      </span>
+                      {et.is_active
+                        ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Active</span>
+                        : <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Inactive</span>}
+                    </div>
                   </div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Grading Systems</h3>
-                  <p className="text-gray-600 mb-6">Get started by creating your first grading system</p>
-                  <button
-                    className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg transition-all duration-200 flex items-center space-x-2 mx-auto"
-                    onClick={() => setShowGradingSystemForm(true)}
-                  >
-                    <Plus className="h-4 w-4" />
-                    <span>Create First System</span>
-                  </button>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {gradingSystems.map((system) => (
-                    <div key={system.id} className="bg-gradient-to-br from-gray-50 to-white rounded-xl border border-gray-200 p-6 hover:shadow-lg transition-all duration-200">
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2 mb-2">
-                            <h3 className="text-lg font-semibold text-gray-900">{system.name}</h3>
-                            {system.is_active && (
-                              <span className="bg-green-100 text-green-800 text-xs font-medium px-2 py-1 rounded-full flex items-center">
-                                <CheckCircle className="h-3 w-3 mr-1" />
-                                Active
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          EXAM SESSIONS
+      ══════════════════════════════════════════════════════════════════════ */}
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+        <SectionHeader
+          title="Exam Sessions"
+          subtitle="Schedule examination periods — ties an Exam Type to a Term and Academic Session"
+          icon={Calendar} count={examSessions.length}
+          sectionKey="exam-sessions" activeSections={activeSections} onToggle={toggleSection}
+          onAdd={() => { setExamSessionForm(blankExamSession()); setShowExamSessionForm(true); }}
+          addLabel="Add Session"
+        />
+        {activeSections.has('exam-sessions') && (
+          <div className="p-6">
+            {examSessions.length === 0 ? (
+              <EmptyState icon={Calendar} title="No exam sessions" subtitle="Create exam types and academic sessions first" />
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {examSessions.map((sess) => {
+                  const sessionName = (() => {
+                    if (typeof sess.academic_session === 'object' && (sess.academic_session as any)?.name)
+                      return (sess.academic_session as any).name;
+                    return academicSessions.find((s) => String(s.id) === String(sess.academic_session))?.name || '—';
+                  })();
+                  const examTypeName = (() => {
+                    if (typeof sess.exam_type === 'object') return (sess.exam_type as any).name;
+                    return examTypes.find((et) => String(et.id) === String(sess.exam_type))?.name || String(sess.exam_type);
+                  })();
+                  const termName = (() => {
+                    if (typeof sess.term === 'object') return (sess.term as any).name;
+                    return academicTerms.find((t) => String(t.id) === String(sess.term))?.name || String(sess.term || '—');
+                  })();
+                  return (
+                    <div key={sess.id} className="border border-gray-200 rounded-xl p-5 hover:shadow-md transition-shadow">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="font-semibold text-gray-900">{sess.name}</p>
+                            {sess.is_published && (
+                              <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                <CheckCircle className="w-3 h-3" />Published
                               </span>
                             )}
                           </div>
-                          <p className="text-gray-600 text-sm mb-3">{system.description}</p>
-                          <div className="flex items-center space-x-3">
-                            <span className="bg-gray-100 text-gray-800 text-xs font-medium px-3 py-1 rounded-full">
-                              {system.grading_type}
-                            </span>
-                            <span className="bg-blue-100 text-blue-800 text-xs font-medium px-3 py-1 rounded-full">
-                              Pass: {system.pass_mark}%
-                            </span>
+                          <p className="text-sm text-gray-500">{sessionName}</p>
+                          <div className="flex gap-2 mt-2 flex-wrap">
+                            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{examTypeName}</span>
+                            <span className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">{termName}</span>
                           </div>
                         </div>
-                        <div className="flex items-center space-x-2">
+                        <div className="flex gap-1">
                           <button
-                            className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              console.log('Manage grades clicked for system:', system);
-                              handleManageGrades(system);
-                            }}
-                            title="Manage Grades"
-                          >
-                           Manage Grades <Users className="h-4 w-4" />
-                          </button>
-                          <button
-                            className="p-2 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all duration-200"
                             onClick={() => {
-                              setGradingSystemForm({
-                                id: system.id,
-                                name: system.name,
-                                grading_type: system.grading_type,
-                                description: system.description,
-                                min_score: system.min_score,
-                                max_score: system.max_score,
-                                pass_mark: system.pass_mark,
-                                is_active: system.is_active
-                              });
-                              setShowGradingSystemForm(true);
-                            }}
-                            title="Edit System"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </button>
-                          <button
-                            className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
-                            onClick={() => handleDeleteGradingSystem(system.id)}
-                            title="Delete System"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div className="bg-green-50 rounded-lg p-3">
-                          <h4 className="font-medium text-green-900 mb-2">Score Range</h4>
-                          <div className="space-y-1 text-green-800">
-                            <div className="flex justify-between">
-                              <span>Min Score:</span>
-                              <span className="font-medium">{system.min_score}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Max Score:</span>
-                              <span className="font-medium">{system.max_score}</span>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        <div className="bg-blue-50 rounded-lg p-3">
-                          <h4 className="font-medium text-blue-900 mb-2">Grades</h4>
-                          <div className="text-blue-800">
-                            <span className="font-medium">{grades.filter(g => g.grading_system === system.id).length} grades defined</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Assessment Types Section */}
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-          <div className="bg-black px-8 py-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-4">
-                <div className="bg-white/20 p-3 rounded-xl">
-                  <BookOpen className="h-6 w-6 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-xl font-bold text-white">Assessment Types</h2>
-                  <p className="text-purple-100 text-sm">Define different types of assessments and their weights</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-3">
-                <span className="bg-white/20 text-white text-sm font-medium px-3 py-1 rounded-full">
-                  {assessmentTypes?.length || 0} Types
-                </span>
-                <button
-                  className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2"
-                  onClick={() => toggleSection('assessment-types')}
-                >
-                  {activeSections.has('assessment-types') ? (
-                    <>
-                      <EyeOff className="h-4 w-4" />
-                      <span>Hide</span>
-                    </>
-                  ) : (
-                    <>
-                      <Eye className="h-4 w-4" />
-                      <span>Show</span>
-                    </>
-                  )}
-                </button>
-                <button
-                  className="bg-white text-black hover:bg-gray-50 px-4 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2 font-medium"
-                  onClick={() => setShowAssessmentTypeForm(true)}
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>Add New</span>
-                </button>
-              </div>
-            </div>
-          </div>
-          
-          {activeSections.has('assessment-types') && assessmentTypes && (
-            <div className="p-8">
-              {assessmentTypes.length === 0 ? (
-                <div className="text-center py-12">
-                  <div className="bg-gray-100 rounded-full p-6 w-20 h-20 mx-auto mb-4 flex items-center justify-center">
-                    <BookOpen className="h-10 w-10 text-gray-400" />
-                  </div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Assessment Types</h3>
-                  <p className="text-gray-600 mb-6">Get started by creating your first assessment type</p>
-                  <button
-                    className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg transition-all duration-200 flex items-center space-x-2 mx-auto"
-                    onClick={() => setShowAssessmentTypeForm(true)}
-                  >
-                    <Plus className="h-4 w-4" />
-                    <span>Create First Type</span>
-                  </button>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {assessmentTypes.map((type) => (
-                    <div key={type.id} className="bg-gradient-to-br from-gray-50 to-white rounded-xl border border-gray-200 p-6 hover:shadow-lg transition-all duration-200">
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2 mb-2">
-                            <h3 className="text-lg font-semibold text-gray-900">{type.name}</h3>
-                            <span className="bg-purple-100 text-purple-800 text-xs font-medium px-2 py-1 rounded-full">
-                              {type.code}
-                            </span>
-                          </div>
-                          <p className="text-gray-600 text-sm mb-3">{type.description}</p>
-                          <div className="flex items-center space-x-3">
-                            <span className="bg-orange-100 text-orange-800 text-xs font-medium px-3 py-1 rounded-full">
-                              Weight: {type.weight_percentage}%
-                            </span>
-                            {type.is_active && (
-                              <span className="bg-green-100 text-green-800 text-xs font-medium px-3 py-1 rounded-full flex items-center">
-                                <CheckCircle className="h-3 w-3 mr-1" />
-                                Active
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <button
-                            className="p-2 text-gray-600 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-all duration-200"
-                           onClick={() => {
-                              setAssessmentTypeForm({
-                                id: type.id,
-                                name: type.name,
-                                code: type.code,
-                                description: type.description,
-                                education_level: type.education_level,
-                                max_score: type.max_score,
-                                weight_percentage: type.weight_percentage,
-                                is_active: type.is_active
-                              });
-                              setShowAssessmentTypeForm(true);
-                            }}
-                            title="Edit Type"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </button>
-                          <button
-                            className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
-                            onClick={() => handleDeleteAssessmentType(type.id)}
-                            title="Delete Type"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Exam Sessions Section */}
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-          <div className="bg-black px-8 py-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-4">
-                <div className="bg-white/20 p-3 rounded-xl">
-                  <Calendar className="h-6 w-6 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-xl font-bold text-white">Exam Sessions</h2>
-                  <p className="text-indigo-100 text-sm">Schedule and manage examination periods</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-3">
-                <span className="bg-white/20 text-white text-sm font-medium px-3 py-1 rounded-full">
-                  {examSessions?.length || 0} Sessions
-                </span>
-                <button
-                  className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2"
-                  onClick={() => toggleSection('exam-sessions')}
-                >
-                  {activeSections.has('exam-sessions') ? (
-                    <>
-                      <EyeOff className="h-4 w-4" />
-                      <span>Hide</span>
-                    </>
-                  ) : (
-                    <>
-                      <Eye className="h-4 w-4" />
-                      <span>Show</span>
-                    </>
-                  )}
-                </button>
-                <button
-                  className="bg-white text-black hover:bg-gray-50 px-4 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2 font-medium"
-                  onClick={() => setShowExamSessionForm(true)}
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>Add New</span>
-                </button>
-              </div>
-            </div>
-          </div>
-          
-          {activeSections.has('exam-sessions') && examSessions && (
-            <div className="p-8">
-              {examSessions.length === 0 ? (
-                <div className="text-center py-12">
-                  <div className="bg-gray-100 rounded-full p-6 w-20 h-20 mx-auto mb-4 flex items-center justify-center">
-                    <Calendar className="h-10 w-10 text-gray-400" />
-                  </div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Exam Sessions</h3>
-                  <p className="text-gray-600 mb-6">Get started by creating your first exam session</p>
-                  <button
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg transition-all duration-200 flex items-center space-x-2 mx-auto"
-                    onClick={() => setShowExamSessionForm(true)}
-                  >
-                    <Plus className="h-4 w-4" />
-                    <span>Create First Session</span>
-                  </button>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {examSessions.map((session) => (
-                    <div key={session.id} className="bg-gradient-to-br from-gray-50 to-white rounded-xl border border-gray-200 p-6 hover:shadow-lg transition-all duration-200">
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="flex-1">
-                            <div className="flex items-center space-x-2 mb-2">
-                              <h3 className="text-lg font-semibold text-gray-900">{session.name}</h3>
-                              {session.is_published && (
-                                <span className="bg-green-100 text-green-800 text-xs font-medium px-2 py-1 rounded-full flex items-center">
-                                  <CheckCircle className="h-3 w-3 mr-1" />
-                                  Published
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-gray-600 text-sm mb-3">
-                              {/* {typeof session.academic_session === 'object'
-                                ? (session.academic_session as AcademicSession).name ?? 'No session'
-                                : (
-                                    // try to resolve id/string to a name from loaded academicSessions,
-                                    // otherwise show the raw value or fallback to 'No session'
-                                    academicSessions.find(s => s.id === session.academic_session)?.name
-                                    ?? (session.academic_session !== undefined && session.academic_session !== null ? String(session.academic_session) : 'No session')
-                                  )
-                              } */}
-
-                              {(() => {
-            // If it's an object with name property
-            if (typeof session.academic_session === 'object' && session.academic_session?.name) {
-              return session.academic_session.name;
-            }
-            
-            // If it's an ID (number or string), look it up
-            if (session.academic_session) {
-              const foundSession = academicSessions.find(
-                s => String(s.id) === String(session.academic_session)
-              );
-              return foundSession?.name || 'Unknown session';
-            }
-            
-            // Fallback
-            return 'No session';
-          })()}
-                            </p>
-                            <div className="flex items-center space-x-3">
-                              <span className="bg-indigo-100 text-indigo-800 text-xs font-medium px-3 py-1 rounded-full">
-                                {session.exam_type}
-                              </span>
-                              <span className="bg-blue-100 text-blue-800 text-xs font-medium px-3 py-1 rounded-full">
-                                {session.term}
-                              </span>
-                            </div>
-                          </div>
-                        <div className="flex items-center space-x-2">
-                          <button
-                            className="p-2 text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all duration-200"
-                            onClick={() => {
+                              const etId  = typeof sess.exam_type === 'object' ? (sess.exam_type as any).id : sess.exam_type;
+                              const asId  = typeof sess.academic_session === 'object' ? (sess.academic_session as any).id : sess.academic_session;
+                              const tId   = typeof sess.term === 'object' ? (sess.term as any).id : sess.term;
                               setExamSessionForm({
-                                id: session.id,
-                                name: session.name,
-                                exam_type: session.exam_type,
-                                term: session.term,
-                                academic_session: typeof  session.academic_session === 'object'
-                                ? session.academic_session.id
-                                : session.academic_session || '',
-                                start_date: session.start_date,
-                                end_date: session.end_date,
-                                result_release_date: session.result_release_date,
-                                is_published: session.is_published,
-                                is_active: session.is_active
+                                id: sess.id, name: sess.name, exam_type: etId, term: tId,
+                                academic_session: asId, start_date: sess.start_date, end_date: sess.end_date,
+                                result_release_date: sess.result_release_date, is_published: sess.is_published,
+                                is_active: sess.is_active,
                               });
                               setShowExamSessionForm(true);
                             }}
-                            title="Edit Session"
+                            className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors"
                           >
-                            <Edit className="h-4 w-4" />
+                            <Edit className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
-                            onClick={() => handleDeleteExamSession(session.id)}
-                            title="Delete Session"
+                            onClick={() => handleDeleteExamSession(sess.id)}
+                            className="p-1.5 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-600 transition-colors"
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </div>
-                      
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div className="bg-indigo-50 rounded-lg p-3">
-                          <h4 className="font-medium text-indigo-900 mb-2">Start Date</h4>
-                          <div className="text-indigo-800">
-                            <span className="font-medium">{new Date(session.start_date).toLocaleDateString()}</span>
+                      <div className="grid grid-cols-2 gap-2 text-xs text-gray-500">
+                        <div className="bg-gray-50 rounded-lg p-2">
+                          <span className="font-medium">Start:</span>{' '}
+                          {sess.start_date ? new Date(sess.start_date).toLocaleDateString() : '—'}
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-2">
+                          <span className="font-medium">End:</span>{' '}
+                          {sess.end_date ? new Date(sess.end_date).toLocaleDateString() : '—'}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          GRADING SYSTEMS
+      ══════════════════════════════════════════════════════════════════════ */}
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+        <SectionHeader
+          title="Grading Systems"
+          subtitle="Define grading scales — each education level's results reference one of these"
+          icon={Award} count={gradingSystems.length}
+          sectionKey="grading-systems" activeSections={activeSections} onToggle={toggleSection}
+          onAdd={() => { setGradingSystemForm(blankGradingSystem()); setShowGradingSystemForm(true); }}
+          addLabel="Add System"
+        />
+        {activeSections.has('grading-systems') && (
+          <div className="p-6">
+            {gradingSystems.length === 0 ? (
+              <EmptyState icon={Award} title="No grading systems" subtitle="Create a grading system then add grade ranges to it" />
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {gradingSystems.map((gs) => {
+                  const gsGrades = grades.filter((g) => g.grading_system === gs.id);
+                  return (
+                    <div key={gs.id} className="border border-gray-200 rounded-xl p-5 hover:shadow-md transition-shadow">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="font-semibold text-gray-900">{gs.name}</p>
+                            {gs.is_active && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Active</span>}
+                          </div>
+                          <div className="flex gap-2 text-xs flex-wrap">
+                            <span className="bg-gray-100 px-2 py-0.5 rounded-full">{gs.grading_type}</span>
+                            <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Pass: {gs.pass_mark}</span>
+                            <span className="bg-gray-100 px-2 py-0.5 rounded-full">{gsGrades.length} grades</span>
                           </div>
                         </div>
-                        
-                        <div className="bg-blue-50 rounded-lg p-3">
-                          <h4 className="font-medium text-blue-900 mb-2">End Date</h4>
-                          <div className="text-blue-800">
-                            <span className="font-medium">{new Date(session.end_date).toLocaleDateString()}</span>
-                          </div>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => { setSelectedGradingSystem(gs); setShowGradesModal(true); }}
+                            className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center gap-1 transition-colors"
+                          >
+                            <Users className="w-3 h-3" />Grades
+                          </button>
+                          <button
+                            onClick={() => {
+                              setGradingSystemForm({ id: gs.id, name: gs.name, grading_type: gs.grading_type, description: gs.description, min_score: gs.min_score, max_score: gs.max_score, pass_mark: gs.pass_mark, is_active: gs.is_active });
+                              setShowGradingSystemForm(true);
+                            }}
+                            className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteGradingSystem(gs.id)}
+                            className="p-1.5 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-600 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
+                      </div>
+                      {/* Grade range preview */}
+                      {gsGrades.length > 0 && (
+                        <div className="flex gap-1 flex-wrap mt-2">
+                          {[...gsGrades].sort((a, b) => Number(b.min_score) - Number(a.min_score)).map((g) => (
+                            <span key={g.id} className={`text-xs px-2 py-0.5 rounded-full font-medium ${g.is_passing ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                              {g.grade}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          SCORING CONFIGURATIONS
+      ══════════════════════════════════════════════════════════════════════ */}
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+        <SectionHeader
+          title="Scoring Configurations"
+          subtitle="High-level scoring parameters per education level — used by the report generator"
+          icon={Calculator} count={scoringConfigurations.length}
+          sectionKey="scoring-configs" activeSections={activeSections} onToggle={toggleSection}
+          onAdd={() => { setScoringConfigForm(blankScoringConfig()); setShowScoringConfigForm(true); }}
+          addLabel="Add Config"
+        />
+        {activeSections.has('scoring-configs') && (
+          <div className="p-6">
+            <InfoBanner>
+              Scoring Configurations set high-level parameters (total max score, result type) used by the PDF
+              report generator. The actual per-subject score columns are defined in{' '}
+              <strong>Assessment Components</strong> above. The total max score here must equal the sum of
+              active components for the same education level.
+            </InfoBanner>
+
+            {scoringConfigurations.length === 0 ? (
+              <EmptyState icon={Calculator} title="No scoring configurations" subtitle="Add components first, then create a scoring configuration" />
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+                {scoringConfigurations.map((cfg) => {
+                  const elName = resolveELName((cfg as any).education_level_name || cfg.education_level);
+                  const elId   = resolveELId(cfg.education_level);
+                  const activeComponents = assessmentComponents.filter((c) => {
+                    const cId = resolveELId(c.education_level);
+                    return String(cId) === String(elId) && c.is_active;
+                  });
+                  const componentSum = activeComponents.reduce((s, c) => s + Number(c.max_score), 0);
+                  const mismatch = componentSum > 0 && componentSum !== Number(cfg.total_max_score);
+
+                  return (
+                    <div key={cfg.id} className={`border rounded-xl p-5 hover:shadow-md transition-shadow ${mismatch ? 'border-red-200 bg-red-50/30' : 'border-gray-200'}`}>
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="font-semibold text-gray-900">{cfg.name}</p>
+                            {cfg.is_default && (
+                              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                <Star className="w-3 h-3" />Default
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex gap-2 text-xs flex-wrap">
+                            <span className="bg-gray-100 px-2 py-0.5 rounded-full">{elName}</span>
+                            <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">{cfg.result_type}</span>
+                            <span className="bg-gray-100 px-2 py-0.5 rounded-full">Max: {cfg.total_max_score}</span>
+                            {cfg.is_active
+                              ? <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Active</span>
+                              : <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Inactive</span>}
+                          </div>
+                          {mismatch && (
+                            <p className="text-xs text-red-600 mt-1.5 font-medium">
+                              ⚠ Components sum to {componentSum}, not {cfg.total_max_score}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => {
+                              setScoringConfigForm({
+                                id:              cfg.id,
+                                name:            cfg.name,
+                                education_level: resolveELId(cfg.education_level) as any,
+                                result_type:     cfg.result_type || 'TERMLY',
+                                description:     cfg.description || '',
+                                total_max_score: Number(cfg.total_max_score),
+                                is_active:       cfg.is_active,
+                                is_default:      cfg.is_default,
+                              });
+                              setShowScoringConfigForm(true);
+                            }}
+                            className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteScoringConfig(cfg.id)}
+                            className="p-1.5 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-600 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          MODALS
+      ═══════════════════════════════════════════════════════════════════════ */}
+
+      {/* ── Assessment Component Modal ── */}
+      {showComponentForm && (
+        <ModalShell
+          title={componentForm.id ? 'Edit Component' : 'Add Assessment Component'}
+          subtitle="Defines a score column on the result entry form and report card"
+          icon={Layers}
+          onClose={() => { setShowComponentForm(false); setComponentForm(blankComponent()); }}
+        >
+          <FormField label="Education Level" required hint="The level whose result forms will show this column">
+            <select
+              value={String(componentForm.education_level)}
+              onChange={(e) => setComponentForm((f) => ({ ...f, education_level: Number(e.target.value) as any }))}
+              className={inputCls}
+            >
+              <option value="">Select level…</option>
+              {educationLevels.map((l) => (
+                <option key={l.id} value={l.id}>{l.name}</option>
+              ))}
+            </select>
+          </FormField>
+
+          {/* Nursery hint when a nursery level is selected */}
+          {(() => {
+            const sel = educationLevels.find((l) => String(l.id) === String(componentForm.education_level));
+            if (sel && (sel.level_type === 'NURSERY' || sel.name.toUpperCase().includes('NURSERY'))) {
+              return (
+                <InfoBanner>
+                  Adding components to Nursery switches it from <strong>Single Score Mode</strong> to{' '}
+                  <strong>Component Mode</strong>. Remove all components to revert to Score Obtainable / Score
+                  Obtained entry.
+                </InfoBanner>
+              );
+            }
+            return null;
+          })()}
+
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Name" required>
+              <input
+                type="text"
+                value={componentForm.name}
+                onChange={(e) => setComponentForm((f) => ({ ...f, name: e.target.value }))}
+                className={inputCls}
+                placeholder="e.g. Test 1"
+              />
+            </FormField>
+            <FormField label="Code" required hint="Auto-formatted — no spaces">
+              <input
+                type="text"
+                value={componentForm.code}
+                onChange={(e) =>
+                  setComponentForm((f) => ({ ...f, code: e.target.value.toLowerCase().replace(/\s+/g, '_') }))
+                }
+                className={inputCls}
+                placeholder="e.g. test_1"
+              />
+            </FormField>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Component Type">
+              <select
+                value={componentForm.component_type}
+                onChange={(e) => setComponentForm((f) => ({ ...f, component_type: e.target.value as any }))}
+                className={inputCls}
+              >
+                {COMPONENT_TYPE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label="Max Score" required hint="The maximum score a student can earn in this column">
+              <input
+                type="number"
+                min={0.01}
+                step="0.01"
+                value={componentForm.max_score}
+                onChange={(e) => setComponentForm((f) => ({ ...f, max_score: e.target.value }))}
+                className={inputCls}
+                placeholder="e.g. 10"
+              />
+            </FormField>
+          </div>
+
+          <FormField label="Display Order" hint="Lower numbers appear first in the result form">
+            <input
+              type="number"
+              min={0}
+              value={componentForm.display_order}
+              onChange={(e) => setComponentForm((f) => ({ ...f, display_order: Number(e.target.value) }))}
+              className={inputCls}
+            />
+          </FormField>
+
+          <div className="flex items-center gap-6">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={componentForm.contributes_to_ca}
+                onChange={(e) => setComponentForm((f) => ({ ...f, contributes_to_ca: e.target.checked }))}
+                className="w-4 h-4"
+              />
+              <span>Contributes to CA sub-total</span>
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={componentForm.is_active}
+                onChange={(e) => setComponentForm((f) => ({ ...f, is_active: e.target.checked }))}
+                className="w-4 h-4"
+              />
+              <span>Active</span>
+            </label>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <button
+              onClick={() => { setShowComponentForm(false); setComponentForm(blankComponent()); }}
+              className="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <SaveButton
+              saving={saving}
+              label={componentForm.id ? 'Update Component' : 'Create Component'}
+              onClick={() => componentForm.id ? handleUpdateComponent(componentForm.id) : handleCreateComponent()}
+            />
+          </div>
+        </ModalShell>
+      )}
+
+      {/* ── Exam Type Modal ── */}
+      {showExamTypeForm && (
+        <ModalShell
+          title={examTypeForm.id ? 'Edit Exam Type' : 'Create Exam Type'}
+          subtitle="Labels the category of an exam session"
+          icon={FileText}
+          onClose={() => { setShowExamTypeForm(false); setExamTypeForm(blankExamType()); }}
+        >
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Name" required>
+              <input
+                type="text"
+                value={examTypeForm.name}
+                onChange={(e) => setExamTypeForm((f) => ({ ...f, name: e.target.value }))}
+                className={inputCls}
+                placeholder="e.g. First CA"
+              />
+            </FormField>
+            <FormField label="Code" required>
+              <input
+                type="text"
+                value={examTypeForm.code}
+                onChange={(e) =>
+                  setExamTypeForm((f) => ({ ...f, code: e.target.value.toLowerCase().replace(/\s+/g, '_') }))
+                }
+                className={inputCls}
+                placeholder="e.g. first_ca"
+              />
+            </FormField>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Category">
+              <select
+                value={examTypeForm.category}
+                onChange={(e) => setExamTypeForm((f) => ({ ...f, category: e.target.value as any }))}
+                className={inputCls}
+              >
+                <option value="CA">Continuous Assessment</option>
+                <option value="EXAM">Examination</option>
+                <option value="PRACTICAL">Practical</option>
+                <option value="PROJECT">Project</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </FormField>
+            <FormField label="Display Order">
+              <input
+                type="number"
+                min={0}
+                value={examTypeForm.display_order}
+                onChange={(e) => setExamTypeForm((f) => ({ ...f, display_order: Number(e.target.value) }))}
+                className={inputCls}
+              />
+            </FormField>
+          </div>
+          <FormField label="Description">
+            <textarea
+              value={examTypeForm.description}
+              onChange={(e) => setExamTypeForm((f) => ({ ...f, description: e.target.value }))}
+              rows={2}
+              className={inputCls}
+            />
+          </FormField>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={examTypeForm.is_active}
+              onChange={(e) => setExamTypeForm((f) => ({ ...f, is_active: e.target.checked }))}
+              className="w-4 h-4"
+            />
+            Active
+          </label>
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <button
+              onClick={() => { setShowExamTypeForm(false); setExamTypeForm(blankExamType()); }}
+              className="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <SaveButton
+              saving={saving}
+              label={examTypeForm.id ? 'Update' : 'Create'}
+              onClick={() => examTypeForm.id ? handleUpdateExamType(examTypeForm.id) : handleCreateExamType()}
+            />
+          </div>
+        </ModalShell>
+      )}
+
+      {/* ── Exam Session Modal ── */}
+      {showExamSessionForm && (
+        <ModalShell
+          title={examSessionForm.id ? 'Edit Exam Session' : 'Create Exam Session'}
+          subtitle="Schedule an exam period within a term and academic session"
+          icon={Calendar}
+          onClose={() => { setShowExamSessionForm(false); setExamSessionForm(blankExamSession()); }}
+        >
+          <FormField label="Session Name" required>
+            <input
+              type="text"
+              value={examSessionForm.name}
+              onChange={(e) => setExamSessionForm((f) => ({ ...f, name: e.target.value }))}
+              className={inputCls}
+              placeholder="e.g. 2024/2025 First Term CA"
+            />
+          </FormField>
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Exam Type" required>
+              <select
+                value={String(examSessionForm.exam_type)}
+                onChange={(e) => setExamSessionForm((f) => ({ ...f, exam_type: e.target.value }))}
+                className={inputCls}
+              >
+                <option value="">Select exam type…</option>
+                {examTypes.filter((et) => et.is_active).map((et) => (
+                  <option key={et.id} value={et.id}>{et.name}</option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label="Term" required>
+              <select
+                value={String(examSessionForm.term)}
+                onChange={(e) => setExamSessionForm((f) => ({ ...f, term: e.target.value }))}
+                className={inputCls}
+              >
+                <option value="">Select term…</option>
+                {academicTerms.length > 0
+                  ? academicTerms.map((t: any) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))
+                  : (
+                    <>
+                      <option value="1">First Term</option>
+                      <option value="2">Second Term</option>
+                      <option value="3">Third Term</option>
+                    </>
+                  )}
+              </select>
+            </FormField>
+          </div>
+          <FormField label="Academic Session" required>
+            <select
+              value={String(examSessionForm.academic_session)}
+              onChange={(e) => setExamSessionForm((f) => ({ ...f, academic_session: e.target.value }))}
+              className={inputCls}
+            >
+              <option value="">Select academic session…</option>
+              {academicSessions.map((s: any) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </FormField>
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Start Date">
+              <input
+                type="date"
+                value={examSessionForm.start_date}
+                onChange={(e) => setExamSessionForm((f) => ({ ...f, start_date: e.target.value }))}
+                className={inputCls}
+              />
+            </FormField>
+            <FormField label="End Date">
+              <input
+                type="date"
+                value={examSessionForm.end_date}
+                onChange={(e) => setExamSessionForm((f) => ({ ...f, end_date: e.target.value }))}
+                className={inputCls}
+              />
+            </FormField>
+          </div>
+          <FormField label="Result Release Date">
+            <input
+              type="date"
+              value={examSessionForm.result_release_date}
+              onChange={(e) => setExamSessionForm((f) => ({ ...f, result_release_date: e.target.value }))}
+              className={inputCls}
+            />
+          </FormField>
+          <div className="flex items-center gap-6">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={examSessionForm.is_active}
+                onChange={(e) => setExamSessionForm((f) => ({ ...f, is_active: e.target.checked }))}
+                className="w-4 h-4"
+              />
+              Active
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={examSessionForm.is_published}
+                onChange={(e) => setExamSessionForm((f) => ({ ...f, is_published: e.target.checked }))}
+                className="w-4 h-4"
+              />
+              Published
+            </label>
+          </div>
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <button
+              onClick={() => { setShowExamSessionForm(false); setExamSessionForm(blankExamSession()); }}
+              className="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <SaveButton
+              saving={saving}
+              label={examSessionForm.id ? 'Update Session' : 'Create Session'}
+              onClick={() => examSessionForm.id
+                ? handleUpdateExamSession(examSessionForm.id)
+                : handleCreateExamSession()}
+            />
+          </div>
+        </ModalShell>
+      )}
+
+      {/* ── Grading System Modal ── */}
+      {showGradingSystemForm && (
+        <ModalShell
+          title={gradingSystemForm.id ? 'Edit Grading System' : 'Create Grading System'}
+          subtitle="Define the grading scale — then add grade ranges inside it"
+          icon={Award}
+          onClose={() => { setShowGradingSystemForm(false); setGradingSystemForm(blankGradingSystem()); }}
+        >
+          <FormField label="Name" required>
+            <input
+              type="text"
+              value={gradingSystemForm.name}
+              onChange={(e) => setGradingSystemForm((f) => ({ ...f, name: e.target.value }))}
+              className={inputCls}
+              placeholder="e.g. Nigerian Secondary School Scale"
+            />
+          </FormField>
+          <FormField label="Grading Type">
+            <select
+              value={gradingSystemForm.grading_type}
+              onChange={(e) => setGradingSystemForm((f) => ({ ...f, grading_type: e.target.value as any }))}
+              className={inputCls}
+            >
+              <option value="PERCENTAGE">Percentage (0–100)</option>
+              <option value="POINTS">Points (GPA)</option>
+              <option value="LETTER">Letter Grades</option>
+              <option value="PASS_FAIL">Pass / Fail</option>
+            </select>
+          </FormField>
+          <FormField label="Description">
+            <textarea
+              value={gradingSystemForm.description}
+              onChange={(e) => setGradingSystemForm((f) => ({ ...f, description: e.target.value }))}
+              rows={2}
+              className={inputCls}
+            />
+          </FormField>
+          <div className="grid grid-cols-3 gap-4">
+            <FormField label="Min Score">
+              <input
+                type="number"
+                value={gradingSystemForm.min_score}
+                onChange={(e) => setGradingSystemForm((f) => ({ ...f, min_score: Number(e.target.value) }))}
+                className={inputCls}
+              />
+            </FormField>
+            <FormField label="Max Score">
+              <input
+                type="number"
+                value={gradingSystemForm.max_score}
+                onChange={(e) => setGradingSystemForm((f) => ({ ...f, max_score: Number(e.target.value) }))}
+                className={inputCls}
+              />
+            </FormField>
+            <FormField label="Pass Mark">
+              <input
+                type="number"
+                value={gradingSystemForm.pass_mark}
+                onChange={(e) => setGradingSystemForm((f) => ({ ...f, pass_mark: Number(e.target.value) }))}
+                className={inputCls}
+              />
+            </FormField>
+          </div>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={gradingSystemForm.is_active}
+              onChange={(e) => setGradingSystemForm((f) => ({ ...f, is_active: e.target.checked }))}
+              className="w-4 h-4"
+            />
+            Active
+          </label>
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <button
+              onClick={() => { setShowGradingSystemForm(false); setGradingSystemForm(blankGradingSystem()); }}
+              className="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <SaveButton
+              saving={saving}
+              label={gradingSystemForm.id ? 'Update' : 'Create'}
+              onClick={() => gradingSystemForm.id
+                ? handleUpdateGradingSystem(gradingSystemForm.id)
+                : handleCreateGradingSystem()}
+            />
+          </div>
+        </ModalShell>
+      )}
+
+      {/* ── Grades Management Modal ── */}
+      {showGradesModal && selectedGradingSystem && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="bg-black px-8 py-5 rounded-t-2xl flex items-center justify-between">
+              <div>
+                <p className="text-xl font-bold text-white">Grades — {selectedGradingSystem.name}</p>
+                <p className="text-white/70 text-sm">
+                  Range: {selectedGradingSystem.min_score}–{selectedGradingSystem.max_score} · Pass mark: {selectedGradingSystem.pass_mark}
+                </p>
+              </div>
+              <button
+                onClick={() => { setShowGradesModal(false); setSelectedGradingSystem(null); }}
+                className="bg-white/20 hover:bg-white/30 text-white p-2 rounded-lg transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="p-6">
+              <button
+                onClick={() => {
+                  setGradeForm(blankGrade(selectedGradingSystem.id));
+                  setShowGradeForm(true);
+                }}
+                className="mb-5 flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
+              >
+                <Plus className="w-4 h-4" /> Add Grade
+              </button>
+              <div className="space-y-3">
+                {grades
+                  .filter((g) => g.grading_system === selectedGradingSystem.id)
+                  .sort((a, b) => Number(b.min_score) - Number(a.min_score))
+                  .map((g) => (
+                    <div key={g.id} className="border border-gray-200 rounded-xl p-4 flex items-center justify-between hover:bg-gray-50">
+                      <div className="flex items-center gap-3">
+                        <div className="bg-gray-100 text-gray-900 font-bold text-lg w-10 h-10 rounded-full flex items-center justify-center">
+                          {g.grade}
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">{g.remark}</p>
+                          <p className="text-xs text-gray-500">
+                            {g.min_score}–{g.max_score}
+                            {g.grade_point !== undefined ? ` · GP: ${g.grade_point}` : ''}
+                          </p>
+                        </div>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ml-2 ${g.is_passing ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                          {g.is_passing ? 'Pass' : 'Fail'}
+                        </span>
+                      </div>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => {
+                            setGradeForm({ id: g.id, grading_system: g.grading_system, grade: g.grade, remark: g.remark, min_score: g.min_score, max_score: g.max_score, grade_point: g.grade_point, description: g.description, is_passing: g.is_passing });
+                            setShowGradeForm(true);
+                          }}
+                          className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteGrade(g.id)}
+                          className="p-1.5 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-600 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
                   ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Enhanced Scoring Configuration Form Modal */}
-      {showScoringConfigForm && (
-        <>
-          {loading && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg p-6 text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-600 border-t-transparent mx-auto mb-4"></div>
-                <p className="text-gray-700">Loading configuration data...</p>
-              </div>
-            </div>
-          )}
-          {!loading && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-                <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-6 rounded-t-2xl">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                      <div className="bg-white/20 p-3 rounded-xl">
-                        <Calculator className="h-6 w-6 text-white" />
-                      </div>
-                      <div>
-                        <h3 className="text-xl font-bold text-white">
-                          {scoringConfigForm.id ? 'Edit' : 'Create'} Scoring Configuration
-                        </h3>
-                        <p className="text-blue-100 text-sm">Configure test and exam scoring parameters</p>
-                      </div>
-                    </div>
-                    <button
-                      className="bg-white/20 hover:bg-white/30 text-white p-2 rounded-lg transition-all duration-200"
-                      onClick={() => setShowScoringConfigForm(false)}
-                    >
-                      <X className="h-5 w-5" />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="p-8">
-                  <div className="space-y-6">
-                    {/* Basic Information */}
-                    <div className="bg-blue-50 rounded-xl p-6">
-                      <h4 className="text-lg font-semibold text-blue-900 mb-4 flex items-center">
-                        <Info className="h-5 w-5 mr-2" />
-                        Basic Information
-                      </h4>
-                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                         <div>
-                           <label className="block text-sm font-medium text-gray-700 mb-2">
-                             Configuration Name
-                           </label>
-                           <input
-                             type="text"
-                             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                             value={scoringConfigForm.name}
-                             onChange={(e) => setScoringConfigForm({
-                               ...scoringConfigForm,
-                               name: e.target.value
-                             })}
-                             placeholder="Enter configuration name"
-                           />
-                         </div>
-                         <div>
-                           <label className="block text-sm font-medium text-gray-700 mb-2">
-                             Education Level
-                           </label>
-                           <select
-                             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                             value={scoringConfigForm.education_level}
-                             onChange={(e) => setScoringConfigForm({
-                               ...scoringConfigForm,
-                               education_level: e.target.value as any
-                             })}
-                           >
-                             <option value="NURSERY">Nursery</option>
-                             <option value="PRIMARY">Primary</option>
-                             <option value="JUNIOR_SECONDARY">Junior Secondary</option>
-                             <option value="SENIOR_SECONDARY">Senior Secondary</option>
-                           </select>
-                         </div>
-                       </div>
-                       {scoringConfigForm.education_level === 'SENIOR_SECONDARY' && (
-                         <div className="mt-6">
-                           <label className="block text-sm font-medium text-gray-700 mb-2">
-                             Result Type
-                           </label>
-                           <select
-                             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                             value={scoringConfigForm.result_type || 'TERMLY'}
-                             onChange={(e) => setScoringConfigForm({
-                               ...scoringConfigForm,
-                               result_type: e.target.value as 'TERMLY' | 'SESSION'
-                             })}
-                           >
-                             <option value="TERMLY">Termly Result</option>
-                             <option value="SESSION">Session Result</option>
-                           </select>
-                         </div>
-                       )}
-                      <div className="mt-6">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Description
-                        </label>
-                        <textarea
-                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                          rows={3}
-                          value={scoringConfigForm.description}
-                          onChange={(e) => setScoringConfigForm({
-                            ...scoringConfigForm,
-                            description: e.target.value
-                          })}
-                          placeholder="Describe the scoring system and its purpose"
-                        />
-                      </div>
-                    </div>
-
-                                         {/* Score Configuration - Dynamic based on Education Level */}
-                     <div className="bg-green-50 rounded-xl p-6">
-                       <h4 className="text-lg font-semibold text-green-900 mb-4 flex items-center">
-                         <BookOpen className="h-5 w-5 mr-2" />
-                         {scoringConfigForm.education_level === 'SENIOR_SECONDARY' && scoringConfigForm.result_type === 'SESSION' 
-                           ? 'Term Score Configuration' 
-                           : scoringConfigForm.education_level === 'SENIOR_SECONDARY' 
-                           ? 'Test Score Configuration'
-                           : scoringConfigForm.education_level === 'NURSERY'
-                           ? 'Nursery Score Configuration'
-                           : 'Continuous Assessment Configuration'}
-                       </h4>
-                       
-                       {/* Senior Secondary Configuration */}
-                       {(scoringConfigForm.education_level === 'SENIOR_SECONDARY') && (
-                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                           <div>
-                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                               {scoringConfigForm.result_type === 'SESSION' ? '1st Term Cumulative Score' : '1st Test Maximum Score'}
-                             </label>
-                             <input
-                               type="number"
-                               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                               value={scoringConfigForm.first_test_max_score}
-                               onChange={(e) => setScoringConfigForm({
-                                 ...scoringConfigForm,
-                                 first_test_max_score: parseFloat(e.target.value) || 0
-                               })}
-                             />
-                             {scoringConfigForm.result_type === 'SESSION' && (
-                               <p className="text-xs text-gray-500 mt-1">
-                                 Includes: Tests + Exam for 1st Term
-                               </p>
-                             )}
-                           </div>
-                           <div>
-                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                               {scoringConfigForm.result_type === 'SESSION' ? '2nd Term Cumulative Score' : '2nd Test Maximum Score'}
-                             </label>
-                             <input
-                               type="number"
-                               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                               value={scoringConfigForm.second_test_max_score}
-                               onChange={(e) => setScoringConfigForm({
-                                 ...scoringConfigForm,
-                                 second_test_max_score: parseFloat(e.target.value) || 0
-                               })}
-                             />
-                             {scoringConfigForm.result_type === 'SESSION' && (
-                               <p className="text-xs text-gray-500 mt-1">
-                                 Includes: Tests + Exam for 2nd Term
-                               </p>
-                             )}
-                           </div>
-                           <div>
-                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                               {scoringConfigForm.result_type === 'SESSION' ? '3rd Term Cumulative Score' : '3rd Test Maximum Score'}
-                             </label>
-                             <input
-                               type="number"
-                               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                               value={scoringConfigForm.third_test_max_score}
-                               onChange={(e) => setScoringConfigForm({
-                                 ...scoringConfigForm,
-                                 third_test_max_score: parseFloat(e.target.value) || 0
-                               })}
-                             />
-                             {scoringConfigForm.result_type === 'SESSION' && (
-                               <p className="text-xs text-gray-500 mt-1">
-                                 Includes: Tests + Exam for 3rd Term
-                               </p>
-                             )}
-                           </div>
-                         </div>
-                       )}
-                       
-                       {/* Nursery Configuration */}
-                       {(scoringConfigForm.education_level === 'NURSERY') && (
-                         <div className="grid grid-cols-1 gap-6">
-                           <div>
-                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                               Max Mark Obtainable
-                             </label>
-                             <input
-                               type="number"
-                               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                               value={scoringConfigForm.total_max_score || 100}
-                               onChange={(e) => setScoringConfigForm({
-                                 ...scoringConfigForm,
-                                 total_max_score: parseFloat(e.target.value) || 0
-                               })}
-                               placeholder="100"
-                             />
-                             <p className="text-xs text-gray-500 mt-1">
-                               Maximum marks obtainable for nursery activities and assessments
-                             </p>
-                           </div>
-                         </div>
-                       )}
-                       
-                                               {/* Junior Secondary and Primary Configuration */}
-                        {(scoringConfigForm.education_level === 'JUNIOR_SECONDARY' || scoringConfigForm.education_level === 'PRIMARY') && (
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                CA Maximum Score
-                              </label>
-                              <input
-                                type="number"
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                                value={scoringConfigForm.continuous_assessment_max_score || 15}
-                                onChange={(e) => setScoringConfigForm({
-                                  ...scoringConfigForm,
-                                  continuous_assessment_max_score: parseFloat(e.target.value) || 0
-                                })}
-                                placeholder="15"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Take Home Test Maximum Score
-                              </label>
-                              <input
-                                type="number"
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                                value={scoringConfigForm.take_home_test_max_score || 5}
-                                onChange={(e) => setScoringConfigForm({
-                                  ...scoringConfigForm,
-                                  take_home_test_max_score: parseFloat(e.target.value) || 0
-                                })}
-                                placeholder="5"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Appearance Maximum Score
-                              </label>
-                              <input
-                                type="number"
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                                value={scoringConfigForm.appearance_max_score || 5}
-                                onChange={(e) => setScoringConfigForm({
-                                  ...scoringConfigForm,
-                                  appearance_max_score: parseFloat(e.target.value) || 0
-                                })}
-                                placeholder="5"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Practical Maximum Score
-                              </label>
-                              <input
-                                type="number"
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                                value={scoringConfigForm.practical_max_score || 5}
-                                onChange={(e) => setScoringConfigForm({
-                                  ...scoringConfigForm,
-                                  practical_max_score: parseFloat(e.target.value) || 0
-                                })}
-                                placeholder="5"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Project Maximum Score
-                              </label>
-                              <input
-                                type="number"
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                                value={scoringConfigForm.project_max_score || 5}
-                                onChange={(e) => setScoringConfigForm({
-                                  ...scoringConfigForm,
-                                  project_max_score: parseFloat(e.target.value) || 0
-                                })}
-                                placeholder="5"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Note Copying Maximum Score
-                              </label>
-                              <input
-                                type="number"
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                                value={scoringConfigForm.note_copying_max_score || 5}
-                                onChange={(e) => setScoringConfigForm({
-                                  ...scoringConfigForm,
-                                  note_copying_max_score: parseFloat(e.target.value) || 0
-                                })}
-                                placeholder="5"
-                              />
-                            </div>
-                          </div>
-                        )}
-                       
-                       {/* Total CA Score Display - Hide for Nursery */}
-                       {scoringConfigForm.education_level !== 'NURSERY' && (
-                         <div className="mt-4 p-4 bg-green-100 rounded-lg">
-                           <div className="flex items-center justify-between text-green-800">
-                             <span className="font-medium">
-                               {scoringConfigForm.education_level === 'SENIOR_SECONDARY' && scoringConfigForm.result_type === 'SESSION' 
-                                 ? 'Total Year Score:' 
-                                 : 'Total CA Score:'}
-                             </span>
-                             <span className="text-xl font-bold">
-                               {scoringConfigForm.education_level === 'SENIOR_SECONDARY' 
-                                 ? calculateTotalCA() 
-                                 : calculateTotalCAPrimaryJunior()}
-                             </span>
-                           </div>
-                           {scoringConfigForm.education_level === 'SENIOR_SECONDARY' && scoringConfigForm.result_type === 'SESSION' && (
-                             <p className="text-xs text-green-700 mt-1">
-                               Sum of all three terms (1st + 2nd + 3rd Term scores)
-                             </p>
-                           )}
-                           {(scoringConfigForm.education_level === 'JUNIOR_SECONDARY' || scoringConfigForm.education_level === 'PRIMARY') && (
-                             <p className="text-xs text-green-700 mt-1">
-                               Sum of CA + Take Home Test + Appearance + Practical + Project + Note Copying
-                             </p>
-                           )}
-                         </div>
-                       )}
-                     </div>
-
-                                         {/* Exam Configuration - Only for TERMLY */}
-                     {scoringConfigForm.result_type === 'TERMLY' && (
-                       <div className="bg-purple-50 rounded-xl p-6">
-                         <h4 className="text-lg font-semibold text-purple-900 mb-4 flex items-center">
-                           <Award className="h-5 w-5 mr-2" />
-                           Exam Configuration
-                         </h4>
-                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                           <div>
-                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                               Exam Maximum Score
-                             </label>
-                             <input
-                               type="number"
-                               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
-                               value={scoringConfigForm.exam_max_score}
-                               onChange={(e) => setScoringConfigForm({
-                                 ...scoringConfigForm,
-                                 exam_max_score: parseFloat(e.target.value) || 0
-                               })}
-                             />
-                           </div>
-                           <div>
-                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                               Total Maximum Score
-                             </label>
-                             <input
-                               type="number"
-                               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
-                               value={scoringConfigForm.total_max_score}
-                               onChange={(e) => setScoringConfigForm({
-                                 ...scoringConfigForm,
-                                 total_max_score: parseFloat(e.target.value) || 0
-                               })}
-                             />
-                           </div>
-                         </div>
-                       </div>
-                     )}
-
-                                         {/* Weight Configuration - Only for TERMLY and not Nursery */}
-                     {scoringConfigForm.result_type === 'TERMLY' && scoringConfigForm.education_level !== 'NURSERY' && (
-                       <div className="bg-orange-50 rounded-xl p-6">
-                         <h4 className="text-lg font-semibold text-orange-900 mb-4 flex items-center">
-                           <Calculator className="h-5 w-5 mr-2" />
-                           Weight Configuration
-                         </h4>
-                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                           <div>
-                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                               CA Weight Percentage
-                             </label>
-                             <input
-                               type="number"
-                               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all duration-200"
-                               value={scoringConfigForm.ca_weight_percentage}
-                               onChange={(e) => setScoringConfigForm({
-                                 ...scoringConfigForm,
-                                 ca_weight_percentage: parseFloat(e.target.value) || 0
-                               })}
-                             />
-                           </div>
-                           <div>
-                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                               Exam Weight Percentage
-                             </label>
-                             <input
-                               type="number"
-                               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all duration-200"
-                               value={scoringConfigForm.exam_weight_percentage}
-                               onChange={(e) => setScoringConfigForm({
-                                 ...scoringConfigForm,
-                                 exam_weight_percentage: parseFloat(e.target.value) || 0
-                               })}
-                             />
-                           </div>
-                         </div>
-                         {!validateWeightPercentages() && (
-                           <div className="mt-4 p-4 bg-red-100 rounded-lg">
-                             <div className="flex items-center text-red-800">
-                               <AlertCircle className="h-5 w-5 mr-2" />
-                               <span className="font-medium">Weight percentages must sum to 100%</span>
-                             </div>
-                           </div>
-                         )}
-                       </div>
-                     )}
-
-                                           {/* Session Configuration - Only for SESSION */}
-                      {scoringConfigForm.result_type === 'SESSION' && (
-                        <div className="bg-blue-50 rounded-xl p-6">
-                          <h4 className="text-lg font-semibold text-blue-900 mb-4 flex items-center">
-                            <Calculator className="h-5 w-5 mr-2" />
-                            Session Configuration
-                          </h4>
-                          <div className="p-4 bg-blue-100 rounded-lg">
-                            <div className="flex items-start text-blue-800">
-                              <Info className="h-5 w-5 mr-2 mt-0.5" />
-                              <div>
-                                <p className="font-medium">Session Result Structure:</p>
-                                <p className="text-sm mt-2 space-y-1">
-                                  • <strong>1st Term Score:</strong> Cumulative score for 1st term (Tests + Exam for that term)<br/>
-                                  • <strong>2nd Term Score:</strong> Cumulative score for 2nd term (Tests + Exam for that term)<br/>
-                                  • <strong>3rd Term Score:</strong> Cumulative score for 3rd term (Tests + Exam for that term)<br/>
-                                  • <strong>Average of Year:</strong> (1st Term + 2nd Term + 3rd Term) ÷ 3<br/>
-                                  • <strong>No separate exam configuration</strong> - each term is self-contained<br/>
-                                  • <strong>No weight percentages</strong> - session is a summary of the academic year
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                    {/* Status Configuration */}
-                    <div className="bg-gray-50 rounded-xl p-6">
-                      <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                        <Settings className="h-5 w-5 mr-2" />
-                        Status Configuration
-                      </h4>
-                      <div className="flex items-center space-x-8">
-                        <div className="flex items-center space-x-3">
-                          <input
-                            type="checkbox"
-                            id="config-active"
-                            checked={scoringConfigForm.is_active}
-                            onChange={(e) => setScoringConfigForm({
-                              ...scoringConfigForm,
-                              is_active: e.target.checked
-                            })}
-                            className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                          />
-                          <label htmlFor="config-active" className="text-sm font-medium text-gray-700">
-                            Active Configuration
-                          </label>
-                        </div>
-                        <div className="flex items-center space-x-3">
-                          <input
-                            type="checkbox"
-                            id="config-default"
-                            checked={scoringConfigForm.is_default}
-                            onChange={(e) => setScoringConfigForm({
-                              ...scoringConfigForm,
-                              is_default: e.target.checked
-                            })}
-                            className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                          />
-                          <label htmlFor="config-default" className="text-sm font-medium text-gray-700">
-                            Set as Default
-                          </label>
-                        </div>
-                        {scoringConfigForm.is_default && scoringConfigurations && scoringConfigurations.length > 0 && (
-                          <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                            <div className="flex items-start text-yellow-800">
-                              <AlertCircle className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0" />
-                              <div className="text-sm">
-                                <p className="font-medium">Default Configuration Warning</p>
-                                <p className="mt-1">
-                                  There's already a default configuration for {scoringConfigForm.education_level.replace('_', ' ').toLowerCase()}. 
-                                  Setting this as default will automatically unset the existing default configuration.
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex justify-end space-x-4 pt-6 border-t border-gray-200">
-                      <button
-                        className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium"
-                        onClick={() => setShowScoringConfigForm(false)}
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-medium flex items-center space-x-2"
-                        onClick={() => {
-                          console.log('Button clicked!', {
-                            hasId: !!scoringConfigForm.id,
-                            id: scoringConfigForm.id,
-                            formData: scoringConfigForm
-                          });
-                          if (scoringConfigForm.id) {
-                            console.log('Calling handleUpdateScoringConfig with id:', scoringConfigForm.id);
-                            handleUpdateScoringConfig(scoringConfigForm.id);
-                          } else {
-                            console.log('Calling handleCreateScoringConfig');
-                            handleCreateScoringConfig();
-                          }
-                        }}
-                        disabled={saving || loading}
-                      >
-                        {saving ? (
-                          <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                            <span>Saving...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Save className="h-4 w-4" />
-                            <span>{scoringConfigForm.id ? 'Update' : 'Create'} Configuration</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* Grading System Form Modal */}
-      {showGradingSystemForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="bg-gradient-to-r from-green-600 to-emerald-600 px-8 py-6 rounded-t-2xl">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-4">
-                  <div className="bg-white/20 p-3 rounded-xl">
-                    <Award className="h-6 w-6 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-white">
-                      {gradingSystemForm.id ? 'Edit' : 'Create'} Grading System
-                    </h3>
-                    <p className="text-green-100 text-sm">Configure grading parameters and rules</p>
-                  </div>
-                </div>
-                <button
-                  className="bg-white/20 hover:bg-white/30 text-white p-2 rounded-lg transition-all duration-200"
-                  onClick={() => setShowGradingSystemForm(false)}
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="p-8 space-y-6">
-              {/* Basic Information */}
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
-                  <input
-                    type="text"
-                    value={gradingSystemForm.name}
-                    onChange={(e) => setGradingSystemForm({...gradingSystemForm, name: e.target.value})}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    placeholder="Enter grading system name"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
-                  <textarea
-                    value={gradingSystemForm.description}
-                    onChange={(e) => setGradingSystemForm({...gradingSystemForm, description: e.target.value})}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    rows={3}
-                    placeholder="Enter description"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Grading Type</label>
-                  <select
-                    value={gradingSystemForm.grading_type}
-                    onChange={(e) => setGradingSystemForm({...gradingSystemForm, grading_type: e.target.value as any})}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  >
-                    <option value="PERCENTAGE">Percentage</option>
-                    <option value="POINTS">Points</option>
-                    <option value="LETTER">Letter Grades</option>
-                    <option value="PASS_FAIL">Pass/Fail</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Score Configuration */}
-              <div className="bg-gray-50 rounded-xl p-6">
-                <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                  <Calculator className="h-5 w-5 mr-2" />
-                  Score Configuration
-                </h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Minimum Score</label>
-                    <input
-                      type="number"
-                      value={gradingSystemForm.min_score}
-                      onChange={(e) => setGradingSystemForm({...gradingSystemForm, min_score: Number(e.target.value)})}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                      min="0"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Maximum Score</label>
-                    <input
-                      type="number"
-                      value={gradingSystemForm.max_score}
-                      onChange={(e) => setGradingSystemForm({...gradingSystemForm, max_score: Number(e.target.value)})}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                      min="0"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Pass Mark</label>
-                    <input
-                      type="number"
-                      value={gradingSystemForm.pass_mark}
-                      onChange={(e) => setGradingSystemForm({...gradingSystemForm, pass_mark: Number(e.target.value)})}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                      min="0"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Status */}
-              <div className="bg-gray-50 rounded-xl p-6">
-                <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                  <Settings className="h-5 w-5 mr-2" />
-                  Status
-                </h4>
-                <div className="flex items-center space-x-3">
-                  <input
-                    type="checkbox"
-                    id="grading-active"
-                    checked={gradingSystemForm.is_active}
-                    onChange={(e) => setGradingSystemForm({...gradingSystemForm, is_active: e.target.checked})}
-                    className="w-5 h-5 text-green-600 border-gray-300 rounded focus:ring-green-500"
-                  />
-                  <label htmlFor="grading-active" className="text-sm font-medium text-gray-700">
-                    Active Grading System
-                  </label>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex justify-end space-x-4 pt-6 border-t border-gray-200">
-                <button
-                  className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium"
-                  onClick={() => setShowGradingSystemForm(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-medium flex items-center space-x-2"
-                  onClick={() => {
-                    if (gradingSystemForm.id) {
-                      handleUpdateGradingSystem(gradingSystemForm.id);
-                    } else {
-                      handleCreateGradingSystem();
-                    }
-                  }}
-                  disabled={saving}
-                >
-                  {saving ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                      <span>Saving...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Save className="h-4 w-4" />
-                      <span>{gradingSystemForm.id ? 'Update' : 'Create'} Grading System</span>
-                    </>
-                  )}
-                </button>
+                {grades.filter((g) => g.grading_system === selectedGradingSystem.id).length === 0 && (
+                  <EmptyState icon={Award} title="No grades defined yet" subtitle="Add grade ranges to define the grading scale" />
+                )}
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Assessment Type Form Modal */}
-      {showAssessmentTypeForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="bg-gradient-to-r from-purple-600 to-pink-600 px-8 py-6 rounded-t-2xl">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-4">
-                  <div className="bg-white/20 p-3 rounded-xl">
-                    <BookOpen className="h-6 w-6 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-white">
-                      {assessmentTypeForm.id ? 'Edit' : 'Create'} Assessment Type
-                    </h3>
-                    <p className="text-purple-100 text-sm">Configure assessment type and weight</p>
-                  </div>
-                </div>
-                <button
-                  className="bg-white/20 hover:bg-white/30 text-white p-2 rounded-lg transition-all duration-200"
-                  onClick={() => setShowAssessmentTypeForm(false)}
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
+      {/* ── Grade Form Modal ── */}
+      {showGradeForm && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+            <div className="bg-black px-8 py-5 rounded-t-2xl flex items-center justify-between">
+              <p className="text-xl font-bold text-white">{gradeForm.id ? 'Edit' : 'Create'} Grade</p>
+              <button
+                onClick={() => { setShowGradeForm(false); setGradeForm(blankGrade(selectedGradingSystem?.id || '')); }}
+                className="bg-white/20 text-white p-2 rounded-lg hover:bg-white/30 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
-
-            <div className="p-8 space-y-6">
-              {/* Basic Information */}
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <FormField label="Grade" required>
                   <input
                     type="text"
-                    value={assessmentTypeForm.name}
-                    onChange={(e) => setAssessmentTypeForm({...assessmentTypeForm, name: e.target.value})}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="Enter assessment type name"
+                    value={gradeForm.grade}
+                    onChange={(e) => setGradeForm((f) => ({ ...f, grade: e.target.value }))}
+                    className={inputCls}
+                    placeholder="A, B+…"
                   />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Code</label>
+                </FormField>
+                <FormField label="Remark" required>
                   <input
                     type="text"
-                    value={assessmentTypeForm.code}
-                    onChange={(e) => setAssessmentTypeForm({...assessmentTypeForm, code: e.target.value})}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="Enter assessment code"
+                    value={gradeForm.remark}
+                    onChange={(e) => setGradeForm((f) => ({ ...f, remark: e.target.value }))}
+                    className={inputCls}
+                    placeholder="Excellent, Very Good…"
                   />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
-                  <textarea
-                    value={assessmentTypeForm.description}
-                    onChange={(e) => setAssessmentTypeForm({...assessmentTypeForm, description: e.target.value})}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    rows={3}
-                    placeholder="Enter description"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Weight Percentage</label>
+                </FormField>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <FormField label="Min Score">
                   <input
                     type="number"
-                    value={assessmentTypeForm.weight_percentage}
-                    onChange={(e) => setAssessmentTypeForm({...assessmentTypeForm, weight_percentage: Number(e.target.value)})}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    min="0"
-                    max="100"
-                    step="0.1"
+                    value={gradeForm.min_score}
+                    onChange={(e) => setGradeForm((f) => ({ ...f, min_score: Number(e.target.value) }))}
+                    className={inputCls}
                   />
-                </div>
-              </div>
-
-              {/* Status */}
-              <div className="bg-gray-50 rounded-xl p-6">
-                <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                  <Settings className="h-5 w-5 mr-2" />
-                  Status
-                </h4>
-                <div className="flex items-center space-x-3">
+                </FormField>
+                <FormField label="Max Score">
                   <input
-                    type="checkbox"
-                    id="assessment-active"
-                    checked={assessmentTypeForm.is_active}
-                    onChange={(e) => setAssessmentTypeForm({...assessmentTypeForm, is_active: e.target.checked})}
-                    className="w-5 h-5 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                    type="number"
+                    value={gradeForm.max_score}
+                    onChange={(e) => setGradeForm((f) => ({ ...f, max_score: Number(e.target.value) }))}
+                    className={inputCls}
                   />
-                  <label htmlFor="assessment-active" className="text-sm font-medium text-gray-700">
-                    Active Assessment Type
-                  </label>
-                </div>
+                </FormField>
+                <FormField label="Grade Point" hint="Optional — for GPA systems">
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={gradeForm.grade_point ?? ''}
+                    onChange={(e) =>
+                      setGradeForm((f) => ({ ...f, grade_point: e.target.value ? Number(e.target.value) : undefined }))
+                    }
+                    className={inputCls}
+                    placeholder="4.0"
+                  />
+                </FormField>
               </div>
-
-              {/* Action Buttons */}
-              <div className="flex justify-end space-x-4 pt-6 border-t border-gray-200">
+              <FormField label="Description">
+                <input
+                  type="text"
+                  value={gradeForm.description}
+                  onChange={(e) => setGradeForm((f) => ({ ...f, description: e.target.value }))}
+                  className={inputCls}
+                  placeholder="Optional notes"
+                />
+              </FormField>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={gradeForm.is_passing}
+                  onChange={(e) => setGradeForm((f) => ({ ...f, is_passing: e.target.checked }))}
+                  className="w-4 h-4"
+                />
+                Passing grade
+              </label>
+              <div className="flex justify-end gap-3 pt-3 border-t">
                 <button
-                  className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium"
-                  onClick={() => setShowAssessmentTypeForm(false)}
+                  onClick={() => { setShowGradeForm(false); setGradeForm(blankGrade(selectedGradingSystem?.id || '')); }}
+                  className="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
                 >
                   Cancel
                 </button>
-                <button
-                  className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-medium flex items-center space-x-2"
-                  onClick={() => {
-                    if (assessmentTypeForm.id) {
-                      handleUpdateAssessmentType(assessmentTypeForm.id);
-                    } else {
-                      handleCreateAssessmentType();
-                    }
-                  }}
-                  disabled={saving}
-                >
-                  {saving ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                      <span>Saving...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Save className="h-4 w-4" />
-                      <span>{assessmentTypeForm.id ? 'Update' : 'Create'} Assessment Type</span>
-                    </>
-                  )}
-                </button>
+                <SaveButton
+                  saving={saving}
+                  label={gradeForm.id ? 'Update Grade' : 'Create Grade'}
+                  onClick={() => gradeForm.id ? handleUpdateGrade(gradeForm.id) : handleCreateGrade()}
+                />
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Exam Session Form Modal */}
-      {showExamSessionForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="bg-gradient-to-r from-indigo-600 to-blue-600 px-8 py-6 rounded-t-2xl">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-4">
-                  <div className="bg-white/20 p-3 rounded-xl">
-                    <Calendar className="h-6 w-6 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-white">
-                      {examSessionForm.id ? 'Edit' : 'Create'} Exam Session
-                    </h3>
-                    <p className="text-indigo-100 text-sm">Schedule examination period</p>
-                  </div>
-                </div>
-                <button
-                  className="bg-white/20 hover:bg-white/30 text-white p-2 rounded-lg transition-all duration-200"
-                  onClick={() => setShowExamSessionForm(false)}
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-            </div>
+      {/* ── Scoring Configuration Modal ── */}
+      {showScoringConfigForm && (
+        <ModalShell
+          title={scoringConfigForm.id ? 'Edit Configuration' : 'Create Scoring Configuration'}
+          subtitle="High-level parameters used by the PDF report generator"
+          icon={Calculator}
+          onClose={() => { setShowScoringConfigForm(false); setScoringConfigForm(blankScoringConfig()); }}
+          wide
+        >
+          <InfoBanner>
+            Component-level score limits (Test 1, Test 2, Exam…) are defined in{' '}
+            <strong>Assessment Components</strong>. This configuration sets the total and type used by the
+            report generator. The Total Max Score must equal the sum of active components for this level.
+          </InfoBanner>
 
-            <div className="p-8 space-y-6">
-              {/* Basic Information */}
-              <div className="space-y-4">
-            <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
-                    <input
-                        type="text"
-                        value={examSessionForm.name}
-                        onChange={(e) => setExamSessionForm({...examSessionForm, name: e.target.value})}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                        placeholder="Enter exam session name"
-                    />
-            </div>
-
-            <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Exam Type</label>
-                    <select
-                        value={examSessionForm.exam_type}
-                        onChange={(e) => setExamSessionForm({...examSessionForm, exam_type: e.target.value})}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    >
-                            <option value="">Select Exam Type</option>
-                            <option value="FIRST_CA">First Continuous Assessment</option>
-                            <option value="SECOND_CA">Second Continuous Assessment</option>
-                            <option value="THIRD_CA">Third Continuous Assessment</option>
-                            <option value="MID_TERM">Mid-term Examination</option>
-                            <option value="FINAL_EXAM">Final Examination</option>
-                            <option value="MOCK_EXAM">Mock Examination</option>
-                            <option value="PRACTICAL">Practical Examination</option>
-                            <option value="PROJECT">Project Assessment</option>
-                            <option value="OTHER">Other</option>
-                        </select>
-                </div>
-
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Term</label>
-                        <select
-                            value={examSessionForm.term}
-                            onChange={(e) => setExamSessionForm({...examSessionForm, term: e.target.value})}
-                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                >
-                                <option value="">Select Term</option>
-                                <option value="FIRST">First Term</option>
-                                <option value="SECOND">Second Term</option>
-                                <option value="THIRD">Third Term</option>
-                        </select>
-                </div>
-
-            <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Academic Session</label>
-                        <select
-                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                            value={examSessionForm.academic_session || ""}
-                            onChange={e => setExamSessionForm({ ...examSessionForm, academic_session: (e.target.value) })}
-                >
-                                <option value="">Select Academic Session</option>
-                                {academicSessions?.map(session => (
-                                <option key={session.id} value={session.id}>
-                                    {session.name}
-                                </option>
-            ))}
-                        </select>
-            </div>
-        </div>
-
-              {/* Date Configuration */}
-              <div className="bg-gray-50 rounded-xl p-6">
-                <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                  <Calendar className="h-5 w-5 mr-2" />
-                  Date Configuration
-                </h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
-                    <input
-                      type="date"
-                      value={examSessionForm.start_date}
-                      onChange={(e) => setExamSessionForm({...examSessionForm, start_date: e.target.value})}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">End Date</label>
-                    <input
-                      type="date"
-                      value={examSessionForm.end_date}
-                      onChange={(e) => setExamSessionForm({...examSessionForm, end_date: e.target.value})}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Result Release Date</label>
-                    <input
-                      type="date"
-                      value={examSessionForm.result_release_date}
-                      onChange={(e) => setExamSessionForm({...examSessionForm, result_release_date: e.target.value})}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Status Configuration */}
-              <div className="bg-gray-50 rounded-xl p-6">
-                <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                  <Settings className="h-5 w-5 mr-2" />
-                  Status Configuration
-                </h4>
-                <div className="space-y-3">
-                  <div className="flex items-center space-x-3">
-                    <input
-                      type="checkbox"
-                      id="session-active"
-                      checked={examSessionForm.is_active}
-                      onChange={(e) => setExamSessionForm({...examSessionForm, is_active: e.target.checked})}
-                      className="w-5 h-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                    />
-                    <label htmlFor="session-active" className="text-sm font-medium text-gray-700">
-                      Active Session
-                    </label>
-                  </div>
-                  <div className="flex items-center space-x-3">
-                    <input
-                      type="checkbox"
-                      id="session-published"
-                      checked={examSessionForm.is_published}
-                      onChange={(e) => setExamSessionForm({...examSessionForm, is_published: e.target.checked})}
-                      className="w-5 h-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                    />
-                    <label htmlFor="session-published" className="text-sm font-medium text-gray-700">
-                      Published Results
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex justify-end space-x-4 pt-6 border-t border-gray-200">
-                <button
-                  className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium"
-                  onClick={() => setShowExamSessionForm(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-medium flex items-center space-x-2"
-                  onClick={() => {
-                    if (examSessionForm.id) {
-                      handleUpdateExamSession(examSessionForm.id);
-                    } else {
-                      handleCreateExamSession();
-                    }
-                  }}
-                  disabled={saving}
-                >
-                  {saving ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                      <span>Saving...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Save className="h-4 w-4" />
-                      <span>{examSessionForm.id ? 'Update' : 'Create'} Exam Session</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Grades Management Modal */}
-{showGradesManagementModal && selectedGradingSystem && (
-  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto">
-      <div className="bg-gradient-to-r from-green-600 to-emerald-600 px-8 py-6 rounded-t-2xl">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <div className="bg-white/20 p-3 rounded-xl">
-              <Award className="h-6 w-6 text-white" />
-            </div>
-            <div>
-              <h3 className="text-xl font-bold text-white">
-                Manage Grades - {selectedGradingSystem.name}
-              </h3>
-              <p className="text-green-100 text-sm">Add, edit, or remove grade ranges</p>
-            </div>
-          </div>
-          <button
-            className="bg-white/20 hover:bg-white/30 text-white p-2 rounded-lg transition-all duration-200"
-            onClick={() => {
-              setShowGradesManagementModal(false);
-              setSelectedGradingSystem(null);
-              setShowGradeForm(false);
-            }}
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-      </div>
-
-      <div className="p-8">
-        {/* Grading System Info */}
-        <div className="bg-gray-50 rounded-xl p-6 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-            <div>
-              <span className="text-gray-600">Type:</span>
-              <span className="ml-2 font-medium text-gray-900">{selectedGradingSystem.grading_type}</span>
-            </div>
-            <div>
-              <span className="text-gray-600">Range:</span>
-              <span className="ml-2 font-medium text-gray-900">
-                {selectedGradingSystem.min_score} - {selectedGradingSystem.max_score}
-              </span>
-            </div>
-            <div>
-              <span className="text-gray-600">Pass Mark:</span>
-              <span className="ml-2 font-medium text-gray-900">{selectedGradingSystem.pass_mark}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Add Grade Button */}
-        <div className="mb-6">
-          <button
-            className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg transition-all duration-200 flex items-center space-x-2 font-medium"
-            onClick={() => {
-              resetGradeForm();
-              setGradeForm({
-                ...gradeForm,
-                grading_system: selectedGradingSystem.id
-              });
-              setShowGradeForm(true);
-            }}
-          >
-            <Plus className="h-4 w-4" />
-            <span>Add New Grade</span>
-          </button>
-        </div>
-
-        {/* Grades List */}
-        <div className="space-y-4">
-          {grades
-            .filter(g => g.grading_system === selectedGradingSystem.id)
-            .sort((a, b) => b.min_score - a.min_score)
-            .map((grade) => (
-              <div
-                key={grade.id}
-                className="bg-gradient-to-br from-gray-50 to-white rounded-xl border border-gray-200 p-6 hover:shadow-lg transition-all duration-200"
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Configuration Name" required>
+              <input
+                type="text"
+                value={scoringConfigForm.name}
+                onChange={(e) => setScoringConfigForm((f) => ({ ...f, name: e.target.value }))}
+                className={inputCls}
+                placeholder="e.g. Senior Secondary Termly"
+              />
+            </FormField>
+            <FormField label="Education Level" required>
+              <select
+                value={String(scoringConfigForm.education_level)}
+                onChange={(e) =>
+                  setScoringConfigForm((f) => ({ ...f, education_level: Number(e.target.value) as any }))
+                }
+                className={inputCls}
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-3 mb-3">
-                      <div className="bg-green-100 text-green-800 px-4 py-2 rounded-lg font-bold text-lg">
-                        {grade.grade}
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <span className="bg-blue-100 text-blue-800 text-sm font-medium px-3 py-1 rounded-full">
-                          {grade.min_score} - {grade.max_score}
-                        </span>
-                        {grade.grade_point !== undefined && (
-                          <span className="bg-purple-100 text-purple-800 text-sm font-medium px-3 py-1 rounded-full">
-                            GP: {grade.grade_point}
-                          </span>
-                        )}
-                        {grade.is_passing ? (
-                          <span className="bg-green-100 text-green-800 text-sm font-medium px-3 py-1 rounded-full flex items-center">
-                            <CheckCircle className="h-3 w-3 mr-1" />
-                            Passing
-                          </span>
-                        ) : (
-                          <span className="bg-red-100 text-red-800 text-sm font-medium px-3 py-1 rounded-full flex items-center">
-                            <AlertCircle className="h-3 w-3 mr-1" />
-                            Failing
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <p className="text-gray-700 font-medium mb-1">{grade.remark}</p>
-                    {grade.description && (
-                      <p className="text-gray-600 text-sm">{grade.description}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <button
-                      className="p-2 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all duration-200"
-                      onClick={() => {
-                        setGradeForm({
-                          id: grade.id,
-                          grading_system: grade.grading_system,
-                          grade: grade.grade,
-                          remark: grade.remark,
-                          min_score: grade.min_score,
-                          max_score: grade.max_score,
-                          grade_point: grade.grade_point,
-                          description: grade.description,
-                          is_passing: grade.is_passing
-                        });
-                        setShowGradeForm(true);
-                      }}
-                      title="Edit Grade"
-                    >
-                      <Edit className="h-4 w-4" />
-                    </button>
-                    <button
-                      className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
-                      onClick={() => handleDeleteGrade(grade.id)}
-                      title="Delete Grade"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-
-          {grades.filter(g => g.grading_system === selectedGradingSystem.id).length === 0 && (
-            <div className="text-center py-12">
-              <div className="bg-gray-100 rounded-full p-6 w-20 h-20 mx-auto mb-4 flex items-center justify-center">
-                <Award className="h-10 w-10 text-gray-400" />
-              </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No Grades Defined</h3>
-              <p className="text-gray-600 mb-6">Start by adding grade ranges for this grading system</p>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  </div>
-)}
-
-{/* Grade Form Modal */}
-{showGradeForm && (
-  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
-    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-      <div className="bg-gradient-to-r from-green-600 to-emerald-600 px-8 py-6 rounded-t-2xl">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <div className="bg-white/20 p-3 rounded-xl">
-              <Award className="h-6 w-6 text-white" />
-            </div>
-            <div>
-              <h3 className="text-xl font-bold text-white">
-                {gradeForm.id ? 'Edit' : 'Create'} Grade
-              </h3>
-              <p className="text-green-100 text-sm">Define grade range and properties</p>
-            </div>
+                <option value="">Select level…</option>
+                {educationLevels.map((l) => (
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </select>
+            </FormField>
           </div>
-          <button
-            className="bg-white/20 hover:bg-white/30 text-white p-2 rounded-lg transition-all duration-200"
-            onClick={() => {
-              setShowGradeForm(false);
-              resetGradeForm();
-            }}
+
+          <FormField label="Result Type" hint="Termly = per-term report; Session = full academic year report">
+            <select
+              value={scoringConfigForm.result_type}
+              onChange={(e) => setScoringConfigForm((f) => ({ ...f, result_type: e.target.value as any }))}
+              className={inputCls}
+            >
+              {RESULT_TYPE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </FormField>
+
+          {/* Live component summary — updates when education_level changes */}
+          <ComponentSummaryPanel
+            educationLevelId={scoringConfigForm.education_level || null}
+            assessmentComponents={assessmentComponents}
+            totalMaxScore={scoringConfigForm.total_max_score}
+          />
+
+          <FormField
+            label="Total Max Score"
+            required
+            hint="Must match the sum of active Assessment Components for this level"
           >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-      </div>
-
-      <div className="p-8 space-y-6">
-        {/* Grade Information */}
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Grade <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={gradeForm.grade}
-                onChange={(e) => setGradeForm({...gradeForm, grade: e.target.value})}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                placeholder="e.g., A, B+, Distinction"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Remark <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={gradeForm.remark}
-                onChange={(e) => setGradeForm({...gradeForm, remark: e.target.value})}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                placeholder="e.g., Excellent, Very Good"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Minimum Score <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="number"
-                value={gradeForm.min_score}
-                onChange={(e) => setGradeForm({...gradeForm, min_score: Number(e.target.value)})}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                min="0"
-                step="0.01"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Maximum Score <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="number"
-                value={gradeForm.max_score}
-                onChange={(e) => setGradeForm({...gradeForm, max_score: Number(e.target.value)})}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                min="0"
-                step="0.01"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Grade Point (Optional)
-            </label>
             <input
               type="number"
-              value={gradeForm.grade_point || ''}
-              onChange={(e) => setGradeForm({
-                ...gradeForm, 
-                grade_point: e.target.value ? Number(e.target.value) : undefined
-              })}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              min="0"
-              step="0.1"
-              placeholder="e.g., 4.0, 3.5"
+              min={1}
+              value={scoringConfigForm.total_max_score}
+              onChange={(e) => setScoringConfigForm((f) => ({ ...f, total_max_score: Number(e.target.value) }))}
+              className={inputCls}
             />
-          </div>
+          </FormField>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Description
-            </label>
+          <FormField label="Description">
             <textarea
-              value={gradeForm.description}
-              onChange={(e) => setGradeForm({...gradeForm, description: e.target.value})}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              rows={3}
-              placeholder="Enter description (optional)"
+              value={scoringConfigForm.description}
+              onChange={(e) => setScoringConfigForm((f) => ({ ...f, description: e.target.value }))}
+              rows={2}
+              className={inputCls}
+              placeholder="Optional notes about this configuration"
             />
-          </div>
+          </FormField>
 
-          <div className="flex items-center space-x-3">
-            <input
-              type="checkbox"
-              id="grade-passing"
-              checked={gradeForm.is_passing}
-              onChange={(e) => setGradeForm({...gradeForm, is_passing: e.target.checked})}
-              className="w-5 h-5 text-green-600 border-gray-300 rounded focus:ring-green-500"
-            />
-            <label htmlFor="grade-passing" className="text-sm font-medium text-gray-700">
-              This is a passing grade
+          <div className="flex items-center gap-6">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={scoringConfigForm.is_active}
+                onChange={(e) => setScoringConfigForm((f) => ({ ...f, is_active: e.target.checked }))}
+                className="w-4 h-4"
+              />
+              Active
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={scoringConfigForm.is_default}
+                onChange={(e) => setScoringConfigForm((f) => ({ ...f, is_default: e.target.checked }))}
+                className="w-4 h-4"
+              />
+              Set as Default
             </label>
           </div>
-        </div>
 
-        {/* Action Buttons */}
-        <div className="flex justify-end space-x-4 pt-6 border-t border-gray-200">
-          <button
-            className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium"
-            onClick={() => {
-              setShowGradeForm(false);
-              resetGradeForm();
-            }}
-            disabled={saving}
-          >
-            Cancel
-          </button>
-          <button
-            className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg transition-all duration-200 font-medium flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={() => {
-              if (gradeForm.id) {
-                handleUpdateGrade(gradeForm.id);
-              } else {
-                handleCreateGrade();
-              }
-            }}
-            disabled={saving || !gradeForm.grade || !gradeForm.remark}
-          >
-            {saving ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                <span>Saving...</span>
-              </>
-            ) : (
-              <>
-                <Save className="h-4 w-4" />
-                <span>{gradeForm.id ? 'Update' : 'Create'} Grade</span>
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-)}
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <button
+              onClick={() => { setShowScoringConfigForm(false); setScoringConfigForm(blankScoringConfig()); }}
+              className="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <SaveButton
+              saving={saving}
+              label={scoringConfigForm.id ? 'Update Configuration' : 'Create Configuration'}
+              onClick={handleSaveScoringConfig}
+            />
+          </div>
+        </ModalShell>
+      )}
     </div>
   );
 };
 
 export default ExamsResultTab;
-
-

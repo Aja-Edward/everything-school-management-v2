@@ -248,9 +248,9 @@ CSRF_TRUSTED_ORIGINS = [
         "CSRF_TRUSTED_ORIGINS",
         "http://localhost:3000,http://localhost:5173,http://localhost:5174,"
         "http://bay-school.localhost:5173,"  # Add subdomain pattern for dev
-        "https://www.al-qolamulmuwaffaq.com,"
-        "https://al-qolamulmuwaffaq.com,"
-        "https://school-project-with-edward.vercel.app",
+        "https://www.nuventacloud.com,"
+        "https://nuventacloud.com,"
+        "https://everything-school-management-v2.vercel.app",
     ).split(",")
     if origin.strip()
 ]

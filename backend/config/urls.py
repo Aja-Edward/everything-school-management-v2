@@ -10,7 +10,6 @@ from .health import health_check
 from .views import force_migrate
 from .views import force_migrate, check_database_schema
 from authentication.views import create_first_superuser
-from academics.views import AcademicSessionViewSet, TermViewSet
 
 # Create router for backward compatibility aliases
 

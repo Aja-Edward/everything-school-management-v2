@@ -30,6 +30,7 @@ interface TeacherClassData {
   student_count: number;
   max_capacity: number;
   subject_name: string;
+  subject_id: number;
   subject_code: string;
   room_number: string;
   is_class_teacher: boolean;
@@ -109,7 +110,7 @@ const Classes: React.FC = () => {
                            subject.code.toLowerCase().includes(searchTerm.toLowerCase())
                          ));
     const matchesFilter = filterSection === 'all' || 
-                         cls.education_level.toLowerCase() === filterSection.toLowerCase();
+                         (cls.education_level.toLowerCase() ?? '') === filterSection.toLowerCase();
     return matchesSearch && matchesFilter;
   });
 
@@ -130,6 +131,7 @@ const Classes: React.FC = () => {
   };
 
   const getEducationLevelColor = (level: string) => {
+    if (!level) return 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400';
     switch (level.toUpperCase()) {
       case 'SENIOR_SECONDARY':
         return 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400';
@@ -296,7 +298,7 @@ const Classes: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredClasses.map((cls) => (
               <div
-                key={cls.id}
+                  key={cls.id}
                 className={`bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700 hover:shadow-md transition-all duration-200 cursor-pointer ${
                   selectedClass?.id === cls.id ? 'ring-2 ring-blue-500' : ''
                 }`}

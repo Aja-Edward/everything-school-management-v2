@@ -2,1084 +2,753 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import TeacherDashboardLayout from '@/components/layouts/TeacherDashboardLayout';
 import TeacherDashboardService from '@/services/TeacherDashboardService';
-import ResultService, {type ResultQueryParams} from '@/services/ResultService';
+import ResultService from '@/services/ResultService';
+import type { EducationLevelType, SubjectResultParams } from '@/services/ResultService';
 import ResultCreateTab from '@/components/dashboards/teacher/ResultCreateTab';
 import useResultActionsManager from '@/components/dashboards/teacher/ResultActionsManager';
 import { toast } from 'react-toastify';
-import { TeacherAssignment, StudentResult, AcademicSession, EducationLevel, ResultStatus } from '@/types/types';
-import { 
-  Plus, Edit, Trash2, Eye, CheckCircle, AlertCircle, RefreshCw, 
-  Search, X, FileText, Filter, TrendingUp, Award, Calendar, 
-  GraduationCap, Grid, List
+import {
+  TeacherAssignment,
+  StudentResult,
+  AcademicSession,
+  EducationLevel,
+  ResultStatus,
+} from '@/types/types';
+import {
+  Plus, Edit, Trash2, Eye, CheckCircle, AlertCircle, RefreshCw,
+  Search, X, FileText, Filter, TrendingUp, Award, Calendar,
+  GraduationCap, Grid, List,
 } from 'lucide-react';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type ViewMode = 'table' | 'card';
 
+/**
+ * Internal assignment shape used only within this component.
+ * Deliberately does NOT extend TeacherAssignment because the legacy
+ * interface has required non-nullable fields (teacher, grade_level, section,
+ * academic_year, grade_level_id) that the API never returns for this view.
+ */
+interface ExtendedAssignment {
+  id: number;
+  classroom_name: string;
+  classroom_id?: number | null;
+  section_name: string;
+  section_id?: number | null;
+  grade_level_name: string;
+  education_level?: EducationLevel;
+  subject_name: string;
+  subject_code: string;
+  subject_id: number;
+  student_count: number;
+  periods_per_week: number;
+  is_primary_teacher: boolean;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Map frontend EducationLevel to the ResultService EducationLevelType */
+const toServiceLevel = (level: EducationLevel): EducationLevelType => {
+  const map: Record<EducationLevel, EducationLevelType> = {
+    NURSERY:           'NURSERY',
+    PRIMARY:           'PRIMARY',
+    JUNIOR_SECONDARY:  'JUNIOR_SECONDARY',
+    SENIOR_SECONDARY:  'SENIOR_SECONDARY',
+  };
+  return map[level];
+};
+
+/** Derive education level from a classroom name when the API doesn't supply it */
+const deriveLevel = (className: string): EducationLevel | undefined => {
+  if (!className) return undefined;
+  const u = className.toUpperCase();
+  if (u.includes('JSS') || u.includes('JUNIOR'))   return 'JUNIOR_SECONDARY';
+  if (u.includes('SSS') || u.includes('SENIOR'))   return 'SENIOR_SECONDARY';
+  if (u.includes('PRIMARY') || /\bP\s*\d/.test(u)) return 'PRIMARY';
+  if (u.includes('NURSERY') || u.includes('KG') || u.includes('KINDERGARTEN')) return 'NURSERY';
+  return undefined;
+};
+
+const safeNum = (v: any): number => {
+  if (v === null || v === undefined || v === '') return 0;
+  const n = Number(v);
+  return isNaN(n) ? 0 : n;
+};
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 const TeacherResults: React.FC = () => {
   const { user, isLoading: authLoading } = useAuth();
-  
-  const [results, setResults] = useState<StudentResult[]>([]);
+
+  const [results, setResults]                       = useState<StudentResult[]>([]);
   const [teacherAssignments, setTeacherAssignments] = useState<TeacherAssignment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterSubject, setFilterSubject] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [filterEducationLevel, setFilterEducationLevel] = useState<EducationLevel | 'all'>('all');
-  const [showFilters, setShowFilters] = useState(false);
-  const [activeTab, setActiveTab] = useState<'results' | 'record'>('results');
-  const [viewMode, setViewMode] = useState<ViewMode>('table');
-  const [debugInfo, setDebugInfo] = useState<string>('');
-  const [isMobile, setIsMobile] = useState(false);
-
-
-   // Helper function to derive education level from classroom name
-      const deriveEducationLevelFromClassName = (className: string): EducationLevel | undefined => {
-        if (!className) return undefined;
-        const upperName = className.toUpperCase();
-        
-        if (upperName.includes('JSS') || upperName.match(/\bJSS\s*\d/) || upperName.includes('JUNIOR')) {
-          return 'JUNIOR_SECONDARY';
-        } else if (upperName.includes('SSS') || upperName.match(/\bSS\s*\d/) || upperName.includes('SENIOR')) {
-          return 'SENIOR_SECONDARY';
-        } else if (upperName.includes('PRIMARY') || upperName.match(/\bP\s*\d/) || upperName.match(/\bPRIMARY\s*\d/)) {
-          return 'PRIMARY';
-        } else if (upperName.includes('NURSERY') || upperName.includes('KG') || upperName.includes('KINDERGARTEN')) {
-          return 'NURSERY';
-        }
-        return undefined;
-      };
+  const [loading, setLoading]                       = useState(true);
+  const [error, setError]                           = useState<string | null>(null);
+  const [searchTerm, setSearchTerm]                 = useState('');
+  const [filterSubject, setFilterSubject]           = useState('all');
+  const [filterStatus, setFilterStatus]             = useState('all');
+  const [filterLevel, setFilterLevel]               = useState<EducationLevel | 'all'>('all');
+  const [showFilters, setShowFilters]               = useState(false);
+  const [activeTab, setActiveTab]                   = useState<'results' | 'record'>('results');
+  const [viewMode, setViewMode]                     = useState<ViewMode>('table');
+  const [isMobile, setIsMobile]                     = useState(false);
 
   useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    
-    return () => window.removeEventListener('resize', checkMobile);
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
   }, []);
 
+  // ── Data loading ────────────────────────────────────────────────────────────
 
-async function loadTeacherData() {
-  try {
-    setLoading(true);
-    setError(null);
-    let debugLog = '';
+  async function loadTeacherData() {
+    try {
+      setLoading(true);
+      setError(null);
 
-    const teacherId = await TeacherDashboardService.getTeacherIdFromUser(user as unknown as object);
-    debugLog += `Teacher ID: ${teacherId}\n`;
-    
-    if (!teacherId) throw new Error('Teacher ID not found');
+      const teacherId = await TeacherDashboardService.getTeacherIdFromUser(user as any);
+      if (!teacherId) throw new Error('Teacher ID not found');
 
-    // Get subjects with assignments
-    const subjects = await TeacherDashboardService.getTeacherSubjects(teacherId);
-    debugLog += `Subjects loaded: ${subjects.length}\n`;
-    console.log('📚 Raw subjects from API:', subjects);
+      const subjects = await TeacherDashboardService.getTeacherSubjects(teacherId);
 
-    type ExtendedAssignment = TeacherAssignment & { classroom_id?: number | null };
-
-    // ✅ FIX: Map assignments and preserve education_level from API with fallback
-    const assignments: ExtendedAssignment[] = subjects.flatMap((subject: any) => {
-      if (!subject.assignments || !Array.isArray(subject.assignments)) {
-        console.warn('⚠️ Subject has no assignments array:', subject);
-        return [];
-      }
-      
-      return subject.assignments.map((assignment: any) => {
-        // ✅ Get education_level from API response, fallback to deriving from classroom name
-        const educationLevel = (assignment.education_level as EducationLevel | undefined) || 
-                               deriveEducationLevelFromClassName(assignment.classroom_name);
-        
-        console.log('✅ Creating assignment:', {
-          assignmentId: assignment.id,
-          classroom: assignment.classroom_name,
-          subject: subject.name,
-          education_level_from_api: assignment.education_level,
-          education_level_final: educationLevel,
-          raw_assignment: assignment
-        });
-        
-        // ✅ Make sure education_level is preserved!
-        return {
-          id: assignment.id,
-          classroom_name: assignment.classroom_name || 'Unknown',
-          section_name: assignment.section_name || assignment.section || 'Unknown',
-          grade_level_name: assignment.grade_level || 'Unknown',
-          education_level: educationLevel,  // ✅ Now guaranteed to have a value!
+      // ── Build assignments ──────────────────────────────────────────────────
+      const assignments: ExtendedAssignment[] = subjects.flatMap((subject: any) => {
+        if (!Array.isArray(subject.assignments)) return [];
+        return subject.assignments.map((a: any): ExtendedAssignment => ({
+          id: a.id,
+          classroom_name: a.classroom_name || 'Unknown',
+          classroom_id: a.classroom_id || null,
+          section_name: a.section_name || a.section || 'Unknown',
+          section_id: a.section_id || null,
+          grade_level_name: a.grade_level || 'Unknown',
+          education_level: (a.education_level as EducationLevel) || deriveLevel(a.classroom_name),
           subject_name: subject.name || 'Unknown Subject',
           subject_code: subject.code || '',
           subject_id: Number(subject.id),
-          grade_level_id: null,
-          section_id: assignment.section_id || null,
-          classroom_id: assignment.classroom_id || null,
-          student_count: assignment.student_count || 0,
-          periods_per_week: assignment.periods_per_week || 0,
-          teacher: null,
-          grade_level: null,
-          section: null,
-          academic_year: null,
-          is_primary_teacher: assignment.is_primary_teacher || assignment.is_class_teacher || false,
-        };
-      });
-    });
-    
-    setTeacherAssignments(assignments as TeacherAssignment[]);
-    debugLog += `Created ${assignments.length} assignment entries\n`;
-    
-    console.log('📋 All assignments after creation:', assignments.map(a => ({
-      id: a.id,
-      classroom: a.classroom_name,
-      subject: a.subject_name,
-      education_level: a.education_level
-    })));
-
-    // Get unique subject IDs
-    const gradeSubjectIds = Array.from(
-      new Set(
-        assignments
-          .map(a => Number(a.subject_id))
-          .filter(id => !isNaN(id) && id > 0)
-      )
-    );
-    
-    console.log('🎯 Unique subject IDs to query:', gradeSubjectIds);
-    debugLog += `Unique subject IDs: ${gradeSubjectIds.join(', ')}\n`;
-
-    if (gradeSubjectIds.length === 0) {
-      setResults([]);
-      debugLog += 'No subject IDs found\n';
-      setDebugInfo(debugLog);
-      return;
-    }
-
-    // ✅ Group by education_level - should now work!
-    const subjectIdsByLevel: Record<EducationLevel, number[]> = {
-      NURSERY: [],
-      PRIMARY: [],
-      JUNIOR_SECONDARY: [],
-      SENIOR_SECONDARY: [],
-    };
-
-    assignments.forEach((assignment) => {
-      console.log('🔍 Grouping assignment:', {
-        assignmentId: assignment.id,
-        classroom: assignment.classroom_name,
-        subject: assignment.subject_name,
-        subjectId: assignment.subject_id,
-        educationLevel: assignment.education_level
+          student_count: a.student_count || 0,
+          periods_per_week: a.periods_per_week || 0,
+          is_primary_teacher: a.is_primary_teacher || a.is_class_teacher || false,
+        }));
       });
 
-      if (!assignment.subject_id) {
-        console.warn('⚠️ Skipping - missing subject_id:', assignment);
-        return;
-      }
-      
-      // ✅ FIX: Add fallback for education_level during grouping too
-      const educationLevel = assignment.education_level || 
-                             deriveEducationLevelFromClassName(assignment.classroom_name);
-      
-      if (!educationLevel) {
-        console.warn('⚠️ Skipping - missing education_level even after derivation:', {
-          assignmentId: assignment.id,
-          classroom: assignment.classroom_name,
-          educationLevel: assignment.education_level,
-          subjectId: assignment.subject_id,
-          fullAssignment: assignment
-        });
-        return;
-      }
-      
-      const subjectId = Number(assignment.subject_id);
-      
-      if (!subjectIdsByLevel[educationLevel].includes(subjectId)) {
-        subjectIdsByLevel[educationLevel].push(subjectId);
-        console.log('✅ Added subject to level:', {
-          level: educationLevel,
-          subjectId: subjectId,
-        });
-      }
-    });
+      setTeacherAssignments(assignments as unknown as TeacherAssignment[]);
 
-    debugLog += `Subjects grouped by level:\n${JSON.stringify(subjectIdsByLevel, null, 2)}\n`;
-    console.log('📊 Final subjects grouped by education level:', subjectIdsByLevel);
+      // ── Group subject IDs by education level ───────────────────────────────
+      const subjectsByLevel: Record<EducationLevel, number[]> = {
+        NURSERY: [], PRIMARY: [], JUNIOR_SECONDARY: [], SENIOR_SECONDARY: [],
+      };
 
-    // Now query results by education level
-    const levelEndpoints: Record<EducationLevel, (params?: ResultQueryParams) => Promise<any[]>> = {
-      NURSERY: (params) => ResultService.getNurseryResults(params),
-      PRIMARY: (params) => ResultService.getPrimaryResults(params),
-      JUNIOR_SECONDARY: (params) => ResultService.getJuniorSecondaryResults(params),
-      SENIOR_SECONDARY: (params) => ResultService.getSeniorSecondaryResults(params),
-    };
+      // Track classroom info per subject for filtering later
+      const classroomIdsBySubject   = new Map<number, Set<number>>();
+      const classroomNamesBySubject = new Map<number, Set<string>>();
+      const assignmentsBySubject    = new Map<number, ExtendedAssignment[]>();
 
-    const assignmentsBySubject = new Map<number, ExtendedAssignment[]>();
-    const teacherClassroomIdsBySubject = new Map<number, Set<number>>();
-    const teacherClassroomNamesBySubject = new Map<number, Set<string>>();
+      assignments.forEach((a) => {
+        const level     = a.education_level || deriveLevel(a.classroom_name);
+        const subjectId = Number(a.subject_id);
+        if (!level || !subjectId) return;
 
-    assignments.forEach((assignment) => {
-      if (!assignment.subject_id) return;
-      const subjectId = Number(assignment.subject_id);
-      
-      if (!assignmentsBySubject.has(subjectId)) {
-        assignmentsBySubject.set(subjectId, []);
-      }
-      assignmentsBySubject.get(subjectId)!.push(assignment);
-      
-      if (!teacherClassroomIdsBySubject.has(subjectId)) {
-        teacherClassroomIdsBySubject.set(subjectId, new Set());
-      }
-      if (assignment.classroom_id) {
-        teacherClassroomIdsBySubject.get(subjectId)!.add(Number(assignment.classroom_id));
-      }
-      
-      if (!teacherClassroomNamesBySubject.has(subjectId)) {
-        teacherClassroomNamesBySubject.set(subjectId, new Set());
-      }
-      if (assignment.classroom_name) {
-        teacherClassroomNamesBySubject.get(subjectId)!.add(assignment.classroom_name.trim());
-      }
-    });
+        if (!subjectsByLevel[level].includes(subjectId))
+          subjectsByLevel[level].push(subjectId);
 
-    console.log('🏫 Teacher classroom names by subject:', 
-      Array.from(teacherClassroomNamesBySubject.entries()).map(([subjectId, names]) => ({
-        subjectId,
-        classroomNames: Array.from(names)
-      }))
-    );
+        // classroom IDs
+        if (!classroomIdsBySubject.has(subjectId))
+          classroomIdsBySubject.set(subjectId, new Set());
+        if (a.classroom_id)
+          classroomIdsBySubject.get(subjectId)!.add(Number(a.classroom_id));
 
-    // Fetch results for each education level + subject combination
-    const resultPromises = Object.entries(subjectIdsByLevel)
-      .filter(([_, ids]) => ids.length > 0)
-      .flatMap(([level, ids]) =>
-        ids.map((subjectId) => {
-          const subjectAssignments = assignmentsBySubject.get(subjectId) || [];
-          
-          debugLog += `Querying ${level} | subject=${subjectId} | classes=${subjectAssignments.length}\n`;
-          console.log(`🔎 Fetching ${level} results for subject:`, subjectId);
+        // classroom names
+        if (!classroomNamesBySubject.has(subjectId))
+          classroomNamesBySubject.set(subjectId, new Set());
+        if (a.classroom_name)
+          classroomNamesBySubject.get(subjectId)!.add(a.classroom_name.trim());
 
-          return levelEndpoints[level as EducationLevel]!({
-            subject: String(subjectId),
-          }).then(results => {
-            console.log(`📦 Got ${results?.length || 0} results for ${level} subject ${subjectId}`);
-            return {
-              results,
-              subjectId,
-              classrooms: subjectAssignments,
-              classroomIds: Array.from(teacherClassroomIdsBySubject.get(subjectId) || []),
-              classroomNames: Array.from(teacherClassroomNamesBySubject.get(subjectId) || []),
-              educationLevel: level as EducationLevel
-            };
-          }).catch(error => {
-            console.error(`❌ Error fetching ${level} results for subject ${subjectId}:`, error);
-            return {
-              results: [],
-              subjectId,
-              classrooms: subjectAssignments,
-              classroomIds: [],
-              classroomNames: [],
-              educationLevel: level as EducationLevel
-            };
-          });
-        })
+        // assignments
+        if (!assignmentsBySubject.has(subjectId))
+          assignmentsBySubject.set(subjectId, []);
+        assignmentsBySubject.get(subjectId)!.push(a);
+      });
+
+      const allSubjectIds = new Set(
+        Object.values(subjectsByLevel).flat()
       );
 
-    const resultsArray = await Promise.allSettled(resultPromises);
+      if (allSubjectIds.size === 0) {
+        setResults([]);
+        return;
+      }
 
-    const allResults: any[] = [];
-    resultsArray.forEach((res) => {
-      if (res.status === 'fulfilled') {
-        const { results, classroomIds, classroomNames } = res.value;
-        
-        const teacherClassroomIds = new Set(classroomIds.map((id: number) => Number(id)));
-        const teacherClassroomNamesSet = new Set(classroomNames.map((name: string) => name.trim()));
-        
-        const filteredResults = results.filter((result: any) => {
-          if (!result.student || !result.student.id) {
-            return false;
-          }
-          
-          const resultClassroomName = (
-            result.student?.student_class_display || 
-            result.student?.student_class || 
-            result.classroom_name ||
-            ''
+      // ── Fetch results per level + subject ──────────────────────────────────
+      const fetchPromises = (Object.entries(subjectsByLevel) as [EducationLevel, number[]][])
+        .filter(([, ids]) => ids.length > 0)
+        .flatMap(([level, ids]) =>
+          ids.map((subjectId) => {
+            const params: SubjectResultParams = { subject: String(subjectId) };
+            const serviceLevel = toServiceLevel(level);
+
+            return ResultService
+              .getSubjectResults(serviceLevel, params)         // ✅ correct call
+              .then((data) => ({
+                data,
+                subjectId,
+                level,
+                classroomIds:   Array.from(classroomIdsBySubject.get(subjectId) || []),
+                classroomNames: Array.from(classroomNamesBySubject.get(subjectId) || []),
+              }))
+              .catch((err) => {
+                console.error(`❌ Failed to fetch ${level} results for subject ${subjectId}:`, err);
+                return { data: [], subjectId, level, classroomIds: [], classroomNames: [] };
+              });
+          })
+        );
+
+      const settled = await Promise.allSettled(fetchPromises);
+
+      // ── Filter to this teacher's classrooms ────────────────────────────────
+      const raw: any[] = [];
+      settled.forEach((res) => {
+        if (res.status !== 'fulfilled') return;
+        const { data, classroomIds, classroomNames } = res.value;
+
+        const idSet   = new Set(classroomIds.map(Number));
+        const nameSet = new Set(classroomNames.map((n: string) => n.trim()));
+
+        data.forEach((result: any) => {
+          if (!result.student?.id) return;
+
+          const resultName = (
+            result.student?.student_class_display ||
+            result.student?.student_class ||
+            result.classroom_name || ''
           ).trim();
-          
-          const resultClassroomId = Number(
-            result.classroom_id || 
-            result.student?.classroom_id ||
-            0
-          );
-          
-          if (teacherClassroomIds.size === 0 && teacherClassroomNamesSet.size === 0) {
-            return true;
-          }
-          
-          if (teacherClassroomIds.size > 0 && resultClassroomId > 0) {
-            if (teacherClassroomIds.has(resultClassroomId)) {
-              return true;
-            }
-          }
-          
-          if (resultClassroomName && teacherClassroomNamesSet.has(resultClassroomName)) {
-            return true;
-          }
-          
-          return false;
+
+          const resultId = Number(result.classroom_id || result.student?.classroom_id || 0);
+
+          // Include if no classroom filter, or if classroom matches by ID or name
+          if (idSet.size === 0 && nameSet.size === 0) { raw.push(result); return; }
+          if (idSet.size > 0 && resultId > 0 && idSet.has(resultId)) { raw.push(result); return; }
+          if (resultName && nameSet.has(resultName)) { raw.push(result); return; }
         });
-        
-        allResults.push(...filteredResults);
-      }
-    });
+      });
 
-    debugLog += `Total results after filtering: ${allResults.length}\n`;
-    console.log('📊 All filtered results:', allResults.length);
-  
-    // Normalize results
-    const normalized: StudentResult[] = allResults.map((r: any): StudentResult => {
-      const studentId = (r.student && r.student.id) || r.student || r.student_id;
-      const subjectId = (r.subject && r.subject.id) || r.subject || r.subject_id;
-      const examSessionId = (r.exam_session && r.exam_session.id) || r.exam_session || r.exam_session_id || r.session_id;
-      const educationLevel = (r.education_level || r.student?.education_level) as EducationLevel;
-      
-      let ca_score = 0;
-      let exam_score = 0;
-      let total_score = 0;
-      
-      if (educationLevel === 'NURSERY') {
-        const markObtained = Number(r.mark_obtained || 0);
-        total_score = markObtained;
-        ca_score = 0;
-        exam_score = markObtained;
-      } else {
-        const caFromSenior = Number(r.first_test_score || 0) + Number(r.second_test_score || 0) + Number(r.third_test_score || 0);
-        const caFromPrimary = r.ca_total !== undefined
-          ? Number(r.ca_total)
-          : Number(r.continuous_assessment_score || 0) +
-            Number(r.take_home_test_score || 0) +
-            Number(r.appearance_score || 0) +
-            Number(r.practical_score || 0) +
-            Number(r.project_score || 0) +
-            Number(r.note_copying_score || 0);
-        const caFromTotalField = r.total_ca_score !== undefined ? Number(r.total_ca_score) : undefined;
-        ca_score = caFromTotalField ?? (caFromSenior > 0 ? caFromSenior : caFromPrimary || 0);
-        exam_score = Number((r.exam_score ?? r.exam) ?? 0);
-        total_score = Number((r.total_score ?? (ca_score + exam_score)) ?? 0);
-      }
+      // ── Normalize ──────────────────────────────────────────────────────────
+      const normalized: StudentResult[] = raw.map((r: any): StudentResult => {
+        const studentId      = r.student?.id ?? r.student_id;
+        const subjectId      = r.subject?.id ?? r.subject_id;
+        const examSessionId  = r.exam_session?.id ?? r.exam_session_id ?? r.session_id;
+        const educationLevel = (r.education_level ?? r.student?.education_level) as EducationLevel;
 
-      const examSession = typeof r.exam_session === 'object' ? r.exam_session : null;
-      const termDisplay = examSession?.term_display || examSession?.term || r.term_display || r.term || 'N/A';
-      const examSessionName = examSession?.name || r.exam_session_name || r.session_name || 'N/A';
-      
-      let academicSessionName = 'N/A';
-      if (examSession?.academic_session_name) {
-        academicSessionName = String(examSession.academic_session_name);
-      } else if (typeof examSession?.academic_session === 'string') {
-        academicSessionName = examSession.academic_session;
-      } else if (typeof examSession?.academic_session === 'object' && examSession.academic_session?.name) {
-        academicSessionName = String(examSession.academic_session.name);
-      } else if (r.academic_session_name) {
-        academicSessionName = String(r.academic_session_name);
-      } else if (r.academic_session) {
-        academicSessionName = typeof r.academic_session === 'string' 
-          ? r.academic_session 
-          : (r.academic_session?.name || 'N/A');
-      }
-      
-      const safeNumberConvert = (value: any): number => {
-        if (value === null || value === undefined || value === '') return 0;
-        const num = Number(value);
-        return isNaN(num) ? 0 : num;
-      };
-      
-      return {
-        id: safeNumberConvert(r.id),
-        student: {
-          id: safeNumberConvert(studentId),
-          full_name: r.student?.full_name ?? r.student_name ?? 'Unknown Student',
-          registration_number: r.student?.username ?? r.registration_number ?? '',
-          profile_picture: r.student?.profile_picture ?? null,
+        let ca_score = 0, exam_score = 0, total_score = 0;
+
+        if (educationLevel === 'NURSERY') {
+          total_score = safeNum(r.mark_obtained);
+          exam_score  = total_score;
+        } else {
+          const caTotal = r.ca_total !== undefined
+            ? safeNum(r.ca_total)
+            : safeNum(r.first_test_score) + safeNum(r.second_test_score) + safeNum(r.third_test_score) +
+              safeNum(r.continuous_assessment_score) + safeNum(r.take_home_test_score) +
+              safeNum(r.appearance_score) + safeNum(r.practical_score) +
+              safeNum(r.project_score) + safeNum(r.note_copying_score);
+          ca_score    = r.total_ca_score !== undefined ? safeNum(r.total_ca_score) : caTotal;
+          exam_score  = safeNum(r.exam_score ?? r.exam);
+          total_score = safeNum(r.total_score) || (ca_score + exam_score);
+        }
+
+        const examSession       = typeof r.exam_session === 'object' ? r.exam_session : null;
+        const termDisplay       = examSession?.term_display ?? examSession?.term ?? r.term_display ?? 'N/A';
+        const examSessionName   = examSession?.name ?? r.exam_session_name ?? 'N/A';
+
+        let academicSessionName = 'N/A';
+        if (examSession?.academic_session_name)           academicSessionName = String(examSession.academic_session_name);
+        else if (typeof examSession?.academic_session === 'string') academicSessionName = examSession.academic_session;
+        else if (examSession?.academic_session?.name)     academicSessionName = String(examSession.academic_session.name);
+        else if (r.academic_session_name)                 academicSessionName = String(r.academic_session_name);
+        else if (r.academic_session)
+          academicSessionName = typeof r.academic_session === 'string'
+            ? r.academic_session : (r.academic_session?.name ?? 'N/A');
+
+        const rawSession = r.academic_session && typeof r.academic_session === 'object' ? r.academic_session : null;
+
+        return {
+          id: safeNum(r.id),
+          student: {
+            id: safeNum(studentId),
+            full_name: r.student?.full_name ?? r.student_name ?? 'Unknown Student',
+            registration_number: r.student?.username ?? r.registration_number ?? '',
+            profile_picture: r.student?.profile_picture ?? null,
+            education_level: educationLevel,
+          },
+          subject: {
+            id: safeNum(subjectId),
+            name: r.subject?.name ?? r.subject_name ?? 'Unknown Subject',
+            code: r.subject?.code ?? r.subject_code ?? '',
+          },
+          exam_session: {
+            id: safeNum(examSessionId),
+            name: examSessionName,
+            term: termDisplay,
+            academic_session: academicSessionName,
+          },
+          academic_session: {
+            id: String(rawSession?.id ?? 0),
+            name: rawSession?.name || academicSessionName,
+            start_date: rawSession?.start_date ?? '',
+            end_date: rawSession?.end_date ?? '',
+            is_current: rawSession?.is_current ?? false,
+            is_active: rawSession?.is_active ?? false,
+            created_at: rawSession?.created_at ?? '',
+            updated_at: rawSession?.updated_at ?? '',
+          } as AcademicSession,
+          first_test_score:            safeNum(r.first_test_score),
+          second_test_score:           safeNum(r.second_test_score),
+          third_test_score:            safeNum(r.third_test_score),
+          continuous_assessment_score: safeNum(r.continuous_assessment_score),
+          take_home_test_score:        safeNum(r.take_home_test_score),
+          appearance_score:            safeNum(r.appearance_score),
+          practical_score:             safeNum(r.practical_score),
+          project_score:               safeNum(r.project_score),
+          note_copying_score:          safeNum(r.note_copying_score),
+          ca_score,
+          ca_total: ca_score,
+          exam_score,
+          total_score,
           education_level: educationLevel,
-        },
-        subject: {
-          id: safeNumberConvert(subjectId),
-          name: r.subject?.name ?? r.subject_name ?? 'Unknown Subject',
-          code: r.subject?.code ?? r.subject_code ?? '',
-        },
-        exam_session: {
-          id: safeNumberConvert(examSessionId),
-          name: examSessionName,
-          term: termDisplay,
-          academic_session: academicSessionName,
-        },
-        academic_session: (() => {
-          const raw = r.academic_session && typeof r.academic_session === 'object' ? r.academic_session : null;
-          return {
-            id: String(raw?.id ?? 0),
-            name: raw?.name || academicSessionName,
-            start_date: raw?.start_date ?? '',
-            end_date: raw?.end_date ?? '',
-            is_current: raw?.is_current ?? false,
-            is_active: raw?.is_active ?? false,
-            created_at: raw?.created_at ?? '',
-            updated_at: raw?.updated_at ?? ''
-          } as AcademicSession;
-        })(),
-        first_test_score: Number(r.first_test_score || 0),
-        second_test_score: Number(r.second_test_score || 0),
-        third_test_score: Number(r.third_test_score || 0),
-        continuous_assessment_score: Number(r.continuous_assessment_score || 0),
-        take_home_test_score: Number(r.take_home_test_score || 0),
-        appearance_score: Number(r.appearance_score || 0),
-        practical_score: Number(r.practical_score || 0),
-        project_score: Number(r.project_score || 0),
-        note_copying_score: Number(r.note_copying_score || 0),
-        ca_score,
-        ca_total: ca_score,
-        exam_score,
-        total_score,
-        education_level: educationLevel,
-        grade: r.grade ?? r.letter_grade,
-        status: (typeof r.status === 'string' ? r.status.toUpperCase() : 'DRAFT') as ResultStatus,
-        remarks: r.remarks ?? '',
-        created_at: r.created_at ?? '',
-        updated_at: r.updated_at ?? '',
-      };
-    });
+          grade: r.grade ?? r.letter_grade,
+          status: (typeof r.status === 'string' ? r.status.toUpperCase() : 'DRAFT') as ResultStatus,
+          remarks: r.remarks ?? '',
+          created_at: r.created_at ?? '',
+          updated_at: r.updated_at ?? '',
+        };
+      });
 
-    const subjectIdSet = new Set(gradeSubjectIds);
-    const filtered = normalized.filter((item) => subjectIdSet.has(Number(item.subject.id)));
-    
-    debugLog += `Final filtered results: ${filtered.length}\n`;
-    
-    setResults(filtered);
-    setDebugInfo(debugLog);
-    
-    console.log('🎉 FINAL RESULTS SET:', {
-      totalResults: filtered.length,
-      byEducationLevel: {
-        NURSERY: filtered.filter(r => r.education_level === 'NURSERY').length,
-        PRIMARY: filtered.filter(r => r.education_level === 'PRIMARY').length,
-        JUNIOR_SECONDARY: filtered.filter(r => r.education_level === 'JUNIOR_SECONDARY').length,
-        SENIOR_SECONDARY: filtered.filter(r => r.education_level === 'SENIOR_SECONDARY').length,
-      },
-      sampleResults: filtered.slice(0, 3)
-    });
-    
-  } catch (err) {
-    console.error('❌ Error loading teacher data:', err);
-    const errorMsg = err instanceof Error ? err.message : 'Failed to load data';
-    setError(errorMsg);
-    setDebugInfo(prev => prev + `\nERROR: ${errorMsg}`);
-  } finally {
-    setLoading(false);
+      // Final filter: only subjects this teacher teaches
+      const finalResults = normalized.filter((r) => allSubjectIds.has(Number(r.subject.id)));
+      setResults(finalResults);
+
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to load data';
+      console.error('❌ Error loading teacher data:', err);
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
   }
-}
-  const { 
-    handleEditResult, 
-    handleViewResult, 
-    handleDeleteResult, 
+
+  // ── Action manager ──────────────────────────────────────────────────────────
+
+  const {
+    handleEditResult,
+    handleViewResult,
+    handleDeleteResult,
     ResultModalsComponent,
   } = useResultActionsManager(loadTeacherData);
 
   useEffect(() => {
-    if (user && !authLoading) {
-      void loadTeacherData();
-    }
+    if (user && !authLoading) void loadTeacherData();
   }, [user, authLoading]);
+
+  // ── Derived data ────────────────────────────────────────────────────────────
 
   const availableEducationLevels = useMemo(
     () => Array.from(new Set(results.map((r) => r.education_level))).filter(Boolean) as EducationLevel[],
     [results]
   );
 
-  console.log("Education Levels:", availableEducationLevels);
-
   const availableSubjects = useMemo(
     () =>
-      teacherAssignments.map((assignment) => ({
-        id: String(assignment.subject_id),
-        name: String(assignment.subject_name || 'Unknown'),
-        code: String(assignment.subject_code || ''),
+      (teacherAssignments as unknown as ExtendedAssignment[]).map((a) => ({
+        id: String(a.subject_id),
+        name: String(a.subject_name || 'Unknown'),
+        code: String(a.subject_code || ''),
       })),
     [teacherAssignments]
   );
 
   const filteredResults = useMemo(() => {
-    const term = (searchTerm || '').toLowerCase();
-    return results.filter((result) => {
-      const matchesSearch =
-        (result.student?.full_name || '').toLowerCase().includes(term) ||
-        (result.student?.registration_number || '').toLowerCase().includes(term) ||
-        (result.subject?.name || '').toLowerCase().includes(term);
-
-      const matchesSubject = filterSubject === 'all' || String(result.subject?.id ?? '') === filterSubject;
-      const matchesStatus =
-        filterStatus === 'all' || (String(result.status || '').toLowerCase() === filterStatus.toLowerCase());
-      const matchesEducationLevel =
-        filterEducationLevel === 'all' || result.education_level === filterEducationLevel;
-
-      return matchesSearch && matchesSubject && matchesStatus && matchesEducationLevel;
+    const term = searchTerm.toLowerCase();
+    return results.filter((r) => {
+      const matchSearch =
+        (r.student?.full_name || '').toLowerCase().includes(term) ||
+        (r.student?.registration_number || '').toLowerCase().includes(term) ||
+        (r.subject?.name || '').toLowerCase().includes(term);
+      const matchSubject = filterSubject === 'all' || String(r.subject?.id ?? '') === filterSubject;
+      const matchStatus  = filterStatus  === 'all' || (r.status || '').toLowerCase() === filterStatus.toLowerCase();
+      const matchLevel   = filterLevel   === 'all' || r.education_level === filterLevel;
+      return matchSearch && matchSubject && matchStatus && matchLevel;
     });
-  }, [results, searchTerm, filterSubject, filterStatus, filterEducationLevel]);
+  }, [results, searchTerm, filterSubject, filterStatus, filterLevel]);
 
   const stats = useMemo(() => {
-    console.log('📊 Calculating stats from results:', results.length);
-    console.log('📊 Results breakdown by education level:', {
-      NURSERY: results.filter(r => r.education_level === 'NURSERY').length,
-      PRIMARY: results.filter(r => r.education_level === 'PRIMARY').length,
-      JUNIOR_SECONDARY: results.filter(r => r.education_level === 'JUNIOR_SECONDARY').length,
-      SENIOR_SECONDARY: results.filter(r => r.education_level === 'SENIOR_SECONDARY').length,
-    });
-    
-    const totalResults = results.length;
-    const publishedCount = results.filter(r => r.status === 'PUBLISHED').length;
-    
-    const validScores = results.filter(r => r.total_score > 0);
-    const averageScore = validScores.length > 0 
-      ? Math.round(validScores.reduce((acc, r) => acc + r.total_score, 0) / validScores.length)
-      : 0;
-    
-    const aGradesCount = results.filter(r => r.grade === 'A' || r.grade === 'A+').length;
-    
-    console.log('📊 Final stats:', {
-      total: totalResults,
-      published: publishedCount,
-      average: averageScore,
-      aGrades: aGradesCount
-    });
-    
+    const total     = results.length;
+    const published = results.filter((r) => r.status === 'PUBLISHED').length;
+    const valid     = results.filter((r) => r.total_score > 0);
+    const average   = valid.length > 0
+      ? Math.round(valid.reduce((s, r) => s + r.total_score, 0) / valid.length) : 0;
+    const aGrades   = results.filter((r) => r.grade === 'A' || r.grade === 'A+').length;
     return [
-      { label: 'Total', value: totalResults, icon: FileText, color: 'bg-blue-500' },
-      { label: 'Published', value: publishedCount, icon: CheckCircle, color: 'bg-green-500' },
-      { label: 'Average', value: averageScore, icon: TrendingUp, color: 'bg-purple-500' },
-      { label: 'A Grades', value: aGradesCount, icon: Award, color: 'bg-amber-500' }
+      { label: 'Total',     value: total,     icon: FileText,    color: 'bg-blue-500'   },
+      { label: 'Published', value: published, icon: CheckCircle, color: 'bg-green-500'  },
+      { label: 'Average',   value: average,   icon: TrendingUp,  color: 'bg-purple-500' },
+      { label: 'A Grades',  value: aGrades,   icon: Award,       color: 'bg-amber-500'  },
     ];
   }, [results]);
 
-  const handleCreateResult = () => {
-    setActiveTab('record');
-  };
+  // ── Colours ─────────────────────────────────────────────────────────────────
 
-  const handleResultSuccess = async (): Promise<void> => {
-    try {
-      await loadTeacherData();
-      setActiveTab('results');
-      toast.success('Result saved successfully');
-    } catch (error) {
-      console.error('Error handling result success:', error);
-      toast.error('Failed to reload data');
-    }
-  };
+  // ResultStatus = 'DRAFT' | 'APPROVED' | 'PUBLISHED' (SUBMITTED removed from backend)
+  const statusColor = (status: string) => ({
+    DRAFT:     'bg-amber-100 text-amber-700 border-amber-200',
+    APPROVED:  'bg-blue-100 text-blue-700 border-blue-200',
+    PUBLISHED: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  }[status] || 'bg-amber-100 text-amber-700 border-amber-200');
 
-  const getStatusColor = (status: ResultStatus) => {
-    const colors: Record<string, string> = {
-      DRAFT: 'bg-amber-100 text-amber-700 border-amber-200',
-      PUBLISHED: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-      APPROVED: 'bg-blue-100 text-blue-700 border-blue-200',
-      ARCHIVED: 'bg-gray-100 text-gray-700 border-gray-200'
-    };
-    return colors[status] || colors.DRAFT;
-  };
+  const gradeColor = (grade?: string) => ({
+    A: 'bg-green-500 text-white', B: 'bg-blue-500 text-white',
+    C: 'bg-yellow-500 text-white', D: 'bg-orange-500 text-white',
+    F: 'bg-red-500 text-white',
+  }[grade || ''] || 'bg-gray-400 text-white');
 
-  const getGradeColor = (grade?: string) => {
-    const colors: Record<string, string> = {
-      A: 'bg-green-500 text-white',
-      B: 'bg-blue-500 text-white',
-      C: 'bg-yellow-500 text-white',
-      D: 'bg-orange-500 text-white',
-      F: 'bg-red-500 text-white'
-    };
-    return colors[grade || ''] || 'bg-gray-400 text-white';
-  };
+  // ── Guards ──────────────────────────────────────────────────────────────────
 
-  if (loading) {
-    return (
-      <TeacherDashboardLayout>
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-4">
-          <div className="flex flex-col items-center space-y-4">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600"></div>
-            <p className="text-sm md:text-base text-gray-600 font-medium">Loading Results...</p>
-          </div>
+  if (loading) return (
+    <TeacherDashboardLayout>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50">
+        <div className="flex flex-col items-center gap-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600" />
+          <p className="text-gray-600 font-medium">Loading Results…</p>
         </div>
-      </TeacherDashboardLayout>
-    );
-  }
+      </div>
+    </TeacherDashboardLayout>
+  );
 
-  if (error) {
-    return (
-      <TeacherDashboardLayout>
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4">
-          <div className="max-w-2xl mx-auto">
-            <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 md:p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <AlertCircle className="w-5 h-5 md:w-6 md:h-6 text-red-600 flex-shrink-0" />
-                <h3 className="text-base md:text-lg font-semibold text-red-900">Error Loading Data</h3>
-              </div>
-              <p className="text-sm text-red-800 mb-4">{error}</p>
-              <button 
-                onClick={loadTeacherData}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
-              >
-                Try Again
-              </button>
-            </div>
+  if (error) return (
+    <TeacherDashboardLayout>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4">
+        <div className="max-w-2xl mx-auto bg-red-50 border-2 border-red-200 rounded-xl p-6">
+          <div className="flex items-center gap-3 mb-3">
+            <AlertCircle className="w-6 h-6 text-red-600 shrink-0" />
+            <h3 className="text-lg font-semibold text-red-900">Error Loading Data</h3>
           </div>
+          <p className="text-sm text-red-800 mb-4">{error}</p>
+          <button onClick={loadTeacherData}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm">
+            Try Again
+          </button>
         </div>
-      </TeacherDashboardLayout>
-    );
-  }
+      </div>
+    </TeacherDashboardLayout>
+  );
 
-  if (activeTab === 'record') {
-    return (
-      <TeacherDashboardLayout>
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-3 md:p-6">
-          <div className="max-w-6xl mx-auto">
-            <div className="bg-white rounded-xl shadow-lg p-4 md:p-6">
-              <div className="flex items-center justify-between mb-4 md:mb-6">
-                <h2 className="text-lg md:text-xl font-bold text-gray-900">Record Result</h2>
-                <button 
-                  onClick={() => setActiveTab('results')}
-                  className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 flex items-center gap-2 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  <X className="w-4 h-4" /> Close
-                </button>
-              </div>
-              <ResultCreateTab
-                onResultCreated={loadTeacherData}
-                onSuccess={handleResultSuccess}
-                onClose={() => setActiveTab('results')}
-              />
-            </div>
+  if (activeTab === 'record') return (
+    <TeacherDashboardLayout>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-6">
+        <div className="max-w-6xl mx-auto bg-white rounded-xl shadow-lg p-4 md:p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-bold text-gray-900">Record Result</h2>
+            <button onClick={() => setActiveTab('results')}
+              className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-2">
+              <X className="w-4 h-4" /> Close
+            </button>
           </div>
+          <ResultCreateTab
+            onResultCreated={loadTeacherData}
+            onSuccess={async () => { await loadTeacherData(); setActiveTab('results'); toast.success('Result saved'); }}
+            onClose={() => setActiveTab('results')}
+          />
         </div>
-      </TeacherDashboardLayout>
-    );
-  }
+      </div>
+    </TeacherDashboardLayout>
+  );
+
+  // ── Main view ───────────────────────────────────────────────────────────────
+
+  const EmptyState = () => (
+    <div className="p-8 md:p-12 text-center">
+      <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+        <FileText className="w-8 h-8 text-gray-400" />
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 mb-2">No results found</h3>
+      <p className="text-sm text-gray-500 mb-6">
+        {searchTerm || filterSubject !== 'all' || filterStatus !== 'all' || filterLevel !== 'all'
+          ? 'Try adjusting your filters'
+          : 'Start by recording your first result'}
+      </p>
+      <button onClick={() => setActiveTab('record')}
+        className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-lg inline-flex items-center gap-2 font-medium text-sm">
+        <Plus className="w-4 h-4" /> Record First Result
+      </button>
+    </div>
+  );
 
   return (
     <TeacherDashboardLayout>
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-        {/* Compact Header */}
+
+        {/* ── Sticky header ── */}
         <div className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm">
-          <div className="max-w-7xl mx-auto px-3 md:px-6 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="w-8 h-8 md:w-10 md:h-10 bg-gradient-to-br from-blue-600 to-purple-600 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <GraduationCap className="w-4 h-4 md:w-5 md:h-5 text-white" />
-                </div>
-                <div className="min-w-0">
-                  <h1 className="text-base md:text-lg font-bold text-gray-900 truncate">Results</h1>
-                  <p className="text-xs text-gray-500 hidden sm:block">Manage performance</p>
-                </div>
+          <div className="max-w-7xl mx-auto px-3 md:px-6 py-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-9 h-9 bg-gradient-to-br from-blue-600 to-purple-600 rounded-lg flex items-center justify-center shrink-0">
+                <GraduationCap className="w-5 h-5 text-white" />
               </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <button 
-                  onClick={loadTeacherData}
-                  disabled={loading}
-                  className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
-                  title="Refresh"
-                >
-                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                </button>
-                <button 
-                  onClick={handleCreateResult}
-                  className="px-3 md:px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-lg transition-all flex items-center gap-1.5 text-sm font-medium"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span className="hidden sm:inline">Record</span>
-                </button>
+              <div className="min-w-0">
+                <h1 className="text-base md:text-lg font-bold text-gray-900 truncate">Results</h1>
+                <p className="text-xs text-gray-500 hidden sm:block">Manage student performance</p>
               </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button onClick={loadTeacherData} disabled={loading}
+                className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-50" title="Refresh">
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              </button>
+              <button onClick={() => setActiveTab('record')}
+                className="px-3 md:px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-lg flex items-center gap-1.5 text-sm font-medium">
+                <Plus className="w-4 h-4" />
+                <span className="hidden sm:inline">Record</span>
+              </button>
             </div>
           </div>
         </div>
 
-        {/* Main Content */}
         <div className="max-w-7xl mx-auto px-3 md:px-6 py-3 md:py-4 space-y-3 md:space-y-4">
-          {/* Compact Stats */}
+
+          {/* ── Stats ── */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-3">
-            {stats.map((stat, idx) => (
-              <div key={idx} className="bg-white rounded-lg p-3 shadow-sm border border-gray-100">
+            {stats.map((s, i) => (
+              <div key={i} className="bg-white rounded-lg p-3 shadow-sm border border-gray-100">
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-xs text-gray-600 mb-0.5 truncate">{stat.label}</p>
-                    <p className="text-xl md:text-2xl font-bold text-gray-900">{stat.value}</p>
+                    <p className="text-xs text-gray-600 truncate">{s.label}</p>
+                    <p className="text-xl md:text-2xl font-bold text-gray-900">{s.value}</p>
                   </div>
-                  <div className={`w-8 h-8 md:w-10 md:h-10 ${stat.color} rounded-lg flex items-center justify-center flex-shrink-0`}>
-                    <stat.icon className="w-4 h-4 md:w-5 md:h-5 text-white" />
+                  <div className={`w-9 h-9 md:w-10 md:h-10 ${s.color} rounded-lg flex items-center justify-center shrink-0`}>
+                    <s.icon className="w-4 h-4 md:w-5 md:h-5 text-white" />
                   </div>
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Compact Search and Filters */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-3">
-            <div className="flex flex-col gap-2">
-              <div className="flex gap-2">
-                <div className="flex-1 relative">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                  <input
-                    type="text"
-                    placeholder="Search..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm"
-                  />
-                </div>
-                <button
-                  onClick={() => setShowFilters(!showFilters)}
-                  className="px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm flex items-center gap-1.5"
-                >
-                  <Filter className="w-4 h-4" />
-                  <span className="hidden sm:inline">Filters</span>
-                  {(filterSubject !== 'all' || filterStatus !== 'all' || filterEducationLevel !== 'all') && (
-                    <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
-                  )}
-                </button>
-                {/* View Mode Toggle - Hidden on Mobile */}
-                <div className="hidden md:flex border border-gray-200 rounded-lg overflow-hidden">
-                  <button
-                    onClick={() => setViewMode('table')}
-                    className={`p-2 ${viewMode === 'table' ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'} transition-colors`}
-                    title="Table View"
-                  >
-                    <List className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setViewMode('card')}
-                    className={`p-2 ${viewMode === 'card' ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'} transition-colors border-l border-gray-200`}
-                    title="Card View"
-                  >
-                    <Grid className="w-4 h-4" />
-                  </button>
-                </div>
+          {/* ── Search + Filters ── */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-3 space-y-2">
+            <div className="flex gap-2">
+              <div className="flex-1 relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <input type="text" placeholder="Search student, subject…"
+                  value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
               </div>
-
-              {showFilters && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-2 border-t border-gray-100">
-                  <select
-                    value={String(filterEducationLevel)}
-                    onChange={(e) => setFilterEducationLevel(e.target.value as EducationLevel | 'all')}
-                    className="px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                  >
-                    <option value="all">All Levels</option>
-                    {availableEducationLevels
-                      .filter((level) => level) // removes undefined/null
-                      .map((level) => (
-                        <option key={String(level)} value={String(level)}>
-                          {String(level).replace(/_/g, ' ').toUpperCase()}
-                        </option>
-                    ))}
-                  </select>
-
-                  <select
-                    value={filterSubject}
-                    onChange={(e) => setFilterSubject(e.target.value)}
-                    className="px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                  >
-                    <option value="all">All Subjects</option>
-                    {availableSubjects.map((subject) => (
-                      <option key={subject.id} value={subject.id}>
-                        {subject.name}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    value={filterStatus}
-                    onChange={(e) => setFilterStatus(e.target.value)}
-                    className="px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                  >
-                    <option value="all">All Status</option>
-                    <option value="draft">Draft</option>
-                    <option value="published">Published</option>
-                    <option value="approved">Approved</option>
-                    <option value="archived">Archived</option>
-                  </select>
-                </div>
-              )}
+              <button onClick={() => setShowFilters(!showFilters)}
+                className="px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 text-sm flex items-center gap-1.5">
+                <Filter className="w-4 h-4" />
+                <span className="hidden sm:inline">Filters</span>
+                {(filterSubject !== 'all' || filterStatus !== 'all' || filterLevel !== 'all') && (
+                  <span className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
+                )}
+              </button>
+              <div className="hidden md:flex border border-gray-200 rounded-lg overflow-hidden">
+                {(['table', 'card'] as ViewMode[]).map((m, i) => (
+                  <button key={m} onClick={() => setViewMode(m)}
+                    className={`p-2 transition-colors ${viewMode === m ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'} ${i > 0 ? 'border-l border-gray-200' : ''}`}>
+                    {m === 'table' ? <List className="w-4 h-4" /> : <Grid className="w-4 h-4" />}
+                  </button>
+                ))}
+              </div>
             </div>
+
+            {showFilters && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-2 border-t border-gray-100">
+                <select value={filterLevel} onChange={(e) => setFilterLevel(e.target.value as EducationLevel | 'all')}
+                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                  <option value="all">All Levels</option>
+                  {availableEducationLevels.map((l) => (
+                    <option key={l} value={l}>{l.replace(/_/g, ' ')}</option>
+                  ))}
+                </select>
+                <select value={filterSubject} onChange={(e) => setFilterSubject(e.target.value)}
+                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                  <option value="all">All Subjects</option>
+                  {availableSubjects.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
+                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                  <option value="all">All Status</option>
+                  <option value="draft">Draft</option>
+                  <option value="approved">Approved</option>
+                  <option value="published">Published</option>
+                </select>
+              </div>
+            )}
           </div>
 
-          {/* Results Display - Card View on Mobile, Toggle on Desktop */}
+          {/* ── Results ── */}
           {(viewMode === 'card' || isMobile) ? (
+            /* Card view */
             <div className="space-y-3">
-              <div className="flex items-center justify-between px-1">
-                <p className="text-xs md:text-sm text-gray-600">
-                  {filteredResults.length} of {results.length} results
-                </p>
-              </div>
-              
-              {filteredResults.length > 0 ? (
+              <p className="text-xs md:text-sm text-gray-600 px-1">
+                {filteredResults.length} of {results.length} results
+              </p>
+              {filteredResults.length === 0 ? (
+                <div className="bg-white rounded-lg"><EmptyState /></div>
+              ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                   {filteredResults.map((result) => (
                     <div key={result.id} className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
-                      {/* Card Header */}
                       <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-3 border-b border-gray-100">
                         <div className="flex items-start gap-2">
                           {result.student.profile_picture ? (
-                            <img 
-                              src={result.student.profile_picture} 
-                              alt={result.student.full_name} 
-                              className="w-10 h-10 rounded-full object-cover border-2 border-white shadow-sm flex-shrink-0" 
-                            />
+                            <img src={result.student.profile_picture} alt={result.student.full_name}
+                              className="w-10 h-10 rounded-full object-cover border-2 border-white shadow-sm shrink-0" />
                           ) : (
-                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-semibold flex-shrink-0 text-sm">
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-semibold shrink-0 text-sm">
                               {result.student.full_name.charAt(0)}
                             </div>
                           )}
                           <div className="flex-1 min-w-0">
-                            <h3 className="font-semibold text-sm text-gray-900 truncate">{String(result.student?.full_name || 'Unknown')}</h3>
-                            <p className="text-xs text-gray-500 truncate">{String(result.student?.registration_number || 'N/A')}</p>
+                            <h3 className="font-semibold text-sm text-gray-900 truncate">{result.student.full_name}</h3>
+                            <p className="text-xs text-gray-500 truncate">{result.student.registration_number || 'N/A'}</p>
                           </div>
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(result.status ?? 'DRAFT')} flex-shrink-0`}>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium border shrink-0 ${statusColor(result.status ?? 'DRAFT')}`}>
                             {result.status ?? 'DRAFT'}
                           </span>
                         </div>
                       </div>
-
-                      {/* Card Body */}
                       <div className="p-3 space-y-2">
                         <div className="flex items-center justify-between text-xs">
-                          <span className="text-gray-600">Subject:</span>
-                          <span className="font-medium text-gray-900 truncate ml-2">{String(result.subject?.name || 'N/A')}</span>
+                          <span className="text-gray-600">Subject</span>
+                          <span className="font-medium text-gray-900 truncate ml-2">{result.subject?.name || 'N/A'}</span>
                         </div>
-                        
                         <div className="flex items-center gap-1.5 text-xs text-gray-600">
-                          <Calendar className="w-3.5 h-3.5 flex-shrink-0" />
-                          <span className="truncate">
-                            {String(result.exam_session?.term || 'N/A')} - {String(result.exam_session?.academic_session || 'N/A')}
-                          </span>
+                          <Calendar className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">{result.exam_session?.term || 'N/A'} · {result.exam_session?.academic_session || 'N/A'}</span>
                         </div>
-
                         <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100">
-                          <div className="text-center">
-                            <p className="text-xs text-gray-500 mb-1">CA</p>
-                            <div className="bg-blue-50 rounded-lg py-1.5">
-                              <p className="text-base font-bold text-blue-900">{result.ca_score}</p>
+                          {[
+                            { label: 'CA', value: result.ca_score, bg: 'bg-blue-50', text: 'text-blue-900' },
+                            { label: 'Exam', value: result.exam_score, bg: 'bg-purple-50', text: 'text-purple-900' },
+                            { label: 'Total', value: result.total_score, bg: 'bg-green-50', text: 'text-green-900' },
+                          ].map(({ label, value, bg, text }) => (
+                            <div key={label} className="text-center">
+                              <p className="text-xs text-gray-500 mb-1">{label}</p>
+                              <div className={`${bg} rounded-lg py-1.5`}>
+                                <p className={`text-base font-bold ${text}`}>{value}</p>
+                              </div>
                             </div>
-                          </div>
-                          <div className="text-center">
-                            <p className="text-xs text-gray-500 mb-1">Exam</p>
-                            <div className="bg-purple-50 rounded-lg py-1.5">
-                              <p className="text-base font-bold text-purple-900">{result.exam_score}</p>
-                            </div>
-                          </div>
-                          <div className="text-center">
-                            <p className="text-xs text-gray-500 mb-1">Total</p>
-                            <div className="bg-green-50 rounded-lg py-1.5">
-                              <p className="text-base font-bold text-green-900">{result.total_score}</p>
-                            </div>
-                          </div>
+                          ))}
                         </div>
-
                         <div className="flex items-center justify-between pt-2">
                           <div className="flex items-center gap-2">
-                            <span className="text-xs text-gray-600">Grade:</span>
-                            <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-bold text-sm ${getGradeColor(result.grade)}`}>
+                            <span className="text-xs text-gray-600">Grade</span>
+                            <span className={`w-8 h-8 rounded-lg font-bold text-sm flex items-center justify-center ${gradeColor(result.grade)}`}>
                               {result.grade ?? '—'}
                             </span>
                           </div>
-                          <div className="flex items-center gap-1">
-                            <button 
-                              onClick={() => handleViewResult(result)} 
-                              className="p-1.5 hover:bg-blue-50 rounded-lg transition-colors" 
-                              title="View"
-                            >
-                              <Eye className="w-4 h-4 text-gray-600" />
-                            </button>
-                            <button 
-                              onClick={() => handleEditResult(result)} 
-                              className="p-1.5 hover:bg-indigo-50 rounded-lg transition-colors" 
-                              title="Edit"
-                            >
-                              <Edit className="w-4 h-4 text-gray-600" />
-                            </button>
-                            <button 
-                              onClick={() => handleDeleteResult(result)} 
-                              className="p-1.5 hover:bg-red-50 rounded-lg transition-colors" 
-                              title="Delete"
-                            >
-                              <Trash2 className="w-4 h-4 text-gray-600" />
-                            </button>
-                            
+                          <div className="flex gap-1">
+                            <button onClick={() => handleViewResult(result)} className="p-1.5 hover:bg-blue-50 rounded-lg" title="View"><Eye className="w-4 h-4 text-gray-600" /></button>
+                            <button onClick={() => handleEditResult(result)} className="p-1.5 hover:bg-indigo-50 rounded-lg" title="Edit"><Edit className="w-4 h-4 text-gray-600" /></button>
+                            <button onClick={() => handleDeleteResult(result)} className="p-1.5 hover:bg-red-50 rounded-lg" title="Delete"><Trash2 className="w-4 h-4 text-gray-600" /></button>
                           </div>
                         </div>
                       </div>
                     </div>
                   ))}
                 </div>
-              ) : (
-                <div className="bg-white rounded-lg p-8 md:p-12 text-center">
-                  <div className="w-12 h-12 md:w-16 md:h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
-                    <FileText className="w-6 h-6 md:w-8 md:h-8 text-gray-400" />
-                  </div>
-                  <h3 className="text-base md:text-lg font-semibold text-gray-900 mb-2">No results found</h3>
-                  <p className="text-sm text-gray-500 mb-4 md:mb-6">
-                    {searchTerm || filterSubject !== 'all' || filterStatus !== 'all' || filterEducationLevel !== 'all'
-                      ? 'Try adjusting your filters' 
-                      : 'Start by recording your first result'}
-                  </p>
-                  <button 
-                    onClick={handleCreateResult} 
-                    className="px-4 md:px-6 py-2 md:py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-lg transition-all inline-flex items-center gap-2 font-medium text-sm"
-                  >
-                    <Plus className="w-4 h-4" /> Record First Result
-                  </button>
-                </div>
               )}
             </div>
           ) : (
+            /* Table view */
             <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
-              <div className="p-3 md:p-4 border-b border-gray-100">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-base md:text-lg font-semibold text-gray-900">Student Results</h2>
-                    <p className="text-xs md:text-sm text-gray-500">{filteredResults.length} of {results.length} results</p>
-                  </div>
+              <div className="p-3 md:p-4 border-b border-gray-100 flex items-center justify-between">
+                <div>
+                  <h2 className="text-base md:text-lg font-semibold text-gray-900">Student Results</h2>
+                  <p className="text-xs md:text-sm text-gray-500">{filteredResults.length} of {results.length} results</p>
                 </div>
               </div>
 
-              {filteredResults.length > 0 ? (
+              {filteredResults.length === 0 ? <EmptyState /> : (
                 <div className="overflow-x-auto">
-                  <div style={{ minWidth: '1200px' }}>
-                    <table className="w-full">
-                      <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
-                        <tr>
-                          <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap" style={{ minWidth: '200px' }}>
-                            Student
+                  <table className="w-full" style={{ minWidth: 1100 }}>
+                    <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
+                      <tr>
+                        {[
+                          { label: 'Student', w: 200 },
+                          { label: 'Subject', w: 160 },
+                          { label: 'Session', w: 180 },
+                          { label: 'CA', w: 80, cls: 'text-center bg-blue-50 text-blue-800' },
+                          { label: 'Exam', w: 80, cls: 'text-center bg-purple-50 text-purple-800' },
+                          { label: 'Total', w: 80, cls: 'text-center bg-green-50 text-green-800' },
+                          { label: 'Grade', w: 70, cls: 'text-center' },
+                          { label: 'Status', w: 110, cls: 'text-center' },
+                          { label: 'Actions', w: 130, cls: 'text-center' },
+                        ].map(({ label, w, cls }) => (
+                          <th key={label} style={{ minWidth: w }}
+                            className={`px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-gray-700 ${cls || 'text-left'}`}>
+                            {label}
                           </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap" style={{ minWidth: '160px' }}>
-                            Subject
-                          </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap" style={{ minWidth: '180px' }}>
-                            Session
-                          </th>
-                          <th className="px-3 py-2.5 text-center text-xs font-semibold text-blue-800 uppercase tracking-wider bg-blue-50 whitespace-nowrap" style={{ minWidth: '90px' }}>
-                            CA
-                          </th>
-                          <th className="px-3 py-2.5 text-center text-xs font-semibold text-purple-800 uppercase tracking-wider bg-purple-50 whitespace-nowrap" style={{ minWidth: '90px' }}>
-                            Exam
-                          </th>
-                          <th className="px-3 py-2.5 text-center text-xs font-semibold text-green-800 uppercase tracking-wider bg-green-50 whitespace-nowrap" style={{ minWidth: '90px' }}>
-                            Total
-                          </th>
-                          <th className="px-3 py-2.5 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap" style={{ minWidth: '80px' }}>
-                            Grade
-                          </th>
-                          <th className="px-3 py-2.5 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap" style={{ minWidth: '120px' }}>
-                            Status
-                          </th>
-                          <th className="px-3 py-2.5 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap" style={{ minWidth: '140px' }}>
-                            Actions
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-100">
-                        {filteredResults.map((result, index) => (
-                          <tr key={result.id} className={`hover:bg-blue-50/50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
-                            <td className="px-3 py-2.5 whitespace-nowrap" style={{ minWidth: '200px' }}>
-                              <div className="flex items-center gap-2">
-                                {result.student.profile_picture ? (
-                                  <img 
-                                    src={result.student.profile_picture} 
-                                    alt={result.student.full_name} 
-                                    className="w-8 h-8 rounded-full object-cover border-2 border-gray-200 flex-shrink-0" 
-                                  />
-                                ) : (
-                                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-semibold flex-shrink-0 text-xs">
-                                    {result.student?.full_name?.charAt(0) || '?'}
-                                  </div>
-                                )}
-                                <div className="min-w-0">
-                                  <p className="font-medium text-gray-900 text-xs truncate">{String(result.student?.full_name || 'Unknown')}</p>
-                                  <p className="text-xs text-gray-500 truncate">{String(result.student?.registration_number || 'N/A')}</p>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="px-3 py-2.5 whitespace-nowrap" style={{ minWidth: '160px' }}>
-                              <p className="font-medium text-gray-900 text-xs truncate">{String(result.subject?.name || 'N/A')}</p>
-                              <p className="text-xs text-gray-500">{String(result.subject?.code || '')}</p>
-                            </td>
-                            <td className="px-3 py-2.5 whitespace-nowrap" style={{ minWidth: '180px' }}>
-                              <p className="text-xs text-gray-900 truncate">{String(result.exam_session?.term || 'N/A')}</p>
-                              <p className="text-xs text-gray-500 truncate">{String(result.exam_session?.academic_session || 'N/A')}</p>
-                            </td>
-                            <td className="px-3 py-2.5 text-center bg-blue-50/50 whitespace-nowrap" style={{ minWidth: '90px' }}>
-                              <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-lg bg-blue-100 text-blue-900 font-bold text-xs">
-                                {result.ca_score}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2.5 text-center bg-purple-50/50 whitespace-nowrap" style={{ minWidth: '90px' }}>
-                              <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-lg bg-purple-100 text-purple-900 font-bold text-xs">
-                                {result.exam_score}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2.5 text-center bg-green-50/50 whitespace-nowrap" style={{ minWidth: '90px' }}>
-                              <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-lg bg-green-100 text-green-900 font-bold text-xs">
-                                {result.total_score}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2.5 text-center whitespace-nowrap" style={{ minWidth: '80px' }}>
-                              <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-bold text-xs ${getGradeColor(result.grade)}`}>
-                                {result.grade ?? '—'}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2.5 text-center whitespace-nowrap" style={{ minWidth: '120px' }}>
-                              <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${getStatusColor(result.status ?? 'DRAFT')}`}>
-                                {result.status ?? 'DRAFT'}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2.5 text-center whitespace-nowrap" style={{ minWidth: '140px' }}>
-                              <div className="flex items-center justify-center gap-1">
-                                <button 
-                                  onClick={() => handleViewResult(result)} 
-                                  className="p-1.5 hover:bg-blue-50 rounded-lg transition-colors" 
-                                  title="View"
-                                >
-                                  <Eye className="w-4 h-4 text-gray-600" />
-                                </button>
-                                <button 
-                                  onClick={() => handleEditResult(result)} 
-                                  className="p-1.5 hover:bg-indigo-50 rounded-lg transition-colors" 
-                                  title="Edit"
-                                >
-                                  <Edit className="w-4 h-4 text-gray-600" />
-                                </button>
-                                <button 
-                                  onClick={() => handleDeleteResult(result)} 
-                                  className="p-1.5 hover:bg-red-50 rounded-lg transition-colors" 
-                                  title="Delete"
-                                >
-                                  <Trash2 className="w-4 h-4 text-gray-600" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ) : (
-                <div className="p-8 md:p-12 text-center">
-                  <div className="w-12 h-12 md:w-16 md:h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
-                    <FileText className="w-6 h-6 md:w-8 md:h-8 text-gray-400" />
-                  </div>
-                  <h3 className="text-base md:text-lg font-semibold text-gray-900 mb-2">No results found</h3>
-                  <p className="text-sm text-gray-500 mb-4 md:mb-6">
-                    {searchTerm || filterSubject !== 'all' || filterStatus !== 'all' || filterEducationLevel !== 'all'
-                      ? 'Try adjusting your filters' 
-                      : 'Start by recording your first result'}
-                  </p>
-                  <button 
-                    onClick={handleCreateResult} 
-                    className="px-4 md:px-6 py-2 md:py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-lg transition-all inline-flex items-center gap-2 font-medium text-sm"
-                  >
-                    <Plus className="w-4 h-4" /> Record First Result
-                  </button>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-100">
+                      {filteredResults.map((result, idx) => (
+                        <tr key={result.id} className={`hover:bg-blue-50/40 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
+                          <td className="px-3 py-2.5" style={{ minWidth: 200 }}>
+                            <div className="flex items-center gap-2">
+                              {result.student.profile_picture ? (
+                                <img src={result.student.profile_picture} alt="" className="w-8 h-8 rounded-full object-cover border-2 border-gray-200 shrink-0" />
+                              ) : (
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-xs font-semibold shrink-0">
+                                  {result.student.full_name?.charAt(0) || '?'}
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium text-gray-900 truncate">{result.student.full_name}</p>
+                                <p className="text-xs text-gray-500 truncate">{result.student.registration_number || 'N/A'}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5" style={{ minWidth: 160 }}>
+                            <p className="text-xs font-medium text-gray-900 truncate">{result.subject?.name || 'N/A'}</p>
+                            <p className="text-xs text-gray-500">{result.subject?.code || ''}</p>
+                          </td>
+                          <td className="px-3 py-2.5" style={{ minWidth: 180 }}>
+                            <p className="text-xs text-gray-900 truncate">{result.exam_session?.term || 'N/A'}</p>
+                            <p className="text-xs text-gray-500 truncate">{result.exam_session?.academic_session || 'N/A'}</p>
+                          </td>
+                          {[
+                            { v: result.ca_score,    bg: 'bg-blue-100',   text: 'text-blue-900'   },
+                            { v: result.exam_score,  bg: 'bg-purple-100', text: 'text-purple-900' },
+                            { v: result.total_score, bg: 'bg-green-100',  text: 'text-green-900'  },
+                          ].map(({ v, bg, text }, i) => (
+                            <td key={i} className="px-3 py-2.5 text-center" style={{ minWidth: 80 }}>
+                              <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-lg ${bg} ${text} font-bold text-xs`}>{v}</span>
+                            </td>
+                          ))}
+                          <td className="px-3 py-2.5 text-center" style={{ minWidth: 70 }}>
+                            <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-bold text-xs ${gradeColor(result.grade)}`}>
+                              {result.grade ?? '—'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-center" style={{ minWidth: 110 }}>
+                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${statusColor(result.status ?? 'DRAFT')}`}>
+                              {result.status ?? 'DRAFT'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-center" style={{ minWidth: 130 }}>
+                            <div className="flex items-center justify-center gap-1">
+                              <button onClick={() => handleViewResult(result)}   className="p-1.5 hover:bg-blue-50 rounded-lg" title="View"><Eye className="w-4 h-4 text-gray-600" /></button>
+                              <button onClick={() => handleEditResult(result)}   className="p-1.5 hover:bg-indigo-50 rounded-lg" title="Edit"><Edit className="w-4 h-4 text-gray-600" /></button>
+                              <button onClick={() => handleDeleteResult(result)} className="p-1.5 hover:bg-red-50 rounded-lg" title="Delete"><Trash2 className="w-4 h-4 text-gray-600" /></button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>

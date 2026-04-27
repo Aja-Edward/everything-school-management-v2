@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import TeacherDashboardLayout from '@/components/layouts/TeacherDashboardLayout';
 import TeacherDashboardService from '@/services/TeacherDashboardService';
 import ClassroomService from '@/services/ClassroomService';
+import type { Parent } from '@/types/types';
 import { toast } from 'react-toastify';
 import { 
   ArrowLeft, 
@@ -26,12 +27,14 @@ interface Student {
   id: number;
   full_name: string;
   registration_number: string;
+  username?: string;
   profile_picture?: string;
   gender: string;
   age: number;
   education_level: string;
   student_class: string;
   admission_date: string;
+  parents?: Parent[];
   parent_contact?: string;
   emergency_contact?: string;
   classroom?: string;
@@ -344,7 +347,7 @@ const StudentProfile: React.FC<StudentProfileProps> = () => {
                       <div className="flex items-center space-x-3">
                         <Award className="w-4 h-4 text-slate-400" />
                         <span className="text-slate-600 dark:text-slate-400">Registration:</span>
-                        <span className="font-medium text-slate-900 dark:text-white">{student.registration_number}</span>
+                        <span className="font-medium text-slate-900 dark:text-white">{student.registration_number ?? student.username}</span>
                       </div>
                       <div className="flex items-center space-x-3">
                         <Calendar className="w-4 h-4 text-slate-400" />
@@ -354,7 +357,7 @@ const StudentProfile: React.FC<StudentProfileProps> = () => {
                       <div className="flex items-center space-x-3">
                         <GraduationCap className="w-4 h-4 text-slate-400" />
                         <span className="text-slate-600 dark:text-slate-400">Class:</span>
-                        <span className="font-medium text-slate-900 dark:text-white">{student.student_class}</span>
+                        <span className="font-medium text-slate-900 dark:text-white">{student.classroom}</span>
                       </div>
                     </div>
                   </div>
@@ -401,8 +404,8 @@ const StudentProfile: React.FC<StudentProfileProps> = () => {
                           <span className="font-medium">{student.education_level?.replace('_', ' ') || 'Not specified'}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-slate-600 dark:text-slate-400">Class:</span>
-                          <span className="font-medium">{student.student_class}</span>
+                          <span className="text-slate-600 dark:text-slate-400">Classroom:</span>
+                          <span className="font-medium">{student.classroom}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-slate-600 dark:text-slate-400">Admission Date:</span>
@@ -417,13 +420,13 @@ const StudentProfile: React.FC<StudentProfileProps> = () => {
                       <div className="space-y-2">
                         <div className="flex justify-between">
                           <span className="text-slate-600 dark:text-slate-400">Registration Number:</span>
-                          <span className="font-medium">{student.registration_number}</span>
+                          <span className="font-medium">{student.username}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-slate-600 dark:text-slate-400">Student ID:</span>
                           <span className="font-medium">{student.id}</span>
                         </div>
-                      </div>
+                      </div>  
                     </div>
                   </div>
                 </div>
@@ -487,50 +490,76 @@ const StudentProfile: React.FC<StudentProfileProps> = () => {
             )}
 
             {activeTab === 'guardian' && (
-              <div className="space-y-6">
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Guardian Information</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-4">
-                      <h4 className="font-medium text-slate-900 dark:text-white mb-3">Primary Guardian</h4>
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-slate-600 dark:text-slate-400">Name:</span>
-                          <span className="font-medium">{student.guardian_name || 'Not specified'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-600 dark:text-slate-400">Relationship:</span>
-                          <span className="font-medium">{student.guardian_relationship || 'Not specified'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-600 dark:text-slate-400">Phone:</span>
-                          <span className="font-medium">{student.guardian_phone || 'Not specified'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-600 dark:text-slate-400">Email:</span>
-                          <span className="font-medium">{student.guardian_email || 'Not specified'}</span>
+                <div className="space-y-6">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Guardian/Parent Information</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-4">
+                        <h4 className="font-medium text-slate-900 dark:text-white mb-3">Primary Parent/Guardian</h4>
+                        <div className="space-y-2">
+                          <div className="flex justify-between">
+                            <span className="text-slate-600 dark:text-slate-400">Name:</span>
+                            <span className="font-medium">
+                              {student.parents?.[0]?.full_name || 'Not specified'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-600 dark:text-slate-400">Relationship:</span>
+                            <span className="font-medium">
+                              {student.parents?.[0]?.relationship || student.guardian_relationship || 'Not specified'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-600 dark:text-slate-400">Phone:</span>
+                            <span className="font-medium">
+                              {student.parents?.[0]?.phone || student.guardian_phone || 'Not specified'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-600 dark:text-slate-400">Email:</span>
+                            <span className="font-medium">
+                              {student.parents?.[0]?.email || student.guardian_email || 'Not specified'}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-4">
-                      <h4 className="font-medium text-slate-900 dark:text-white mb-3">Guardian Details</h4>
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-slate-600 dark:text-slate-400">Occupation:</span>
-                          <span className="font-medium">{student.guardian_occupation || 'Not specified'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-600 dark:text-slate-400">Address:</span>
-                          <span className="font-medium">{student.guardian_address || 'Not specified'}</span>
+                    <div className="space-y-4">
+                      <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-4">
+                        <h4 className="font-medium text-slate-900 dark:text-white mb-3">Guardian Details</h4>
+                        <div className="space-y-2">
+                          <div className="flex justify-between">
+                            <span className="text-slate-600 dark:text-slate-400">Occupation:</span>
+                            <span className="font-medium">
+                              {student.parents?.[0]?.occupation || student.guardian_occupation || 'Not specified'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-600 dark:text-slate-400">Address:</span>
+                            <span className="font-medium">
+                              {student.parents?.[0]?.address || student.guardian_address || student.address ||'Not specified'}
+                            </span>
+                          </div>
                         </div>
                       </div>
+
+                      {/* Show additional parents if more than one */}
+                      {(student.parents?.length ?? 0) > 1 && (
+                        <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-4">
+                          <h4 className="font-medium text-slate-900 dark:text-white mb-3">
+                           Additional Parents ({(student.parents?.length ?? 0) - 1})
+                          </h4>
+                          {student.parents?.slice(1).map((parent: any, idx: number) => (
+                            <div key={idx} className="text-sm text-slate-600 dark:text-slate-400 py-1">
+                              {parent.full_name} — {parent.ermergency_contact || 'No phone'}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
 
             {activeTab === 'medical' && (
               <div className="space-y-6">

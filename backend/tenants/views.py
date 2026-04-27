@@ -701,13 +701,22 @@ class DomainManagementViewSet(viewsets.ViewSet):
 class TenantSettingsViewSet(viewsets.ModelViewSet):
     """ViewSet for managing tenant settings."""
     serializer_class = TenantSettingsSerializer
-    permission_classes = [IsAuthenticated, IsTenantOwner]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         tenant = getattr(self.request, 'tenant', None)
         if tenant:
             return TenantSettings.objects.filter(tenant=tenant)
         return TenantSettings.objects.none()
+
+    def get_permissions(self):
+        """
+        GET (read) — any authenticated tenant member can read settings.
+        PATCH/POST/PUT/DELETE — only tenant owners can modify.
+        """
+        if self.request.method in ("PATCH", "POST", "PUT", "DELETE"):
+            return [IsAuthenticated(), IsTenantOwner()]
+        return [IsAuthenticated()]
 
     def get_object(self):
         tenant = getattr(self.request, 'tenant', None)

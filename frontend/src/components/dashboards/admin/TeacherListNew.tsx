@@ -44,6 +44,10 @@ const TeacherList = () => {
   const [mounted, setMounted] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const PAGE_SIZE = 20;
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
   useEffect(() => {
     const timer = setTimeout(() => setMounted(true), 50);
@@ -51,26 +55,27 @@ const TeacherList = () => {
   }, []);
 
   const loadTeachers = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await TeacherService.getTeachers();
-      console.log('Fetched teachers response:', response);
-      const teachersData = Array.isArray(response.results) ? response.results :
-        Array.isArray(response) ? response : [];
-      setTeachers(teachersData);
-      setFilteredTeachers(teachersData);
-
-       console.log('Teacherdata after check:', teachersData);
-    } catch (err: any) {
-      console.error('Error loading teachers:', err);
-      setError(err.response?.data?.message || 'Failed to load teachers');
-      setTeachers([]);
-      setFilteredTeachers([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  try {
+    setLoading(true);
+    setError(null);
+    const response = await TeacherService.getTeachers({
+      page: currentPage,
+      page_size: PAGE_SIZE,
+    });
+    const teachersData = Array.isArray(response.results) ? response.results :
+      Array.isArray(response) ? response : [];
+    setTeachers(teachersData);
+    setFilteredTeachers(teachersData);
+    setTotalCount(response.count ?? teachersData.length);
+  } catch (err: any) {
+    console.error('Error loading teachers:', err);
+    setError(err.response?.data?.message || 'Failed to load teachers');
+    setTeachers([]);
+    setFilteredTeachers([]);
+  } finally {
+    setLoading(false);
+  }
+}, [currentPage]);
 
   useEffect(() => {
     loadTeachers();
@@ -227,7 +232,7 @@ const TeacherList = () => {
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Teachers</h1>
             <p className="text-sm text-gray-500 mt-1">
-              {filteredTeachers.length} of {teachers.length} teachers
+              {filteredTeachers.length} of {totalCount} teachers
             </p>
           </div>
           <div className="flex items-center gap-3 relative">
@@ -554,6 +559,78 @@ const TeacherList = () => {
             ))}
           </div>
         )}
+        {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between bg-white rounded-xl border border-gray-200 px-4 py-3">
+              <p className="text-sm text-gray-500">
+                Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, totalCount)} of {totalCount} teachers
+              </p>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  «
+                </button>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Prev
+                </button>
+
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((page) =>
+                    page === 1 ||
+                    page === totalPages ||
+                    Math.abs(page - currentPage) <= 1
+                  )
+                  .reduce<(number | string)[]>((acc, page, idx, arr) => {
+                    if (idx > 0 && (page as number) - (arr[idx - 1] as number) > 1) {
+                      acc.push('...');
+                    }
+                    acc.push(page);
+                    return acc;
+                  }, [])
+                  .map((page, idx) =>
+                    page === '...' ? (
+                      <span key={`ellipsis-${idx}`} className="px-2 py-1.5 text-sm text-gray-400">
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page as number)}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                          currentPage === page
+                            ? 'bg-gray-900 text-white'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    )
+                  )}
+
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+                <button
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  »
+                </button>
+              </div>
+            </div>
+          )}
       </div>
 
       {/* Empty State */}
@@ -705,6 +782,12 @@ const TeacherList = () => {
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">Address</label>
                   <p className="text-sm text-gray-900">{selectedTeacher.address || 'Not provided'}</p>
+                  
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Username</label>
+                  <p className="text-sm text-gray-900">{selectedTeacher.user?.username}</p>
+                 
                 </div>
               </div>
 

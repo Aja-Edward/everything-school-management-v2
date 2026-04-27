@@ -89,8 +89,7 @@ const DEFAULTS: AllAcademicSettings = {
 class AcademicSettingsService {
   // TenantSettingsViewSet `current` action — supports both GET and PATCH
   // This is the authoritative endpoint for all academic settings
-  private readonly endpoint = '/api/tenants/settings/';
-
+  private readonly endpoint = '/api/tenants/settings/current/';
   /**
    * Fetch all academic settings for the current tenant.
    */

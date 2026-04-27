@@ -1,914 +1,476 @@
+/**
+ * EditResultForm.tsx
+ *
+ * Loads existing ComponentScore rows for the result, renders one input per
+ * component (fetched from AssessmentComponent API), and submits via:
+ *   POST /api/results/<level>/results/<id>/component-scores/
+ *
+ * For Nursery: edits mark_obtained + max_marks_obtainable directly.
+ */
+
 import React, { useState, useEffect } from 'react';
-import { 
-  X, 
-  Save,   
-  Target,
-  Star,
-  RefreshCw
-} from 'lucide-react';
-import { useGlobalTheme } from '@/contexts/GlobalThemeContext';
-import SubjectService,{Subject} from '@/services/SubjectService';
+import { X, Save, RefreshCw, Target, AlertCircle } from 'lucide-react';
 import { toast } from 'react-toastify';
 import api from '@/services/api';
 import ResultService from '@/services/ResultService';
+import resultSettingsService, { AssessmentComponent } from '@/services/ResultSettingsService';
+import type { EducationLevelType, AnySubjectResult, NurseryResult } from '@/services/ResultService';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface EditResultFormProps {
-  result: any;
-  student: any;
+  /** The subject result object as returned by the API */
+  result: AnySubjectResult & { education_level?: EducationLevelType };
+  /** The education level — passed separately in case it's on the parent report */
+  educationLevel: EducationLevelType;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-const EditResultForm: React.FC<EditResultFormProps> = ({ result, student, onClose, onSuccess }) => {
-  const { isDarkMode } = useGlobalTheme();
-  const [loading, setLoading] = useState(false);
-  const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [formData, setFormData] = useState<any>({});
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [originalScores, setOriginalScores] = useState<any>({});
-  const [showRemarkWarning, setShowRemarkWarning] = useState(false);
-
-  const themeClasses = {
-    bgPrimary: isDarkMode ? 'bg-gray-900' : 'bg-white',
-    bgSecondary: isDarkMode ? 'bg-gray-800' : 'bg-gray-50',
-    bgCard: isDarkMode ? 'bg-gray-800' : 'bg-white',
-    textPrimary: isDarkMode ? 'text-white' : 'text-gray-900',
-    textSecondary: isDarkMode ? 'text-gray-300' : 'text-gray-600',
-    textTertiary: isDarkMode ? 'text-gray-400' : 'text-gray-500',
-    border: isDarkMode ? 'border-gray-700' : 'border-gray-200',
-    borderHover: isDarkMode ? 'border-gray-600' : 'border-gray-300',
-    iconPrimary: isDarkMode ? 'text-blue-400' : 'text-blue-600',
-    iconSecondary: isDarkMode ? 'text-gray-400' : 'text-gray-500',
-    buttonPrimary: isDarkMode ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white',
-    buttonSecondary: isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-700',
-    buttonSuccess: isDarkMode ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-green-600 hover:bg-green-700 text-white',
-    buttonWarning: isDarkMode ? 'bg-yellow-600 hover:bg-yellow-700 text-white' : 'bg-yellow-600 hover:bg-yellow-700 text-white',
-    buttonDanger: isDarkMode ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white',
+function levelPath(level: EducationLevelType): string {
+  const map: Record<EducationLevelType, string> = {
+    NURSERY: 'nursery',
+    PRIMARY: 'primary',
+    JUNIOR_SECONDARY: 'junior-secondary',
+    SENIOR_SECONDARY: 'senior-secondary',
   };
+  return map[level];
+}
 
-  // Initialize form data with proper field mapping
-  useEffect(() => {
-    if (result) {
-      console.log('Initializing form with result:', result);
-      
-      const initialData = {
-        subject: result.subject?.id || result.subject,
-        exam_session: result.exam_session?.id || result.exam_session,
-        status: result.status || 'DRAFT',
-        teacher_remark: result.teacher_remark || result.remarks || '',
-        grading_system: result.grading_system?.id || result.grading_system,
-        
-        // Senior Secondary fields
-        first_test_score: result.first_test_score || result.breakdown?.first_test_score || '',
-        second_test_score: result.second_test_score || result.breakdown?.second_test_score || '',
-        third_test_score: result.third_test_score || result.breakdown?.third_test_score || '',
-        
-        // Primary/Junior Secondary fields
-        continuous_assessment_score: result.continuous_assessment_score || result.breakdown?.continuous_assessment_score || '',
-        take_home_test_score: result.take_home_test_score || result.breakdown?.take_home_test_score || '',
-        appearance_score: result.appearance_score || result.breakdown?.appearance_score || '',
-        practical_score: result.practical_score || result.breakdown?.practical_score || '',
-        project_score: result.project_score || result.breakdown?.project_score || '',
-        note_copying_score: result.note_copying_score || result.breakdown?.note_copying_score || '',
-        
-        // Common fields
-        exam_score: result.exam_score || result.breakdown?.exam_score || '',
-        
-        // Calculated fields (can be input manually or auto-calculated)
-        ca_total: result.ca_total || result.breakdown?.ca_total || '',
-        total_score: result.total_score || result.breakdown?.total_score || '',
-        grade: result.grade || result.breakdown?.grade || '',
-        position: result.position || result.breakdown?.position || '',
-        class_average: result.class_average || result.breakdown?.class_average || '',
-        highest_in_class: result.highest_in_class || result.breakdown?.highest_in_class || '',
-        lowest_in_class: result.lowest_in_class || result.breakdown?.lowest_in_class || '',
-        
-        // Optional stream if present
-        stream: result.stream?.id || result.stream,
-      };
-      
-      console.log('Initial form data:', initialData);
-      setFormData(initialData);
-      
-      // Store original scores for comparison
-      setOriginalScores({
-        total_score: result.total_score || result.breakdown?.total_score || 0,
-        exam_score: result.exam_score || result.breakdown?.exam_score || 0,
-        ca_total: result.ca_total || result.breakdown?.ca_total || 0,
-        grade: result.grade || result.breakdown?.grade || '',
-        teacher_remark: result.teacher_remark || result.remarks || ''
-      });
-    }
-  }, [result]);
+function gradeFromPct(pct: number): string {
+  if (pct >= 70) return 'A';
+  if (pct >= 60) return 'B';
+  if (pct >= 50) return 'C';
+  if (pct >= 45) return 'D';
+  if (pct >= 39) return 'E';
+  return 'F';
+}
 
-  // Load subjects for the student's education level
-  useEffect(() => {
-    if (student?.education_level) {
-      loadSubjects();
-    }
-  }, [student]);
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
 
-  const loadSubjects = async () => {
-    try {
-      const subjects = await SubjectService.getSubjects({ education_level: student.education_level });
-      // SubjectService.getSubjects already returns Subject[] directly
-      setSubjects(Array.isArray(subjects) ? subjects : []);
-    } catch (error) {
-      console.error('Error loading subjects:', error);
-      toast.error('Failed to load subjects');
-      // Set empty array on error to prevent undefined map calls
-      setSubjects([]);
-    }
-  };
+const EditResultForm: React.FC<EditResultFormProps> = ({
+  result,
+  educationLevel,
+  onClose,
+  onSuccess,
+}) => {
+  const isNursery = educationLevel === 'NURSERY';
+  const nurseryResult = result as unknown as NurseryResult;
 
-  // Generate automatic teacher remark based on score and grade
-  const generateTeacherRemark = (totalScore: number, grade: string, previousRemark: string = ''): string => {
-    const score = Number(totalScore) || 0;
-    
-    // Define remark templates based on grade ranges
-    const remarkTemplates = {
-      'A+': [
-        'Excellent performance! Outstanding work and dedication.',
-        'Exceptional achievement. Keep up the excellent work!',
-        'Outstanding performance. You are a model student.',
-        'Brilliant work! Your dedication is commendable.'
-      ],
-      'A': [
-        'Very good performance. Well done!',
-        'Excellent work. Keep maintaining this standard.',
-        'Great achievement. Continue to excel.',
-        'Very good performance. You should be proud.'
-      ],
-      'B+': [
-        'Good performance. Keep up the good work.',
-        'Well done! Continue to improve.',
-        'Good effort. You are making progress.',
-        'Satisfactory performance. Keep working hard.'
-      ],
-      'B': [
-        'Fair performance. Room for improvement.',
-        'Average work. Try to do better next time.',
-        'Satisfactory performance. Keep working hard.',
-        'Fair effort. Focus on areas that need improvement.'
-      ],
-      'C+': [
-        'Below average performance. More effort needed.',
-        'Needs improvement. Focus on your studies.',
-        'Below expectations. Work harder next time.',
-        'Poor performance. Seek help and improve.'
-      ],
-      'C': [
-        'Poor performance. Significant improvement needed.',
-        'Below average. You need to work much harder.',
-        'Unsatisfactory. Seek extra help immediately.',
-        'Very poor performance. Parent consultation needed.'
-      ],
-      'D': [
-        'Very poor performance. Immediate intervention required.',
-        'Failing grade. Urgent attention needed.',
-        'Unsatisfactory performance. Parent meeting required.',
-        'Critical performance. Seek academic support.'
-      ],
-      'F': [
-        'Failed. Immediate remedial action required.',
-        'Complete failure. Urgent academic intervention needed.',
-        'Failed grade. Parent consultation and support required.',
-        'Critical failure. Seek immediate academic help.'
-      ]
-    };
-
-    // Get appropriate remarks based on grade
-    let gradeRemarks = remarkTemplates[grade as keyof typeof remarkTemplates] || remarkTemplates['F'];
-    
-    // If no grade provided, determine based on score
-    if (!grade && score > 0) {
-      if (score >= 90) gradeRemarks = remarkTemplates['A+'];
-      else if (score >= 80) gradeRemarks = remarkTemplates['A'];
-      else if (score >= 70) gradeRemarks = remarkTemplates['B+'];
-      else if (score >= 60) gradeRemarks = remarkTemplates['B'];
-      else if (score >= 50) gradeRemarks = remarkTemplates['C+'];
-      else if (score >= 40) gradeRemarks = remarkTemplates['C'];
-      else if (score >= 30) gradeRemarks = remarkTemplates['D'];
-      else gradeRemarks = remarkTemplates['F'];
-    }
-
-    // Return a random remark from the appropriate category
-    return gradeRemarks[Math.floor(Math.random() * gradeRemarks.length)];
-  };
-
-  // Check if scores have changed significantly (pass/fail status change)
-  const hasSignificantScoreChange = (): boolean => {
-    if (!originalScores.total_score) return false;
-    
-    const originalScore = Number(originalScores.total_score) || 0;
-    const currentScore = Number(formData.total_score) || 0;
-    const passThreshold = 50; // Default pass mark
-    
-    // Check if pass/fail status has changed
-    const wasPassing = originalScore >= passThreshold;
-    const isNowPassing = currentScore >= passThreshold;
-    
-    return wasPassing !== isNowPassing;
-  };
-
-  // Auto-update remark when significant score changes occur
-  const handleScoreChange = (field: string, value: any) => {
-    const newFormData = { ...formData, [field]: value };
-    
-    // Recalculate total if individual scores changed
-    if (['first_test_score', 'second_test_score', 'third_test_score', 'exam_score', 
-         'continuous_assessment_score', 'take_home_test_score', 'appearance_score', 
-         'practical_score', 'project_score', 'note_copying_score'].includes(field)) {
-      
-      // Calculate new total based on education level
-      let newTotal = 0;
-      if (student.education_level === 'SENIOR_SECONDARY') {
-        newTotal = (Number(newFormData.first_test_score) || 0) + 
-                   (Number(newFormData.second_test_score) || 0) + 
-                   (Number(newFormData.third_test_score) || 0) + 
-                   (Number(newFormData.exam_score) || 0);
-      } else {
-        // Primary/Junior Secondary calculation
-        newTotal = (Number(newFormData.continuous_assessment_score) || 0) + 
-                   (Number(newFormData.exam_score) || 0);
-      }
-      
-      newFormData.total_score = newTotal;
-    }
-    
-    setFormData(newFormData);
-    
-    // Check if significant change occurred and suggest remark update
-    if (hasSignificantScoreChange()) {
-      setShowRemarkWarning(true);
-    }
-  };
-
-  const handleInputChange = (field: string, value: any) => {
-    // Use handleScoreChange for score-related fields
-    if (['first_test_score', 'second_test_score', 'third_test_score', 'exam_score', 
-         'continuous_assessment_score', 'take_home_test_score', 'appearance_score', 
-         'practical_score', 'project_score', 'note_copying_score', 'total_score'].includes(field)) {
-      handleScoreChange(field, value);
-    } else {
-      setFormData((prev: any) => ({
-        ...prev,
-        [field]: value
-      }));
-    }
-    
-    // Clear error for this field
-    if (errors[field]) {
-      setErrors(prev => ({
-        ...prev,
-        [field]: ''
-      }));
-    }
-  };
-
-  // Helper function to render calculated fields
-  const renderCalculatedFields = () => (
-    <div className="mt-6">
-      <h4 className="text-lg font-medium mb-4 text-gray-700 dark:text-gray-300">Calculated Fields (Auto-calculated or Manual Input)</h4>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {/* CA Total - only for Primary/Junior Secondary */}
-        {(student.education_level === 'PRIMARY' || student.education_level === 'JUNIOR_SECONDARY') && (
-          <div>
-            <label className={`block text-sm font-medium mb-2 ${themeClasses.textSecondary}`}>
-              CA Total
-            </label>
-            <input
-              type="number"
-              min="0"
-              max="35"
-              step="0.01"
-              value={formData.ca_total || ''}
-              onChange={(e) => handleInputChange('ca_total', parseFloat(e.target.value) || '')}
-              className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.ca_total ? 'border-red-500' : ''}`}
-              placeholder="Sum of CA components"
-            />
-            <p className="text-xs text-gray-500 mt-1">Sum of CA components</p>
-          </div>
-        )}
-        
-        <div>
-          <label className={`block text-sm font-medium mb-2 ${themeClasses.textSecondary}`}>
-            Total Score
-          </label>
-          <input
-            type="number"
-            min="0"
-            max="100"
-            step="0.01"
-            value={formData.total_score || ''}
-            onChange={(e) => handleInputChange('total_score', parseFloat(e.target.value) || '')}
-            className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.total_score ? 'border-red-500' : ''}`}
-            placeholder="Total score"
-          />
-          <p className="text-xs text-gray-500 mt-1">CA Total + Exam Score</p>
-        </div>
-        
-        <div>
-          <label className={`block text-sm font-medium mb-2 ${themeClasses.textSecondary}`}>
-            Grade
-          </label>
-          <input
-            type="text"
-            value={formData.grade || ''}
-            onChange={(e) => handleInputChange('grade', e.target.value)}
-            className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.grade ? 'border-red-500' : ''}`}
-            placeholder="A, B, C, D, F"
-          />
-          <p className="text-xs text-gray-500 mt-1">A, B, C, D, F</p>
-        </div>
-        
-        <div>
-          <label className={`block text-sm font-medium mb-2 ${themeClasses.textSecondary}`}>
-            Position
-          </label>
-          <input
-            type="number"
-            min="1"
-            value={formData.position || ''}
-            onChange={(e) => handleInputChange('position', parseInt(e.target.value) || '')}
-            className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.position ? 'border-red-500' : ''}`}
-            placeholder="Position in class"
-          />
-          <p className="text-xs text-gray-500 mt-1">Position in class</p>
-        </div>
-        
-        <div>
-          <label className={`block text-sm font-medium mb-2 ${themeClasses.textSecondary}`}>
-            Class Average
-          </label>
-          <input
-            type="number"
-            min="0"
-            max="100"
-            step="0.01"
-            value={formData.class_average || ''}
-            onChange={(e) => handleInputChange('class_average', parseFloat(e.target.value) || '')}
-            className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.class_average ? 'border-red-500' : ''}`}
-            placeholder="Class average score"
-          />
-          <p className="text-xs text-gray-500 mt-1">Class average score</p>
-        </div>
-        
-        <div>
-          <label className={`block text-sm font-medium mb-2 ${themeClasses.textSecondary}`}>
-            Highest in Class
-          </label>
-          <input
-            type="number"
-            min="0"
-            max="100"
-            step="0.01"
-            value={formData.highest_in_class || ''}
-            onChange={(e) => handleInputChange('highest_in_class', parseFloat(e.target.value) || '')}
-            className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.highest_in_class ? 'border-red-500' : ''}`}
-            placeholder="Highest score in class"
-          />
-          <p className="text-xs text-gray-500 mt-1">Highest score in class</p>
-        </div>
-        
-        <div>
-          <label className={`block text-sm font-medium mb-2 ${themeClasses.textSecondary}`}>
-            Lowest in Class
-          </label>
-          <input
-            type="number"
-            min="0"
-            max="100"
-            step="0.01"
-            value={formData.lowest_in_class || ''}
-            onChange={(e) => handleInputChange('lowest_in_class', parseFloat(e.target.value) || '')}
-            className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.lowest_in_class ? 'border-red-500' : ''}`}
-            placeholder="Lowest score in class"
-          />
-          <p className="text-xs text-gray-500 mt-1">Lowest score in class</p>
-        </div>
-      </div>
-    </div>
+  const [components, setComponents] = useState<AssessmentComponent[]>([]);
+  const [componentScores, setComponentScores] = useState<Record<number, string>>({});
+  const [teacherRemark, setTeacherRemark] = useState(
+    (result as any).teacher_remark || (result as any).academic_comment || ''
+  );
+  const [markObtained, setMarkObtained] = useState(
+    isNursery ? String(nurseryResult.mark_obtained || '0') : ''
+  );
+  const [maxMarks, setMaxMarks] = useState(
+    isNursery ? String(nurseryResult.max_marks_obtainable || '100') : '100'
+  );
+  const [status, setStatus] = useState<'DRAFT' | 'APPROVED' | 'PUBLISHED'>(
+    (result.status as any) || 'DRAFT'
   );
 
-  // Validation function with proper field names
-  const validateForm = () => {
-    const newErrors: Record<string, string> = {};
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-    if (!formData.subject) {
-      newErrors.subject = 'Subject is required';
+  // ── Load components + pre-fill existing scores ───────────────────────────
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true);
+        if (!isNursery) {
+          const comps = await resultSettingsService.getAssessmentComponents({
+            education_level: educationLevelId(educationLevel),
+            is_active: true,
+          });
+          const sorted = [...comps].sort((a, b) => a.display_order - b.display_order);
+          setComponents(sorted);
+
+          // Pre-fill from existing component_scores on the result
+          const existing: Record<number, string> = {};
+          const scores = (result as any).component_scores || [];
+          scores.forEach((cs: any) => {
+            existing[cs.component] = String(cs.score);
+          });
+          setComponentScores(existing);
+        }
+      } catch (e) {
+        console.error('EditResultForm load error:', e);
+        toast.error('Failed to load assessment components');
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Derived totals ───────────────────────────────────────────────────────
+  const caComponents = components.filter((c) => c.contributes_to_ca);
+  const examComponents = components.filter((c) => !c.contributes_to_ca);
+
+  const caTotal = caComponents.reduce(
+    (sum, c) => sum + (parseFloat(componentScores[c.id] || '0') || 0),
+    0
+  );
+  const examTotal = examComponents.reduce(
+    (sum, c) => sum + (parseFloat(componentScores[c.id] || '0') || 0),
+    0
+  );
+  const totalScore = caTotal + examTotal;
+  const maxPossible = components.reduce((sum, c) => sum + parseFloat(c.max_score), 0);
+  const percentage = maxPossible > 0 ? (totalScore / maxPossible) * 100 : 0;
+
+  const nurseryPct =
+    parseFloat(maxMarks) > 0
+      ? (parseFloat(markObtained || '0') / parseFloat(maxMarks)) * 100
+      : 0;
+
+  // ── Validation ───────────────────────────────────────────────────────────
+  const validate = (): boolean => {
+    const errs: Record<string, string> = {};
+    if (isNursery) {
+      const mark = parseFloat(markObtained || '0');
+      const max = parseFloat(maxMarks || '0');
+      if (max <= 0) errs.maxMarks = 'Max marks must be greater than 0';
+      if (mark < 0 || mark > max) errs.markObtained = `Must be 0–${max}`;
+    } else {
+      components.forEach((c) => {
+        const score = parseFloat(componentScores[c.id] || '0');
+        const max = parseFloat(c.max_score);
+        if (score < 0 || score > max) {
+          errs[`comp_${c.id}`] = `Max ${max}`;
+        }
+      });
     }
-
-    if (!formData.exam_session) {
-      newErrors.exam_session = 'Exam session is required';
-    }
-
-    if (!formData.grading_system) {
-      newErrors.grading_system = 'Grading system is required';
-    }
-
-    // Education level specific validations
-    switch (student.education_level) {
-      case 'SENIOR_SECONDARY':
-        if (formData.first_test_score && (formData.first_test_score < 0 || formData.first_test_score > 10)) {
-          newErrors.first_test_score = 'Test 1 score must be between 0 and 10';
-        }
-        if (formData.second_test_score && (formData.second_test_score < 0 || formData.second_test_score > 10)) {
-          newErrors.second_test_score = 'Test 2 score must be between 0 and 10';
-        }
-        if (formData.third_test_score && (formData.third_test_score < 0 || formData.third_test_score > 10)) {
-          newErrors.third_test_score = 'Test 3 score must be between 0 and 10';
-        }
-        if (formData.exam_score && (formData.exam_score < 0 || formData.exam_score > 70)) {
-          newErrors.exam_score = 'Exam score must be between 0 and 70';
-        }
-        break;
-      case 'PRIMARY':
-      case 'JUNIOR_SECONDARY':
-        if (formData.continuous_assessment_score && (formData.continuous_assessment_score < 0 || formData.continuous_assessment_score > 15)) {
-          newErrors.continuous_assessment_score = 'CA score must be between 0 and 15';
-        }
-        if (formData.appearance_score && (formData.appearance_score < 0 || formData.appearance_score > 5)) {
-          newErrors.appearance_score = 'Appearance score must be between 0 and 5';
-        }
-        if (formData.practical_score && (formData.practical_score < 0 || formData.practical_score > 5)) {
-          newErrors.practical_score = 'Practical score must be between 0 and 5';
-        }
-        if (formData.take_home_test_score && (formData.take_home_test_score < 0 || formData.take_home_test_score > 5)) {
-          newErrors.take_home_test_score = 'Take Home Test score must be between 0 and 5';
-        }
-        if (formData.project_score && (formData.project_score < 0 || formData.project_score > 5)) {
-          newErrors.project_score = 'Project score must be between 0 and 5';
-        }
-        if (formData.note_copying_score && (formData.note_copying_score < 0 || formData.note_copying_score > 5)) {
-          newErrors.note_copying_score = 'Note copying score must be between 0 and 5';
-        }
-        if (formData.exam_score && (formData.exam_score < 0 || formData.exam_score > 60)) {
-          newErrors.exam_score = 'Exam score must be between 0 and 60';
-        }
-        break;
-      case 'NURSERY':
-        if (formData.exam_score && (formData.exam_score < 0 || formData.exam_score > 100)) {
-          newErrors.exam_score = 'Exam score must be between 0 and 100';
-        }
-        break;
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
   };
 
+  // ── Submit ───────────────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!validateForm()) {
-      toast.error('Please fix the errors in the form');
-      return;
-    }
+    if (!validate()) return;
 
+    setSubmitting(true);
     try {
-      setLoading(true);
-      
-      // Use ResultService instead of direct API calls
-      const resultService = new ResultService();
+      const path = levelPath(educationLevel);
 
-      // Build payload with proper foreign key handling
-      const baseForeignKeys = {
-        student: student?.id ?? result.student?.id ?? result.student,
-        subject: formData.subject?.id ?? formData.subject,
-        exam_session: formData.exam_session?.id ?? formData.exam_session,
-        grading_system: formData.grading_system?.id ?? formData.grading_system,
-      };
+      if (isNursery) {
+        await ResultService.updateSubjectResult(educationLevel, result.id, {
+          mark_obtained: parseFloat(markObtained || '0'),
+          max_marks_obtainable: parseFloat(maxMarks),
+          academic_comment: teacherRemark,
+          status,
+        });
+      } else {
+        // 1. Update metadata (remark, status)
+        await ResultService.updateSubjectResult(educationLevel, result.id, {
+          teacher_remark: teacherRemark,
+          status,
+        });
 
-      let payload: Record<string, any> = { 
-        status: formData.status || 'DRAFT', 
-        ...baseForeignKeys 
-      };
+        // 2. Submit component scores via dedicated endpoint
+        if (components.length > 0) {
+          const scores = components
+            .filter((c) => componentScores[c.id] !== undefined)
+            .map((c) => ({ component_id: c.id, score: componentScores[c.id] || '0' }));
 
-      // Add education level specific fields
-      if (student.education_level === 'SENIOR_SECONDARY') {
-        payload = {
-          ...payload,
-          first_test_score: Number(formData.first_test_score ?? 0),
-          second_test_score: Number(formData.second_test_score ?? 0),
-          third_test_score: Number(formData.third_test_score ?? 0),
-          exam_score: Number(formData.exam_score ?? 0),
-          teacher_remark: formData.teacher_remark || '',
-          ...(formData.stream ? { stream: formData.stream?.id ?? formData.stream } : {}),
-        };
-      } else if (student.education_level === 'PRIMARY' || student.education_level === 'JUNIOR_SECONDARY') {
-        payload = {
-          ...payload,
-          continuous_assessment_score: Number(formData.continuous_assessment_score ?? 0),
-          take_home_test_score: Number(formData.take_home_test_score ?? 0),
-          appearance_score: Number(formData.appearance_score ?? 0),
-          practical_score: Number(formData.practical_score ?? 0),
-          project_score: Number(formData.project_score ?? 0),
-          note_copying_score: Number(formData.note_copying_score ?? 0),
-          exam_score: Number(formData.exam_score ?? 0),
-          teacher_remark: formData.teacher_remark || '',
-        };
-      } else if (student.education_level === 'NURSERY') {
-        payload = {
-          ...payload,
-          mark_obtained: Number(formData.exam_score ?? 0),
-          academic_comment: formData.teacher_remark || '',
-        };
+          if (scores.length > 0) {
+            await api.post(
+              `/api/results/${path}/results/${result.id}/component-scores/`,
+              { scores }
+            );
+          }
+        }
       }
 
-      console.log('Sending payload:', payload);
-
-      // Use ResultService to update the result
-      await resultService.updateStudentResult(result.id, payload, student.education_level);
       toast.success('Result updated successfully!');
       onSuccess();
       onClose();
-    } catch (error: any) {
-      console.error('Error updating result:', error);
-      const errorMessage = error.response?.data?.error || 'Failed to update result';
-      toast.error(errorMessage);
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.error ||
+        err?.response?.data?.detail ||
+        err?.message ||
+        'Failed to update result';
+      toast.error(msg);
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
-  const renderEducationLevelFields = () => {
-    switch (student.education_level) {
-      case 'SENIOR_SECONDARY':
-        return (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div>
-              <label className={`block text-sm font-medium mb-2 ${themeClasses.textSecondary}`}>
-                Test 1 Score
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="10"
-                step="0.01"
-                value={formData.first_test_score || ''}
-                onChange={(e) => handleInputChange('first_test_score', parseFloat(e.target.value) || 0)}
-                className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.first_test_score ? 'border-red-500' : ''}`}
-                placeholder="0-10"
-              />
-              {errors.first_test_score && <p className="text-red-500 text-xs mt-1">{errors.first_test_score}</p>}
-            </div>
-            
-            <div>
-              <label className={`block text-sm font-medium mb-2 ${themeClasses.textSecondary}`}>
-                Test 2 Score
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="10"
-                step="0.01"
-                value={formData.second_test_score || ''}
-                onChange={(e) => handleInputChange('second_test_score', parseFloat(e.target.value) || 0)}
-                className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.second_test_score ? 'border-red-500' : ''}`}
-                placeholder="0-10"
-              />
-              {errors.second_test_score && <p className="text-red-500 text-xs mt-1">{errors.second_test_score}</p>}
-            </div>
-            
-            <div>
-              <label className={`block text-sm font-medium mb-2 ${themeClasses.textSecondary}`}>
-                Test 3 Score
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="10"
-                step="0.01"
-                value={formData.third_test_score || ''}
-                onChange={(e) => handleInputChange('third_test_score', parseFloat(e.target.value) || 0)}
-                className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.third_test_score ? 'border-red-500' : ''}`}
-                placeholder="0-10"
-              />
-              {errors.third_test_score && <p className="text-red-500 text-xs mt-1">{errors.third_test_score}</p>}
-            </div>
-            
-            <div>
-              <label className={`block text-sm font-medium mb-2 ${themeClasses.textSecondary}`}>
-                Exam Score
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="70"
-                step="0.01"
-                value={formData.exam_score || ''}
-                onChange={(e) => handleInputChange('exam_score', parseFloat(e.target.value) || 0)}
-                className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.exam_score ? 'border-red-500' : ''}`}
-                placeholder="0-70"
-              />
-              {errors.exam_score && <p className="text-red-500 text-xs mt-1">{errors.exam_score}</p>}
-            </div>
-          </div>
-        );
-       
-      case 'PRIMARY':
-      case 'JUNIOR_SECONDARY':
-        return (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div>
-              <label className={`block text-sm font-medium mb-2 ${themeClasses.textSecondary}`}>
-                Continuous Assessment (CA)
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="15"
-                step="0.01"
-                value={formData.continuous_assessment_score || ''}
-                onChange={(e) => handleInputChange('continuous_assessment_score', parseFloat(e.target.value) || 0)}
-                className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.continuous_assessment_score ? 'border-red-500' : ''}`}
-                placeholder="0-15"
-              />
-              {errors.continuous_assessment_score && <p className="text-red-500 text-xs mt-1">{errors.continuous_assessment_score}</p>}
-            </div>
-
-            <div>
-              <label className={`block text-sm font-medium mb-2 ${themeClasses.textSecondary}`}>
-                Appearance Score
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="5"
-                step="0.01"
-                value={formData.appearance_score || ''}
-                onChange={(e) => handleInputChange('appearance_score', parseFloat(e.target.value) || 0)}
-                className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.appearance_score ? 'border-red-500' : ''}`}
-                placeholder="0-5"
-              />
-              {errors.appearance_score && <p className="text-red-500 text-xs mt-1">{errors.appearance_score}</p>}
-            </div>
-            
-            <div>
-              <label className={`block text-sm font-medium mb-2 ${themeClasses.textSecondary}`}>
-                Practical Score
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="5"
-                step="0.01"
-                value={formData.practical_score || ''}
-                onChange={(e) => handleInputChange('practical_score', parseFloat(e.target.value) || 0)}
-                className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.practical_score ? 'border-red-500' : ''}`}
-                placeholder="0-5"
-              />
-              {errors.practical_score && <p className="text-red-500 text-xs mt-1">{errors.practical_score}</p>}
-            </div>
-            
-            <div>
-              <label className={`block text-sm font-medium mb-2 ${themeClasses.textSecondary}`}>
-                Take Home Test Score
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="5"
-                step="0.01"
-                value={formData.take_home_test_score || ''}
-                onChange={(e) => handleInputChange('take_home_test_score', parseFloat(e.target.value) || 0)}
-                className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.take_home_test_score ? 'border-red-500' : ''}`}
-                placeholder="0-5"
-              />
-              {errors.take_home_test_score && <p className="text-red-500 text-xs mt-1">{errors.take_home_test_score}</p>}
-            </div>
-            
-            <div>
-              <label className={`block text-sm font-medium mb-2 ${themeClasses.textSecondary}`}>
-                Project Score
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="5"
-                step="0.01"
-                value={formData.project_score || ''}
-                onChange={(e) => handleInputChange('project_score', parseFloat(e.target.value) || 0)}
-                className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.project_score ? 'border-red-500' : ''}`}
-                placeholder="0-5"
-              />
-              {errors.project_score && <p className="text-red-500 text-xs mt-1">{errors.project_score}</p>}
-            </div>
-            
-            <div>
-              <label className={`block text-sm font-medium mb-2 ${themeClasses.textSecondary}`}>
-                Note Copying Score
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="5"
-                step="0.01"
-                value={formData.note_copying_score || ''}
-                onChange={(e) => handleInputChange('note_copying_score', parseFloat(e.target.value) || 0)}
-                className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.note_copying_score ? 'border-red-500' : ''}`}
-                placeholder="0-5"
-              />
-              {errors.note_copying_score && <p className="text-red-500 text-xs mt-1">{errors.note_copying_score}</p>}
-            </div>
-            
-            <div>
-              <label className={`block text-sm font-medium mb-2 ${themeClasses.textSecondary}`}>
-                Exam Score
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="60"
-                step="0.01"
-                value={formData.exam_score || ''}
-                onChange={(e) => handleInputChange('exam_score', parseFloat(e.target.value) || 0)}
-                className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.exam_score ? 'border-red-500' : ''}`}
-                placeholder="0-60"
-              />
-              {errors.exam_score && <p className="text-red-500 text-xs mt-1">{errors.exam_score}</p>}
-            </div>
-          </div>
-        );
-
-      case 'NURSERY':
-        return (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className={`block text-sm font-medium mb-2 ${themeClasses.textSecondary}`}>
-                Exam Score
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="0.01"
-                value={formData.exam_score || ''}
-                onChange={(e) => handleInputChange('exam_score', parseFloat(e.target.value) || 0)}
-                className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.exam_score ? 'border-red-500' : ''}`}
-                placeholder="0-100"
-              />
-              {errors.exam_score && <p className="text-red-500 text-xs mt-1">{errors.exam_score}</p>}
-            </div>
-          </div>
-        );
-
-      default:
-        return <div className="text-red-500">Unsupported education level</div>;
-    }
-  };
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className={`${themeClasses.bgCard} rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto`}>
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-2xl font-bold">Edit Result</h2>
-              <p className={`text-sm ${themeClasses.textSecondary}`}>
-                Editing result for {student?.full_name} - {result?.subject?.name}
-              </p>
-            </div>
-            <button
-              onClick={onClose}
-              className={`p-2 rounded-lg ${themeClasses.buttonSecondary}`}
-            >
-              <X size={20} />
-            </button>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between rounded-t-2xl z-10">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Edit Result</h2>
+            <p className="text-sm text-slate-500 mt-0.5">
+              {(result as any).subject?.name || 'Subject'} ·{' '}
+              {(result as any).student?.full_name || 'Student'}
+            </p>
           </div>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Basic Information */}
-            <div className={`p-4 rounded-lg ${themeClasses.bgSecondary} border ${themeClasses.border}`}>
-              <h3 className="text-lg font-semibold mb-4 flex items-center">
-                <Target className="w-5 h-5 mr-2" />
-                Assessment Scores
-              </h3>
-              {renderEducationLevelFields()}
+        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+          {loading ? (
+            <div className="flex items-center gap-2 text-slate-500 py-8 justify-center">
+              <RefreshCw className="w-5 h-5 animate-spin" />
+              Loading assessment components…
             </div>
+          ) : (
+            <>
+              {/* ── Scores ── */}
+              <div className="bg-slate-50 rounded-xl p-5">
+                <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2 mb-4">
+                  <Target className="w-4 h-4" /> Score Breakdown
+                </h3>
 
-            {/* Calculated Fields */}
-            <div className={`p-4 rounded-lg ${themeClasses.bgSecondary} border ${themeClasses.border}`}>
-              <h3 className="text-lg font-semibold mb-4 flex items-center">
-                <Star className="w-5 h-5 mr-2" />
-                Calculated Fields
-              </h3>
-              {renderCalculatedFields()}
-            </div>
-
-            {/* Comments */}
-            <div className={`p-4 rounded-lg ${themeClasses.bgSecondary} border ${themeClasses.border}`}>
-              <h3 className="text-lg font-semibold mb-4 flex items-center">
-                <Star className="w-5 h-5 mr-2" />
-                Teacher's Remark
-              </h3>
-              
-              {/* Warning for significant score changes */}
-              {showRemarkWarning && (
-                <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <div className="flex items-start">
-                    <div className="flex-shrink-0">
-                      <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                    <div className="ml-3">
-                      <h3 className="text-sm font-medium text-yellow-800">
-                        Score Change Detected
-                      </h3>
-                      <div className="mt-2 text-sm text-yellow-700">
-                        <p>The student's pass/fail status has changed. Consider updating the teacher's remark to reflect this change.</p>
+                {isNursery ? (
+                  <div className="grid grid-cols-2 gap-4">
+                    <ScoreField
+                      label="Max Marks Obtainable"
+                      value={maxMarks}
+                      onChange={setMaxMarks}
+                      max={999}
+                      error={errors.maxMarks}
+                    />
+                    <ScoreField
+                      label="Mark Obtained"
+                      value={markObtained}
+                      onChange={setMarkObtained}
+                      max={parseFloat(maxMarks) || 100}
+                      error={errors.markObtained}
+                    />
+                    {markObtained && parseFloat(maxMarks) > 0 && (
+                      <div className="col-span-2">
+                        <ResultSummary
+                          total={parseFloat(markObtained || '0')}
+                          max={parseFloat(maxMarks)}
+                          pct={nurseryPct}
+                          grade={gradeFromPct(nurseryPct)}
+                        />
                       </div>
-                      <div className="mt-3 flex space-x-3">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newRemark = generateTeacherRemark(
-                              Number(formData.total_score) || 0, 
-                              formData.grade || '', 
-                              formData.teacher_remark || ''
-                            );
-                            setFormData(prev => ({ ...prev, teacher_remark: newRemark }));
-                            setShowRemarkWarning(false);
-                          }}
-                          className="bg-yellow-100 px-3 py-1 rounded text-sm font-medium text-yellow-800 hover:bg-yellow-200"
-                        >
-                          Auto-Update Remark
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowRemarkWarning(false)}
-                          className="bg-gray-100 px-3 py-1 rounded text-sm font-medium text-gray-800 hover:bg-gray-200"
-                        >
-                          Dismiss
-                        </button>
-                      </div>
-                    </div>
+                    )}
                   </div>
+                ) : components.length === 0 ? (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-amber-800">
+                      No assessment components are configured for this education level. Configure them in
+                      Settings → Exams & Results → Assessment Components.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {caComponents.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                          Continuous Assessment
+                        </p>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                          {caComponents.map((c) => (
+                            <ScoreField
+                              key={c.id}
+                              label={`${c.name} (max ${c.max_score})`}
+                              value={componentScores[c.id] || ''}
+                              onChange={(v) =>
+                                setComponentScores((prev) => ({ ...prev, [c.id]: v }))
+                              }
+                              max={parseFloat(c.max_score)}
+                              error={errors[`comp_${c.id}`]}
+                            />
+                          ))}
+                        </div>
+                        <p className="text-right text-xs text-slate-500 mt-1">
+                          CA Total: <strong className="text-slate-900">{caTotal.toFixed(1)}</strong>
+                        </p>
+                      </div>
+                    )}
+
+                    {examComponents.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                          Examination
+                        </p>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                          {examComponents.map((c) => (
+                            <ScoreField
+                              key={c.id}
+                              label={`${c.name} (max ${c.max_score})`}
+                              value={componentScores[c.id] || ''}
+                              onChange={(v) =>
+                                setComponentScores((prev) => ({ ...prev, [c.id]: v }))
+                              }
+                              max={parseFloat(c.max_score)}
+                              error={errors[`comp_${c.id}`]}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {totalScore > 0 && (
+                      <ResultSummary
+                        total={totalScore}
+                        max={maxPossible}
+                        pct={percentage}
+                        grade={gradeFromPct(percentage)}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* ── Remark + Status ── */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">
+                    {isNursery ? 'Academic Comment' : 'Teacher Remark'}
+                  </label>
+                  <textarea
+                    value={teacherRemark}
+                    onChange={(e) => setTeacherRemark(e.target.value)}
+                    rows={3}
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm resize-none focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none"
+                    placeholder="Enter remark…"
+                  />
                 </div>
-              )}
-              
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Teacher's Remark
-                </label>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">
+                    Status
+                  </label>
+                  <select
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value as any)}
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-slate-900 outline-none"
+                  >
+                    <option value="DRAFT">Draft</option>
+                    <option value="APPROVED">Approved</option>
+                    <option value="PUBLISHED">Published</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* ── Actions ── */}
+              <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => {
-                    const newRemark = generateTeacherRemark(
-                      Number(formData.total_score) || 0, 
-                      formData.grade || '', 
-                      formData.teacher_remark || ''
-                    );
-                    setFormData(prev => ({ ...prev, teacher_remark: newRemark }));
-                  }}
-                  className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 px-2 py-1 rounded transition-colors"
+                  onClick={onClose}
+                  className="px-5 py-2.5 rounded-xl text-sm font-medium border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors"
                 >
-                  Generate Remark
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {submitting ? (
+                    <><RefreshCw className="w-4 h-4 animate-spin" /> Updating…</>
+                  ) : (
+                    <><Save className="w-4 h-4" /> Update Result</>
+                  )}
                 </button>
               </div>
-              
-              <textarea
-                value={formData.teacher_remark || ''}
-                onChange={(e) => handleInputChange('teacher_remark', e.target.value)}
-                rows={3}
-                className={`w-full px-3 py-2 rounded-lg border ${themeClasses.border} ${themeClasses.bgCard} ${themeClasses.textPrimary} focus:outline-none focus:ring-2 focus:ring-blue-500`}
-                placeholder="Enter teacher's remark or click 'Generate Remark' for automatic suggestion..."
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Tip: Use the "Generate Remark" button to get automatic suggestions based on the student's performance.
-              </p>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className={`px-4 py-2 rounded-lg ${themeClasses.buttonSecondary}`}
-                disabled={loading}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className={`px-4 py-2 rounded-lg flex items-center ${themeClasses.buttonSuccess}`}
-                disabled={loading}
-              >
-                {loading ? (
-                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Save className="w-4 h-4 mr-2" />
-                )}
-                {loading ? 'Updating...' : 'Update Result'}
-              </button>
-            </div>
-          </form>
-        </div>
+            </>
+          )}
+        </form>
       </div>
     </div>
   );
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Map level_type string → education_level id for API filter. Falls back to level_type string. */
+function educationLevelId(level: EducationLevelType): string {
+  // The API accepts the level_type string directly for filtering
+  return level;
+}
+
+function ScoreField({
+  label, value, onChange, max, error,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  max: number;
+  error?: string;
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-slate-600 mb-1">{label}</label>
+      <input
+        type="number"
+        min={0}
+        max={max}
+        step="0.01"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none ${
+          error ? 'border-red-400 bg-red-50' : 'border-slate-300'
+        }`}
+        placeholder={`0–${max}`}
+      />
+      {error && <p className="text-red-500 text-xs mt-0.5">{error}</p>}
+    </div>
+  );
+}
+
+function ResultSummary({
+  total, max, pct, grade,
+}: {
+  total: number;
+  max: number;
+  pct: number;
+  grade: string;
+}) {
+  const colors: Record<string, string> = {
+    A: 'text-emerald-700 bg-emerald-50',
+    B: 'text-blue-700 bg-blue-50',
+    C: 'text-amber-700 bg-amber-50',
+    D: 'text-orange-700 bg-orange-50',
+    E: 'text-red-600 bg-red-50',
+    F: 'text-red-800 bg-red-100',
+  };
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center justify-between">
+      <div>
+        <p className="text-xs text-slate-500">Total</p>
+        <p className="text-xl font-bold text-slate-900">
+          {total.toFixed(1)}
+          <span className="text-sm font-normal text-slate-400">/{max.toFixed(1)}</span>
+        </p>
+        <p className="text-xs text-slate-500">{pct.toFixed(1)}%</p>
+      </div>
+      <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold ${colors[grade] || 'text-slate-600 bg-slate-50'}`}>
+        {grade}
+      </div>
+    </div>
+  );
+}
 
 export default EditResultForm;

@@ -1,209 +1,64 @@
-/**
- * API Service with Hybrid Authentication
- *
- * Production (HTTPS): Uses httpOnly cookies for XSS protection
- * Development (HTTP): Falls back to Authorization header with localStorage tokens
- *
- * This hybrid approach ensures security in production while maintaining
- * development workflow without HTTPS.
- */
-
 // api.ts
+// ─── Config ──────────────────────────────────────────────────────────────────
+
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
-// CSRF token cache
+// ─── CSRF token ───────────────────────────────────────────────────────────────
+
 let csrfToken: string | null = null;
+let csrfTokenPromise: Promise<string> | null = null;
 
-export const clearTokens = () => {
-  // httpOnly cookies are cleared by the server on logout — nothing to do here
-};
-
-/**
- * Get CSRF token from cookie or fetch from server
- */
-const getCSRFToken = async (): Promise<string> => {
-  // First try to get from cookie
-  const cookieToken = document.cookie
+const getCookieToken = (): string | undefined =>
+  document.cookie
     .split('; ')
     .find((row) => row.startsWith('csrftoken='))
     ?.split('=')[1];
 
+const getCSRFToken = async (): Promise<string> => {
+  // Cookie is always the source of truth — prefer it over cached value
+  const cookieToken = getCookieToken();
   if (cookieToken) {
     csrfToken = cookieToken;
+    csrfTokenPromise = null;
     return cookieToken;
   }
 
-  // If not in cookie, fetch from server
-  if (!csrfToken) {
-    try {
-      const response = await fetch(`${API_BASE_URL}/auth/csrf/`, {
-        method: 'GET',
-        credentials: 'include',
+  if (csrfToken) return csrfToken;
+
+  // Deduplicate concurrent requests — only one fetch in flight at a time
+  if (!csrfTokenPromise) {
+    csrfTokenPromise = fetch(`${API_BASE_URL}/auth/csrf/`, {
+      method: 'GET',
+      credentials: 'include',
+    })
+      .then(async (res) => {
+        if (!res.ok) return '';
+        const data = await res.json();
+        // Server may set the cookie as a side effect — prefer that
+        csrfToken = getCookieToken() || data.csrfToken || '';
+        return csrfToken ?? '';
+      })
+      .catch(() => '')
+      .finally(() => {
+        csrfTokenPromise = null;
       });
-      if (response.ok) {
-        const data = await response.json();
-        csrfToken = data.csrfToken;
-
-        // Also check cookie again after fetch
-        const newCookieToken = document.cookie
-          .split('; ')
-          .find((row) => row.startsWith('csrftoken='))
-          ?.split('=')[1];
-
-        if (newCookieToken) {
-          csrfToken = newCookieToken;
-        }
-      }
-    } catch (error) {
-      console.warn('Failed to fetch CSRF token:', error);
-    }
   }
 
-  return csrfToken || '';
+  return csrfTokenPromise;
 };
+
+// ─── Token lifecycle ──────────────────────────────────────────────────────────
 
 /**
- * Get headers for API requests
- * Uses Authorization header as fallback when cookies don't work (development)
+ * Clear client-side auth state.
+ * httpOnly auth cookies are cleared server-side on logout —
+ * we only need to reset the CSRF cache here.
  */
-export const getHeaders = async (
-  method: string,
-  includeContentType: boolean = true
-): Promise<Record<string, string>> => {
-  const headers: Record<string, string> = {};
-
-  if (includeContentType) {
-    headers['Content-Type'] = 'application/json';
-  }
-
-  // Add tenant header for multi-tenant API calls
-  const tenantSlug = localStorage.getItem('tenantSlug');
-  if (tenantSlug) {
-    headers['X-Tenant-Slug'] = tenantSlug;
-  }
-
-    // Add CSRF token for non-GET requests
-  if (method !== 'GET') {
-    const csrf = await getCSRFToken();
-    if (csrf) {
-      headers['X-CSRFToken'] = csrf;
-    }
-  }
-
-  return headers;
+export const clearTokens = (): void => {
+  csrfToken = null;
+  csrfTokenPromise = null;
 };
 
-export const handleResponseError = async (
-  response: Response,
-  endpoint: string,
-  method: string
-) => {
-  console.error(
-    `❌ ${method} request failed: ${response.status} - ${response.statusText}`
-  );
-
-  let errorData;
-  try {
-    const contentType = response.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
-      errorData = await response.json();
-    } else {
-      errorData = await response.text();
-    }
-  } catch {
-    errorData = `HTTP error! status: ${response.status}`;
-  }
-
-  console.error(`❌ Error response for ${endpoint}:`, errorData);
-
-  // List of public endpoints that don't require authentication
-  // or should not trigger logout flow when they fail
-  const publicEndpoints = [
-    '/auth/refresh/',
-    '/auth/login/',
-    '/auth/csrf/',
-    '/auth/status/',
-    '/tenants/public/',
-    '/tenants/register/',
-    '/tenants/check-slug/',
-    '/tenants/check-domain/',
-    '/students/verify-result-token/',
-    
-  ];
-
-  // Check if this is a public endpoint
-  const isPublicEndpoint = publicEndpoints.some(publicPath =>
-    endpoint.includes(publicPath)
-  );
-
-  // Handle 401 Unauthorized - try to refresh token (but not for public endpoints)
-  if (response.status === 401 && !isPublicEndpoint) {
-    console.log('🔄 Attempting token refresh...');
-    const refreshed = await attemptTokenRefresh();
-    if (refreshed) {
-      // Return a special error that indicates retry is possible
-      const error = new Error('Token refreshed, please retry');
-      (error as any).shouldRetry = true;
-      throw error;
-    } else {
-      // Token refresh failed - trigger logout
-      console.log('❌ Token refresh failed - triggering logout');
-      handleAuthenticationFailure();
-    }
-  }
-
-  const error = new Error(
-    typeof errorData === 'object' && errorData.detail
-      ? errorData.detail
-      : typeof errorData === 'object'
-        ? JSON.stringify(errorData)
-        : `HTTP error! status: ${response.status}`
-  );
-  (error as any).response = {
-    status: response.status,
-    statusText: response.statusText,
-    data: errorData,
-  };
-  throw error;
-};
-
-/**
- * Handle authentication failure - clear auth and redirect to login
- */
-const handleAuthenticationFailure = () => {
-  console.log('🔒 Handling authentication failure...');
-
-  // Clear all auth data
-  clearTokens();
-  localStorage.removeItem('userData');
-  localStorage.removeItem('userProfile');
-
-  // Preserve tenant context
-  const tenantSlug = localStorage.getItem('tenantSlug');
-
-  // Dispatch custom event for auth failure (useAuth can listen to this)
-  window.dispatchEvent(new CustomEvent('auth:expired'));
-
-  // Redirect to login page while preserving tenant context
-  const currentPath = window.location.pathname;
-  const isAlreadyOnLogin = currentPath.includes('/login');
-
-  if (!isAlreadyOnLogin) {
-    // Store return URL
-    sessionStorage.setItem('returnUrl', currentPath);
-
-    // Redirect to tenant-specific login
-    if (tenantSlug) {
-      window.location.href = `/login`;
-    } else {
-      window.location.href = '/login';
-    }
-  }
-};
-
-/**
- * Attempt to refresh the access token using the refresh token cookie
- */
 const attemptTokenRefresh = async (): Promise<boolean> => {
   try {
     const tenantSlug = localStorage.getItem('tenantSlug');
@@ -212,8 +67,8 @@ const attemptTokenRefresh = async (): Promise<boolean> => {
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
-        'X-CSRFToken': (await getCSRFToken()) || '',
-         ...(tenantSlug ? { 'X-Tenant-Slug': tenantSlug } : {}),
+        'X-CSRFToken': await getCSRFToken(),
+        ...(tenantSlug ? { 'X-Tenant-Slug': tenantSlug } : {}),
       },
     });
 
@@ -221,7 +76,8 @@ const attemptTokenRefresh = async (): Promise<boolean> => {
       console.log('✅ Token refreshed successfully');
       return true;
     }
-    console.log('❌ Token refresh failed');
+
+    console.warn('⚠️ Token refresh failed:', response.status);
     return false;
   } catch (error) {
     console.error('❌ Token refresh error:', error);
@@ -229,195 +85,267 @@ const attemptTokenRefresh = async (): Promise<boolean> => {
   }
 };
 
-const buildUrl = (endpoint: string, params?: Record<string, any>): string => {
-  const baseUrl = API_BASE_URL;
+const handleAuthenticationFailure = (): void => {
+  clearTokens();
+  localStorage.removeItem('userData');
+  localStorage.removeItem('userProfile');
 
-  // Remove leading slash from endpoint if present
-  let cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
+  // Notify the app (useAuth can listen and clear React state)
+  window.dispatchEvent(new CustomEvent('auth:expired'));
 
-  // Remove 'api/' prefix if present since API_BASE_URL already includes /api
-  if (cleanEndpoint.startsWith('api/')) {
-    cleanEndpoint = cleanEndpoint.slice(4);
+  const currentPath = window.location.pathname;
+  if (currentPath.includes('/login')) {
+    console.log('🔒 Already on login page, skipping redirect');
+    return;
   }
 
-  // Ensure baseUrl doesn't end with slash
-  const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  sessionStorage.setItem('returnUrl', currentPath);
+  window.location.href = '/login';
+};
 
-  let url = `${cleanBase}/${cleanEndpoint}`;
+// ─── Request helpers ──────────────────────────────────────────────────────────
 
-  // Add query parameters
+// Endpoints that must never trigger a refresh→logout cycle on 401
+const PUBLIC_ENDPOINTS = [
+  '/auth/refresh/',
+  '/auth/login/',
+  '/auth/csrf/',
+  '/auth/status/',
+  '/tenants/public/',
+  '/tenants/register/',
+  '/tenants/check-slug/',
+  '/tenants/check-domain/',
+  '/students/verify-result-token/',
+];
+
+const isPublicEndpoint = (endpoint: string): boolean =>
+  PUBLIC_ENDPOINTS.some((path) => endpoint.includes(path));
+
+const buildUrl = (endpoint: string, params?: Record<string, any>): string => {
+  let clean = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
+  if (clean.startsWith('api/')) clean = clean.slice(4);
+
+  const base = API_BASE_URL.endsWith('/')
+    ? API_BASE_URL.slice(0, -1)
+    : API_BASE_URL;
+
+  let url = `${base}/${clean}`;
+
   if (params) {
     const searchParams = new URLSearchParams();
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        if (Array.isArray(value)) {
-          value.forEach((v) => searchParams.append(key, v.toString()));
-        } else {
-          searchParams.append(key, value.toString());
-        }
+    for (const [key, value] of Object.entries(params)) {
+      if (value === undefined || value === null) continue;
+      if (Array.isArray(value)) {
+        value.forEach((v) => searchParams.append(key, String(v)));
+      } else {
+        searchParams.append(key, String(value));
       }
-    });
-    const queryString = searchParams.toString();
-    if (queryString) {
-      url += `?${queryString}`;
     }
+    const qs = searchParams.toString();
+    if (qs) url += `?${qs}`;
   }
 
   return url;
 };
 
-/**
- * Make a request with automatic retry on token refresh
- */
+const buildHeaders = async (method: string): Promise<Record<string, string>> => {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  const tenantSlug = localStorage.getItem('tenantSlug');
+  if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
+
+  if (method !== 'GET') {
+    const csrf = await getCSRFToken();
+    if (csrf) headers['X-CSRFToken'] = csrf;
+  }
+
+  return headers;
+};
+
+const parseResponse = async (response: Response): Promise<any> => {
+  if (response.status === 204) return null;
+  const text = await response.text();
+  if (!text.trim()) return null;
+  return JSON.parse(text);
+};
+
+const handleResponseError = async (
+  response: Response,
+  endpoint: string,
+  method: string
+): Promise<void> => {
+  let errorData: any;
+  try {
+    const contentType = response.headers.get('content-type');
+    errorData = contentType?.includes('application/json')
+      ? await response.json()
+      : await response.text();
+  } catch {
+    errorData = `HTTP ${response.status}`;
+  }
+
+  console.error(`❌ ${method} ${endpoint} → ${response.status}`, errorData);
+
+  if (response.status === 401 && !isPublicEndpoint(endpoint)) {
+    console.log('🔄 Attempting token refresh...');
+    const refreshed = await attemptTokenRefresh();
+
+    if (refreshed) {
+      const retryError = new Error('Token refreshed, please retry');
+      (retryError as any).shouldRetry = true;
+      throw retryError;
+    }
+
+    handleAuthenticationFailure();
+    return; // redirect is in flight — stop execution
+  }
+
+  const message =
+    typeof errorData === 'object' && errorData?.detail
+      ? errorData.detail
+      : typeof errorData === 'object'
+        ? JSON.stringify(errorData)
+        : `HTTP error! status: ${response.status}`;
+
+  const error = new Error(message);
+  (error as any).response = {
+    status: response.status,
+    statusText: response.statusText,
+    data: errorData,
+  };
+  throw error;
+};
+
+// ─── Core request ─────────────────────────────────────────────────────────────
+
 const makeRequest = async (
   method: string,
   endpoint: string,
   data?: any,
   params?: Record<string, any>,
-  retryCount: number = 0
+  retryCount = 0
 ): Promise<any> => {
   const url = buildUrl(endpoint, params);
-  const headers = await getHeaders(method);
+  const headers = await buildHeaders(method);
 
   const options: RequestInit = {
     method,
     headers,
     credentials: 'include',
+    ...(data && method !== 'GET' ? { body: JSON.stringify(data) } : {}),
   };
 
-  if (data && method !== 'GET') {
-    options.body = JSON.stringify(data);
+  console.log(`🌐 ${method}: ${endpoint}`);
+
+  const response = await fetch(url, options);
+
+  if (!response.ok) {
+    await handleResponseError(response, endpoint, method);
   }
 
+  return parseResponse(response);
+};
+
+const makeRequestWithRetry = async (
+  method: string,
+  endpoint: string,
+  data?: any,
+  params?: Record<string, any>
+): Promise<any> => {
   try {
-    const response = await fetch(url, options);
-
-    if (!response.ok) {
-      await handleResponseError(response, endpoint, method);
-    }
-
-    if (response.status === 204) return null;
-
-    const text = await response.text();
-    if (!text.trim()) return null;
-
-    return JSON.parse(text);
+    return await makeRequest(method, endpoint, data, params);
   } catch (error: any) {
-    if (error.shouldRetry && retryCount < 1) {
-      console.log('🔄 Retrying request after token refresh...');
-      // Wait for browser to process the Set-Cookie header
-      await new Promise(resolve => setTimeout(resolve, 100));
-      return makeRequest(method, endpoint, data, params, retryCount + 1);
+    if (error?.shouldRetry) {
+      console.log('🔄 Retrying after token refresh...');
+      // Small delay to let the browser process Set-Cookie from the refresh response
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      return makeRequest(method, endpoint, data, params);
     }
     throw error;
   }
 };
 
+// ─── Public API ───────────────────────────────────────────────────────────────
+
 const api = {
-  async get(endpoint: string, params?: Record<string, any>) {
-    console.log(`🌐 GET: ${endpoint}`);
-    return makeRequest('GET', endpoint, undefined, params);
-  },
+  get: (endpoint: string, params?: Record<string, any>) =>
+    makeRequestWithRetry('GET', endpoint, undefined, params),
 
-  async post(endpoint: string, data: any) {
-    console.log(`🌐 POST: ${endpoint}`);
-    return makeRequest('POST', endpoint, data);
-  },
+  post: (endpoint: string, data: any) =>
+    makeRequestWithRetry('POST', endpoint, data),
 
-  async put(endpoint: string, data: any) {
-    console.log(`🌐 PUT: ${endpoint}`);
-    return makeRequest('PUT', endpoint, data);
-  },
+  put: (endpoint: string, data: any) =>
+    makeRequestWithRetry('PUT', endpoint, data),
 
-  async patch(endpoint: string, data: any) {
-    console.log(`🌐 PATCH: ${endpoint}`);
-    return makeRequest('PATCH', endpoint, data);
-  },
+  patch: (endpoint: string, data: any) =>
+    makeRequestWithRetry('PATCH', endpoint, data),
 
-  async delete(endpoint: string, data?: any) {
-    console.log(`🌐 DELETE: ${endpoint}`);
-    return makeRequest('DELETE', endpoint, data);
-  },
+  delete: (endpoint: string, data?: any) =>
+    makeRequestWithRetry('DELETE', endpoint, data),
 
-  // Convenience methods
-  async getList(
+  // ─── Convenience wrappers ───────────────────────────────────────────────
+
+  getList(
     endpoint: string,
     filters?: Record<string, any>,
     pagination?: { page?: number; page_size?: number }
   ) {
-    const params = { ...filters, ...pagination };
-    return this.get(endpoint, params);
+    return this.get(endpoint, { ...filters, ...pagination });
   },
 
-  async getById(
-    endpoint: string,
-    id: string | number,
-    params?: Record<string, any>
-  ) {
-    const finalEndpoint = endpoint.endsWith('/')
-      ? `${endpoint}${id}/`
-      : `${endpoint}/${id}/`;
-    return this.get(finalEndpoint, params);
+  getById(endpoint: string, id: string | number, params?: Record<string, any>) {
+    const ep = endpoint.endsWith('/') ? `${endpoint}${id}/` : `${endpoint}/${id}/`;
+    return this.get(ep, params);
   },
 
-  async create(endpoint: string, data: any) {
+  create(endpoint: string, data: any) {
     return this.post(endpoint, data);
   },
 
-  async update(
+  update(
     endpoint: string,
     id: string | number,
     data: any,
-    partial: boolean = false
+    partial = false
   ) {
-    const finalEndpoint = endpoint.endsWith('/')
-      ? `${endpoint}${id}/`
-      : `${endpoint}/${id}/`;
-    return partial ? this.patch(finalEndpoint, data) : this.put(finalEndpoint, data);
+    const ep = endpoint.endsWith('/') ? `${endpoint}${id}/` : `${endpoint}/${id}/`;
+    return partial ? this.patch(ep, data) : this.put(ep, data);
   },
 
-  async remove(endpoint: string, id: string | number) {
-    const finalEndpoint = endpoint.endsWith('/')
-      ? `${endpoint}${id}/`
-      : `${endpoint}/${id}/`;
-    return this.delete(finalEndpoint);
+  remove(endpoint: string, id: string | number) {
+    const ep = endpoint.endsWith('/') ? `${endpoint}${id}/` : `${endpoint}/${id}/`;
+    return this.delete(ep);
   },
 
-  async bulkOperation(
+  bulkOperation(
     endpoint: string,
     operation: 'create' | 'update' | 'delete',
     data: any[]
   ) {
-    const bulkEndpoint = endpoint.endsWith('/')
+    const ep = endpoint.endsWith('/')
       ? `${endpoint}bulk_${operation}/`
       : `${endpoint}/bulk_${operation}/`;
-    return this.post(bulkEndpoint, { items: data });
+    return this.post(ep, { items: data });
   },
 
-  /**
-   * Check authentication status
-   */
+  // ─── Auth helpers ───────────────────────────────────────────────────────
+
   async checkAuthStatus(): Promise<{ authenticated: boolean; user?: any }> {
     try {
-      const response = await this.get('/auth/status/');
-      return response;
+      return await this.get('/auth/status/');
     } catch {
       return { authenticated: false };
     }
   },
 
-  /**
-   * Refresh the access token
-   */
-  async refreshToken(): Promise<boolean> {
+  refreshToken(): Promise<boolean> {
     return attemptTokenRefresh();
   },
 
-  /**
-   * Initialize CSRF token (call on app load)
-   */
-  async initCSRF(): Promise<void> {
-    await getCSRFToken();
+  initCSRF(): Promise<string> {
+    return getCSRFToken();
   },
 };
 

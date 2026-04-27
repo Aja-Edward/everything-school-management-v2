@@ -60,7 +60,7 @@ export interface ResultsAPIResponse<T> {
   results: T[];
 }
 
-export type ResultStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'PUBLISHED';
+export type ResultStatus = 'DRAFT' | 'APPROVED' | 'PUBLISHED';
 export type EducationLevel = 'NURSERY' | 'PRIMARY' | 'JUNIOR_SECONDARY' | 'SENIOR_SECONDARY';
 export type TermChoice = 'FIRST' | 'SECOND' | 'THIRD';
 
@@ -1040,6 +1040,7 @@ export interface Parent extends BaseEntity {
   students?: Student[];
   children?: Student[];
   children_ids?: number[];
+  email?: string;
   
   // Contact preferences
   preferred_contact_method?: ContactMethod;
@@ -1051,12 +1052,12 @@ export interface Parent extends BaseEntity {
   highest_education_aquired?: string;
   
   // Personal info
-  relationship_to_student?: RelationshipType;
+  relationship?: RelationshipType;
   marital_status?: MaritalStatus;
   
   // Contact info
-  work_phone?: string;
-  home_address?: string;
+  phone?: string;
+  address?: string;
   work_address?: string;
   emergency_contact?: string;
   
@@ -1844,6 +1845,7 @@ export interface SearchOptions {
 export interface UserProfile {
   id: number;
   user: CustomUser;
+  teacher_data?: Teacher;
   user_middle_name?: string
   bio?: string;
   profile_image?: string;
@@ -1967,7 +1969,7 @@ export interface Parent {
   user: CustomUser;
   parent_id?: string;
   occupation?: string;
-  relationship_to_student?: RelationshipType;
+  relationship?: RelationshipType;
   children_ids?: number[];
   emergency_contact?: string;
   work_address?: string;
@@ -2305,7 +2307,7 @@ export interface TeacherRemark_Signature {
   class_teacher_signed_at: string | null;
   head_teacher_signed_at: string | null;
 
-  status: "DRAFT" | "SUBMITTED" | "APPROVED" | "PUBLISHED";
+  status: "DRAFT" | "APPROVED" | "PUBLISHED";
   is_published: boolean;
 
   created_at: string;

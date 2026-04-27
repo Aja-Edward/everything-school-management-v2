@@ -183,17 +183,23 @@ export default function PromotionDashboard() {
             <h1 className="text-2xl font-semibold text-gray-900">
               Student promotion
             </h1>
-            <p className="mt-1 text-sm text-gray-500">
-              Students must average above{" "}
-              <span className="font-medium text-gray-700">{threshold}%</span>{" "}
-              across all three terms to be automatically promoted.{" "}
-              <Link
-                to="/admin/classroom-management/settings"
-                className="text-indigo-600 hover:underline text-xs"
-              >
-                Edit threshold →
-              </Link>
-            </p>
+            {selectedClass ? (
+                <p className="mt-1 text-sm text-gray-500">
+                  Students must average above{" "}
+                  <span className="font-medium text-gray-700">{threshold}%</span>{" "}
+                  across all three terms to be automatically promoted.{" "}
+                  <Link
+                    to="/admin/classroom-management/settings"
+                    className="text-indigo-600 hover:underline text-xs"
+                  >
+                    Edit threshold →
+                  </Link>
+                </p>
+              ) : (
+                <p className="mt-1 text-sm text-gray-500">
+                  Select a session and class to view promotion records.
+                </p>
+              )}
           </div>
           <button
             onClick={() => setShowRunModal(true)}

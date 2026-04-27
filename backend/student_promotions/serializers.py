@@ -12,6 +12,7 @@ class PromotionRuleSerializer(serializers.ModelSerializer):
     education_level_name = serializers.CharField(
         source="education_level.name", read_only=True
     )
+    education_level_detail = serializers.SerializerMethodField()
     created_by_name = serializers.CharField(
         source="created_by.get_full_name", read_only=True, allow_null=True
     )
@@ -20,6 +21,14 @@ class PromotionRuleSerializer(serializers.ModelSerializer):
         model = PromotionRule
         fields = "__all__"
         read_only_fields = ["id", "created_at", "updated_at", "created_by"]
+
+    def get_education_level_detail(self, obj):
+        return {
+            "id": obj.education_level.id,
+            "name": obj.education_level.name,
+            "code": obj.education_level.code,
+            "level_type": obj.education_level.level_type,
+        }
 
 
 class PromotionRuleCreateUpdateSerializer(serializers.ModelSerializer):
@@ -124,12 +133,20 @@ class RunAutoPromotionSerializer(serializers.Serializer):
     student_class_id = serializers.IntegerField(required=True)
 
     def validate_academic_session_id(self, value):
-        if not AcademicSession.objects.filter(id=value).exists():
+        tenant = self.context.get("tenant")
+        qs = AcademicSession.objects.filter(id=value)
+        if tenant:
+            qs = qs.filter(tenant=tenant)
+        if not qs.exists():
             raise serializers.ValidationError("Academic session not found")
         return value
 
     def validate_student_class_id(self, value):
-        if not StudentClass.objects.filter(id=value).exists():
+        tenant = self.context.get("tenant")
+        qs = StudentClass.objects.filter(id=value)
+        if tenant:
+            qs = qs.filter(tenant=tenant)
+        if not qs.exists():
             raise serializers.ValidationError("Student class not found")
         return value
 
@@ -154,6 +171,4 @@ class PromotionSummarySerializer(serializers.Serializer):
     flagged = serializers.IntegerField()
     pending = serializers.IntegerField()
     promotion_rate = serializers.DecimalField(max_digits=5, decimal_places=1)
-    class_average = serializers.DecimalField(
-        max_digits=5, decimal_places=2, allow_null=True
-    )
+    class_average = serializers.FloatField(allow_null=True)

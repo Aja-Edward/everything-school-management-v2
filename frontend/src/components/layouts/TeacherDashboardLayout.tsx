@@ -45,7 +45,6 @@ const TeacherDashboardLayout: React.FC<TeacherDashboardLayoutProps> = ({ childre
   const location = useLocation();
   const { isDarkMode, toggleTheme } = useGlobalTheme();
   const { settings } = useSettings();
-
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -280,12 +279,12 @@ const TeacherDashboardLayout: React.FC<TeacherDashboardLayoutProps> = ({ childre
             {/* Logo and School Name */}
             <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
               <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-lg flex border items-center justify-center">
                   {settings?.logo ? (
                     <img 
                       src={getAbsoluteUrl(settings.logo)} 
                       alt="Logo"
-                      className="w-6 h-6 object-contain"
+                      className="w-10 h-10 object-cover"
                     />
                   ) : (
                     <GraduationCap className="w-6 h-6 text-white" />
