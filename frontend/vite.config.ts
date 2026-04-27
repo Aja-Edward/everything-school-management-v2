@@ -60,7 +60,17 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'dist',
       rollupOptions: {
-        external: ['canvas'],
+        plugins: [
+          {
+            name: 'resolve-canvas',
+            resolveId(id: string) {
+              if (id === 'canvas') return '\0canvas'
+            },
+            load(id: string) {
+              if (id === '\0canvas') return 'export default {}'
+            },
+          },
+        ],
       },
     },
     preview: {
