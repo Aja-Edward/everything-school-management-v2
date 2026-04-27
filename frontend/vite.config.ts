@@ -6,7 +6,18 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
 
   return {
-    plugins: [react()],
+    plugins: [
+      {
+        name: 'suppress-node-externals',
+        enforce: 'pre',
+        onLog(_level, log) {
+          if (log.message.includes('has been externalized for browser compatibility')) {
+            return false
+          }
+        },
+      },
+      react(),
+    ],
     base: '/',
     resolve: {
       alias: {
