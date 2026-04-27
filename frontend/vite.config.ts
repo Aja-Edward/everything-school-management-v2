@@ -48,6 +48,9 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: 'dist',
+      rollupOptions: {
+        external: ['canvas'],
+      },
     },
     preview: {
       port: 4173,
