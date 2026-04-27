@@ -94,8 +94,11 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
-    ".localhost",  # ✅ THIS IS IMPORTANT for subdomains
+    ".localhost",
 ]
+_extra_hosts = os.getenv("ALLOWED_HOSTS", "")
+if _extra_hosts:
+    ALLOWED_HOSTS += [h.strip().strip('"').strip("'") for h in _extra_hosts.split(",") if h.strip()]
 # Production security settingsay
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")  # CRITICAL for Render
@@ -242,27 +245,27 @@ if DEBUG:
 # CORS SETTINGS (CRITICAL FIX)
 # ============================================
 
-CSRF_TRUSTED_ORIGINS = [
-    origin.strip()
-    for origin in os.getenv(
-        "CSRF_TRUSTED_ORIGINS",
-        "http://localhost:3000,http://localhost:5173,http://localhost:5174,"
-        "http://bay-school.localhost:5173,"  # Add subdomain pattern for dev
-        "https://www.nuventacloud.com,"
-        "https://nuventacloud.com,"
-        "https://everything-school-management-v2.vercel.app",
-    ).split(",")
-    if origin.strip()
-]
+def _parse_origins(env_var, default):
+    raw = os.getenv(env_var, default)
+    return [
+        o
+        for o in (origin.strip().strip('"').strip("'") for origin in raw.split(","))
+        if o and "://" in o
+    ]
 
-CORS_ALLOWED_ORIGINS = [
-    origin.strip()
-    for origin in os.getenv(
-        "CORS_ALLOWED_ORIGINS",
-        "http://localhost:3000,http://localhost:5173,http://localhost:5174,",
-    ).split(",")
-    if origin.strip()
-]
+CSRF_TRUSTED_ORIGINS = _parse_origins(
+    "CSRF_TRUSTED_ORIGINS",
+    "http://localhost:3000,http://localhost:5173,http://localhost:5174,"
+    "http://bay-school.localhost:5173,"
+    "https://www.nuventacloud.com,"
+    "https://nuventacloud.com,"
+    "https://everything-school-management-v2.vercel.app",
+)
+
+CORS_ALLOWED_ORIGINS = _parse_origins(
+    "CORS_ALLOWED_ORIGINS",
+    "http://localhost:3000,http://localhost:5173,http://localhost:5174",
+)
 
 
 # For debugging in development - allow all origins
