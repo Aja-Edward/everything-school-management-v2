@@ -30,6 +30,9 @@ from .models import (
     Permission,
     Role,
     UserRole,
+    TenantLandingPage,
+    LandingSection,
+    NavigationLink,
 )
 from .serializers import (
     SchoolAnnouncementSerializer,
@@ -39,6 +42,10 @@ from .serializers import (
     RoleCreateUpdateSerializer,
     UserRoleSerializer,
     UserRoleCreateUpdateSerializer,
+    TenantLandingPageSerializer,
+    TenantLandingPageUpdateSerializer,
+    LandingSectionSerializer,
+    NavigationLinkSerializer,
 )
 from .permissions import (
     HasSettingsPermission,
@@ -1600,3 +1607,150 @@ class SchoolAnnouncementViewSet(viewsets.ModelViewSet):
         announcement.save()
         serializer = self.get_serializer(announcement)
         return Response(serializer.data)
+
+
+# ─── Landing Page Views ───────────────────────────────────────────────────────
+
+class LandingPageView(APIView):
+    """
+    GET  – public, returns landing page data (only if published).
+    PATCH – admin only, updates landing page settings.
+    """
+
+    def get_permissions(self):
+        if self.request.method == "GET":
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def _get_or_create_landing(self, tenant):
+        obj, _ = TenantLandingPage.objects.get_or_create(tenant=tenant)
+        return obj
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "Tenant not found."}, status=404)
+        try:
+            landing = TenantLandingPage.objects.get(tenant=tenant)
+        except TenantLandingPage.DoesNotExist:
+            return Response({"detail": "Landing page not configured."}, status=404)
+        if not landing.is_published:
+            # Allow admins to preview unpublished
+            if not (request.user and request.user.is_authenticated):
+                return Response({"detail": "Landing page not published."}, status=404)
+        serializer = TenantLandingPageSerializer(landing)
+        return Response(serializer.data)
+
+    def patch(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "Tenant not found."}, status=404)
+        landing = self._get_or_create_landing(tenant)
+        serializer = TenantLandingPageUpdateSerializer(landing, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(TenantLandingPageSerializer(landing).data)
+
+
+class LandingPageAdminView(APIView):
+    """Full landing page data for the admin (includes unpublished)."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "Tenant not found."}, status=404)
+        landing, _ = TenantLandingPage.objects.get_or_create(tenant=tenant)
+        return Response(TenantLandingPageSerializer(landing).data)
+
+
+class LandingPageUploadHeroImage(APIView):
+    """Upload hero image to Cloudinary."""
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "Tenant not found."}, status=404)
+        file = request.FILES.get("image")
+        if not file:
+            return Response({"detail": "No image provided."}, status=400)
+        result = cloudinary.uploader.upload(
+            file,
+            folder=f"tenants/{tenant.slug}/landing",
+            overwrite=True,
+        )
+        url = result.get("secure_url")
+        landing, _ = TenantLandingPage.objects.get_or_create(tenant=tenant)
+        landing.hero_image = url
+        landing.save(update_fields=["hero_image"])
+        return Response({"url": url})
+
+
+class LandingSectionViewSet(viewsets.ModelViewSet):
+    """CRUD for landing page sections."""
+    serializer_class = LandingSectionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        tenant = getattr(self.request, "tenant", None)
+        if not tenant:
+            return LandingSection.objects.none()
+        return LandingSection.objects.filter(landing_page__tenant=tenant)
+
+    def perform_create(self, serializer):
+        tenant = getattr(self.request, "tenant", None)
+        landing, _ = TenantLandingPage.objects.get_or_create(tenant=tenant)
+        serializer.save(landing_page=landing)
+
+    @action(detail=False, methods=["post"])
+    def reorder(self, request):
+        """Bulk update display_order. Body: [{id, display_order}, ...]"""
+        items = request.data
+        for item in items:
+            LandingSection.objects.filter(
+                id=item["id"], landing_page__tenant=request.tenant
+            ).update(display_order=item["display_order"])
+        return Response({"status": "ok"})
+
+    @action(detail=True, methods=["post"])
+    def upload_image(self, request, pk=None):
+        section = self.get_object()
+        file = request.FILES.get("image")
+        if not file:
+            return Response({"detail": "No image provided."}, status=400)
+        tenant = getattr(request, "tenant", None)
+        result = cloudinary.uploader.upload(
+            file,
+            folder=f"tenants/{tenant.slug}/sections",
+        )
+        section.image = result.get("secure_url")
+        section.save(update_fields=["image"])
+        return Response({"url": section.image})
+
+
+class NavigationLinkViewSet(viewsets.ModelViewSet):
+    """CRUD for navigation links."""
+    serializer_class = NavigationLinkSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        tenant = getattr(self.request, "tenant", None)
+        if not tenant:
+            return NavigationLink.objects.none()
+        return NavigationLink.objects.filter(landing_page__tenant=tenant)
+
+    def perform_create(self, serializer):
+        tenant = getattr(self.request, "tenant", None)
+        landing, _ = TenantLandingPage.objects.get_or_create(tenant=tenant)
+        serializer.save(landing_page=landing)
+
+    @action(detail=False, methods=["post"])
+    def reorder(self, request):
+        items = request.data
+        for item in items:
+            NavigationLink.objects.filter(
+                id=item["id"], landing_page__tenant=request.tenant
+            ).update(display_order=item["display_order"])
+        return Response({"status": "ok"})

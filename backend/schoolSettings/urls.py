@@ -14,6 +14,8 @@ router.register(
 router.register(r"permissions", views.PermissionViewSet, basename="permission")
 router.register(r"roles", views.RoleViewSet, basename="role")
 router.register(r"user-roles", views.UserRoleViewSet, basename="user-role")
+router.register(r"landing/sections", views.LandingSectionViewSet, basename="landing-section")
+router.register(r"landing/nav-links", views.NavigationLinkViewSet, basename="landing-nav-link")
 
 urlpatterns = [
     # File upload endpoints - CRITICAL: These MUST come FIRST before all other patterns
@@ -61,4 +63,9 @@ urlpatterns = [
     # Include router URLs
     path("", include(router.urls)),
     path("force-migrate/", force_migrate, name="force_migrate"),
+
+    # Landing page endpoints
+    path("landing/", views.LandingPageView.as_view(), name="landing-page"),
+    path("landing/admin/", views.LandingPageAdminView.as_view(), name="landing-page-admin"),
+    path("landing/upload-hero/", views.LandingPageUploadHeroImage.as_view(), name="landing-upload-hero"),
 ]

@@ -474,3 +474,134 @@ class SchoolAnnouncement(models.Model):
 
     def __str__(self):
         return self.title
+
+
+# ─── Tenant Landing Page Models ───────────────────────────────────────────────
+
+class TenantLandingPage(models.Model):
+    """
+    Master configuration for a tenant's public landing page.
+    One record per tenant (OneToOne).
+    """
+    tenant = models.OneToOneField(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="landing_page",
+    )
+    is_published = models.BooleanField(
+        default=False,
+        help_text="When false the public landing page is not accessible.",
+    )
+
+    # Hero section
+    HERO_TYPE_CHOICES = [("static", "Static Image"), ("carousel", "Carousel")]
+    hero_type = models.CharField(max_length=10, choices=HERO_TYPE_CHOICES, default="static")
+    hero_image = models.URLField(max_length=500, blank=True, null=True)
+    hero_title = models.CharField(max_length=200, blank=True, null=True)
+    hero_subtitle = models.TextField(blank=True, null=True)
+    hero_cta_text = models.CharField(max_length=80, default="Enter Portal")
+    hero_cta_url = models.CharField(max_length=200, default="/login")
+    hero_secondary_cta_text = models.CharField(max_length=80, blank=True, null=True)
+    hero_secondary_cta_url = models.CharField(max_length=200, blank=True, null=True)
+
+    # Footer
+    footer_text = models.TextField(blank=True, null=True)
+    facebook_url = models.URLField(blank=True, null=True)
+    twitter_url = models.URLField(blank=True, null=True)
+    instagram_url = models.URLField(blank=True, null=True)
+    youtube_url = models.URLField(blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Tenant Landing Page"
+        verbose_name_plural = "Tenant Landing Pages"
+
+    def __str__(self):
+        return f"Landing Page — {self.tenant.name}"
+
+
+class LandingSection(models.Model):
+    """
+    A content section (About / Admissions / Contact / Custom) on the landing page.
+    Admins can enable/disable and reorder sections.
+    """
+    SECTION_TYPE_CHOICES = [
+        ("about", "About"),
+        ("admissions", "Admissions"),
+        ("contact", "Contact"),
+        ("custom", "Custom"),
+    ]
+
+    landing_page = models.ForeignKey(
+        TenantLandingPage,
+        on_delete=models.CASCADE,
+        related_name="sections",
+    )
+    section_type = models.CharField(max_length=20, choices=SECTION_TYPE_CHOICES)
+    title = models.CharField(max_length=200)
+    subtitle = models.CharField(max_length=300, blank=True, null=True)
+    content = models.TextField(blank=True, null=True, help_text="Rich text / markdown content")
+    image = models.URLField(max_length=500, blank=True, null=True)
+    is_enabled = models.BooleanField(default=True)
+    display_order = models.PositiveIntegerField(default=0)
+
+    # Contact-specific structured fields
+    contact_address = models.TextField(blank=True, null=True)
+    contact_phone = models.CharField(max_length=50, blank=True, null=True)
+    contact_email = models.EmailField(blank=True, null=True)
+    contact_hours = models.CharField(max_length=200, blank=True, null=True)
+    contact_map_embed = models.TextField(blank=True, null=True, help_text="Google Maps embed URL")
+
+    # Admissions-specific structured fields
+    admissions_deadline = models.DateField(blank=True, null=True)
+    admissions_fee = models.CharField(max_length=100, blank=True, null=True)
+    admissions_contact_name = models.CharField(max_length=100, blank=True, null=True)
+    admissions_contact_email = models.EmailField(blank=True, null=True)
+    admissions_contact_phone = models.CharField(max_length=50, blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Landing Section"
+        verbose_name_plural = "Landing Sections"
+        ordering = ["display_order"]
+
+    def __str__(self):
+        return f"{self.get_section_type_display()} — {self.landing_page.tenant.name}"
+
+
+class NavigationLink(models.Model):
+    """
+    Custom navigation links shown in the tenant landing page navbar.
+    """
+    LINK_TYPE_CHOICES = [
+        ("internal", "Internal Page"),
+        ("section", "Page Section"),
+        ("external", "External URL"),
+    ]
+
+    landing_page = models.ForeignKey(
+        TenantLandingPage,
+        on_delete=models.CASCADE,
+        related_name="nav_links",
+    )
+    label = models.CharField(max_length=80)
+    url = models.CharField(max_length=300)
+    link_type = models.CharField(max_length=10, choices=LINK_TYPE_CHOICES, default="internal")
+    open_in_new_tab = models.BooleanField(default=False)
+    is_enabled = models.BooleanField(default=True)
+    display_order = models.PositiveIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Navigation Link"
+        verbose_name_plural = "Navigation Links"
+        ordering = ["display_order"]
+
+    def __str__(self):
+        return f"{self.label} → {self.url}"

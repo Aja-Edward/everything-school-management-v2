@@ -43,6 +43,12 @@ const SubdomainLandingPage = lazy(() => import('./../pages/subdomain/LandingPage
 const SubdomainLoginPage = lazy(() => import('./../pages/subdomain/LoginPage'));
 const EmailVerification = lazy(() => import('./../pages/EmailVerification'));
 
+// Tenant public-facing landing pages (Subdomain)
+const TenantLandingPage = lazy(() => import('./../pages/subdomain/TenantLandingPage'));
+const TenantAboutPage = lazy(() => import('./../pages/subdomain/TenantAboutPage'));
+const TenantAdmissionsPage = lazy(() => import('./../pages/subdomain/TenantAdmissionsPage'));
+const TenantContactPage = lazy(() => import('./../pages/subdomain/TenantContactPage'));
+
 // Dashboard pages (Subdomain - Protected)
 const StudentDashboard = lazy(() => import('./../pages/student/Dashboard'));
 const ParentDashboard = lazy(() => import('./../pages/parent/Dashboard'));
@@ -176,20 +182,18 @@ const MainDomainLayout = () => (
   </>
 );
 
-// Component to render Home only on main domain, show subdomain landing page on subdomain
+// Component to render Home only on main domain, show tenant landing page on subdomain
 const HomeOrRedirect = () => {
   const { isSubdomain, isLoading } = useTenant();
 
-  if (isLoading) {
-    return <PageLoader />;
-  }
+  if (isLoading) return <PageLoader />;
 
-  // If on subdomain, show the subdomain landing page (it handles errors internally)
+  // Subdomain → tenant public landing page (handles unpublished state internally)
   if (isSubdomain) {
-    return <LazyWrapper><SubdomainLandingPage /></LazyWrapper>;
+    return <LazyWrapper><TenantLandingPage /></LazyWrapper>;
   }
 
-  // Main domain - show home page with layout
+  // Main domain → marketing home page
   return (
     <>
       <Navbar />
@@ -330,8 +334,21 @@ export const router = createBrowserRouter([
         element: <LazyWrapper><SetupPage /></LazyWrapper>,
       },
 
+      // Tenant public landing sub-pages (lazy loaded)
+      {
+        path: 'about',
+        element: <LazyWrapper><TenantAboutPage /></LazyWrapper>,
+      },
+      {
+        path: 'admissions',
+        element: <LazyWrapper><TenantAdmissionsPage /></LazyWrapper>,
+      },
+      {
+        path: 'contact',
+        element: <LazyWrapper><TenantContactPage /></LazyWrapper>,
+      },
+
       // Auth routes (Subdomain - standalone pages)
-      // Login now uses the combined landing page with built-in login form
       {
         path: 'login',
         element: <LazyWrapper><SubdomainLandingPage /></LazyWrapper>,

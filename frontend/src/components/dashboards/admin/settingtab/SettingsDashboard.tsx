@@ -13,6 +13,7 @@ import {
   Blocks,
   Globe,
   Award,
+  LayoutTemplate,
 } from 'lucide-react';
 import GeneralTab from '@/components/dashboards/admin/settingtab/components/tabs/GeneralTab';
 import DesignTab from '@/components/dashboards/admin/settingtab/components/tabs/DesignTab';
@@ -28,6 +29,7 @@ import AdvancedTab from '@/components/dashboards/admin/settingtab/components/tab
 import PromotionSettingsTab from '@/components/dashboards/admin/settingtab/components/tabs/PromotionSettings';
 import ServicesTab from '@/components/dashboards/admin/settingtab/components/tabs/ServicesTab';
 import DomainTab from '@/components/dashboards/admin/settingtab/components/tabs/DomainTab';
+import LandingPageTab from '@/components/dashboards/admin/settingtab/components/tabs/LandingPageTab';
 import { useSettings } from '@/contexts/SettingsContext';
 import SettingsService from '@/services/SettingsService';
 
@@ -64,10 +66,11 @@ const SettingsDashboard = () => {
   };
 
   const tabs = [
-    { id: 'general',      label: 'General',           icon: Settings      },
-    { id: 'services',     label: 'Services',           icon: Blocks        },
-    { id: 'domain',       label: 'Domain',             icon: Globe         },
-    { id: 'design',       label: 'Design',             icon: Palette       },
+    { id: 'general',      label: 'General',           icon: Settings        },
+    { id: 'landing',      label: 'Landing Page',       icon: LayoutTemplate  },
+    { id: 'services',     label: 'Services',           icon: Blocks          },
+    { id: 'domain',       label: 'Domain',             icon: Globe           },
+    { id: 'design',       label: 'Design',             icon: Palette         },
     { id: 'communication',label: 'Communication',      icon: MessageSquare },
     { id: 'roles',        label: 'Roles & Permissions',icon: Shield        },
     { id: 'academic',     label: 'Academic',           icon: GraduationCap },
@@ -84,6 +87,7 @@ const SettingsDashboard = () => {
     const props = { settings, onSettingsUpdate: handleSettingsUpdate };
     switch (activeTab) {
       case 'general':       return <GeneralTab {...props} />;
+      case 'landing':       return <LandingPageTab />;
       case 'services':      return <ServicesTab {...props} />;
       case 'domain':        return <DomainTab {...props} />;
       case 'design':        return <DesignTab {...props} />;

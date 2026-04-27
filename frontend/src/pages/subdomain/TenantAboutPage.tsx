@@ -1,0 +1,112 @@
+import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useTenant } from '@/contexts/TenantContext';
+import LandingPageService, { TenantLandingPage, LandingSection } from '@/services/LandingPageService';
+import TenantNavbar from '@/components/tenant/TenantNavbar';
+import TenantFooter from '@/components/tenant/TenantFooter';
+import RibbonBanner from '@/components/tenant/RibbonBanner';
+import { GraduationCap, ArrowLeft, CheckCircle } from 'lucide-react';
+import api from '@/services/api';
+
+const TenantAboutPage: React.FC = () => {
+  const { tenant, settings } = useTenant();
+  const [landing, setLanding] = useState<TenantLandingPage | null>(null);
+  const [section, setSection] = useState<LandingSection | null>(null);
+  const [ribbonEvent, setRibbonEvent] = useState<any>(null);
+
+  const primaryColor = settings?.primary_color || '#1e40af';
+
+  useEffect(() => {
+    LandingPageService.getPublic().then(d => {
+      setLanding(d);
+      setSection(d.sections.find(s => s.section_type === 'about' && s.is_enabled) ?? null);
+    }).catch(() => {});
+    api.get('/events/events/?is_active=true&is_published=true&display_type=ribbon')
+      .then((d: any) => setRibbonEvent((d?.results ?? d)?.[0] ?? null))
+      .catch(() => {});
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-white">
+      {ribbonEvent && (
+        <div className="fixed top-0 left-0 right-0 z-50">
+          <RibbonBanner text={ribbonEvent.ribbon_text || ribbonEvent.title} speed={ribbonEvent.ribbon_speed} primaryColor={primaryColor} />
+        </div>
+      )}
+      <div className={ribbonEvent ? 'pt-8' : ''}>
+        <TenantNavbar schoolName={tenant?.name ?? ''} logo={settings?.logo} primaryColor={primaryColor} navLinks={landing?.nav_links ?? []} portalLabel="Portal Login" />
+      </div>
+
+      {/* Page header */}
+      <div className="pt-28 pb-16 px-4 sm:px-6 lg:px-8"
+        style={{ background: `linear-gradient(135deg, ${primaryColor}15 0%, #f8fafc 100%)` }}>
+        <div className="max-w-7xl mx-auto">
+          <Link to="/" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 mb-6 transition-colors">
+            <ArrowLeft className="w-4 h-4" /> Back to Home
+          </Link>
+          <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-900 mb-3">
+            {section?.title ?? 'About Us'}
+          </h1>
+          {section?.subtitle && (
+            <p className="text-xl text-gray-600 max-w-2xl">{section.subtitle}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+        {section ? (
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-14">
+            <div className="lg:col-span-3 space-y-8">
+              {section.image && (
+                <img src={section.image} alt={section.title}
+                  className="w-full rounded-2xl shadow-xl object-cover h-80" />
+              )}
+              {section.content && (
+                <div className="prose prose-lg prose-gray max-w-none">
+                  <p className="text-gray-700 leading-relaxed whitespace-pre-line text-lg">{section.content}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Side panel */}
+            <div className="lg:col-span-2">
+              <div className="sticky top-24 rounded-2xl border border-gray-100 shadow-sm p-7 bg-white">
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5"
+                  style={{ backgroundColor: `${primaryColor}18` }}>
+                  <GraduationCap className="w-7 h-7" style={{ color: primaryColor }} />
+                </div>
+                <h3 className="font-bold text-gray-900 text-lg mb-4">{tenant?.name}</h3>
+                {settings?.school_motto && (
+                  <p className="text-gray-500 text-sm italic mb-5">"{settings.school_motto}"</p>
+                )}
+                <ul className="space-y-3">
+                  {['Excellence in Education', 'Holistic Development', 'Modern Curriculum', 'Experienced Faculty'].map(v => (
+                    <li key={v} className="flex items-center gap-2 text-sm text-gray-600">
+                      <CheckCircle className="w-4 h-4 shrink-0" style={{ color: primaryColor }} />
+                      {v}
+                    </li>
+                  ))}
+                </ul>
+                <Link to="/admissions"
+                  className="mt-6 w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-semibold text-sm text-white transition-all hover:opacity-90"
+                  style={{ backgroundColor: primaryColor }}>
+                  Apply for Admission
+                </Link>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-20 text-gray-400">About content coming soon.</div>
+        )}
+      </main>
+
+      {landing && (
+        <TenantFooter landing={landing} schoolName={tenant?.name ?? ''} logo={settings?.logo} primaryColor={primaryColor}
+          contactSection={landing.sections.find(s => s.section_type === 'contact' && s.is_enabled)} />
+      )}
+    </div>
+  );
+};
+
+export default TenantAboutPage;

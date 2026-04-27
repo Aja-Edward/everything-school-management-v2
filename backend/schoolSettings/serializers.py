@@ -8,6 +8,9 @@ from .models import (
     Permission,
     Role,
     UserRole,
+    TenantLandingPage,
+    LandingSection,
+    NavigationLink,
 )
 
 
@@ -522,3 +525,65 @@ class UserRoleCreateUpdateSerializer(serializers.ModelSerializer):
             instance.custom_permissions.set(permissions)
 
         return instance
+
+
+# ─── Landing Page Serializers ─────────────────────────────────────────────────
+
+class NavigationLinkSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NavigationLink
+        fields = [
+            "id", "label", "url", "link_type", "open_in_new_tab",
+            "is_enabled", "display_order", "created_at", "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class LandingSectionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LandingSection
+        fields = [
+            "id", "section_type", "title", "subtitle", "content", "image",
+            "is_enabled", "display_order",
+            # contact fields
+            "contact_address", "contact_phone", "contact_email",
+            "contact_hours", "contact_map_embed",
+            # admissions fields
+            "admissions_deadline", "admissions_fee",
+            "admissions_contact_name", "admissions_contact_email",
+            "admissions_contact_phone",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class TenantLandingPageSerializer(serializers.ModelSerializer):
+    sections = LandingSectionSerializer(many=True, read_only=True)
+    nav_links = NavigationLinkSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = TenantLandingPage
+        fields = [
+            "id", "is_published",
+            "hero_type", "hero_image", "hero_title", "hero_subtitle",
+            "hero_cta_text", "hero_cta_url",
+            "hero_secondary_cta_text", "hero_secondary_cta_url",
+            "footer_text",
+            "facebook_url", "twitter_url", "instagram_url", "youtube_url",
+            "sections", "nav_links",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class TenantLandingPageUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TenantLandingPage
+        fields = [
+            "is_published",
+            "hero_type", "hero_image", "hero_title", "hero_subtitle",
+            "hero_cta_text", "hero_cta_url",
+            "hero_secondary_cta_text", "hero_secondary_cta_url",
+            "footer_text",
+            "facebook_url", "twitter_url", "instagram_url", "youtube_url",
+        ]
