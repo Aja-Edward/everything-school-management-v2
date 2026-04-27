@@ -18,7 +18,7 @@ class TenantMiddleware:
     EXCLUDED_SUBDOMAINS = ['www', 'api', 'admin', 'app', 'dashboard', 'static', 'media']
 
     # Main platform domain
-    PLATFORM_DOMAIN = getattr(settings, 'PLATFORM_DOMAIN', 'schoolplatform.com')
+    PLATFORM_DOMAIN = getattr(settings, "PLATFORM_DOMAIN", "nuventacloud.com")
 
     def __init__(self, get_response):
         self.get_response = get_response

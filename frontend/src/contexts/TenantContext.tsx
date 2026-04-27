@@ -7,7 +7,7 @@ import { tenantService, PublicTenant, PublicTenantSettings } from '@/services/Te
 interface TenantContextType {
   // Whether we're on a subdomain (school portal) or main domain
   isSubdomain: boolean;
-  // The subdomain slug (e.g., "bayschool" from "bayschool.schoolplatform.com")
+  // The subdomain slug (e.g., "bayschool" from "bayschool.nuventacloud.com")
   slug: string | null;
   // The tenant data (loaded from API for subdomains)
   tenant: PublicTenant | null;
@@ -27,7 +27,7 @@ const TenantContext = createContext<TenantContextType | undefined>(undefined);
 const RESERVED_SUBDOMAINS = ['www', 'api', 'admin', 'app', 'dashboard', 'mail', 'staging', 'dev'];
 
 // Main domain patterns (customize based on your deployment)
-const MAIN_DOMAINS = ['localhost', 'schoolplatform.com', '127.0.0.1'];
+const MAIN_DOMAINS = ['localhost', 'nuventacloud.com', '127.0.0.1'];
 
 // Hosting platform domains — treat as main domain, never as tenant subdomains
 const HOSTING_PLATFORM_DOMAINS = ['vercel.app', 'onrender.com', 'netlify.app', 'herokuapp.com', 'railway.app'];
@@ -67,7 +67,7 @@ function extractSubdomain(): string | null {
   // Split hostname into parts
   const parts = hostname.split('.');
 
-  // If we have less than 3 parts (e.g., "schoolplatform.com"), it's the main domain
+  // If we have less than 3 parts (e.g., "nuventacloud.com"), it's the main domain
   if (parts.length < 3) {
     return null;
   }

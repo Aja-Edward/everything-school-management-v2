@@ -207,7 +207,7 @@ const SetupPage: React.FC = () => {
         </div>
 
         <p className="mt-6 text-center text-xs text-gray-500 dark:text-gray-400">
-          Need help? Contact support@schoolplatform.com
+          Need help? Contact support@nuventacloud.com
         </p>
       </div>
     </div>

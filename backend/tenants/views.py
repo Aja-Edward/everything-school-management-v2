@@ -117,7 +117,7 @@ class SchoolRegistrationView(APIView):
 
             # Build the subdomain setup URL for redirect
             # In development: http://bay-school.localhost:5173/setup?token=xxx
-            # In production: https://bay-school.schoolplatform.com/setup?token=xxx
+            # In production: https://bay-school.nuventacloud.com/setup?token=xxx
             frontend_port = getattr(settings, 'FRONTEND_PORT', '5173')
             is_development = getattr(settings, 'DEBUG', False)
 
@@ -126,7 +126,9 @@ class SchoolRegistrationView(APIView):
                 setup_url = f"http://{tenant.slug}.localhost:{frontend_port}/setup?token={setup_token}"
             else:
                 # Production: use actual domain
-                platform_domain = getattr(settings, 'PLATFORM_DOMAIN', 'schoolplatform.com')
+                platform_domain = getattr(
+                    settings, "PLATFORM_DOMAIN", "nuventacloud.com"
+                )
                 setup_url = f"https://{tenant.slug}.{platform_domain}/setup?token={setup_token}"
 
             return Response({
@@ -613,7 +615,7 @@ class DomainManagementViewSet(viewsets.ViewSet):
         tenant.domain_verification_token = verification_token
         tenant.save()
 
-        platform_domain = getattr(settings, 'PLATFORM_DOMAIN', 'schoolplatform.com')
+        platform_domain = getattr(settings, "PLATFORM_DOMAIN", "nuventacloud.com")
         platform_ip = getattr(settings, 'PLATFORM_IP', '0.0.0.0')
 
         return Response({
@@ -1349,7 +1351,7 @@ class TenantInvitationViewSet(viewsets.ModelViewSet):
             invitation_url = f"http://{tenant.slug}.localhost:{frontend_port}/accept-invitation?token={invitation.token}"
         else:
             # Production: use actual domain
-            platform_domain = getattr(settings, 'PLATFORM_DOMAIN', 'schoolplatform.com')
+            platform_domain = getattr(settings, "PLATFORM_DOMAIN", "nuventacloud.com")
             invitation_url = f"https://{tenant.slug}.{platform_domain}/accept-invitation?token={invitation.token}"
 
         # Create email content

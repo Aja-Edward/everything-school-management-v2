@@ -90,7 +90,7 @@ const ServiceSelectionPage: React.FC = () => {
             owner_email: userData.email,
             owner_name: `${userData.first_name} ${userData.last_name}`,
             owner_phone: '',
-            subdomain_url: `https://${tenantSlug}.schoolplatform.com`,
+            subdomain_url: `https://${tenantSlug}.nuventacloud.com`,
             created_at: '',
             activated_at: null,
           },

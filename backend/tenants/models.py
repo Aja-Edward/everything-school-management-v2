@@ -116,7 +116,7 @@ class Tenant(models.Model):
 
     @property
     def subdomain_url(self):
-        return f"https://{self.slug}.schoolplatform.com"
+        return f"https://{self.slug}.nuventacloud.com"
 
     def activate(self):
         self.is_active = True

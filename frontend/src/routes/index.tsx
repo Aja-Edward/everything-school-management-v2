@@ -248,7 +248,7 @@ const TenantAwareRedirect = () => {
             The school you're looking for doesn't exist or has been deactivated.
           </p>
           <a
-            href="https://schoolplatform.com"
+            href="https://nuventacloud.com"
             className="inline-block bg-blue-600 hover:bg-blue-700 text-white py-2.5 px-6 rounded-lg text-sm font-medium transition-colors"
           >
             Go to Main Site

@@ -324,7 +324,7 @@ const SchoolRegistrationPage: React.FC = () => {
                   <div className="mt-2 flex items-center gap-2 text-xs">
                     <span className="text-gray-500">Your subdomain:</span>
                     <code className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-blue-600 dark:text-blue-400">
-                      {suggestedSlug}.schoolplatform.com
+                      {suggestedSlug}.nuventacloud.com
                     </code>
                     {checkingSlug ? (
                       <div className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" />

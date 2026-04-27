@@ -219,7 +219,7 @@ const DomainTab: React.FC<DomainTabProps> = () => {
             </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-mono text-gray-700 truncate">
-                {domainSettings?.subdomain_url || `${domainSettings?.subdomain}.schoolplatform.com`}
+                {domainSettings?.subdomain_url || `${domainSettings?.subdomain}.nuventacloud.com`}
               </code>
               <button
                 onClick={() => copyToClipboard(domainSettings?.subdomain_url || '', 'subdomain')}
@@ -403,7 +403,7 @@ const DomainTab: React.FC<DomainTabProps> = () => {
                     </div>
                     <div className="bg-white p-2 rounded border border-gray-200">
                       <span className="text-gray-500">Value/Points to:</span>
-                      <code className="block font-mono text-gray-800 mt-0.5">proxy.schoolplatform.com</code>
+                      <code className="block font-mono text-gray-800 mt-0.5">proxy.nuventacloud.com</code>
                     </div>
                   </div>
                 </div>

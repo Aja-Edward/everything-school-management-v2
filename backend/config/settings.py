@@ -280,7 +280,7 @@ if DEBUG:
 CORS_ALLOWED_ORIGIN_REGEXES = [
     # Development: allow any subdomain of localhost
     r"^http://[\w-]+\.localhost:\d+$",
-    # Production: allow any subdomain of schoolplatform.com
+    # Production: allow any subdomain of nuventacloud.com
     r"^https://[\w-]+\.schoolplatform\.com$",
 ]
 
@@ -607,7 +607,7 @@ BREVO_API_KEY = os.getenv("BREVO_API_KEY", "your-brevo-api-key-here")
 # MULTI-TENANT SETTINGS
 # ============================================
 
-PLATFORM_DOMAIN = os.getenv("PLATFORM_DOMAIN", "schoolplatform.com")
+PLATFORM_DOMAIN = os.getenv("PLATFORM_DOMAIN", "nuventacloud.com")
 PLATFORM_IP = os.getenv("PLATFORM_IP", "0.0.0.0")
 
 # ============================================
