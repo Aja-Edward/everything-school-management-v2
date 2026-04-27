@@ -504,6 +504,12 @@ class TenantLandingPage(models.Model):
     hero_secondary_cta_text = models.CharField(max_length=80, blank=True, null=True)
     hero_secondary_cta_url = models.CharField(max_length=200, blank=True, null=True)
 
+    # Ribbon bar (scrolling text strip above navbar)
+    ribbon_enabled = models.BooleanField(default=False)
+    ribbon_text = models.CharField(max_length=300, blank=True, null=True)
+    RIBBON_SPEED_CHOICES = [("slow", "Slow"), ("medium", "Medium"), ("fast", "Fast")]
+    ribbon_speed = models.CharField(max_length=10, choices=RIBBON_SPEED_CHOICES, default="medium")
+
     # Footer
     footer_text = models.TextField(blank=True, null=True)
     facebook_url = models.URLField(blank=True, null=True)

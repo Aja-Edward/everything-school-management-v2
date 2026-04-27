@@ -6,6 +6,7 @@ import { API_BASE_URL } from './api';
 export type HeroType = 'static' | 'carousel';
 export type SectionType = 'about' | 'admissions' | 'contact' | 'custom';
 export type LinkType = 'internal' | 'section' | 'external';
+export type RibbonSpeed = 'slow' | 'medium' | 'fast';
 
 export interface NavigationLink {
   id: number;
@@ -51,6 +52,9 @@ export interface TenantLandingPage {
   hero_cta_url: string;
   hero_secondary_cta_text?: string;
   hero_secondary_cta_url?: string;
+  ribbon_enabled: boolean;
+  ribbon_text?: string;
+  ribbon_speed: RibbonSpeed;
   footer_text?: string;
   facebook_url?: string;
   twitter_url?: string;

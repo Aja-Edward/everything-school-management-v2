@@ -568,6 +568,7 @@ class TenantLandingPageSerializer(serializers.ModelSerializer):
             "hero_type", "hero_image", "hero_title", "hero_subtitle",
             "hero_cta_text", "hero_cta_url",
             "hero_secondary_cta_text", "hero_secondary_cta_url",
+            "ribbon_enabled", "ribbon_text", "ribbon_speed",
             "footer_text",
             "facebook_url", "twitter_url", "instagram_url", "youtube_url",
             "sections", "nav_links",
@@ -584,6 +585,7 @@ class TenantLandingPageUpdateSerializer(serializers.ModelSerializer):
             "hero_type", "hero_image", "hero_title", "hero_subtitle",
             "hero_cta_text", "hero_cta_url",
             "hero_secondary_cta_text", "hero_secondary_cta_url",
+            "ribbon_enabled", "ribbon_text", "ribbon_speed",
             "footer_text",
             "facebook_url", "twitter_url", "instagram_url", "youtube_url",
         ]

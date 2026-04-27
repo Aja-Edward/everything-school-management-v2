@@ -5,9 +5,8 @@ import LandingPageService, {
 import { useTenant } from '@/contexts/TenantContext';
 import {
   Globe, Eye, EyeOff, Plus, Trash2, GripVertical, Save, Upload,
-  Image, Link2, ChevronDown, ChevronUp, ExternalLink, CheckCircle,
-  Layout, Navigation, Type, MapPin, Phone, Mail, Clock, Calendar,
-  DollarSign, User, Layers, AlertCircle,
+  Image, ChevronDown, ChevronUp, CheckCircle,
+  Layout, Navigation, Type, MapPin, Layers, AlertCircle, Megaphone,
 } from 'lucide-react';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -240,7 +239,7 @@ const NavLinkEditor: React.FC<{
 
 // ─── Main Tab ─────────────────────────────────────────────────────────────────
 
-type TabKey = 'general' | 'hero' | 'sections' | 'navigation' | 'footer';
+type TabKey = 'general' | 'hero' | 'ribbon' | 'sections' | 'navigation' | 'footer';
 
 const LandingPageTab: React.FC = () => {
   const { settings } = useTenant();
@@ -272,7 +271,7 @@ const LandingPageTab: React.FC = () => {
     setError(null);
     try {
       // Save main settings
-      const updated = await LandingPageService.update({
+      await LandingPageService.update({
         is_published: landing.is_published,
         hero_type: landing.hero_type,
         hero_image: landing.hero_image,
@@ -282,6 +281,9 @@ const LandingPageTab: React.FC = () => {
         hero_cta_url: landing.hero_cta_url,
         hero_secondary_cta_text: landing.hero_secondary_cta_text,
         hero_secondary_cta_url: landing.hero_secondary_cta_url,
+        ribbon_enabled: landing.ribbon_enabled,
+        ribbon_text: landing.ribbon_text,
+        ribbon_speed: landing.ribbon_speed,
         footer_text: landing.footer_text,
         facebook_url: landing.facebook_url,
         twitter_url: landing.twitter_url,
