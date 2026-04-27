@@ -22,6 +22,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src'),
+        'canvas': path.resolve(__dirname, 'src/canvas-stub.js'),
       },
     },
     server: {
@@ -59,19 +60,6 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: 'dist',
-      rollupOptions: {
-        plugins: [
-          {
-            name: 'resolve-canvas',
-            resolveId(id: string) {
-              if (id === 'canvas') return '\0canvas'
-            },
-            load(id: string) {
-              if (id === '\0canvas') return 'export default {}'
-            },
-          },
-        ],
-      },
     },
     preview: {
       port: 4173,
