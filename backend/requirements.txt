@@ -29,6 +29,7 @@ django-extensions==4.1
 django-filter==25.1
 django-rangefilter==0.9.1
 django-ratelimit==4.1.0
+python-jose==3.3.0
 djangorestframework==3.16.0
 djangorestframework_simplejwt==5.5.0
 frozenlist==1.8.0
