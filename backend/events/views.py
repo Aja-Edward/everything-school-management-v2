@@ -31,14 +31,24 @@ class EventViewSet(viewsets.ModelViewSet):
         return EventSerializer
     
     def get_queryset(self):
+        tenant = getattr(self.request, 'tenant', None)
+
         if self.request.user.is_superuser:
             return Event.objects.all().order_by('-created_at')
-        tenant = getattr(self.request, 'tenant', None)
+
         if self.request.user.is_authenticated:
             if tenant:
-                # All events for this tenant — visible to any admin of the school
                 return Event.objects.filter(tenant=tenant).order_by('-created_at')
             return Event.objects.filter(created_by=self.request.user).order_by('-created_at')
+
+        # Anonymous visitors on a tenant subdomain — return active published events only
+        if tenant:
+            return Event.objects.filter(
+                tenant=tenant,
+                is_active=True,
+                is_published=True,
+            ).order_by('-created_at')
+
         return Event.objects.none()
 
     def perform_create(self, serializer):
