@@ -57,6 +57,13 @@ const getCSRFToken = async (): Promise<string> => {
 export const clearTokens = (): void => {
   csrfToken = null;
   csrfTokenPromise = null;
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+};
+
+export const storeTokens = (tokens: { access?: string; refresh?: string }): void => {
+  if (tokens.access) localStorage.setItem('access_token', tokens.access);
+  if (tokens.refresh) localStorage.setItem('refresh_token', tokens.refresh);
 };
 
 const attemptTokenRefresh = async (): Promise<boolean> => {
@@ -148,7 +155,7 @@ const buildUrl = (endpoint: string, params?: Record<string, any>): string => {
   return url;
 };
 
-const buildHeaders = async (method: string): Promise<Record<string, string>> => {
+export const buildHeaders = async (method: string): Promise<Record<string, string>> => {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
@@ -164,6 +171,8 @@ const buildHeaders = async (method: string): Promise<Record<string, string>> => 
   return headers;
 };
 
+export const getHeaders = buildHeaders;
+
 const parseResponse = async (response: Response): Promise<any> => {
   if (response.status === 204) return null;
   const text = await response.text();
@@ -171,7 +180,7 @@ const parseResponse = async (response: Response): Promise<any> => {
   return JSON.parse(text);
 };
 
-const handleResponseError = async (
+export const handleResponseError = async (
   response: Response,
   endpoint: string,
   method: string

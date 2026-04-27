@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { AuthService } from '../services/AuthService';
 import { useAuth } from '../hooks/useAuth';
 
 const EmailVerification: React.FC = () => {
@@ -12,7 +11,6 @@ const EmailVerification: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { login } = useAuth();
-  const authService = new AuthService();
   const [credentials, setCredentials] = useState<{username?: string, password?: string, parentUsername?: string, parentPassword?: string}>({});
 
   useEffect(() => {
