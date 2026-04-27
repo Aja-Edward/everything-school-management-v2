@@ -8,6 +8,9 @@ import {
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/services/api';
 
+const csrfToken = () =>
+  document.cookie.split('; ').find(r => r.startsWith('csrftoken='))?.split('=')[1] ?? '';
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type DisplayType = 'banner' | 'carousel' | 'ribbon';
@@ -219,15 +222,23 @@ const EventForm: React.FC<{
           const fd = new FormData();
           fd.append('event', String(initial!.id));
           fd.append('image', imageFile);
-          await fetch(`${API_BASE_URL}/events/event-images/`, { method: 'POST', body: fd, credentials: 'include' });
+          await fetch(`${API_BASE_URL}/events/event-images/`, {
+            method: 'POST', body: fd, credentials: 'include',
+            headers: { 'X-CSRFToken': csrfToken() },
+          });
         }
       } else {
-        // POST via FormData to support image
+        // POST via FormData to support image upload
         const fd = new FormData();
-        Object.entries(form).forEach(([k, v]) => { if (v !== '' && v != null) fd.append(k, String(v)); });
+        Object.entries(form).forEach(([k, v]) => {
+          if (v !== '' && v != null) fd.append(k, String(v));
+        });
         if (imageFile) fd.append('images', imageFile);
-        const res = await fetch(`${API_BASE_URL}/events/events/`, { method: 'POST', body: fd, credentials: 'include' });
-        if (!res.ok) { const d = await res.json(); throw new Error(JSON.stringify(d)); }
+        const res = await fetch(`${API_BASE_URL}/events/events/`, {
+          method: 'POST', body: fd, credentials: 'include',
+          headers: { 'X-CSRFToken': csrfToken() },
+        });
+        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(JSON.stringify(d)); }
         result = await res.json();
       }
       onSave(result);

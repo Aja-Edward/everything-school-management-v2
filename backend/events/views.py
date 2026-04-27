@@ -31,14 +31,20 @@ class EventViewSet(viewsets.ModelViewSet):
         return EventSerializer
     
     def get_queryset(self):
-        """Filter events by user if not superuser"""
         if self.request.user.is_superuser:
-            return Event.objects.all()
-        elif self.request.user.is_authenticated:
-            return Event.objects.filter(created_by=self.request.user)
-        else:
-            # For anonymous users, return empty queryset
-            return Event.objects.none()
+            return Event.objects.all().order_by('-created_at')
+        tenant = getattr(self.request, 'tenant', None)
+        if self.request.user.is_authenticated:
+            if tenant:
+                # All events for this tenant — visible to any admin of the school
+                return Event.objects.filter(tenant=tenant).order_by('-created_at')
+            return Event.objects.filter(created_by=self.request.user).order_by('-created_at')
+        return Event.objects.none()
+
+    def perform_create(self, serializer):
+        """Inject created_by and tenant so neither can ever be null."""
+        tenant = getattr(self.request, 'tenant', None)
+        serializer.save(created_by=self.request.user, tenant=tenant)
     
     @action(detail=False, methods=['get'], permission_classes=[permissions.AllowAny])
     def active(self, request):

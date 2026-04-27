@@ -67,16 +67,18 @@ class EventCreateSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data):
         images_data = validated_data.pop('images', [])
+        # created_by and tenant are injected via perform_create in the ViewSet
+        request = self.context.get('request')
+        if request and request.user and request.user.is_authenticated:
+            validated_data.setdefault('created_by', request.user)
+        tenant = getattr(request, 'tenant', None) if request else None
+        if tenant:
+            validated_data.setdefault('tenant', tenant)
         event = super().create(validated_data)
-        
-        # Create EventImage objects for uploaded images
+
         for i, image_file in enumerate(images_data):
-            EventImage.objects.create(
-                event=event,
-                image=image_file,
-                order=i
-            )
-        
+            EventImage.objects.create(event=event, image=image_file, order=i)
+
         return event
 
 
