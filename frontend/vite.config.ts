@@ -61,12 +61,9 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'dist',
       rollupOptions: {
-        onwarn(warning, warn) {
-          // Suppress unresolvable optional deps from node_modules (e.g. canvas, canvg)
-          if (warning.code === 'UNRESOLVED_IMPORT' && warning.id?.includes('node_modules')) {
-            return
-          }
-          warn(warning)
+        onLog(level, log, handler) {
+          if (level === 'warn' && log.code === 'UNRESOLVED_IMPORT') return
+          handler(level, log)
         },
       },
     },
