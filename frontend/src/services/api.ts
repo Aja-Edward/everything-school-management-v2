@@ -116,6 +116,7 @@ const handleAuthenticationFailure = (): void => {
 const PUBLIC_ENDPOINTS = [
   '/auth/refresh/',
   '/auth/login/',
+  '/auth/logout/',
   '/auth/csrf/',
   '/auth/status/',
   '/tenants/public/',
@@ -208,7 +209,7 @@ export const handleResponseError = async (
     }
 
     handleAuthenticationFailure();
-    return; // redirect is in flight — stop execution
+    throw new Error('Authentication expired');
   }
 
   const message =
