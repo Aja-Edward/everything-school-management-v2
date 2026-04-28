@@ -189,16 +189,41 @@ const HomeOrRedirect = () => {
 
   if (isLoading) return <PageLoader />;
 
-  // Subdomain → tenant public landing page (handles unpublished state internally)
   if (isSubdomain) {
     return <LazyWrapper><TenantLandingPage /></LazyWrapper>;
   }
 
-  // Main domain → marketing home page
   return (
     <>
       <Navbar />
       <LazyWrapper><Home /></LazyWrapper>
+      <Footer />
+    </>
+  );
+};
+
+// Subdomain-aware route: shows tenant page on subdomain, platform page on main domain
+const AboutRoute = () => {
+  const { isSubdomain, isLoading } = useTenant();
+  if (isLoading) return <PageLoader />;
+  if (isSubdomain) return <LazyWrapper><TenantAboutPage /></LazyWrapper>;
+  return (
+    <>
+      <Navbar />
+      <LazyWrapper><About /></LazyWrapper>
+      <Footer />
+    </>
+  );
+};
+
+const SchoolActivitiesRoute = () => {
+  const { isSubdomain, isLoading } = useTenant();
+  if (isLoading) return <PageLoader />;
+  if (isSubdomain) return <LazyWrapper><TenantSchoolActivitiesPage /></LazyWrapper>;
+  return (
+    <>
+      <Navbar />
+      <LazyWrapper><School_Activities /></LazyWrapper>
       <Footer />
     </>
   );
@@ -289,18 +314,20 @@ export const router = createBrowserRouter([
         element: <MainDomainLayout />,
         children: [
           {
-            path: 'about',
-            element: <LazyWrapper><About /></LazyWrapper>,
-          },
-          {
-            path: 'school_activities',
-            element: <LazyWrapper><School_Activities /></LazyWrapper>,
-          },
-          {
             path: 'how-to-apply',
             element: <LazyWrapper><HowToApplyPage /></LazyWrapper>,
           },
         ]
+      },
+
+      // Subdomain-aware routes (tenant page on subdomain, platform page on main domain)
+      {
+        path: 'about',
+        element: <AboutRoute />,
+      },
+      {
+        path: 'school_activities',
+        element: <SchoolActivitiesRoute />,
       },
 
       // Onboarding routes (no navbar/footer)
@@ -335,11 +362,7 @@ export const router = createBrowserRouter([
         element: <LazyWrapper><SetupPage /></LazyWrapper>,
       },
 
-      // Tenant public landing sub-pages (lazy loaded)
-      {
-        path: 'about',
-        element: <LazyWrapper><TenantAboutPage /></LazyWrapper>,
-      },
+      // Tenant-only public sub-pages
       {
         path: 'admissions',
         element: <LazyWrapper><TenantAdmissionsPage /></LazyWrapper>,
@@ -347,10 +370,6 @@ export const router = createBrowserRouter([
       {
         path: 'contact',
         element: <LazyWrapper><TenantContactPage /></LazyWrapper>,
-      },
-      {
-        path: 'school_activities',
-        element: <LazyWrapper><TenantSchoolActivitiesPage /></LazyWrapper>,
       },
 
       // Auth routes (Subdomain - standalone pages)

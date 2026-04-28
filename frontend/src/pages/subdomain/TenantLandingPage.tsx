@@ -341,55 +341,57 @@ const TenantLandingPage: React.FC = () => {
 
       {/* ── Contact Section ── */}
       {contactSection && (
-        <section id="contact" className="py-20 bg-gray-900 text-white">
+        <section id="contact" className="py-20 bg-slate-50">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-14">
               <span className="inline-block text-xs font-semibold uppercase tracking-widest mb-3 px-3 py-1 rounded-full"
-                style={{ backgroundColor: `${primaryColor}33`, color: `${primaryColor}ee` }}>
+                style={{ backgroundColor: `${primaryColor}18`, color: primaryColor }}>
                 Contact Us
               </span>
-              <h2 className="text-3xl sm:text-4xl font-extrabold mb-3">{contactSection.title}</h2>
+              <h2 className="text-3xl sm:text-4xl font-extrabold text-gray-900 mb-3">{contactSection.title}</h2>
               {contactSection.subtitle && (
-                <p className="text-gray-400 max-w-xl mx-auto">{contactSection.subtitle}</p>
+                <p className="text-gray-500 max-w-xl mx-auto line-clamp-2">{contactSection.subtitle}</p>
               )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
               {contactSection.contact_address && (
-                <div className="text-center p-6 bg-gray-800 rounded-2xl">
+                <div className="text-center p-6 bg-white rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
                   <div className="w-12 h-12 rounded-xl mx-auto mb-4 flex items-center justify-center"
-                    style={{ backgroundColor: `${primaryColor}33` }}>
+                    style={{ backgroundColor: `${primaryColor}18` }}>
                     <MapPin className="w-5 h-5" style={{ color: primaryColor }} />
                   </div>
-                  <h3 className="font-semibold mb-1">Address</h3>
-                  <p className="text-gray-400 text-sm">{contactSection.contact_address}</p>
+                  <h3 className="font-semibold text-gray-900 mb-2">Address</h3>
+                  <p className="text-gray-500 text-sm line-clamp-2">{contactSection.contact_address}</p>
                 </div>
               )}
-              {(contactSection.contact_phone) && (
-                <div className="text-center p-6 bg-gray-800 rounded-2xl">
+              {contactSection.contact_phone && (
+                <div className="text-center p-6 bg-white rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
                   <div className="w-12 h-12 rounded-xl mx-auto mb-4 flex items-center justify-center"
-                    style={{ backgroundColor: `${primaryColor}33` }}>
+                    style={{ backgroundColor: `${primaryColor}18` }}>
                     <Phone className="w-5 h-5" style={{ color: primaryColor }} />
                   </div>
-                  <h3 className="font-semibold mb-1">Phone</h3>
+                  <h3 className="font-semibold text-gray-900 mb-2">Phone</h3>
                   <a href={`tel:${contactSection.contact_phone}`}
-                    className="text-gray-400 text-sm hover:text-white transition-colors">
+                    className="text-sm font-medium transition-colors hover:opacity-80"
+                    style={{ color: primaryColor }}>
                     {contactSection.contact_phone}
                   </a>
                   {contactSection.contact_hours && (
-                    <p className="text-xs text-gray-500 mt-1">{contactSection.contact_hours}</p>
+                    <p className="text-xs text-gray-400 mt-1">{contactSection.contact_hours}</p>
                   )}
                 </div>
               )}
               {contactSection.contact_email && (
-                <div className="text-center p-6 bg-gray-800 rounded-2xl">
+                <div className="text-center p-6 bg-white rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
                   <div className="w-12 h-12 rounded-xl mx-auto mb-4 flex items-center justify-center"
-                    style={{ backgroundColor: `${primaryColor}33` }}>
+                    style={{ backgroundColor: `${primaryColor}18` }}>
                     <Mail className="w-5 h-5" style={{ color: primaryColor }} />
                   </div>
-                  <h3 className="font-semibold mb-1">Email</h3>
+                  <h3 className="font-semibold text-gray-900 mb-2">Email</h3>
                   <a href={`mailto:${contactSection.contact_email}`}
-                    className="text-gray-400 text-sm hover:text-white transition-colors">
+                    className="text-sm font-medium transition-colors hover:opacity-80 break-all"
+                    style={{ color: primaryColor }}>
                     {contactSection.contact_email}
                   </a>
                 </div>
@@ -398,7 +400,8 @@ const TenantLandingPage: React.FC = () => {
 
             <div className="text-center mt-10">
               <Link to="/contact"
-                className="inline-flex items-center gap-2 px-7 py-3 rounded-xl font-semibold text-white border border-white/20 hover:bg-white/10 transition-all"
+                className="inline-flex items-center gap-2 px-7 py-3 rounded-xl font-semibold text-white transition-all hover:opacity-90"
+                style={{ backgroundColor: primaryColor }}
               >
                 Full Contact Page <ArrowRight className="w-4 h-4" />
               </Link>
