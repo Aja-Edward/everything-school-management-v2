@@ -7,7 +7,7 @@ import json
 
 
 class Command(BaseCommand):
-    help = "Check existing scoring configurations in Neon database"
+    help = "Check existing scoring configurations in Supabase database"
 
     def handle(self, *args, **options):
         self.stdout.write(self.style.SUCCESS("\n=== CHECKING NEON DATABASE ===\n"))

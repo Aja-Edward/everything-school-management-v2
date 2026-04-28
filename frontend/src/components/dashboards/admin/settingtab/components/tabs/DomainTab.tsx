@@ -436,7 +436,7 @@ const DomainTab: React.FC<DomainTabProps> = () => {
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="bg-white p-2 rounded border border-gray-200">
                         <span className="text-gray-500">Host/Name:</span>
-                        <code className="block font-mono text-gray-800 mt-0.5">_schoolplatform-verify</code>
+                        <code className="block font-mono text-gray-800 mt-0.5">_nuventacloud-verify</code>
                       </div>
                       <div className="bg-white p-2 rounded border border-gray-200 relative">
                         <span className="text-gray-500">Value:</span>

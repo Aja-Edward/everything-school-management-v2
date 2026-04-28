@@ -123,20 +123,20 @@ class SchoolRegistrationView(APIView):
 
             if is_development:
                 # Development: use localhost with subdomain
-                setup_url = f"http://{tenant.slug}.localhost:{frontend_port}/setup?token={setup_token}"
+                setup_url = f"http://{tenant.slug}.localhost:{frontend_port}/setup?token={setup_token.token}"
             else:
                 # Production: use actual domain
                 platform_domain = getattr(
                     settings, "PLATFORM_DOMAIN", "nuventacloud.com"
                 )
-                setup_url = f"https://{tenant.slug}.{platform_domain}/setup?token={setup_token}"
+                setup_url = f"https://{tenant.slug}.{platform_domain}/setup?token={setup_token.token}"
 
             return Response({
                 'message': 'School registered successfully',
                 'tenant': TenantSerializer(tenant).data,
                 'subdomain': tenant.subdomain_url,
                 'setup_url': setup_url,
-                'setup_token': setup_token,
+                'setup_token': setup_token.token,
                 'admin_credentials': {
                     'username': username,
                     'email': admin_user.email,
@@ -622,7 +622,7 @@ class DomainManagementViewSet(viewsets.ViewSet):
             'domain': domain,
             'verification_token': verification_token,
             'instructions': {
-                'step1': f"Add a TXT record: _schoolplatform-verify.{domain} with value: {verification_token}",
+                'step1': f"Add a TXT record: _nuventacloud-verify.{domain} with value: {verification_token}",
                 'step2': f"Add a CNAME record: www.{domain} pointing to: proxy.{platform_domain}",
                 'step3': f"Add an A record: {domain} pointing to: {platform_ip}",
             },
@@ -644,7 +644,7 @@ class DomainManagementViewSet(viewsets.ViewSet):
 
         # Check DNS TXT record
         try:
-            txt_record_name = f"_schoolplatform-verify.{tenant.custom_domain}"
+            txt_record_name = f"_nuventacloud-verify.{tenant.custom_domain}"
             answers = dns.resolver.resolve(txt_record_name, 'TXT')
 
             for rdata in answers:
@@ -666,7 +666,7 @@ class DomainManagementViewSet(viewsets.ViewSet):
         except dns.resolver.NXDOMAIN:
             return Response({
                 'verified': False,
-                'error': f'DNS record not found. Please add TXT record for _schoolplatform-verify.{tenant.custom_domain}'
+                'error': f'DNS record not found. Please add TXT record for _nuventacloud-verify.{tenant.custom_domain}'
             }, status=400)
         except dns.resolver.NoAnswer:
             return Response({

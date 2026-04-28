@@ -23,7 +23,7 @@ else:
     raise RuntimeError(f"Missing environment file: .env.{ENV}")
 
 if ENV == "prod":
-    # Production: Use PROD_DATABASE_URL for Neon
+    # Production: Use PROD_DATABASE_URL for Supabase
     DATABASE_URL = os.getenv("PROD_DATABASE_URL")
     if not DATABASE_URL:
         raise ValueError("Missing PROD_DATABASE_URL for production environment")
@@ -281,7 +281,7 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     # Development: allow any subdomain of localhost
     r"^http://[\w-]+\.localhost:\d+$",
     # Production: allow any subdomain of nuventacloud.com
-    r"^https://[\w-]+\.schoolplatform\.com$",
+    r"^https://[\w-]+\.nuventacloud\.com$",
 ]
 
 # Celery + Redis
