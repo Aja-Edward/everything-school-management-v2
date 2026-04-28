@@ -85,17 +85,36 @@ const LandingPageService = {
   uploadHeroImage: async (file: File): Promise<string> => {
     const form = new FormData();
     form.append('image', file);
-    const tenantSlug = localStorage.getItem('tenantSlug');
-    const csrfCookie = document.cookie.split('; ').find(r => r.startsWith('csrftoken='))?.split('=')[1] ?? '';
+
+    const getCsrfToken = () => {
+      for (const cookie of document.cookie.split(';')) {
+        const [name, value] = cookie.trim().split('=');
+        if (name === 'csrftoken') return decodeURIComponent(value);
+      }
+      return null;
+    };
+
+    const tenantId   = localStorage.getItem('tenantId')   || sessionStorage.getItem('tenantId');
+    const tenantSlug = localStorage.getItem('tenantSlug') || sessionStorage.getItem('tenantSlug');
+    const headers: Record<string, string> = {};
+    const csrf = getCsrfToken();
+    if (csrf)       headers['X-CSRFToken']  = csrf;
+    if (tenantId)   headers['X-Tenant-ID']  = tenantId;
+    if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
+
     const res = await fetch(`${API_BASE_URL}/school-settings/landing/upload-hero/`, {
       method: 'POST',
       body: form,
       credentials: 'include',
-      headers: {
-        ...(tenantSlug ? { 'X-Tenant-Slug': tenantSlug } : {}),
-        ...(csrfCookie ? { 'X-CSRFToken': csrfCookie } : {}),
-      },
+      headers,
     });
+
+    if (!res.ok) {
+      const ct = res.headers.get('content-type');
+      const err = ct?.includes('application/json') ? await res.json() : { error: await res.text() };
+      throw new Error(`Hero upload failed: ${res.status} - ${JSON.stringify(err)}`);
+    }
+
     const data = await res.json();
     return data.url as string;
   },
