@@ -139,10 +139,34 @@ const LandingPageService = {
   uploadSectionImage: async (id: number, file: File): Promise<string> => {
     const form = new FormData();
     form.append('image', file);
+
+    const getCsrfToken = () => {
+      for (const cookie of document.cookie.split(';')) {
+        const [name, value] = cookie.trim().split('=');
+        if (name === 'csrftoken') return decodeURIComponent(value);
+      }
+      return null;
+    };
+
+    const tenantId   = localStorage.getItem('tenantId')   || sessionStorage.getItem('tenantId');
+    const tenantSlug = localStorage.getItem('tenantSlug') || sessionStorage.getItem('tenantSlug');
+    const headers: Record<string, string> = {};
+    const csrf = getCsrfToken();
+    if (csrf)       headers['X-CSRFToken']   = csrf;
+    if (tenantId)   headers['X-Tenant-ID']   = tenantId;
+    if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
+
     const res = await fetch(
       `${API_BASE_URL}/school-settings/landing/sections/${id}/upload_image/`,
-      { method: 'POST', body: form, credentials: 'include' }
+      { method: 'POST', body: form, credentials: 'include', headers }
     );
+
+    if (!res.ok) {
+      const ct = res.headers.get('content-type');
+      const err = ct?.includes('application/json') ? await res.json() : { error: await res.text() };
+      throw new Error(`Section image upload failed: ${res.status} - ${JSON.stringify(err)}`);
+    }
+
     const data = await res.json();
     return data.url as string;
   },
