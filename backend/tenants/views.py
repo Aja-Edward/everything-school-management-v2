@@ -943,18 +943,13 @@ class TenantSettingsViewSet(viewsets.ModelViewSet):
         logger.info(f"TenantSettings.current: tenant={tenant.slug}, created={created}")
 
         if request.method == 'PATCH':
-            logger.info(f"TenantSettings PATCH: Received data: {request.data}")
-            # Use DesignSettingsSerializer for PATCH to only handle design fields
-            serializer = DesignSettingsSerializer(
+            serializer = TenantSettingsSerializer(
                 settings_obj, data=request.data, partial=True
             )
             if serializer.is_valid():
                 serializer.save()
                 cache.delete(f"tenant_settings_{tenant.id}")
-                logger.info(
-                    f"TenantSettings PATCH: Successfully saved. Returning: {serializer.data}"
-                )
-                return Response(serializer.data)
+                return Response(TenantSettingsSerializer(settings_obj).data)
 
             logger.error(f"TenantSettings PATCH validation errors: {serializer.errors}")
             return Response(serializer.errors, status=400)
