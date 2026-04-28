@@ -85,10 +85,16 @@ const LandingPageService = {
   uploadHeroImage: async (file: File): Promise<string> => {
     const form = new FormData();
     form.append('image', file);
+    const tenantSlug = localStorage.getItem('tenantSlug');
+    const csrfCookie = document.cookie.split('; ').find(r => r.startsWith('csrftoken='))?.split('=')[1] ?? '';
     const res = await fetch(`${API_BASE_URL}/school-settings/landing/upload-hero/`, {
       method: 'POST',
       body: form,
       credentials: 'include',
+      headers: {
+        ...(tenantSlug ? { 'X-Tenant-Slug': tenantSlug } : {}),
+        ...(csrfCookie ? { 'X-CSRFToken': csrfCookie } : {}),
+      },
     });
     const data = await res.json();
     return data.url as string;
