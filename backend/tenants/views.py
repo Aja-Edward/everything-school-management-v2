@@ -123,20 +123,20 @@ class SchoolRegistrationView(APIView):
 
             if is_development:
                 # Development: use localhost with subdomain
-                setup_url = f"http://{tenant.slug}.localhost:{frontend_port}/setup?token={setup_token.token}"
+                setup_url = f"http://{tenant.slug}.localhost:{frontend_port}/setup?token={setup_token}"
             else:
                 # Production: use actual domain
                 platform_domain = getattr(
                     settings, "PLATFORM_DOMAIN", "nuventacloud.com"
                 )
-                setup_url = f"https://{tenant.slug}.{platform_domain}/setup?token={setup_token.token}"
+                setup_url = f"https://{tenant.slug}.{platform_domain}/setup?token={setup_token}"
 
             return Response({
                 'message': 'School registered successfully',
                 'tenant': TenantSerializer(tenant).data,
                 'subdomain': tenant.subdomain_url,
                 'setup_url': setup_url,
-                'setup_token': setup_token.token,
+                'setup_token': setup_token,
                 'admin_credentials': {
                     'username': username,
                     'email': admin_user.email,
