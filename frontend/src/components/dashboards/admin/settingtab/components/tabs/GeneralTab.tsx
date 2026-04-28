@@ -66,14 +66,8 @@ const { t } = useTranslation();
 
   useEffect(() => {
     if (initialSettings) {
-      console.log('GeneralTab: Initializing with settings:', initialSettings);
-      
-
       const logoUrl = getAbsoluteUrl(initialSettings.logo);
       const faviconUrl = getAbsoluteUrl(initialSettings.favicon);
-      
-      console.log('GeneralTab: Constructed logo URL:', logoUrl);
-      console.log('GeneralTab: Constructed favicon URL:', faviconUrl);
       
       setFormData({
         school_name: initialSettings.school_name || '',
@@ -101,7 +95,6 @@ const { t } = useTranslation();
   }, [initialSettings]);
 
   const handleInputChange = (field: string, value: string) => {
-    console.log(`GeneralTab: Field "${field}" changed to:`, value);
     setFormData(prev => ({
       ...prev,
       [field]: value
@@ -131,18 +124,13 @@ const { t } = useTranslation();
 
     try {
       setIsUploadingLogo(true);
-      console.log('GeneralTab: Uploading logo...', file.name);
-      
       const result = await SettingsService.uploadLogo(file);
       const normalizeUrl = (url?: string) => {
-      if (!url) return '';
-      if (url.startsWith('http')) return url;
-      return `${API_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
-    };
-
-        const fullLogoUrl = normalizeUrl(result.logoUrl);
-      console.log('GeneralTab: Logo upload result:', result);
-      console.log('GeneralTab: Full logo URL:', fullLogoUrl);
+        if (!url) return '';
+        if (url.startsWith('http')) return url;
+        return `${API_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+      };
+      const fullLogoUrl = normalizeUrl(result.logoUrl);
       
       setFormData(prev => ({
         ...prev,
@@ -177,18 +165,12 @@ const { t } = useTranslation();
 
     try {
       setIsUploadingFavicon(true);
-      console.log('GeneralTab: Uploading favicon...', file.name);
-      
       const result = await SettingsService.uploadFavicon(file);
-    
       const fullFaviconUrl = result.faviconUrl
         ? result.faviconUrl.startsWith('http')
           ? result.faviconUrl
           : `${API_BASE_URL}${result.faviconUrl.startsWith('/') ? result.faviconUrl : '/' + result.faviconUrl}`
         : '';
-      
-      console.log('GeneralTab: Favicon upload result:', result);
-      console.log('GeneralTab: Full favicon URL:', fullFaviconUrl);
       
       setFormData(prev => ({
         ...prev,
@@ -238,13 +220,8 @@ const { t } = useTranslation();
     }
 
     try {
-      console.log('GeneralTab: Attempting to save settings...');
-      console.log('GeneralTab: Form data being sent:', formData);
-      
-      // Call parent's update handler which uses SettingsContext
       if (onSettingsUpdate) {
         await onSettingsUpdate(formData);
-        console.log('GeneralTab: Settings saved successfully!');
         setSuccess('Settings saved successfully!');
         setTimeout(() => setSuccess(null), 3000);
       } else {

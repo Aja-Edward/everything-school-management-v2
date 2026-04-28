@@ -1246,25 +1246,26 @@ def admin_dashboard_enhanced_stats(request):
             )
 
         # Recent exam completions
-        recent_exams = (
-            Exam.objects.filter(exam_date__gte=last_7_days, status__code="completed")
-            .select_related("subject", "grade_level", "section")
-            .order_by("-exam_date")[:5]
-        )
-
-        for exam in recent_exams:
-            exam_location = exam.grade_level.name if exam.grade_level else 'Unknown grade'
-            if exam.section:
-                exam_location += f" - {exam.section.name}"
-
-            activities.append({
-                'type': 'exam',
-                'icon': '📝',
-                'title': 'Exam Completed',
-                'description': f"{exam.subject.name} exam completed for {exam_location}",
-                'timestamp': timezone.datetime.combine(exam.exam_date, exam.start_time).isoformat() if exam.start_time else exam.exam_date.isoformat(),
-                'priority': 'normal'
-            })
+        try:
+            recent_exams = (
+                Exam.objects.filter(exam_date__gte=last_7_days, status__code="completed")
+                .select_related("subject", "grade_level", "section")
+                .order_by("-exam_date")[:5]
+            )
+            for exam in recent_exams:
+                exam_location = exam.grade_level.name if exam.grade_level else 'Unknown grade'
+                if exam.section:
+                    exam_location += f" - {exam.section.name}"
+                activities.append({
+                    'type': 'exam',
+                    'icon': '📝',
+                    'title': 'Exam Completed',
+                    'description': f"{exam.subject.name} exam completed for {exam_location}",
+                    'timestamp': timezone.datetime.combine(exam.exam_date, exam.start_time).isoformat() if exam.start_time else exam.exam_date.isoformat(),
+                    'priority': 'normal'
+                })
+        except Exception as e:
+            logger.warning(f"Skipping recent exams in activity feed: {e}")
 
         # Recent announcements
         recent_announcements = (
