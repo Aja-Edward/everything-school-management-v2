@@ -102,7 +102,7 @@ const LandingPageService = {
     if (tenantId)   headers['X-Tenant-ID']  = tenantId;
     if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
 
-    const res = await fetch(`${API_BASE_URL}/school-settings/landing/upload-hero/`, {
+    const res = await fetch(`${API_BASE_URL}/tenants/settings/upload-hero-image/`, {
       method: 'POST',
       body: form,
       credentials: 'include',

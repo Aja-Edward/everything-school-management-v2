@@ -931,6 +931,56 @@ class TenantSettingsViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @action(detail=False, methods=["post"], url_path="upload-hero-image")
+    def upload_hero_image(self, request):
+        """POST /api/tenants/settings/upload-hero-image/ - Upload landing page hero image"""
+        if "image" not in request.FILES:
+            return Response({"error": "No image file provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        image_file = request.FILES["image"]
+
+        if image_file.size > 5 * 1024 * 1024:
+            return Response({"error": "Image must be less than 5MB"}, status=status.HTTP_400_BAD_REQUEST)
+
+        allowed_types = ["image/jpeg", "image/png", "image/webp", "image/gif"]
+        if image_file.content_type not in allowed_types:
+            return Response({"error": "Invalid file type. Allowed: JPG, PNG, WEBP, GIF"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            tenant = getattr(request, "tenant", None)
+            if not tenant and request.user.is_authenticated:
+                tenant = getattr(request.user, "tenant", None)
+
+            if not tenant:
+                return Response({"error": "No tenant context found."}, status=status.HTTP_400_BAD_REQUEST)
+
+            upload_result = cloudinary.uploader.upload(
+                image_file,
+                folder=f"tenants/{tenant.slug}/landing",
+                public_id=f"hero_{tenant.slug}",
+                overwrite=True,
+                resource_type="image",
+                transformation=[
+                    {"width": 1920, "height": 1080, "crop": "limit"},
+                    {"quality": "auto"},
+                    {"fetch_format": "auto"},
+                ],
+            )
+
+            hero_url = upload_result["secure_url"]
+
+            from schoolSettings.models import TenantLandingPage
+            landing, _ = TenantLandingPage.objects.get_or_create(tenant=tenant)
+            landing.hero_image = hero_url
+            landing.save(update_fields=["hero_image"])
+
+            return Response({"url": hero_url, "message": "Hero image uploaded successfully"}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return Response({"error": f"Upload failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=False, methods=['get', 'patch'])
     def current(self, request):
         """Get or update current tenant settings."""

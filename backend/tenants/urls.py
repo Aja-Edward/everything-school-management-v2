@@ -66,6 +66,8 @@ settings_upload_logo = TenantSettingsViewSet.as_view({"post": "upload_logo"})
 
 settings_upload_favicon = TenantSettingsViewSet.as_view({"post": "upload_favicon"})
 
+settings_upload_hero_image = TenantSettingsViewSet.as_view({"post": "upload_hero_image"})
+
 urlpatterns = [
     # Include router URLs
     path("", include(router.urls)),
@@ -99,5 +101,10 @@ urlpatterns = [
         "settings/upload-favicon/",
         settings_upload_favicon,
         name="tenant-settings-upload-favicon",
+    ),
+    path(
+        "settings/upload-hero-image/",
+        settings_upload_hero_image,
+        name="tenant-settings-upload-hero-image",
     ),
 ]
