@@ -1634,10 +1634,6 @@ class LandingPageView(APIView):
             landing = TenantLandingPage.objects.get(tenant=tenant)
         except TenantLandingPage.DoesNotExist:
             return Response({"detail": "Landing page not configured."}, status=404)
-        if not landing.is_published:
-            # Allow admins to preview unpublished
-            if not (request.user and request.user.is_authenticated):
-                return Response({"detail": "Landing page not published."}, status=404)
         serializer = TenantLandingPageSerializer(landing)
         return Response(serializer.data)
 
