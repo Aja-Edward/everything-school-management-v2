@@ -203,15 +203,15 @@ const TenantLandingPage: React.FC = () => {
                   {aboutSection.title}
                 </h2>
                 {aboutSection.subtitle && (
-                  <p className="text-lg text-gray-600 mb-5 font-medium">{aboutSection.subtitle}</p>
+                  <p className="text-lg text-gray-600 mb-4 font-medium line-clamp-2">{aboutSection.subtitle}</p>
                 )}
                 {aboutSection.content && (
-                  <p className="text-gray-600 leading-relaxed mb-7 whitespace-pre-line">{aboutSection.content}</p>
+                  <p className="text-gray-600 leading-relaxed mb-5 line-clamp-3">{aboutSection.content}</p>
                 )}
                 <Link to="/about"
                   className="inline-flex items-center gap-2 font-semibold text-sm transition-colors hover:gap-3"
                   style={{ color: primaryColor }}>
-                  Learn More <ArrowRight className="w-4 h-4" />
+                  Read More <ArrowRight className="w-4 h-4" />
                 </Link>
               </div>
             </div>
@@ -238,8 +238,13 @@ const TenantLandingPage: React.FC = () => {
               {/* Main content */}
               <div className="lg:col-span-2 space-y-6">
                 {admissionsSection.content && (
-                  <div className="prose prose-gray max-w-none">
-                    <p className="text-gray-600 leading-relaxed whitespace-pre-line">{admissionsSection.content}</p>
+                  <div>
+                    <p className="text-gray-600 leading-relaxed line-clamp-4">{admissionsSection.content}</p>
+                    <Link to="/admissions"
+                      className="inline-flex items-center gap-1 text-sm font-semibold mt-3 transition-colors hover:gap-2"
+                      style={{ color: primaryColor }}>
+                      Read More <ArrowRight className="w-3.5 h-3.5" />
+                    </Link>
                   </div>
                 )}
                 {admissionsSection.image && (
@@ -313,7 +318,14 @@ const TenantLandingPage: React.FC = () => {
                 </span>
                 <h2 className="text-3xl font-extrabold text-gray-900 mb-4">{section.title}</h2>
                 {section.content && (
-                  <p className="text-gray-600 leading-relaxed whitespace-pre-line">{section.content}</p>
+                  <>
+                    <p className="text-gray-600 leading-relaxed line-clamp-3">{section.content}</p>
+                    <Link to={`/contact`}
+                      className="inline-flex items-center gap-1 text-sm font-semibold mt-3 transition-colors hover:gap-2"
+                      style={{ color: primaryColor }}>
+                      Read More <ArrowRight className="w-3.5 h-3.5" />
+                    </Link>
+                  </>
                 )}
               </div>
               {section.image && (
