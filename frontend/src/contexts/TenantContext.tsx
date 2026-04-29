@@ -64,23 +64,29 @@ function detectHostname(): HostnameResult {
     return { slug: null, customDomain: null };
   }
 
-  // Known main domains → not a tenant
+  // Known main domains (and their www variants) → not a tenant
   if (MAIN_DOMAINS.some(d => hostname === d || hostname === `www.${d}`)) {
     return { slug: null, customDomain: null };
   }
 
   const parts = hostname.split('.');
 
-  // 3+ parts → platform subdomain (e.g. kebi-international-academy.nuventacloud.com)
-  if (parts.length >= 3) {
+  // Platform subdomain: e.g. kebi-international-academy.nuventacloud.com
+  if (MAIN_DOMAINS.some(d => hostname.endsWith(`.${d}`))) {
     const subdomain = parts[0];
     if (RESERVED_SUBDOMAINS.includes(subdomain.toLowerCase())) return { slug: null, customDomain: null };
     return { slug: subdomain, customDomain: null };
   }
 
-  // 2 parts and not a known main domain → verified custom domain
+  // Apex custom domain: kebiinternationalacademy.com
   if (parts.length === 2) {
     return { slug: null, customDomain: hostname };
+  }
+
+  // www variant of a custom domain: www.kebiinternationalacademy.com
+  // Use the apex for the DB lookup since that's what's stored
+  if (parts.length === 3 && parts[0].toLowerCase() === 'www') {
+    return { slug: null, customDomain: `${parts[1]}.${parts[2]}` };
   }
 
   return { slug: null, customDomain: null };
