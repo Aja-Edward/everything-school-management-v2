@@ -65,15 +65,20 @@ const Toggle: React.FC<{ checked: boolean; onChange: (v: boolean) => void; label
 
 // ─── Section Editor ───────────────────────────────────────────────────────────
 
+const BANNER_SECTION_TYPES: SectionType[] = ['about', 'admissions', 'contact'];
+
 const SectionEditor: React.FC<{
   section: LandingSection;
   onChange: (updated: LandingSection) => void;
   onDelete: () => void;
   onUploadImage: (id: number, file: File) => Promise<void>;
-}> = ({ section, onChange, onDelete, onUploadImage }) => {
+  onUploadBannerImage: (id: number, file: File) => Promise<void>;
+}> = ({ section, onChange, onDelete, onUploadImage, onUploadBannerImage }) => {
   const [open, setOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [bannerUploading, setBannerUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const bannerFileRef = useRef<HTMLInputElement>(null);
 
   const upd = (patch: Partial<LandingSection>) => onChange({ ...section, ...patch });
 
@@ -82,6 +87,13 @@ const SectionEditor: React.FC<{
     if (!file || !section.id) return;
     setUploading(true);
     try { await onUploadImage(section.id, file); } finally { setUploading(false); }
+  };
+
+  const handleBannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !section.id) return;
+    setBannerUploading(true);
+    try { await onUploadBannerImage(section.id, file); } finally { setBannerUploading(false); }
   };
 
   return (
@@ -130,8 +142,41 @@ const SectionEditor: React.FC<{
             <Textarea rows={5} value={section.content ?? ''} onChange={e => upd({ content: e.target.value })} placeholder="Write your content here…" />
           </Field>
 
-          {/* Image upload */}
-          <Field label="Section Image">
+          {/* Banner image — only for pages that have a dedicated full page */}
+          {BANNER_SECTION_TYPES.includes(section.section_type) && (
+            <Field
+              label="Page Banner Image"
+              hint={`Full-width image shown at the top of the dedicated ${section.section_type} page. Recommended: 1440×400px.`}
+            >
+              <div className="space-y-3">
+                {section.banner_image && (
+                  <div className="relative rounded-xl overflow-hidden border border-gray-200">
+                    <img src={section.banner_image} alt="Banner" className="w-full h-28 object-cover" />
+                    <button
+                      onClick={() => upd({ banner_image: undefined })}
+                      className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-lg hover:bg-red-600 transition-colors"
+                      title="Remove banner">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+                <input ref={bannerFileRef} type="file" accept="image/*" className="hidden" onChange={handleBannerUpload} />
+                <button
+                  onClick={() => bannerFileRef.current?.click()}
+                  disabled={bannerUploading || !section.id}
+                  className="inline-flex items-center gap-2 px-3 py-2 text-sm border border-blue-200 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50">
+                  <Upload className="w-3.5 h-3.5" />
+                  {bannerUploading ? 'Uploading…' : section.banner_image ? 'Replace Banner' : 'Upload Banner'}
+                </button>
+                {!section.id && (
+                  <p className="text-xs text-amber-600">Save the section first before uploading a banner.</p>
+                )}
+              </div>
+            </Field>
+          )}
+
+          {/* Section body image */}
+          <Field label="Section Image" hint="Shown inside the section content on the main landing page.">
             <div className="flex gap-3 items-start">
               {section.image && (
                 <img src={section.image} alt="" className="w-24 h-16 object-cover rounded-lg border border-gray-200 shrink-0" />
@@ -341,6 +386,11 @@ const LandingPageTab: React.FC = () => {
   const uploadSectionImage = async (id: number, file: File) => {
     const url = await LandingPageService.uploadSectionImage(id, file);
     setSections(prev => prev.map(s => (s.id === id ? { ...s, image: url } : s)));
+  };
+
+  const uploadSectionBannerImage = async (id: number, file: File) => {
+    const url = await LandingPageService.uploadSectionBannerImage(id, file);
+    setSections(prev => prev.map(s => (s.id === id ? { ...s, banner_image: url } : s)));
   };
 
   const addNavLink = () => {
@@ -679,6 +729,7 @@ const LandingPageTab: React.FC = () => {
                   onChange={updated => updateSection(i, updated)}
                   onDelete={() => deleteSection(i)}
                   onUploadImage={uploadSectionImage}
+                  onUploadBannerImage={uploadSectionBannerImage}
                 />
               ))}
             </div>
