@@ -93,6 +93,7 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 # Vercel API — used to auto-register/remove custom domains on verification
 VERCEL_API_TOKEN = os.getenv("VERCEL_API_TOKEN", "")
 VERCEL_PROJECT_ID = os.getenv("VERCEL_PROJECT_ID", "")
+VERCEL_TEAM_ID = os.getenv("VERCEL_TEAM_ID", "")
 
 # Allowed hosts
 ALLOWED_HOSTS = [

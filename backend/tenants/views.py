@@ -613,10 +613,16 @@ def _vercel_request(method: str, path: str, body: dict | None = None) -> bool:
     if not token:
         logger_vercel.warning("VERCEL_API_TOKEN not set — skipping Vercel domain sync")
         return False
+
+    # Team projects require teamId on every request
+    team_id = getattr(settings, 'VERCEL_TEAM_ID', '')
+    separator = '&' if '?' in path else '?'
+    full_path = f"{path}{separator}teamId={team_id}" if team_id else path
+
     try:
         data = _json.dumps(body).encode() if body else None
         req = urllib.request.Request(
-            f"https://api.vercel.com{path}",
+            f"https://api.vercel.com{full_path}",
             data=data,
             headers={
                 "Authorization": f"Bearer {token}",
@@ -625,14 +631,14 @@ def _vercel_request(method: str, path: str, body: dict | None = None) -> bool:
             method=method,
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
-            logger_vercel.info("Vercel API %s %s → %s", method, path, resp.status)
+            logger_vercel.info("Vercel API %s %s → %s", method, full_path, resp.status)
         return True
     except urllib.error.HTTPError as e:
         body_text = e.read().decode(errors="replace")
-        logger_vercel.error("Vercel API %s %s → HTTP %s: %s", method, path, e.code, body_text)
+        logger_vercel.error("Vercel API %s %s → HTTP %s: %s", method, full_path, e.code, body_text)
         return False
     except Exception as e:
-        logger_vercel.error("Vercel API %s %s → %s", method, path, e)
+        logger_vercel.error("Vercel API %s %s → %s", method, full_path, e)
         return False
 
 
