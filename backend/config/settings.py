@@ -252,6 +252,8 @@ if DEBUG:
 
 def _parse_origins(env_var, default):
     raw = os.getenv(env_var, default)
+    # Normalise: treat newlines and spaces as separators alongside commas
+    raw = raw.replace("\n", ",").replace("\r", ",").replace(" ", ",")
     return [
         o
         for o in (origin.strip().strip('"').strip("'") for origin in raw.split(","))
