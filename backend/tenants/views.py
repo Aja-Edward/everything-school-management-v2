@@ -642,10 +642,14 @@ class DomainManagementViewSet(viewsets.ViewSet):
         if tenant.custom_domain_verified:
             return Response({'message': 'Domain already verified'})
 
-        # Check DNS TXT record
+        # Check DNS TXT record using public resolvers for reliable propagation
         try:
             txt_record_name = f"_nuventacloud-verify.{tenant.custom_domain}"
-            answers = dns.resolver.resolve(txt_record_name, 'TXT')
+            resolver = dns.resolver.Resolver()
+            resolver.nameservers = ['8.8.8.8', '1.1.1.1', '8.8.4.4']
+            resolver.timeout = 5
+            resolver.lifetime = 10
+            answers = resolver.resolve(txt_record_name, 'TXT')
 
             for rdata in answers:
                 txt_value = rdata.to_text().strip('"')
