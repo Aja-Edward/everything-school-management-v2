@@ -90,6 +90,10 @@ else:
 # Frontend URL — must be set via FRONTEND_URL env var in production
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
+# Vercel API — used to auto-register/remove custom domains on verification
+VERCEL_API_TOKEN = os.getenv("VERCEL_API_TOKEN", "")
+VERCEL_PROJECT_ID = os.getenv("VERCEL_PROJECT_ID", "")
+
 # Allowed hosts
 ALLOWED_HOSTS = [
     "localhost",

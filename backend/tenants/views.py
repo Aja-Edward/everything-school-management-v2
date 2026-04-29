@@ -16,6 +16,9 @@ from django.shortcuts import get_object_or_404
 from django.core.cache import cache
 import dns.resolver
 import logging
+import json as _json
+import urllib.request
+import urllib.error
 
 import cloudinary.uploader
 
@@ -549,6 +552,58 @@ class ServicePricingViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(serializer.data)
 
 
+# ============ Vercel domain helpers ============
+
+logger_vercel = logging.getLogger(__name__)
+
+def _vercel_request(method: str, path: str, body: dict | None = None) -> bool:
+    """Make an authenticated request to the Vercel API. Returns True on success."""
+    token = getattr(settings, 'VERCEL_API_TOKEN', '')
+    if not token:
+        logger_vercel.warning("VERCEL_API_TOKEN not set — skipping Vercel domain sync")
+        return False
+    try:
+        data = _json.dumps(body).encode() if body else None
+        req = urllib.request.Request(
+            f"https://api.vercel.com{path}",
+            data=data,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            method=method,
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            logger_vercel.info("Vercel API %s %s → %s", method, path, resp.status)
+        return True
+    except urllib.error.HTTPError as e:
+        body_text = e.read().decode(errors="replace")
+        logger_vercel.error("Vercel API %s %s → HTTP %s: %s", method, path, e.code, body_text)
+        return False
+    except Exception as e:
+        logger_vercel.error("Vercel API %s %s → %s", method, path, e)
+        return False
+
+
+def _register_vercel_domain(domain: str) -> None:
+    """Add apex + www domain to the Vercel project after successful verification."""
+    project_id = getattr(settings, 'VERCEL_PROJECT_ID', '')
+    if not project_id:
+        logger_vercel.warning("VERCEL_PROJECT_ID not set — skipping domain registration")
+        return
+    for d in [domain, f"www.{domain}"]:
+        _vercel_request("POST", f"/v10/projects/{project_id}/domains", {"name": d})
+
+
+def _remove_vercel_domain(domain: str) -> None:
+    """Remove apex + www domain from the Vercel project when a tenant removes theirs."""
+    project_id = getattr(settings, 'VERCEL_PROJECT_ID', '')
+    if not project_id:
+        return
+    for d in [domain, f"www.{domain}"]:
+        _vercel_request("DELETE", f"/v9/projects/{project_id}/domains/{d}")
+
+
 # ============ Domain Management ============
 
 class DomainManagementViewSet(viewsets.ViewSet):
@@ -656,6 +711,8 @@ class DomainManagementViewSet(viewsets.ViewSet):
                 if txt_value == tenant.domain_verification_token:
                     tenant.custom_domain_verified = True
                     tenant.save()
+                    # Auto-register on Vercel so the frontend serves this domain
+                    _register_vercel_domain(tenant.custom_domain)
                     return Response({
                         'verified': True,
                         'message': 'Domain verified successfully!',
@@ -690,6 +747,10 @@ class DomainManagementViewSet(viewsets.ViewSet):
         tenant = getattr(request, 'tenant', None)
         if not tenant:
             return Response({'error': 'No tenant context'}, status=400)
+
+        # Remove from Vercel before clearing the DB record
+        if tenant.custom_domain and tenant.custom_domain_verified:
+            _remove_vercel_domain(tenant.custom_domain)
 
         tenant.custom_domain = None
         tenant.custom_domain_verified = False
