@@ -12,6 +12,7 @@ import { SettingsProvider } from '@/contexts/SettingsContext';
 import { DesignProvider } from '@/contexts/DesignContext';
 import ThemeProvider from '@/components/ThemeProvider';
 import FaviconUpdater from '@/components/FaviconUpdater';
+import TitleManager from '@/components/TitleManager';
 import { lazy, Suspense } from 'react';
 import Navbar from '@/components/home/Nav';
 import Footer from '@/components/home/Footer';
@@ -162,6 +163,7 @@ const RootLayout = () => (
             <SettingsProvider>
               <ThemeProvider>
                 <FaviconUpdater />
+                <TitleManager />
                 <ErrorBoundary>
                   <Outlet />
                 </ErrorBoundary>

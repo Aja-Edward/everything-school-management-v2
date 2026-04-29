@@ -124,6 +124,11 @@ const PUBLIC_ENDPOINTS = [
   '/tenants/check-slug/',
   '/tenants/check-domain/',
   '/students/verify-result-token/',
+  // Public landing page endpoints — unauthenticated visitors must never be
+  // redirected to /login if these return 401 (e.g. during cold-start race)
+  '/school-settings/landing/',
+  '/school-settings/school-settings/',
+  '/events/events/',
 ];
 
 const isPublicEndpoint = (endpoint: string): boolean =>
