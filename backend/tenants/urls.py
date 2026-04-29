@@ -8,6 +8,7 @@ from .views import (
     CheckSlugView,
     CheckDomainView,
     PublicTenantView,
+    PublicTenantByDomainView,
     SetupTokenExchangeView,
     # Tenant management
     TenantViewSet,
@@ -76,6 +77,7 @@ urlpatterns = [
     path("check-slug/", CheckSlugView.as_view(), name="check-slug"),
     path("check-domain/", CheckDomainView.as_view(), name="check-domain"),
     path("public/<slug:slug>/", PublicTenantView.as_view(), name="public-tenant"),
+    path("public/by-domain/", PublicTenantByDomainView.as_view(), name="public-tenant-by-domain"),
     path(
         "setup/exchange/", SetupTokenExchangeView.as_view(), name="setup-token-exchange"
     ),

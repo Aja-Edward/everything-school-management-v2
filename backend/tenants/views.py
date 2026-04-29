@@ -240,6 +240,57 @@ class PublicTenantView(APIView):
         })
 
 
+class PublicTenantByDomainView(APIView):
+    """
+    Get public tenant information by verified custom domain.
+    Called by the frontend when it detects a custom domain hostname.
+    No authentication required.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        domain = request.query_params.get('domain', '').strip().lower()
+        if not domain:
+            return Response({'error': 'domain query param required'}, status=400)
+        try:
+            tenant = Tenant.objects.select_related('settings').get(
+                custom_domain=domain,
+                custom_domain_verified=True,
+                is_active=True,
+                status='active',
+            )
+        except Tenant.DoesNotExist:
+            return Response({'error': 'No verified tenant for this domain'}, status=404)
+
+        settings_obj = getattr(tenant, 'settings', None)
+        settings_data = None
+        if settings_obj:
+            def safe_url(field):
+                return str(field) if field else None
+            settings_data = {
+                'logo': safe_url(settings_obj.logo),
+                'favicon': safe_url(settings_obj.favicon),
+                'primary_color': settings_obj.primary_color,
+                'secondary_color': settings_obj.secondary_color,
+                'school_motto': settings_obj.school_motto,
+                'student_portal_enabled': settings_obj.student_portal_enabled,
+                'teacher_portal_enabled': settings_obj.teacher_portal_enabled,
+                'parent_portal_enabled': settings_obj.parent_portal_enabled,
+            }
+        return Response({
+            'tenant': {
+                'id': str(tenant.id),
+                'name': tenant.name,
+                'slug': tenant.slug,
+                'status': tenant.status,
+                'is_active': tenant.is_active,
+                'subdomain_url': tenant.subdomain_url,
+                'custom_domain': tenant.custom_domain,
+            },
+            'settings': settings_data,
+        })
+
+
 class SetupTokenExchangeView(APIView):
     """
     Exchange a one-time setup token for JWT authentication.

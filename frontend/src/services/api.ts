@@ -120,6 +120,7 @@ const PUBLIC_ENDPOINTS = [
   '/auth/csrf/',
   '/auth/status/',
   '/tenants/public/',
+  '/tenants/public/by-domain/',
   '/tenants/register/',
   '/tenants/check-slug/',
   '/tenants/check-domain/',

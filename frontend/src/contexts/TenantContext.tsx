@@ -32,55 +32,58 @@ const MAIN_DOMAINS = ['localhost', 'nuventacloud.com', '127.0.0.1'];
 // Hosting platform domains — treat as main domain, never as tenant subdomains
 const HOSTING_PLATFORM_DOMAINS = ['vercel.app', 'onrender.com', 'netlify.app', 'herokuapp.com', 'railway.app'];
 
+interface HostnameResult {
+  slug: string | null;       // platform subdomain slug, e.g. "kebi-international-academy"
+  customDomain: string | null; // full custom domain, e.g. "kebiinternationalacademy.com"
+}
+
 /**
- * Extracts the subdomain from the current hostname
- * Returns null if we're on the main domain
+ * Inspects the current hostname and returns either a platform subdomain slug
+ * OR a custom domain that needs to be resolved via the by-domain API.
  */
-function extractSubdomain(): string | null {
+function detectHostname(): HostnameResult {
   const hostname = window.location.hostname;
   const isDevelopment = import.meta.env.DEV;
 
-  // Handle development mode with plain localhost or 127.0.0.1
-  // Allow tenant simulation via query param or localStorage
+  // Development: plain localhost — use ?tenant= or devTenantSlug
   if (isDevelopment && (hostname === 'localhost' || hostname === '127.0.0.1')) {
     const urlParams = new URLSearchParams(window.location.search);
     const devTenant = urlParams.get('tenant') || localStorage.getItem('devTenantSlug');
-    return devTenant || null;
+    return { slug: devTenant || null, customDomain: null };
   }
 
-  // Handle development mode with .localhost subdomains (e.g., "bay-area-school.localhost")
-  // This is a common pattern for local subdomain testing
+  // Development: .localhost subdomains
   if (isDevelopment && hostname.endsWith('.localhost')) {
     const subdomain = hostname.replace('.localhost', '');
-    // Check if it's a reserved subdomain
-    if (RESERVED_SUBDOMAINS.includes(subdomain.toLowerCase())) {
-      return null;
-    }
-    return subdomain || null;
+    if (RESERVED_SUBDOMAINS.includes(subdomain.toLowerCase())) return { slug: null, customDomain: null };
+    return { slug: subdomain || null, customDomain: null };
   }
 
-  // If the hostname ends with a known hosting platform domain, treat as main domain
+  // Hosting platform domains → main domain, never a tenant
   if (HOSTING_PLATFORM_DOMAINS.some(d => hostname === d || hostname.endsWith(`.${d}`))) {
-    return null;
+    return { slug: null, customDomain: null };
   }
 
-  // Split hostname into parts
+  // Known main domains → not a tenant
+  if (MAIN_DOMAINS.some(d => hostname === d || hostname === `www.${d}`)) {
+    return { slug: null, customDomain: null };
+  }
+
   const parts = hostname.split('.');
 
-  // If we have less than 3 parts (e.g., "nuventacloud.com"), it's the main domain
-  if (parts.length < 3) {
-    return null;
+  // 3+ parts → platform subdomain (e.g. kebi-international-academy.nuventacloud.com)
+  if (parts.length >= 3) {
+    const subdomain = parts[0];
+    if (RESERVED_SUBDOMAINS.includes(subdomain.toLowerCase())) return { slug: null, customDomain: null };
+    return { slug: subdomain, customDomain: null };
   }
 
-  // The subdomain is the first part
-  const subdomain = parts[0];
-
-  // Check if it's a reserved subdomain
-  if (RESERVED_SUBDOMAINS.includes(subdomain.toLowerCase())) {
-    return null;
+  // 2 parts and not a known main domain → verified custom domain
+  if (parts.length === 2) {
+    return { slug: null, customDomain: hostname };
   }
 
-  return subdomain;
+  return { slug: null, customDomain: null };
 }
 
 interface TenantProviderProps {
@@ -100,18 +103,33 @@ export function TenantProvider({ children }: TenantProviderProps) {
     try {
       setIsLoading(true);
       setError(null);
-
-      // Fetch tenant info by slug
       const tenantData = await tenantService.getTenantBySlug(tenantSlug);
       setTenant(tenantData.tenant);
       setSettings(tenantData.settings || null);
-
-      // Store tenant info for API requests
       localStorage.setItem('tenantSlug', tenantSlug);
-
     } catch (err: any) {
       console.error('Failed to load tenant:', err);
       setError(err.response?.data?.message || 'Failed to load school information');
+      setTenant(null);
+      setSettings(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchTenantByCustomDomain = async (domain: string) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const tenantData = await tenantService.getTenantByCustomDomain(domain);
+      setTenant(tenantData.tenant);
+      setSettings(tenantData.settings || null);
+      // Use the slug for all subsequent API header identification
+      setSlug(tenantData.tenant.slug);
+      localStorage.setItem('tenantSlug', tenantData.tenant.slug);
+    } catch (err: any) {
+      console.error('Failed to load tenant for custom domain:', err);
+      setError('School not found for this domain');
       setTenant(null);
       setSettings(null);
     } finally {
@@ -126,13 +144,16 @@ export function TenantProvider({ children }: TenantProviderProps) {
   };
 
   useEffect(() => {
-    const detectedSlug = extractSubdomain();
-    setSlug(detectedSlug);
+    const { slug: detectedSlug, customDomain } = detectHostname();
 
     if (detectedSlug) {
+      setSlug(detectedSlug);
       fetchTenantData(detectedSlug);
+    } else if (customDomain) {
+      // Custom domain — resolve tenant via dedicated endpoint
+      fetchTenantByCustomDomain(customDomain);
     } else {
-      // Main domain - no tenant to load
+      // Main platform domain — no tenant
       setIsLoading(false);
     }
   }, []);

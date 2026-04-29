@@ -355,6 +355,19 @@ class TenantService {
     return this.getPublicTenant(slug);
   }
 
+  async getTenantByCustomDomain(domain: string): Promise<{
+    tenant: PublicTenant;
+    settings?: PublicTenantSettings;
+  }> {
+    try {
+      const response = await api.get(`/api/tenants/public/by-domain/?domain=${encodeURIComponent(domain)}`);
+      return response;
+    } catch (error) {
+      console.error(`Error fetching tenant for custom domain ${domain}:`, error);
+      throw error;
+    }
+  }
+
   /**
       school_motto?: string;
       student_portal_enabled: boolean;
