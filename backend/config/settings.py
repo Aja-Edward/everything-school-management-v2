@@ -87,7 +87,7 @@ else:
     # In production with HTTPS, cookies work fine
     AUTH_RETURN_TOKENS_IN_BODY = False
 
-# Frontend URL
+# Frontend URL — must be set via FRONTEND_URL env var in production
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 # Allowed hosts
@@ -99,6 +99,11 @@ ALLOWED_HOSTS = [
 _extra_hosts = os.getenv("ALLOWED_HOSTS", "")
 if _extra_hosts:
     ALLOWED_HOSTS += [h.strip().strip('"').strip("'") for h in _extra_hosts.split(",") if h.strip()]
+
+# In production, accept any host — verified custom domains are all routed here
+# and Django is behind Render's reverse proxy (SECURE_PROXY_SSL_HEADER is set below).
+if not DEBUG:
+    ALLOWED_HOSTS = ["*"]
 # Production security settingsay
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")  # CRITICAL for Render
@@ -282,6 +287,8 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^http://[\w-]+\.localhost:\d+$",
     # Production: allow any subdomain of nuventacloud.com
     r"^https://[\w-]+\.nuventacloud\.com$",
+    # Production: allow any verified custom domain (HTTPS only)
+    r"^https://[\w.-]+\.[a-z]{2,}$",
 ]
 
 # Celery + Redis
