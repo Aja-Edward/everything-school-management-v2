@@ -45,21 +45,44 @@ const TenantAboutPage: React.FC = () => {
         <TenantNavbar schoolName={tenant?.name ?? ''} logo={settings?.logo} primaryColor={primaryColor} navLinks={landing?.nav_links ?? []} portalLabel="Portal Login" />
       </div>
 
-      {/* Page header */}
-      <div className="pt-28 pb-16 px-4 sm:px-6 lg:px-8"
-        style={{ background: `linear-gradient(135deg, ${primaryColor}15 0%, #f8fafc 100%)` }}>
-        <div className="max-w-7xl mx-auto">
-          <Link to="/" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 mb-6 transition-colors">
-            <ArrowLeft className="w-4 h-4" /> Back to Home
-          </Link>
-          <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-900 mb-3">
-            {section?.title ?? 'About Us'}
-          </h1>
-          {section?.subtitle && (
-            <p className="text-xl text-gray-600 max-w-2xl">{section.subtitle}</p>
-          )}
+      {/* Page header / banner */}
+      {section?.banner_image ? (
+        <div className="relative pt-20">
+          <img
+            src={section.banner_image}
+            alt={section.title}
+            className="w-full h-64 sm:h-80 object-cover"
+          />
+          <div className="absolute inset-0 bg-black/45 flex flex-col justify-end pb-10 px-4 sm:px-6 lg:px-8">
+            <div className="max-w-7xl mx-auto w-full">
+              <Link to="/" className="inline-flex items-center gap-1 text-sm text-white/70 hover:text-white mb-4 transition-colors">
+                <ArrowLeft className="w-4 h-4" /> Back to Home
+              </Link>
+              <h1 className="text-4xl sm:text-5xl font-extrabold text-white mb-2">
+                {section.title ?? 'About Us'}
+              </h1>
+              {section.subtitle && (
+                <p className="text-lg text-white/80 max-w-2xl">{section.subtitle}</p>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="pt-28 pb-16 px-4 sm:px-6 lg:px-8"
+          style={{ background: `linear-gradient(135deg, ${primaryColor}15 0%, #f8fafc 100%)` }}>
+          <div className="max-w-7xl mx-auto">
+            <Link to="/" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 mb-6 transition-colors">
+              <ArrowLeft className="w-4 h-4" /> Back to Home
+            </Link>
+            <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-900 mb-3">
+              {section?.title ?? 'About Us'}
+            </h1>
+            {section?.subtitle && (
+              <p className="text-xl text-gray-600 max-w-2xl">{section.subtitle}</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">

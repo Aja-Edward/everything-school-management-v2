@@ -543,7 +543,7 @@ class LandingSectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = LandingSection
         fields = [
-            "id", "section_type", "title", "subtitle", "content", "image",
+            "id", "section_type", "title", "subtitle", "content", "image", "banner_image",
             "is_enabled", "display_order",
             # contact fields
             "contact_address", "contact_phone", "contact_email",

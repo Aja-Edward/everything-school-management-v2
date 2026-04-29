@@ -550,6 +550,7 @@ class LandingSection(models.Model):
     subtitle = models.CharField(max_length=300, blank=True, null=True)
     content = models.TextField(blank=True, null=True, help_text="Rich text / markdown content")
     image = models.URLField(max_length=500, blank=True, null=True)
+    banner_image = models.URLField(max_length=500, blank=True, null=True, help_text="Full-width banner shown at the top of the section's dedicated page")
     is_enabled = models.BooleanField(default=True)
     display_order = models.PositiveIntegerField(default=0)
 

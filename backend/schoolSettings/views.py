@@ -1725,6 +1725,21 @@ class LandingSectionViewSet(viewsets.ModelViewSet):
         section.save(update_fields=["image"])
         return Response({"url": section.image})
 
+    @action(detail=True, methods=["post"])
+    def upload_banner_image(self, request, pk=None):
+        section = self.get_object()
+        file = request.FILES.get("image")
+        if not file:
+            return Response({"detail": "No image provided."}, status=400)
+        tenant = getattr(request, "tenant", None)
+        result = cloudinary.uploader.upload(
+            file,
+            folder=f"tenants/{tenant.slug}/sections/banners",
+        )
+        section.banner_image = result.get("secure_url")
+        section.save(update_fields=["banner_image"])
+        return Response({"url": section.banner_image})
+
 
 class NavigationLinkViewSet(viewsets.ModelViewSet):
     """CRUD for navigation links."""
