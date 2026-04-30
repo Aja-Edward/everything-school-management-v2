@@ -229,26 +229,20 @@ def download_upload_template(request):
     tenant = _get_tenant(request)
 
     # ---- Fetch live tenant data for smart examples & conditional columns ----
-    classes = []
-    sections = []
+    classrooms = []
     streams = []
     enable_streaming = True
     school_name = ""
 
     if tenant:
-        from classroom.models import Class, Section, Stream
+        from classroom.models import Section, Stream
 
-        classes = list(
-            Class.objects.filter(tenant=tenant, is_active=True)
-            .order_by("order")
-            .values_list("name", flat=True)
-        )
-        sections = list(
+        sections_qs = (
             Section.objects.filter(tenant=tenant, is_active=True)
-            .values_list("name", flat=True)
-            .distinct()
-            .order_by("name")
+            .select_related("class_grade")
+            .order_by("class_grade__order", "name")
         )
+        classrooms = [f"{s.class_grade.name} - {s.name}" for s in sections_qs]
         streams = list(
             Stream.objects.filter(tenant=tenant)
             .values_list("name", flat=True)
@@ -263,18 +257,12 @@ def download_upload_template(request):
             pass
 
     # Use real tenant values as example data where available
-    example_class = classes[0] if classes else "JSS 1"
-    example_section = sections[0] if sections else "Gold"
+    example_classroom = classrooms[0] if classrooms else "JSS 1 - Gold"
     example_stream = streams[0] if streams else "SCIENCE"
 
-    class_desc = (
-        f"Select from dropdown — valid values: {', '.join(classes[:8])}"
-        if classes
-        else "Select from dropdown — must match your school"
-    )
-    section_desc = (
-        f"Select from dropdown — valid values: {', '.join(sections[:8])}"
-        if sections
+    classroom_desc = (
+        f"Select from dropdown — valid values: {', '.join(classrooms[:6])}"
+        if classrooms
         else "Select from dropdown — must match your school"
     )
 
@@ -289,8 +277,7 @@ def download_upload_template(request):
         ("LGA", False, "Ikeja", "Local Government Area — optional"),
         ("Blood Group", False, "O+", "e.g. A+, B-, O+, AB+"),
         ("Place of Birth*", True, "Lagos", "City / town of birth"),
-        ("Class Name*", True, example_class, class_desc),
-        ("Section*", True, example_section, section_desc),
+        ("Classroom*", True, example_classroom, classroom_desc),
     ]
 
     if enable_streaming:
@@ -347,8 +334,7 @@ def download_upload_template(request):
             COLUMNS,
             tenant=tenant,
             school_name=school_name,
-            classes=classes,
-            sections=sections,
+            classrooms=classrooms,
             streams=streams,
             enable_streaming=enable_streaming,
         )
@@ -372,8 +358,7 @@ def _template_excel(
     column_defs,
     tenant=None,
     school_name="",
-    classes=None,
-    sections=None,
+    classrooms=None,
     streams=None,
     enable_streaming=True,
 ):
@@ -389,8 +374,7 @@ def _template_excel(
     from django.http import HttpResponse
 
     # Use pre-fetched tenant data (already resolved by the view)
-    classes = classes or []
-    sections = sections or []
+    classrooms = classrooms or []
     streams = streams or []
 
     if not streams:
@@ -455,9 +439,8 @@ def _template_excel(
         return f"_Ref!${last}$1:${last}${len(items)}"
 
     gender_src = _write_ref_col(ref_ws, 1, ["M", "F"])
-    class_src = _write_ref_col(ref_ws, 2, classes)
-    section_src = _write_ref_col(ref_ws, 3, sections)
-    stream_src = _write_ref_col(ref_ws, 4, streams)
+    classroom_src = _write_ref_col(ref_ws, 2, classrooms)
+    stream_src = _write_ref_col(ref_ws, 3, streams)
     state_src = _write_ref_col(ref_ws, 5, NIGERIA_STATES)
     parent_role_src = _write_ref_col(
         ref_ws, 6, ["Father", "Mother", "Guardian", "Sponsor"]
@@ -497,19 +480,12 @@ def _template_excel(
         "• Gender must be M or F — use the dropdown",
     ]
 
-    if classes:
+    if classrooms:
         instructions.append(
-            f"• Valid Class Names: {', '.join(classes)} — use the dropdown"
+            f"• Valid Classrooms: {', '.join(classrooms[:6])} — use the dropdown"
         )
     else:
-        instructions.append("• Class Name must match your school's setup — use the dropdown")
-
-    if sections:
-        instructions.append(
-            f"• Valid Sections: {', '.join(sections)} — use the dropdown"
-        )
-    else:
-        instructions.append("• Section name must match exactly (varies per school) — use the dropdown")
+        instructions.append("• Classroom must match your school's setup — use the dropdown")
 
     if enable_streaming:
         if streams:
@@ -568,8 +544,7 @@ def _template_excel(
     # Map header name → validation source
     DROPDOWN_MAP = {
         "gender*": gender_src,
-        "class name*": class_src,
-        "section*": section_src,
+        "classroom*": classroom_src,
         "stream": stream_src,
         "state of origin": state_src,
         "parent/guardian role*": parent_role_src,

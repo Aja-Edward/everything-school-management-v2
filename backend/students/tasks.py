@@ -57,6 +57,22 @@ def _resolve_class(tenant_id, class_code):
     return obj
 
 
+def _resolve_classroom(tenant_id, classroom_str, academic_session_id=None):
+    """
+    Parse a full classroom string like 'Primary 1 - Gold' into (class_obj, section_obj).
+    The separator is ' - ' matching Section.__str__.
+    """
+    parts = classroom_str.strip().split(" - ", 1)
+    if len(parts) != 2:
+        return None, None
+    class_name, section_name = parts[0].strip(), parts[1].strip()
+    class_obj = _resolve_class(tenant_id, class_name)
+    if not class_obj:
+        return None, None
+    section_obj = _resolve_section(tenant_id, class_obj, section_name, academic_session_id)
+    return class_obj, section_obj
+
+
 def _resolve_section(tenant_id, class_obj, section_name, academic_session_id=None):
     """
     Return Section instance matching class + section name for the given tenant.
@@ -115,7 +131,7 @@ def _validate_row(row_num, row, tenant_id, academic_session_id=None):
     # ---- Required plain fields ----
     required = [
         "first_name", "last_name", "gender",
-        "date_of_birth", "class_code", "section_name",
+        "date_of_birth",
         "parent_phone", "parent_guardian_name", "parent_guardian_role",
         "address", "place_of_birth", "lga",
         "admission_date", "year_admitted",
@@ -123,6 +139,12 @@ def _validate_row(row_num, row, tenant_id, academic_session_id=None):
     for field in required:
         if not row.get(field, "").strip():
             errors.append(f"Row {row_num}: '{field}' is required.")
+
+    # Classroom can be provided as a single 'classroom' field or as separate class_code + section_name
+    has_classroom = bool(row.get("classroom", "").strip())
+    has_legacy = bool(row.get("class_code", "").strip()) and bool(row.get("section_name", "").strip())
+    if not has_classroom and not has_legacy:
+        errors.append(f"Row {row_num}: 'classroom' is required.")
 
     if errors:
         return errors, None
@@ -161,23 +183,38 @@ def _validate_row(row_num, row, tenant_id, academic_session_id=None):
         return errors, None
 
     # ---- Class & Section ----
-    class_obj = _resolve_class(tenant_id, row["class_code"])
-    if not class_obj:
-        errors.append(
-            f"Row {row_num}: Class '{row['class_code']}' not found. "
-            "Check class codes in the system."
+    if row.get("classroom", "").strip():
+        class_obj, section_obj = _resolve_classroom(
+            tenant_id, row["classroom"], academic_session_id
         )
-        return errors, None
-
-    section_obj = _resolve_section(
-        tenant_id, class_obj, row["section_name"], academic_session_id
-    )
-    if not section_obj:
-        errors.append(
-            f"Row {row_num}: Section '{row['section_name']}' not found in "
-            f"class '{class_obj.name}'."
+        if not class_obj:
+            errors.append(
+                f"Row {row_num}: Classroom '{row['classroom']}' not found. "
+                "Use the format 'Class Name - Section' (e.g. 'Primary 1 - Gold')."
+            )
+            return errors, None
+        if not section_obj:
+            errors.append(
+                f"Row {row_num}: Section not found in classroom '{row['classroom']}'."
+            )
+            return errors, None
+    else:
+        class_obj = _resolve_class(tenant_id, row["class_code"])
+        if not class_obj:
+            errors.append(
+                f"Row {row_num}: Class '{row['class_code']}' not found. "
+                "Check class codes in the system."
+            )
+            return errors, None
+        section_obj = _resolve_section(
+            tenant_id, class_obj, row["section_name"], academic_session_id
         )
-        return errors, None
+        if not section_obj:
+            errors.append(
+                f"Row {row_num}: Section '{row['section_name']}' not found in "
+                f"class '{class_obj.name}'."
+            )
+            return errors, None
 
     # ---- Stream (required for Senior Secondary only) ----
     stream_obj = None
@@ -365,6 +402,8 @@ COLUMN_MAP = {
     "class": "class_code",
     "class code": "class_code",
     "class name": "class_code",
+    "classroom": "classroom",
+    "classroom name": "classroom",
     "section": "section_name",
     "stream": "stream",
     "year admitted": "year_admitted",

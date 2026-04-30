@@ -87,8 +87,21 @@ const FALLBACK_CONFIG = {
   order: 99,
 };
 
+// Normalise DB codes to canonical keys so aggregation groups correctly
+const LEVEL_ALIASES: Record<string, string> = {
+  jss: 'junior_secondary',
+  sss: 'senior_secondary',
+  'junior secondary': 'junior_secondary',
+  'senior secondary': 'senior_secondary',
+};
+
+const normaliseLevel = (level: string): string => {
+  const lower = level?.toLowerCase() ?? '';
+  return LEVEL_ALIASES[lower] ?? lower;
+};
+
 const getConfig = (level: string) =>
-  LEVEL_CONFIG[level?.toLowerCase()] ?? FALLBACK_CONFIG;
+  LEVEL_CONFIG[normaliseLevel(level)] ?? FALLBACK_CONFIG;
 
 // ── Tooltips ──────────────────────────────────────────────────────────────────
 const BarTooltip = ({ active, payload }: any) => {
@@ -156,7 +169,7 @@ const EducationLevelChart: React.FC<EducationLevelChartProps> = ({
     classrooms
       .filter((c) => c.is_active !== false)
       .forEach((c) => {
-        const key = c.education_level || 'other';
+        const key = normaliseLevel(c.education_level || 'other');
         if (!map[key]) map[key] = { enrolled: 0, capacity: 0, classCount: 0 };
         // current_enrollment is only populated on fully-expanded classroom objects.
         // Fall back to student_enrollments.length for classrooms where the API
@@ -202,7 +215,7 @@ const EducationLevelChart: React.FC<EducationLevelChartProps> = ({
         Record<string, { enrolled: number; capacity: number; level: string }>
       >((acc, c) => {
         const key = c.grade_level_name || c.name;
-        if (!acc[key]) acc[key] = { enrolled: 0, capacity: 0, level: c.education_level };
+        if (!acc[key]) acc[key] = { enrolled: 0, capacity: 0, level: normaliseLevel(c.education_level) };
         const enrolledCount =
           (c.current_enrollment > 0)
             ? c.current_enrollment
