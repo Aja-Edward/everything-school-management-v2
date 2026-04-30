@@ -177,7 +177,7 @@ class Section(TenantMixin, models.Model):
     )
 
     name = models.CharField(
-        max_length=10,
+        max_length=100,
         help_text="Section name (e.g., 'A', 'B', 'C', 'Gold', 'Diamond')",
     )
 
