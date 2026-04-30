@@ -123,7 +123,7 @@ const TenantAboutPage: React.FC = () => {
                 <Link to="/admissions"
                   className="mt-6 w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-semibold text-sm text-white transition-all hover:opacity-90"
                   style={{ backgroundColor: primaryColor }}>
-                  Apply for Admission
+                  Apply for Admission or never
                 </Link>
               </div>
             </div>
