@@ -91,7 +91,7 @@ class SettingsService {
       const hostname = window.location.hostname;
       const isPlatform = hostname === 'localhost' || hostname === '127.0.0.1';
 
-      const endpoint = isPlatform ? '/api/platform/info/' : '/api/tenants/settings/current/';
+      const endpoint = isPlatform ? '/platform/info/' : '/tenants/settings/current/';
       const cacheBuster = `${Date.now()}_${Math.random()}`;
       const response = await api.get(`${endpoint}?_=${cacheBuster}`);
 
@@ -205,7 +205,7 @@ class SettingsService {
       
 
       
-      const response = await api.patch('/api/tenants/settings/current/', backendSettings);
+      const response = await api.patch('/tenants/settings/current/', backendSettings);
       console.log('✅ Backend response:', response);
       
       const transformedResponse = this.transformBackendToFrontend(response);
@@ -280,7 +280,7 @@ class SettingsService {
   async setClassroomCapacity(classroomId: number, maxCapacity: number): Promise<Classroom> {
     try {
       const res = await fetch(
-        `${API_BASE_URL}/api/classrooms/classrooms/${classroomId}/set-capacity/`,
+        `${API_BASE_URL}/classrooms/classrooms/${classroomId}/set-capacity/`,
         {
           method: 'PATCH',
           headers: {
@@ -314,7 +314,7 @@ class SettingsService {
   ): Promise<{ succeeded: number; failed: Array<{ name: string; error: string }> }> {
     const results = await Promise.allSettled(
       classrooms.map(c =>
-        fetch(`${API_BASE_URL}/api/classrooms/classrooms/${c.id}/set-capacity/`, {
+        fetch(`${API_BASE_URL}/classrooms/classrooms/${c.id}/set-capacity/`, {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
