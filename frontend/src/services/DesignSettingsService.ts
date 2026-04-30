@@ -3,7 +3,7 @@
  * Manages tenant-specific design and branding settings
  * Every tenant can customize: colors, theme, typography, and UI preferences
  */
-
+import {api} from '@/services/api'
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
 export interface DesignSettings {
@@ -63,20 +63,9 @@ class DesignSettingsService {
         headers['X-Tenant-Slug'] = tenantSlug;
       }
 
-      const response = await fetch(`${API_BASE_URL}/tenants/settings/current/`, {
-        method: 'GET',
-        headers,
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || `HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('✅ Design settings loaded:', data);
-
+      const data = await api.get('/tenants/settings/current/');
+        
+      console.log('✅ Design settings updated:', data);
       // Cache the settings
       this.setCachedSettings(data);
 
@@ -110,57 +99,31 @@ class DesignSettingsService {
    * Update design settings for current tenant
    */
   async updateDesignSettings(newSettings: Partial<DesignSettings>): Promise<DesignSettings> {
-    try {
-      const csrfToken = this.getCsrfToken();
-      const tenantSlug = this.getTenantSlug();
-
-      const headers: any = { 'Content-Type': 'application/json' };
+  try {
+    console.log('💾 Updating design settings:', newSettings);
     
-      if (csrfToken) {
-        headers['X-CSRFToken'] = csrfToken;
-      }
-      if (tenantSlug) {
-        headers['X-Tenant-Slug'] = tenantSlug;
-      }
-
-      console.log('💾 Updating design settings:', newSettings);
-      const response = await fetch(`${API_BASE_URL}/tenants/settings/current/`, {
-        method: 'PATCH',
-        headers,
-        credentials: 'include',
-        body: JSON.stringify(newSettings),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('❌ Backend validation error:', errorData);
-        throw new Error(errorData.detail || errorData.message || JSON.stringify(errorData) || `HTTP ${response.status}`);
-      }
-
-      const updatedData = await response.json();
-      console.log('✅ Design settings updated:', updatedData);
-
-      // Invalidate cache
-      this.clearCache();
-
-      return {
-        primary_color: updatedData.primary_color || '#4F46E5',
-        secondary_color: updatedData.secondary_color || '#10B981',
-        theme: updatedData.theme || 'default',
-        typography: updatedData.typography || 'Inter',
-        border_radius: updatedData.border_radius || 'rounded-lg',
-        shadow_style: updatedData.shadow_style || 'shadow-md',
-        animations_enabled: updatedData.animations_enabled ?? true,
-        compact_mode: updatedData.compact_mode ?? false,
-        dark_mode: updatedData.dark_mode ?? false,
-        high_contrast: updatedData.high_contrast ?? false,
-      };
-    } catch (error) {
-      console.error('❌ Error updating design settings:', error);
-      throw error;
-    }
+    const updatedData = await api.patch('/tenants/settings/current/', newSettings);
+    
+    console.log('✅ Design settings updated:', updatedData);
+    this.clearCache();
+    
+    return {
+      primary_color: updatedData.primary_color || '#4F46E5',
+      secondary_color: updatedData.secondary_color || '#10B981',
+      theme: updatedData.theme || 'default',
+      typography: updatedData.typography || 'Inter',
+      border_radius: updatedData.border_radius || 'rounded-lg',
+      shadow_style: updatedData.shadow_style || 'shadow-md',
+      animations_enabled: updatedData.animations_enabled ?? true,
+      compact_mode: updatedData.compact_mode ?? false,
+      dark_mode: updatedData.dark_mode ?? false,
+      high_contrast: updatedData.high_contrast ?? false,
+    };
+  } catch (error) {
+    console.error('❌ Error updating design settings:', error);
+    throw error;
   }
-
+}
   /**
    * Apply design settings to the current page/app
    */
