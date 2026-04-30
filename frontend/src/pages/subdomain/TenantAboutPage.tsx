@@ -59,7 +59,7 @@ const TenantAboutPage: React.FC = () => {
                 <ArrowLeft className="w-4 h-4" /> Back to Home
               </Link>
               <h1 className="text-4xl sm:text-5xl font-extrabold text-white mb-2">
-                {section.title ?? 'About Us'}
+                {section.title ?? 'About Us Improved the'}
                 Edward Aja is here
               </h1>
               {section.subtitle && (
