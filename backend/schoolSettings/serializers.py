@@ -11,6 +11,7 @@ from .models import (
     TenantLandingPage,
     LandingSection,
     NavigationLink,
+    LandingCarouselImage,
 )
 
 
@@ -557,9 +558,17 @@ class LandingSectionSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at"]
 
 
+class LandingCarouselImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LandingCarouselImage
+        fields = ["id", "image", "title", "caption", "display_order"]
+        read_only_fields = ["id"]
+
+
 class TenantLandingPageSerializer(serializers.ModelSerializer):
     sections = LandingSectionSerializer(many=True, read_only=True)
     nav_links = NavigationLinkSerializer(many=True, read_only=True)
+    carousel_images = LandingCarouselImageSerializer(many=True, read_only=True)
 
     class Meta:
         model = TenantLandingPage
@@ -571,7 +580,7 @@ class TenantLandingPageSerializer(serializers.ModelSerializer):
             "ribbon_enabled", "ribbon_text", "ribbon_speed",
             "footer_text",
             "facebook_url", "twitter_url", "instagram_url", "youtube_url",
-            "sections", "nav_links",
+            "sections", "nav_links", "carousel_images",
             "created_at", "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]

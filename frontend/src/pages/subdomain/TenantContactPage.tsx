@@ -48,9 +48,9 @@ const TenantContactPage: React.FC = () => {
           <RibbonBanner text={ribbonText} speed={ribbonSpeed} primaryColor={primaryColor} />
         </div>
       )}
-      <div className={ribbonText ? 'pt-8' : ''}>
+      <div>
         <TenantNavbar schoolName={tenant?.name ?? ''} logo={settings?.logo} primaryColor={primaryColor}
-          navLinks={landing?.nav_links ?? []} portalLabel="Portal Login" />
+          navLinks={landing?.nav_links ?? []} portalLabel="Portal Login" ribbonVisible={!!ribbonText} />
       </div>
 
       {/* Page header / banner */}

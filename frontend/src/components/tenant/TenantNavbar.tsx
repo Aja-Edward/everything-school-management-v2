@@ -9,6 +9,7 @@ interface TenantNavbarProps {
   primaryColor?: string;
   navLinks: NavigationLink[];
   portalLabel?: string;
+  ribbonVisible?: boolean;
 }
 
 const TenantNavbar: React.FC<TenantNavbarProps> = ({
@@ -17,6 +18,7 @@ const TenantNavbar: React.FC<TenantNavbarProps> = ({
   primaryColor = '#1e40af',
   navLinks,
   portalLabel = 'Portal',
+  ribbonVisible = false,
 }) => {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
@@ -41,7 +43,7 @@ const TenantNavbar: React.FC<TenantNavbarProps> = ({
 
   return (
     <nav
-      className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 ${navBg}`}
+      className={`fixed left-0 right-0 z-40 transition-all duration-300 ${navBg} ${ribbonVisible ? 'top-8' : 'top-0'}`}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 md:h-20">

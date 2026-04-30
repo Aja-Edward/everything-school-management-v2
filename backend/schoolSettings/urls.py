@@ -16,6 +16,7 @@ router.register(r"roles", views.RoleViewSet, basename="role")
 router.register(r"user-roles", views.UserRoleViewSet, basename="user-role")
 router.register(r"landing/sections", views.LandingSectionViewSet, basename="landing-section")
 router.register(r"landing/nav-links", views.NavigationLinkViewSet, basename="landing-nav-link")
+router.register(r"landing/carousel", views.LandingCarouselImageViewSet, basename="landing-carousel")
 
 urlpatterns = [
     # File upload endpoints - CRITICAL: These MUST come FIRST before all other patterns

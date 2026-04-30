@@ -1,12 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react';
 import LandingPageService, {
-  TenantLandingPage, LandingSection, NavigationLink, SectionType,
+  TenantLandingPage, LandingSection, NavigationLink, SectionType, CarouselSlide,
 } from '@/services/LandingPageService';
 import { useTenant } from '@/contexts/TenantContext';
 import {
   Globe, Eye, EyeOff, Plus, Trash2, GripVertical, Save, Upload,
   Image, ChevronDown, ChevronUp, CheckCircle,
-  Layout, Navigation, Type, MapPin, Layers, AlertCircle, Megaphone,
+  Layout, Navigation, Type, MapPin, Layers, AlertCircle, Megaphone, ImagePlus,
 } from 'lucide-react';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -293,12 +293,15 @@ const LandingPageTab: React.FC = () => {
   const [landing, setLanding] = useState<TenantLandingPage | null>(null);
   const [sections, setSections] = useState<LandingSection[]>([]);
   const [navLinks, setNavLinks] = useState<NavigationLink[]>([]);
+  const [carouselSlides, setCarouselSlides] = useState<CarouselSlide[]>([]);
   const [activeTab, setActiveTab] = useState<TabKey>('general');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const heroFileRef = useRef<HTMLInputElement>(null);
+  const carouselFileRef = useRef<HTMLInputElement>(null);
   const [heroUploading, setHeroUploading] = useState(false);
+  const [carouselUploading, setCarouselUploading] = useState(false);
 
   useEffect(() => {
     LandingPageService.getAdmin()
@@ -306,6 +309,7 @@ const LandingPageTab: React.FC = () => {
         setLanding(d);
         setSections([...d.sections].sort((a, b) => a.display_order - b.display_order));
         setNavLinks([...d.nav_links].sort((a, b) => a.display_order - b.display_order));
+        setCarouselSlides([...(d.carousel_images ?? [])].sort((a, b) => a.display_order - b.display_order));
       })
       .catch(() => setError('Could not load landing page settings.'));
   }, []);
@@ -418,6 +422,23 @@ const LandingPageTab: React.FC = () => {
       const url = await LandingPageService.uploadHeroImage(file);
       setLanding(l => l ? { ...l, hero_image: url } : l);
     } finally { setHeroUploading(false); }
+  };
+
+  const handleCarouselUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (carouselSlides.length >= 5) { setError('Maximum 5 carousel images allowed.'); return; }
+    setCarouselUploading(true);
+    try {
+      const slide = await LandingPageService.uploadCarouselImage(file);
+      setCarouselSlides(prev => [...prev, slide]);
+    } catch { setError('Carousel upload failed.'); }
+    finally { setCarouselUploading(false); e.target.value = ''; }
+  };
+
+  const deleteCarouselSlide = async (id: number) => {
+    await LandingPageService.deleteCarouselImage(id).catch(() => {});
+    setCarouselSlides(prev => prev.filter(s => s.id !== id));
   };
 
   const upd = (patch: Partial<TenantLandingPage>) =>
@@ -576,9 +597,60 @@ const LandingPageTab: React.FC = () => {
             )}
 
             {landing?.hero_type === 'carousel' && (
-              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
-                <p className="font-medium">Carousel images come from events</p>
-                <p className="text-xs mt-1">Go to the <strong>Advanced</strong> tab → Event Management and create events with display type "Carousel". Active carousel events will display here automatically.</p>
+              <div className="space-y-4 pt-4 border-t border-gray-100">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">Carousel Images</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Upload up to 5 images. They cycle automatically every 5 seconds.</p>
+                  </div>
+                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${carouselSlides.length >= 5 ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'}`}>
+                    {carouselSlides.length} / 5
+                  </span>
+                </div>
+
+                {/* Existing slides */}
+                {carouselSlides.length > 0 && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {carouselSlides.map((slide, i) => (
+                      <div key={slide.id} className="relative group rounded-xl overflow-hidden border border-gray-200">
+                        <img src={slide.image} alt={slide.title || `Slide ${i + 1}`} className="w-full h-28 object-cover" />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all" />
+                        <button
+                          onClick={() => deleteCarouselSlide(slide.id)}
+                          className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                        {slide.title && (
+                          <p className="absolute bottom-0 left-0 right-0 text-white text-xs font-medium px-2 py-1 bg-black/50 truncate">
+                            {slide.title}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Upload button */}
+                {carouselSlides.length < 5 && (
+                  <>
+                    <input
+                      ref={carouselFileRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleCarouselUpload}
+                    />
+                    <button
+                      onClick={() => carouselFileRef.current?.click()}
+                      disabled={carouselUploading}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 text-sm border-2 border-dashed border-blue-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 text-blue-600 transition-colors disabled:opacity-50 w-full justify-center"
+                    >
+                      <ImagePlus className="w-4 h-4" />
+                      {carouselUploading ? 'Uploading…' : 'Add Carousel Image'}
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>

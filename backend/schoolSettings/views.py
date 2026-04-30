@@ -33,6 +33,7 @@ from .models import (
     TenantLandingPage,
     LandingSection,
     NavigationLink,
+    LandingCarouselImage,
 )
 from .serializers import (
     SchoolAnnouncementSerializer,
@@ -46,6 +47,7 @@ from .serializers import (
     TenantLandingPageUpdateSerializer,
     LandingSectionSerializer,
     NavigationLinkSerializer,
+    LandingCarouselImageSerializer,
 )
 from .permissions import (
     HasSettingsPermission,
@@ -1739,6 +1741,52 @@ class LandingSectionViewSet(viewsets.ModelViewSet):
         section.banner_image = result.get("secure_url")
         section.save(update_fields=["banner_image"])
         return Response({"url": section.banner_image})
+
+
+class LandingCarouselImageViewSet(viewsets.ModelViewSet):
+    """CRUD for hero carousel images (max 5 per landing page)."""
+    serializer_class = LandingCarouselImageSerializer
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_queryset(self):
+        tenant = getattr(self.request, 'tenant', None)
+        if not tenant:
+            return LandingCarouselImage.objects.none()
+        return LandingCarouselImage.objects.filter(landing_page__tenant=tenant)
+
+    def perform_create(self, serializer):
+        tenant = getattr(self.request, 'tenant', None)
+        landing, _ = TenantLandingPage.objects.get_or_create(tenant=tenant)
+        if landing.carousel_images.count() >= 5:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError("Maximum of 5 carousel images allowed.")
+        serializer.save(landing_page=landing)
+
+    @action(detail=False, methods=["post"])
+    def upload(self, request):
+        """Upload a new carousel image to Cloudinary and save."""
+        tenant = getattr(request, 'tenant', None)
+        if not tenant:
+            return Response({"detail": "Tenant not found."}, status=400)
+        landing, _ = TenantLandingPage.objects.get_or_create(tenant=tenant)
+        if landing.carousel_images.count() >= 5:
+            return Response({"detail": "Maximum of 5 carousel images allowed."}, status=400)
+        file = request.FILES.get("image")
+        if not file:
+            return Response({"detail": "No image provided."}, status=400)
+        result = cloudinary.uploader.upload(
+            file, folder=f"tenants/{tenant.slug}/carousel"
+        )
+        url = result.get("secure_url")
+        img = LandingCarouselImage.objects.create(
+            landing_page=landing,
+            image=url,
+            title=request.data.get("title", ""),
+            caption=request.data.get("caption", ""),
+            display_order=landing.carousel_images.count(),
+        )
+        return Response(LandingCarouselImageSerializer(img).data, status=201)
 
 
 class NavigationLinkViewSet(viewsets.ModelViewSet):

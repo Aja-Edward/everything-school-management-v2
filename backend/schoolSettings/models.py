@@ -580,6 +580,25 @@ class LandingSection(models.Model):
         return f"{self.get_section_type_display()} — {self.landing_page.tenant.name}"
 
 
+class LandingCarouselImage(models.Model):
+    """Up to 5 hero carousel images per tenant landing page."""
+    landing_page = models.ForeignKey(
+        TenantLandingPage,
+        on_delete=models.CASCADE,
+        related_name='carousel_images',
+    )
+    image = models.URLField(max_length=500)
+    title = models.CharField(max_length=200, blank=True)
+    caption = models.CharField(max_length=300, blank=True)
+    display_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['display_order']
+
+    def __str__(self):
+        return f"Carousel slide {self.display_order} — {self.landing_page.tenant.name}"
+
+
 class NavigationLink(models.Model):
     """
     Custom navigation links shown in the tenant landing page navbar.

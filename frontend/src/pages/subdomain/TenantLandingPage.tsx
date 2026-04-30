@@ -35,7 +35,6 @@ const TenantLandingPage: React.FC = () => {
   const { tenant, settings, isLoading: tenantLoading } = useTenant();
 
   const [landing, setLanding] = useState<LandingData | null>(null);
-  const [carouselImages, setCarouselImages] = useState<CarouselImage[]>([]);
   const [activeEvents, setActiveEvents] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,13 +81,6 @@ const TenantLandingPage: React.FC = () => {
     }).catch(() => { if (!landing) setError('error'); setLoading(false); });
   }, [tenantLoading, tenant]);
 
-  // Fetch carousel images separately
-  useEffect(() => {
-    api.get('/school-settings/school-settings/').then((d: any) => {
-      if (d?.carousel_images) setCarouselImages(d.carousel_images);
-    }).catch(() => {});
-  }, []);
-
   /* ── Derived event slots ── */
   const ribbonEvent = activeEvents.find(e => e.display_type === 'ribbon');
   const bannerEvent = activeEvents.find(e => e.display_type === 'banner');
@@ -100,10 +92,10 @@ const TenantLandingPage: React.FC = () => {
     : (landing?.ribbon_enabled && landing.ribbon_text ? landing.ribbon_text : null);
   const activeRibbonSpeed = ribbonEvent?.ribbon_speed ?? landing?.ribbon_speed ?? 'medium';
 
-  // Carousel images: prefer events if landing hero_type is carousel and there are carousel events
+  // Carousel: event carousel slides take priority, fall back to landing carousel_images
   const effectiveCarousel: CarouselImage[] = carouselEvents.length > 0
     ? carouselEvents.map(e => ({ id: e.id, image: e.image || '', title: e.title, description: e.subtitle }))
-    : carouselImages;
+    : (landing?.carousel_images ?? []).map(s => ({ id: s.id, image: s.image, title: s.title, description: s.caption }));
 
   if (tenantLoading || loading) return <PageLoader />;
 
@@ -151,13 +143,14 @@ const TenantLandingPage: React.FC = () => {
       )}
 
       {/* ── Navbar ── */}
-      <div className={activeRibbonText ? 'pt-8' : ''}>
+      <div>
         <TenantNavbar
           schoolName={tenant?.name ?? ''}
           logo={settings?.logo}
           primaryColor={primaryColor}
           navLinks={landing.nav_links}
           portalLabel="Portal Login"
+          ribbonVisible={!!activeRibbonText}
         />
       </div>
 

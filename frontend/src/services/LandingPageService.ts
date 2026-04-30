@@ -42,6 +42,14 @@ export interface LandingSection {
   admissions_contact_phone?: string;
 }
 
+export interface CarouselSlide {
+  id: number;
+  image: string;
+  title?: string;
+  caption?: string;
+  display_order: number;
+}
+
 export interface TenantLandingPage {
   id: number;
   is_published: boolean;
@@ -63,6 +71,7 @@ export interface TenantLandingPage {
   youtube_url?: string;
   sections: LandingSection[];
   nav_links: NavigationLink[];
+  carousel_images: CarouselSlide[];
 }
 
 // ─── Service ──────────────────────────────────────────────────────────────────
@@ -206,6 +215,47 @@ const LandingPageService = {
     const data = await res.json();
     return data.url as string;
   },
+
+  // ── Carousel Images ───────────────────────────────────────────────────────
+
+  uploadCarouselImage: async (file: File, title?: string, caption?: string): Promise<CarouselSlide> => {
+    const form = new FormData();
+    form.append('image', file);
+    if (title) form.append('title', title);
+    if (caption) form.append('caption', caption);
+
+    const getCsrfToken = () => {
+      for (const cookie of document.cookie.split(';')) {
+        const [name, value] = cookie.trim().split('=');
+        if (name === 'csrftoken') return decodeURIComponent(value);
+      }
+      return null;
+    };
+
+    const tenantId   = localStorage.getItem('tenantId')   || sessionStorage.getItem('tenantId');
+    const tenantSlug = localStorage.getItem('tenantSlug') || sessionStorage.getItem('tenantSlug');
+    const headers: Record<string, string> = {};
+    const csrf = getCsrfToken();
+    if (csrf)       headers['X-CSRFToken']   = csrf;
+    if (tenantId)   headers['X-Tenant-ID']   = tenantId;
+    if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
+
+    const res = await fetch(
+      `${API_BASE_URL}/school-settings/landing/carousel/upload/`,
+      { method: 'POST', body: form, credentials: 'include', headers }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Upload failed: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  deleteCarouselImage: (id: number): Promise<void> =>
+    api.delete(`${BASE}/carousel/${id}/`),
+
+  reorderCarouselImages: (items: { id: number; display_order: number }[]): Promise<void> =>
+    api.post(`${BASE}/carousel/reorder/`, items),
 
   // ── Navigation Links ──────────────────────────────────────────────────────
 
