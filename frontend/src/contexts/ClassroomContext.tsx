@@ -30,6 +30,8 @@ import type{
   Subject,
   EducationLevelType,
   BulkCapacityResult,
+  AddCoTeacherData,
+  RemoveCoTeacherData,
 } from '@/types/classroomtypes';
 
 // ============================================================================
@@ -109,6 +111,8 @@ interface ClassroomContextValue {
   createTeacherAssignment: (data: CreateTeacherAssignmentData) => Promise<void>;
   updateTeacherAssignment: (id: number, data: UpdateTeacherAssignmentData) => Promise<void>;
   deleteTeacherAssignment: (id: number) => Promise<void>;
+  addCoTeacher: (classroomId: number, data: AddCoTeacherData) => Promise<void>;
+  removeCoTeacher: (classroomId: number, data: RemoveCoTeacherData) => Promise<void>;
 
   // ── STUDENT ENROLLMENT ────────────────────────────────────────────────────
   enrollStudent: (classroomId: number, studentId: number) => Promise<void>;
@@ -518,6 +522,36 @@ export const ClassroomProvider: React.FC<{ children: ReactNode }> = ({ children 
     [loadClassrooms]
   );
 
+  const addCoTeacher = useCallback(
+    async (classroomId: number, data: AddCoTeacherData) => {
+      try {
+        await classroomService.addCoTeacher(classroomId, data);
+        toast.success('Co-teacher added successfully');
+        await refreshClassroom(classroomId);
+      } catch (err: any) {
+        const msg = handleError(err, 'Failed to add co-teacher');
+        toast.error(msg);
+        throw err;
+      }
+    },
+    [refreshClassroom]
+  );
+
+  const removeCoTeacher = useCallback(
+    async (classroomId: number, data: RemoveCoTeacherData) => {
+      try {
+        await classroomService.removeCoTeacher(classroomId, data);
+        toast.success('Co-teacher removed');
+        await refreshClassroom(classroomId);
+      } catch (err: any) {
+        const msg = handleError(err, 'Failed to remove co-teacher');
+        toast.error(msg);
+        throw err;
+      }
+    },
+    [refreshClassroom]
+  );
+
   // ============================================================================
   // STUDENT ENROLLMENT
   // ============================================================================
@@ -773,6 +807,8 @@ export const ClassroomProvider: React.FC<{ children: ReactNode }> = ({ children 
     createTeacherAssignment,
     updateTeacherAssignment,
     deleteTeacherAssignment,
+    addCoTeacher,
+    removeCoTeacher,
 
     // Student enrollment
     enrollStudent,

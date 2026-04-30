@@ -28,6 +28,18 @@ export interface Teacher {
   assigned_subjects: Array<{ id: number; name: string; code?: string }>;
 }
 
+// ============================================================================
+// CO-TEACHER
+// ============================================================================
+export interface CoTeacher {
+  id: number;
+  teacher_id: number;
+  teacher_name: string;
+  teacher_phone?: string;
+  teacher_employee_id?: string;
+  assigned_date: string;
+}
+
 export interface TransferStudentData {
   student_id: number;
   target_classroom_id: number;
@@ -135,6 +147,7 @@ export interface Classroom {
   class_teacher_name: string;
   class_teacher_phone?: string;
   class_teacher_employee_id?: string;
+  co_teachers?: CoTeacher[];
   stream_name?: string;
   enrollment_count?: number;
   student_count?: number;
@@ -290,4 +303,12 @@ export interface TransferTeacherResponse {
   skipped: Array<{ subject_id: number; subject_name: string; reason: string }>;
   transferred_count: number;
   skipped_count: number;
+}
+
+export interface AddCoTeacherData {
+  teacher_id: number;
+}
+
+export interface RemoveCoTeacherData {
+  teacher_id: number;
 }

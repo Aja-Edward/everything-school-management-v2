@@ -765,6 +765,7 @@ class ClassroomSerializer(serializers.ModelSerializer):
     available_spots = serializers.SerializerMethodField()
     enrollment_percentage = serializers.SerializerMethodField()
     is_full = serializers.SerializerMethodField()
+    co_teachers = serializers.SerializerMethodField()
 
     class Meta:
         model = Classroom
@@ -783,6 +784,7 @@ class ClassroomSerializer(serializers.ModelSerializer):
             "class_teacher_name",
             "class_teacher_phone",
             "class_teacher_employee_id",
+            "co_teachers",
             "subjects",
             "room_number",
             "max_capacity",
@@ -806,6 +808,19 @@ class ClassroomSerializer(serializers.ModelSerializer):
 
     def get_is_full(self, obj):
         return obj.is_full
+
+    def get_co_teachers(self, obj):
+        return [
+            {
+                "id": a.id,
+                "teacher_id": a.teacher_id,
+                "teacher_name": a.teacher.user.get_full_name(),
+                "teacher_phone": a.teacher.phone_number,
+                "teacher_employee_id": a.teacher.employee_id,
+                "assigned_date": str(a.assigned_date),
+            }
+            for a in obj.co_teacher_assignments.select_related("teacher__user").all()
+        ]
 
     def validate_max_capacity(self, value):
         if value < 1:

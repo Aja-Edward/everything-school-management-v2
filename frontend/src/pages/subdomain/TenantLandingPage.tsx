@@ -213,9 +213,9 @@ const TenantLandingPage: React.FC = () => {
               </div>
               {/* Text */}
               <div className="order-1 lg:order-2">
-                <span className="inline-block text-xs font-semibold uppercase tracking-widest mb-3 px-3 py-1 rounded-full"
-                  style={{ backgroundColor: `${primaryColor}18`, color: primaryColor }}>
-                  About Us
+                <span className="inline-block text-xs font-semibold uppercase tracking-widest mb-3 px-3 py-1 rounded-full bg-red-500"
+                 >
+                 About Us
                 </span>
                 <h2 className="text-3xl sm:text-4xl font-extrabold text-gray-900 mb-4 leading-tight">
                   {aboutSection.title}

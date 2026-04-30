@@ -587,6 +587,38 @@ class ClassroomTeacherAssignment(TenantMixin, models.Model):
         return f"{self.teacher} - {self.subject} ({self.classroom})"
 
 
+class ClassroomCoTeacher(TenantMixin, models.Model):
+    """
+    Additional (co-)teacher assignments for a classroom.
+    Primarily used for Nursery & Primary where multiple teachers share a class.
+    Classroom.class_teacher holds the designated form/class teacher; the rest live here.
+    """
+
+    classroom = models.ForeignKey(
+        Classroom,
+        on_delete=models.CASCADE,
+        related_name="co_teacher_assignments",
+    )
+    teacher = models.ForeignKey(
+        "teacher.Teacher",
+        on_delete=models.CASCADE,
+        related_name="co_teaching_assignments",
+    )
+    assigned_date = models.DateField(auto_now_add=True)
+    notes = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        unique_together = ["classroom", "teacher"]
+        ordering = ["classroom", "teacher"]
+        indexes = [
+            models.Index(fields=["tenant", "classroom"]),
+            models.Index(fields=["tenant", "teacher"]),
+        ]
+
+    def __str__(self):
+        return f"{self.teacher} — co-teacher in {self.classroom}"
+
+
 class StudentEnrollment(TenantMixin, models.Model):
     """Student enrollment in classroom"""
 

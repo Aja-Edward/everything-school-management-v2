@@ -906,6 +906,51 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
             )
 
     @action(detail=True, methods=["post"])
+    def add_co_teacher(self, request, pk=None):
+        """Add an additional (co-)teacher to a classroom."""
+        classroom = self.get_object()
+        teacher_id = request.data.get("teacher_id")
+        if not teacher_id:
+            return Response({"error": "teacher_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            from teacher.models import Teacher
+            from classroom.models import ClassroomCoTeacher
+            teacher = Teacher.objects.get(pk=teacher_id, tenant=request.tenant)
+        except Teacher.DoesNotExist:
+            return Response({"error": "Teacher not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if classroom.class_teacher_id == teacher.id:
+            return Response(
+                {"error": "This teacher is already the form/class teacher. To add a second teacher, first change the form teacher or add a different teacher as co-teacher."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        obj, created = ClassroomCoTeacher.objects.get_or_create(
+            classroom=classroom,
+            teacher=teacher,
+            defaults={"tenant": request.tenant},
+        )
+        if not created:
+            return Response({"error": "Teacher is already a co-teacher of this classroom."}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"message": "Co-teacher added successfully."}, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"])
+    def remove_co_teacher(self, request, pk=None):
+        """Remove a co-teacher assignment from a classroom."""
+        classroom = self.get_object()
+        teacher_id = request.data.get("teacher_id")
+        if not teacher_id:
+            return Response({"error": "teacher_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        from classroom.models import ClassroomCoTeacher
+        deleted, _ = ClassroomCoTeacher.objects.filter(
+            classroom=classroom, teacher_id=teacher_id
+        ).delete()
+        if not deleted:
+            return Response({"error": "Co-teacher assignment not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"message": "Co-teacher removed successfully."})
+
+    @action(detail=True, methods=["post"])
     def enroll_student(self, request, pk=None):
         """Enroll a student in this classroom"""
         classroom = self.get_object()

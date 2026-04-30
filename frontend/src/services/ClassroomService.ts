@@ -16,7 +16,9 @@ import type {
   RemoveTeacherAssignmentData,
   CreateTeacherAssignmentData,
   UpdateTeacherAssignmentData,
-  ClassroomStats
+  ClassroomStats,
+  AddCoTeacherData,
+  RemoveCoTeacherData,
 } from '@/types/classroomtypes'
 
 export interface UpdateClassroomData extends Partial<CreateClassroomData> {
@@ -149,6 +151,14 @@ class ClassroomService {
 
   async removeTeacherFromClassroom(classroomId: number, data: RemoveTeacherAssignmentData) {
     return api.post(`/api/classrooms/classrooms/${classroomId}/remove_teacher/`, data);
+  }
+
+  async addCoTeacher(classroomId: number, data: AddCoTeacherData) {
+    return api.post(`/api/classrooms/classrooms/${classroomId}/add_co_teacher/`, data);
+  }
+
+  async removeCoTeacher(classroomId: number, data: RemoveCoTeacherData) {
+    return api.post(`/api/classrooms/classrooms/${classroomId}/remove_co_teacher/`, data);
   }
 
   async createTeacherAssignment(data: CreateTeacherAssignmentData) {

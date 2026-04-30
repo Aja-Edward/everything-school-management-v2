@@ -68,9 +68,15 @@ const ClassroomViewModal: React.FC<ClassroomViewModalProps> = ({
   const [formTeacherSaveStatus, setFormTeacherSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [formTeacherSaveMessage, setFormTeacherSaveMessage] = useState('');
 
+  // ── Co-teacher state ───────────────────────────────────────────────────────
+  const [addingCoTeacher, setAddingCoTeacher] = useState(false);
+  const [selectedCoTeacherId, setSelectedCoTeacherId] = useState<number | ''>('');
+  const [coTeacherSaving, setCoTeacherSaving] = useState(false);
+  const [promotingTeacherId, setPromotingTeacherId] = useState<number | null>(null);
+
   const { transferStudent, transferring, getClassroomStudents } = useStudentEnrollment();
   const { classrooms } = useClassroomList();
-  const { teachers, updateClassroom } = useClassroom();
+  const { teachers, updateClassroom, addCoTeacher, removeCoTeacher } = useClassroom();
 
   const targetOptions = classrooms.filter(c => c.id !== classroom?.id && c.is_active);
 
@@ -99,6 +105,8 @@ const ClassroomViewModal: React.FC<ClassroomViewModalProps> = ({
       setIsEditingFormTeacher(false);
       setSelectedTeacherId(classroom.class_teacher ?? '');
       setFormTeacherSaveStatus('idle');
+      setAddingCoTeacher(false);
+      setSelectedCoTeacherId('');
       fetchStudents();
     }
   }, [isOpen, classroom?.id]);
@@ -144,6 +152,41 @@ const ClassroomViewModal: React.FC<ClassroomViewModalProps> = ({
       setFormTeacherSaveMessage(err?.message || 'Failed to update form teacher.');
     } finally {
       setSavingFormTeacher(false);
+    }
+  };
+
+  // ── Co-teacher handlers ────────────────────────────────────────────────────
+  const handleAddCoTeacher = async () => {
+    if (!classroom || selectedCoTeacherId === '') return;
+    setCoTeacherSaving(true);
+    try {
+      await addCoTeacher(classroom.id, { teacher_id: Number(selectedCoTeacherId) });
+      setAddingCoTeacher(false);
+      setSelectedCoTeacherId('');
+    } finally {
+      setCoTeacherSaving(false);
+    }
+  };
+
+  const handleRemoveCoTeacher = async (teacherId: number) => {
+    if (!classroom) return;
+    await removeCoTeacher(classroom.id, { teacher_id: teacherId });
+  };
+
+  const handlePromoteToFormTeacher = async (coTeacherId: number) => {
+    if (!classroom) return;
+    setPromotingTeacherId(coTeacherId);
+    try {
+      const oldFormTeacherId = classroom.class_teacher;
+      await updateClassroom(classroom.id, { class_teacher: coTeacherId });
+      // Move old form teacher to co-teachers if there was one
+      if (oldFormTeacherId && oldFormTeacherId !== coTeacherId) {
+        await addCoTeacher(classroom.id, { teacher_id: oldFormTeacherId });
+      }
+      // Remove new form teacher from co-teachers list
+      await removeCoTeacher(classroom.id, { teacher_id: coTeacherId });
+    } finally {
+      setPromotingTeacherId(null);
     }
   };
 
@@ -674,87 +717,192 @@ const previewTeacher = selectedTeacherId !== ''
             )}
 
             {/* ── TEACHERS ── */}
-            {activeTab === 'teachers' && (
-              <div>
-                {(['NURSERY', 'PRIMARY'].includes((classroom.education_level ?? '').toUpperCase())) &&
-                  classroom.class_teacher_name && (
-                    <div className="flex items-center gap-4 p-5 rounded-2xl mb-5 bg-gray-900 shadow-xl">
-                      <div
-                        className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center text-white text-lg font-bold flex-shrink-0"
-                        style={{ fontFamily: "'Cormorant Garamond', serif" }}
-                      >
-                        {getInitials(classroom.class_teacher_name)}
-                      </div>
-                      <div>
-                        <p className="font-bold text-white text-base">
-                          {classroom.class_teacher_name}
-                        </p>
-                        <p className="text-[10px] font-bold tracking-[0.16em] uppercase text-white/40 mt-0.5">
-                          Class Teacher · All Subjects
-                        </p>
-                        {classroom.class_teacher_phone && (
-                          <p className="text-xs text-white/40 mt-0.5">{classroom.class_teacher_phone}</p>
-                        )}
-                      </div>
-                    </div>
-                  )}
+            {activeTab === 'teachers' && (() => {
+              const isNurseryOrPrimary = ['NURSERY', 'PRIMARY'].includes((classroom.education_level ?? '').toUpperCase());
+              const coTeachers = classroom.co_teachers ?? [];
+              const assignedCoTeacherIds = new Set(coTeachers.map(ct => ct.teacher_id));
+              const availableToAdd = teachers.filter(
+                t => t.is_active && t.id !== classroom.class_teacher && !assignedCoTeacherIds.has(t.id)
+              );
 
-                {classroom.teacher_assignments && classroom.teacher_assignments.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {classroom.teacher_assignments.map(assignment => (
-                      <div
-                        key={assignment.id}
-                        className="group flex items-start justify-between gap-3 p-4 bg-white rounded-2xl border border-gray-100 shadow-sm hover:border-gray-300 hover:shadow-md transition-all duration-200"
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-gray-900 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
-                            {(assignment.teacher_first_name ?? '?').charAt(0)}
+              if (isNurseryOrPrimary) {
+                return (
+                  <div>
+                    {/* Form teacher dark card */}
+                    {classroom.class_teacher_name ? (
+                      <div className="flex items-center gap-4 p-5 rounded-2xl mb-5 bg-gray-900 shadow-xl">
+                        <div
+                          className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center text-white text-lg font-bold flex-shrink-0"
+                          style={{ fontFamily: "'Cormorant Garamond', serif" }}
+                        >
+                          {getInitials(classroom.class_teacher_name)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-white text-base">{classroom.class_teacher_name}</p>
+                          <p className="text-[10px] font-bold tracking-[0.16em] uppercase text-white/40 mt-0.5">
+                            {formTeacherLabel} · All Subjects
+                          </p>
+                          {classroom.class_teacher_phone && (
+                            <p className="text-xs text-white/40 mt-0.5">{classroom.class_teacher_phone}</p>
+                          )}
+                        </div>
+                        <span className="px-2.5 py-1 rounded-full text-[9px] font-bold tracking-wider uppercase bg-amber-400/20 text-amber-300 ring-1 ring-amber-400/30 flex-shrink-0">
+                          {formTeacherLabel}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between px-5 py-4 rounded-2xl mb-5 bg-gray-100 border border-dashed border-gray-300">
+                        <p className="text-sm text-gray-400">No {formTeacherLabel.toLowerCase()} assigned</p>
+                        <button onClick={() => setActiveTab('form-teacher')} className="text-xs font-bold text-blue-500 hover:text-blue-700">
+                          Assign →
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Co-teachers */}
+                    {coTeachers.length > 0 && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                        {coTeachers.map(ct => (
+                          <div
+                            key={ct.id}
+                            className="group flex items-start justify-between gap-3 p-4 bg-white rounded-2xl border border-gray-100 shadow-sm hover:border-gray-300 hover:shadow-md transition-all duration-200"
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="w-10 h-10 rounded-xl bg-gray-700 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                                {ct.teacher_name.charAt(0)}
+                              </div>
+                              <div>
+                                <p className="text-sm font-bold text-gray-800">{ct.teacher_name}</p>
+                                <p className="text-xs text-gray-400 mt-0.5">Co-teacher</p>
+                                {ct.teacher_phone && <p className="text-xs text-gray-300 mt-0.5">{ct.teacher_phone}</p>}
+                                {ct.teacher_employee_id && (
+                                  <p className="text-[10px] font-mono text-gray-300 mt-0.5">ID: {ct.teacher_employee_id}</p>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleRemoveCoTeacher(ct.teacher_id)}
+                              className="opacity-0 group-hover:opacity-100 w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all duration-200"
+                              title="Remove co-teacher"
+                            >
+                              <Trash2 size={13} />
+                            </button>
                           </div>
-                          <div>
-                            <p className="text-sm font-bold text-gray-800">
-                              {assignment.teacher_first_name} {assignment.teacher_last_name}
-                            </p>
-                            <p className="text-xs text-gray-500 font-medium mt-0.5">
-                              {assignment.subject_name}
-                              {assignment.subject_code && (
-                                <span className="text-gray-300 font-mono text-[10px] ml-1.5">
-                                  ({assignment.subject_code})
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Add co-teacher panel */}
+                    {addingCoTeacher ? (
+                      <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
+                        <p className="text-xs font-bold text-gray-500 mb-3 tracking-wide uppercase">Select Co-Teacher</p>
+                        <div className="relative mb-4">
+                          <select
+                            value={selectedCoTeacherId}
+                            onChange={e => setSelectedCoTeacherId(e.target.value === '' ? '' : Number(e.target.value))}
+                            className="w-full appearance-none px-4 py-3 pr-10 rounded-xl border border-gray-200 text-sm text-gray-700 bg-white outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-900/5 cursor-pointer transition-all"
+                          >
+                            <option value="">— Select a teacher —</option>
+                            {availableToAdd.map(t => (
+                              <option key={t.id} value={t.id}>
+                                {t.full_name || `${t.first_name} ${t.last_name}`} · {t.employee_id}
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                        </div>
+                        {availableToAdd.length === 0 && (
+                          <p className="text-xs text-gray-300 mb-3">All active teachers are already assigned to this classroom.</p>
+                        )}
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => { setAddingCoTeacher(false); setSelectedCoTeacherId(''); }}
+                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-bold text-gray-500 hover:bg-gray-50 transition-all"
+                          >
+                            <XCircle size={14} /> Cancel
+                          </button>
+                          <button
+                            onClick={handleAddCoTeacher}
+                            disabled={selectedCoTeacherId === '' || coTeacherSaving}
+                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all bg-gray-900 text-white hover:bg-gray-700 disabled:bg-gray-100 disabled:text-gray-300 disabled:cursor-not-allowed shadow-sm"
+                          >
+                            {coTeacherSaving ? <><Loader2 size={14} className="animate-spin" /> Adding…</> : <>Add Co-Teacher</>}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setAddingCoTeacher(true)}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl border border-dashed border-gray-300 text-sm font-bold text-gray-400 hover:border-gray-900 hover:text-gray-900 hover:bg-white transition-all duration-200"
+                      >
+                        <UserCheck size={15} />
+                        Add Co-Teacher
+                      </button>
+                    )}
+                  </div>
+                );
+              }
+
+              // ── Secondary: subject-based assignments ──
+              return (
+                <div>
+                  {classroom.teacher_assignments && classroom.teacher_assignments.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {classroom.teacher_assignments.map(assignment => (
+                        <div
+                          key={assignment.id}
+                          className="group flex items-start justify-between gap-3 p-4 bg-white rounded-2xl border border-gray-100 shadow-sm hover:border-gray-300 hover:shadow-md transition-all duration-200"
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-gray-900 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                              {(assignment.teacher_first_name ?? '?').charAt(0)}
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-gray-800">
+                                {assignment.teacher_first_name} {assignment.teacher_last_name}
+                              </p>
+                              <p className="text-xs text-gray-500 font-medium mt-0.5">
+                                {assignment.subject_name}
+                                {assignment.subject_code && (
+                                  <span className="text-gray-300 font-mono text-[10px] ml-1.5">
+                                    ({assignment.subject_code})
+                                  </span>
+                                )}
+                              </p>
+                              <div className="flex items-center gap-2 mt-1.5">
+                                <span className="text-[10px] text-gray-300 font-medium">
+                                  {assignment.periods_per_week}×/wk
                                 </span>
-                              )}
-                            </p>
-                            <div className="flex items-center gap-2 mt-1.5">
-                              <span className="text-[10px] text-gray-300 font-medium">
-                                {assignment.periods_per_week}×/wk
-                              </span>
-                              {assignment.is_primary_teacher && (
-                                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wider uppercase bg-gray-900 text-white">
-                                  Primary
-                                </span>
-                              )}
+                                {assignment.is_primary_teacher && (
+                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wider uppercase bg-gray-900 text-white">
+                                    Primary
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
+                          {onRemoveAssignment && (
+                            <button
+                              onClick={() => onRemoveAssignment(assignment.id)}
+                              className="opacity-0 group-hover:opacity-100 w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all duration-200"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
                         </div>
-                        {onRemoveAssignment && (
-                          <button
-                            onClick={() => onRemoveAssignment(assignment.id)}
-                            className="opacity-0 group-hover:opacity-100 w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all duration-200"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-20 gap-3 text-gray-200">
-                    <UserCheck size={44} />
-                    <p className="text-xs tracking-widest uppercase font-semibold text-gray-300">
-                      No teachers assigned yet
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-20 gap-3 text-gray-200">
+                      <UserCheck size={44} />
+                      <p className="text-xs tracking-widest uppercase font-semibold text-gray-300">
+                        No teachers assigned yet
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* ══════════════════════════════════
                 FORM TEACHER TAB
@@ -899,6 +1047,60 @@ const previewTeacher = selectedTeacherId !== ''
                     )}
                   </div>
                 </div>
+
+                {/* ── Co-teachers (Nursery/Primary only) ── */}
+                {['NURSERY', 'PRIMARY'].includes((classroom.education_level ?? '').toUpperCase()) && (
+                  <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm mb-5">
+                    <div className="px-5 py-3.5 flex items-center gap-2.5 border-b border-gray-100 bg-gray-50">
+                      <Users size={13} className="text-gray-400" />
+                      <span className="text-[10px] font-bold tracking-[0.18em] uppercase text-gray-400">
+                        Co-Teachers
+                      </span>
+                      <span className="ml-auto text-[10px] text-gray-300">
+                        Promote a co-teacher to {formTeacherLabel.toLowerCase()}
+                      </span>
+                    </div>
+                    <div className="p-5">
+                      {(classroom.co_teachers ?? []).length > 0 ? (
+                        <div className="space-y-3">
+                          {classroom.co_teachers!.map(ct => (
+                            <div
+                              key={ct.id}
+                              className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-gray-50 border border-gray-100"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-xl bg-gray-700 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                                  {ct.teacher_name.charAt(0)}
+                                </div>
+                                <div>
+                                  <p className="text-sm font-bold text-gray-800">{ct.teacher_name}</p>
+                                  {ct.teacher_employee_id && (
+                                    <p className="text-[10px] font-mono text-gray-300">{ct.teacher_employee_id}</p>
+                                  )}
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => handlePromoteToFormTeacher(ct.teacher_id)}
+                                disabled={promotingTeacherId === ct.teacher_id}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold text-amber-600 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {promotingTeacherId === ct.teacher_id
+                                  ? <Loader2 size={11} className="animate-spin" />
+                                  : <BadgeCheck size={11} />
+                                }
+                                Make {formTeacherLabel}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-300 text-center py-4">
+                          No co-teachers assigned. Add co-teachers from the Teachers tab.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* ── Edit / Assign panel ── */}
                 {isEditingFormTeacher && (
