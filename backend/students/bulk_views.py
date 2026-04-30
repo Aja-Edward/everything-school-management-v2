@@ -226,6 +226,58 @@ def download_upload_template(request):
 
     fmt = request.GET.get("format", "csv").lower()
 
+    tenant = _get_tenant(request)
+
+    # ---- Fetch live tenant data for smart examples & conditional columns ----
+    classes = []
+    sections = []
+    streams = []
+    enable_streaming = True
+    school_name = ""
+
+    if tenant:
+        from classroom.models import Class, Section, Stream
+
+        classes = list(
+            Class.objects.filter(tenant=tenant, is_active=True)
+            .order_by("order")
+            .values_list("name", flat=True)
+        )
+        sections = list(
+            Section.objects.filter(tenant=tenant, is_active=True)
+            .values_list("name", flat=True)
+            .distinct()
+            .order_by("name")
+        )
+        streams = list(
+            Stream.objects.filter(tenant=tenant)
+            .values_list("name", flat=True)
+            .order_by("name")
+        )
+        school_name = tenant.name
+
+        try:
+            tenant_settings = tenant.settings
+            enable_streaming = tenant_settings.enable_streaming
+        except Exception:
+            pass
+
+    # Use real tenant values as example data where available
+    example_class = classes[0] if classes else "JSS 1"
+    example_section = sections[0] if sections else "Gold"
+    example_stream = streams[0] if streams else "SCIENCE"
+
+    class_desc = (
+        f"Select from dropdown — valid values: {', '.join(classes[:8])}"
+        if classes
+        else "Select from dropdown — must match your school"
+    )
+    section_desc = (
+        f"Select from dropdown — valid values: {', '.join(sections[:8])}"
+        if sections
+        else "Select from dropdown — must match your school"
+    )
+
     COLUMNS = [
         ("Registration Number", False, "0001", "School-assigned reg number"),
         ("Surname*", True, "Adeyemi", "Student's surname / last name"),
@@ -237,14 +289,19 @@ def download_upload_template(request):
         ("LGA", False, "Ikeja", "Local Government Area — optional"),
         ("Blood Group", False, "O+", "e.g. A+, B-, O+, AB+"),
         ("Place of Birth*", True, "Lagos", "City / town of birth"),
-        ("Class Name*", True, "JSS 1", "Select from dropdown — must match your school"),
-        ("Section*", True, "Gold", "Select from dropdown — must match your school"),
-        (
-            "Stream",
-            False,
-            "SCIENCE",
-            "Required only for Senior Secondary — select from dropdown",
-        ),
+        ("Class Name*", True, example_class, class_desc),
+        ("Section*", True, example_section, section_desc),
+    ]
+
+    if enable_streaming:
+        stream_desc = (
+            f"Required for Senior Secondary — valid values: {', '.join(streams[:6])}"
+            if streams
+            else "Required only for Senior Secondary — select from dropdown"
+        )
+        COLUMNS.append(("Stream", False, example_stream, stream_desc))
+
+    COLUMNS += [
         ("Year Admitted*", True, "2024", "4-digit year e.g. 2024"),
         ("Admission Date*", True, "2024-09-02", "Format: YYYY-MM-DD"),
         ("Is Active", False, "TRUE", "TRUE or FALSE. Defaults to TRUE."),
@@ -283,10 +340,18 @@ def download_upload_template(request):
     headers = [col[0] for col in COLUMNS]
     example = [col[2] for col in COLUMNS]
 
-    tenant = _get_tenant(request)  # already available in the view
-
     if fmt == "excel":
-        return _template_excel(headers, example, COLUMNS, tenant=tenant)
+        return _template_excel(
+            headers,
+            example,
+            COLUMNS,
+            tenant=tenant,
+            school_name=school_name,
+            classes=classes,
+            sections=sections,
+            streams=streams,
+            enable_streaming=enable_streaming,
+        )
     return _template_csv(headers, example)
 
 
@@ -301,7 +366,17 @@ def _template_csv(headers, example):
     return response
 
 
-def _template_excel(headers, example, column_defs, tenant=None):
+def _template_excel(
+    headers,
+    example,
+    column_defs,
+    tenant=None,
+    school_name="",
+    classes=None,
+    sections=None,
+    streams=None,
+    enable_streaming=True,
+):
     try:
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -313,30 +388,10 @@ def _template_excel(headers, example, column_defs, tenant=None):
     import io
     from django.http import HttpResponse
 
-    # ---- Fetch live data from DB ----
-    classes = []
-    sections = []
-    streams = []
-
-    if tenant:
-        from classroom.models import Class, Section, Stream
-
-        classes = list(
-            Class.objects.filter(tenant=tenant, is_active=True)
-            .values_list("name", flat=True)
-            .order_by("name")
-        )
-        sections = list(
-            Section.objects.filter(tenant=tenant, is_active=True)
-            .values_list("name", flat=True)
-            .distinct()
-            .order_by("name")
-        )
-        streams = list(
-            Stream.objects.filter(tenant=tenant)
-            .values_list("name", flat=True)
-            .order_by("name")
-        )
+    # Use pre-fetched tenant data (already resolved by the view)
+    classes = classes or []
+    sections = sections or []
+    streams = streams or []
 
     if not streams:
         streams = ["SCIENCE", "ARTS", "COMMERCIAL"]
@@ -392,6 +447,8 @@ def _template_excel(headers, example, column_defs, tenant=None):
     ref_ws.sheet_state = "hidden"
 
     def _write_ref_col(sheet, col, items):
+        if not items:
+            return None
         for i, val in enumerate(items, 1):
             sheet.cell(row=i, column=col, value=val)
         last = get_column_letter(col)
@@ -422,7 +479,12 @@ def _template_excel(headers, example, column_defs, tenant=None):
 
     # ---- Title ----
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
-    title_cell = ws.cell(row=1, column=1, value="STUDENT BULK UPLOAD TEMPLATE")
+    title_text = (
+        f"{school_name.upper()} — STUDENT BULK UPLOAD TEMPLATE"
+        if school_name
+        else "STUDENT BULK UPLOAD TEMPLATE"
+    )
+    title_cell = ws.cell(row=1, column=1, value=title_text)
     title_cell.font = Font(size=14, bold=True, color="1F4E79")
     title_cell.alignment = Alignment(horizontal="center")
 
@@ -433,12 +495,35 @@ def _template_excel(headers, example, column_defs, tenant=None):
         "• Required fields are highlighted in yellow",
         "• Dates must be YYYY-MM-DD format",
         "• Gender must be M or F — use the dropdown",
-        "• Stream is only required for Senior Secondary — use the dropdown",
-        "• Class Name and Section must match your school's setup — use the dropdowns",
+    ]
+
+    if classes:
+        instructions.append(
+            f"• Valid Class Names: {', '.join(classes)} — use the dropdown"
+        )
+    else:
+        instructions.append("• Class Name must match your school's setup — use the dropdown")
+
+    if sections:
+        instructions.append(
+            f"• Valid Sections: {', '.join(sections)} — use the dropdown"
+        )
+    else:
+        instructions.append("• Section name must match exactly (varies per school) — use the dropdown")
+
+    if enable_streaming:
+        if streams:
+            instructions.append(
+                f"• Stream (Senior Secondary only) — valid values: {', '.join(streams)}"
+            )
+        else:
+            instructions.append("• Stream is only required for Senior Secondary — use the dropdown")
+
+    instructions += [
         "• Parent phone must already exist in the system",
-        "• Section name must match exactly e.g. Gold, Diamond (varies per school)",
         "• State and LGA are optional — can be filled in later via student profile",
     ]
+
     for i, text in enumerate(instructions, start=2):
         ws.merge_cells(start_row=i, start_column=1, end_row=i, end_column=len(headers))
         cell = ws.cell(row=i, column=1, value=text)
