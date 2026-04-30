@@ -56,7 +56,7 @@ const TenantAboutPage: React.FC = () => {
           <div className="absolute inset-0 bg-black/45 flex flex-col justify-end pb-10 px-4 sm:px-6 lg:px-8">
             <div className="max-w-7xl mx-auto w-full">
               <Link to="/" className="inline-flex items-center gap-1 text-sm text-white/70 hover:text-white mb-4 transition-colors">
-                <ArrowLeft className="w-4 h-4" /> Back to Home now or never
+                <ArrowLeft className="w-4 h-4" /> Back to Home
               </Link>
               <h1 className="text-4xl sm:text-5xl font-extrabold text-white mb-2">
                 {section.title ?? 'About Us'}
@@ -69,8 +69,8 @@ const TenantAboutPage: React.FC = () => {
           </div>
         </div>
       ) : (
-        <div className="pt-28 pb-16 px-4 sm:px-6 lg:px-8"
-          style={{ background: `linear-gradient(135deg, ${primaryColor}15 0%, #f8fafc 100%)` }}>
+        <div className="pt-28 pb-16 px-4 sm:px-6 lg:px-8 bg-red-500"
+         >
           <div className="max-w-7xl mx-auto">
             <Link to="/" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 mb-6 transition-colors">
               <ArrowLeft className="w-4 h-4" /> Back to Home
@@ -123,7 +123,7 @@ const TenantAboutPage: React.FC = () => {
                 <Link to="/admissions"
                   className="mt-6 w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-semibold text-sm text-white transition-all hover:opacity-90"
                   style={{ backgroundColor: primaryColor }}>
-                  Apply for Admission or never
+                  Apply for Admission
                 </Link>
               </div>
             </div>
