@@ -69,8 +69,8 @@ const TenantAboutPage: React.FC = () => {
           </div>
         </div>
       ) : (
-        <div className="pt-28 pb-16 px-4 sm:px-6 lg:px-8 bg-red-500"
-         >
+        <div className="pt-28 pb-16 px-4 sm:px-6 lg:px-8"
+          style={{ background: `linear-gradient(135deg, ${primaryColor}15 0%, #f8fafc 100%)` }}>
           <div className="max-w-7xl mx-auto">
             <Link to="/" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 mb-6 transition-colors">
               <ArrowLeft className="w-4 h-4" /> Back to Home
