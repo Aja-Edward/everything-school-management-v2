@@ -33,6 +33,14 @@ const SignatureRemarksManagement: React.FC<SignatureRemarksManagementProps> = ({
   const [signatureFile, setSignatureFile] = useState<File | null>(null);
   const [signaturePreview, setSignaturePreview] = useState<string | null>(null);
   const [uploadedSignatureUrl, setUploadedSignatureUrl] = useState<string | null>(null);
+  // Existing (persisted) signature fetched from the teacher profile
+  const [existingSignatureUrl, setExistingSignatureUrl] = useState<string | null>(
+    profileData?.signature_url || null
+  );
+  // 'existing' = use the stored signature; 'new' = upload a fresh one
+  const [signatureMode, setSignatureMode] = useState<'existing' | 'new'>(
+    profileData?.signature_url ? 'existing' : 'new'
+  );
   const [selectedReportsForSignature, setSelectedReportsForSignature] = useState<string[]>([]);
 
   // Students state
@@ -52,6 +60,13 @@ const SignatureRemarksManagement: React.FC<SignatureRemarksManagementProps> = ({
     // Load exam sessions first, then load students
     loadExamSessionsAndStudents();
     loadRemarkTemplates();
+    // Fetch stored signature in case profileData doesn't include it
+    ProfessionalAssignmentService.getMySignature().then(res => {
+      if (res.signature_url) {
+        setExistingSignatureUrl(res.signature_url);
+        setSignatureMode('existing');
+      }
+    });
   }, []);
 
   useEffect(() => {
@@ -192,7 +207,10 @@ const SignatureRemarksManagement: React.FC<SignatureRemarksManagementProps> = ({
       const response = await ProfessionalAssignmentService.uploadTeacherSignature(signatureFile);
 
       setUploadedSignatureUrl(response.signature_url);
-      setSuccessMessage('Signature uploaded successfully!');
+      // Also update the stored (existing) signature and switch to it
+      setExistingSignatureUrl(response.signature_url);
+      setSignatureMode('existing');
+      setSuccessMessage('Signature uploaded and saved to your profile!');
       setSignatureFile(null);
       setSignaturePreview(null);
 
@@ -206,7 +224,8 @@ const SignatureRemarksManagement: React.FC<SignatureRemarksManagementProps> = ({
   };
 
   const handleApplySignatureToSelected = async () => {
-    if (!uploadedSignatureUrl) {
+    const activeUrl = signatureMode === 'existing' ? existingSignatureUrl : uploadedSignatureUrl;
+    if (!activeUrl) {
       setError('Please upload a signature first');
       return;
     }
@@ -240,7 +259,7 @@ const SignatureRemarksManagement: React.FC<SignatureRemarksManagementProps> = ({
       }
 
       const requestData: ApplySignatureRequest = {
-        signature_url: uploadedSignatureUrl,
+        signature_url: activeUrl!,
         term_report_ids: selectedReportsForSignature.map(id => String(id)),
         education_level: selectedEducationLevel,
       };
@@ -267,7 +286,8 @@ const SignatureRemarksManagement: React.FC<SignatureRemarksManagementProps> = ({
       return;
     }
 
-    if (!uploadedSignatureUrl) {
+    const activeUrl = signatureMode === 'existing' ? existingSignatureUrl : uploadedSignatureUrl;
+    if (!activeUrl) {
       setError('Please upload a signature first');
       return;
     }
@@ -277,7 +297,7 @@ const SignatureRemarksManagement: React.FC<SignatureRemarksManagementProps> = ({
       setError(null);
 
       const requestData: ApplySignatureRequest = {
-        signature_url: uploadedSignatureUrl,
+        signature_url: activeUrl,
         term_report_ids: [selectedStudent.term_report_id],
         education_level: selectedStudent.education_level,
       };
@@ -477,76 +497,110 @@ const SignatureRemarksManagement: React.FC<SignatureRemarksManagementProps> = ({
         </div>
       </div>
 
-      {/* Signature Upload Section */}
+      {/* Signature Section */}
       {activeView === 'signature' && (
         <div className="space-y-4 sm:space-y-6">
           <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-            <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white mb-4 sm:mb-6">Upload Your Signature</h2>
-            
-            <div className="space-y-4 sm:space-y-6">
-              {uploadedSignatureUrl && (
-                <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-4">
-                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">
-                    Current Signature
-                  </label>
-                  <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border-2 border-slate-200 dark:border-slate-600">
-                    <img 
-                      src={uploadedSignatureUrl} 
-                      alt="Current Signature" 
-                      className="max-h-24 sm:max-h-32 mx-auto"
-                    />
-                  </div>
-                </div>
-              )}
+            <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white mb-4">Signature Management</h2>
 
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">
-                  {uploadedSignatureUrl ? 'Update Signature' : 'Upload Signature'}
-                </label>
-                <div className="border-2 border-dashed border-blue-300 dark:border-blue-600 rounded-xl p-4 sm:p-6 text-center hover:border-blue-500 transition-colors bg-blue-50 dark:bg-blue-900/20">
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/jpg"
-                    onChange={handleSignatureUpload}
-                    className="hidden"
-                    id="signature-upload"
-                  />
-                  <label htmlFor="signature-upload" className="cursor-pointer">
-                    <Upload className="w-10 h-10 sm:w-12 sm:h-12 text-blue-600 dark:text-blue-400 mx-auto mb-2 sm:mb-3" />
-                    <p className="text-slate-700 dark:text-slate-300 font-medium mb-1 text-sm sm:text-base">
-                      Click to upload signature
-                    </p>
-                    <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-                      PNG or JPEG (max 2MB)
-                    </p>
-                  </label>
-                </div>
-              </div>
-
-              {signaturePreview && (
-                <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-4">
-                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">
-                    Preview
-                  </label>
-                  <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border-2 border-slate-200 dark:border-slate-600">
-                    <img 
-                      src={signaturePreview} 
-                      alt="Signature Preview" 
-                      className="max-h-24 sm:max-h-32 mx-auto"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {signatureFile && (
+            {/* Mode toggle — only shown when an existing signature is saved */}
+            {existingSignatureUrl && (
+              <div className="flex gap-2 mb-5 bg-slate-100 dark:bg-slate-700 rounded-xl p-1">
                 <button
-                  onClick={handleSignatureSubmit}
-                  disabled={isLoading}
-                  className="w-full flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all font-medium text-sm sm:text-base shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => setSignatureMode('existing')}
+                  className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
+                    signatureMode === 'existing'
+                      ? 'bg-white dark:bg-slate-600 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'
+                  }`}
                 >
-                  <Save className="w-4 h-4 sm:w-5 sm:h-5" />
-                  <span>{isLoading ? 'Uploading...' : 'Save Signature'}</span>
+                  Use Saved Signature
                 </button>
+                <button
+                  onClick={() => setSignatureMode('new')}
+                  className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
+                    signatureMode === 'new'
+                      ? 'bg-white dark:bg-slate-600 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'
+                  }`}
+                >
+                  Upload New Signature
+                </button>
+              </div>
+            )}
+
+            <div className="space-y-4 sm:space-y-5">
+              {/* ── USE EXISTING ── */}
+              {signatureMode === 'existing' && existingSignatureUrl && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                      Your Saved Signature
+                    </label>
+                    <span className="text-xs text-green-600 dark:text-green-400 font-medium flex items-center gap-1">
+                      <CheckCircle className="w-3 h-3" /> Ready to apply
+                    </span>
+                  </div>
+                  <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-4 border-2 border-green-200 dark:border-green-800">
+                    <img
+                      src={existingSignatureUrl}
+                      alt="Saved Signature"
+                      className="max-h-24 sm:max-h-32 mx-auto"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-400 mt-2 text-center">
+                    This signature is saved to your profile. Switch to "Upload New" to replace it.
+                  </p>
+                </div>
+              )}
+
+              {/* ── UPLOAD NEW ── */}
+              {signatureMode === 'new' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">
+                      Upload New Signature
+                    </label>
+                    <div className="border-2 border-dashed border-blue-300 dark:border-blue-600 rounded-xl p-4 sm:p-6 text-center hover:border-blue-500 transition-colors bg-blue-50 dark:bg-blue-900/20">
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/jpg"
+                        onChange={handleSignatureUpload}
+                        className="hidden"
+                        id="signature-upload"
+                      />
+                      <label htmlFor="signature-upload" className="cursor-pointer">
+                        <Upload className="w-10 h-10 sm:w-12 sm:h-12 text-blue-600 dark:text-blue-400 mx-auto mb-2 sm:mb-3" />
+                        <p className="text-slate-700 dark:text-slate-300 font-medium mb-1 text-sm sm:text-base">
+                          Click to select signature image
+                        </p>
+                        <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                          PNG or JPEG · max 2MB
+                        </p>
+                      </label>
+                    </div>
+                  </div>
+
+                  {signaturePreview && (
+                    <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-4">
+                      <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Preview</label>
+                      <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border-2 border-slate-200 dark:border-slate-600">
+                        <img src={signaturePreview} alt="Signature Preview" className="max-h-24 sm:max-h-32 mx-auto" />
+                      </div>
+                    </div>
+                  )}
+
+                  {signatureFile && (
+                    <button
+                      onClick={handleSignatureSubmit}
+                      disabled={isLoading}
+                      className="w-full flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all font-medium text-sm sm:text-base shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Save className="w-4 h-4 sm:w-5 sm:h-5" />
+                      {isLoading ? 'Uploading...' : 'Save & Use This Signature'}
+                    </button>
+                  )}
+                </>
               )}
 
               <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-3 sm:p-4">
@@ -555,27 +609,30 @@ const SignatureRemarksManagement: React.FC<SignatureRemarksManagementProps> = ({
                   <li>• Sign on white paper with black or blue ink</li>
                   <li>• Take a clear photo or scan</li>
                   <li>• Ensure signature is centered and visible</li>
-                  <li>• Maximum file size: 2MB</li>
-                  <li>• Accepted formats: PNG, JPEG</li>
+                  <li>• Once saved, you can reuse it across all reports without re-uploading</li>
+                  <li>• Maximum file size: 2MB · Accepted formats: PNG, JPEG</li>
                 </ul>
               </div>
             </div>
           </div>
 
-          {uploadedSignatureUrl && studentsData && studentsData.students.length > 0 && (
+          {/* Apply to reports — shown when an active signature exists */}
+          {(existingSignatureUrl || uploadedSignatureUrl) && studentsData && studentsData.students.length > 0 && (
             <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0 mb-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0 mb-3">
                 <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">Apply Signature to Reports</h2>
                 <button
                   onClick={() => setShowBulkSignatureModal(true)}
                   className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all text-sm font-medium"
                 >
                   <CheckCircle className="w-4 h-4" />
-                  <span>Bulk Apply</span>
+                  Bulk Apply
                 </button>
               </div>
               <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">
-                Your signature has been uploaded. You can now apply it to student reports individually or in bulk.
+                {signatureMode === 'existing'
+                  ? 'Your saved signature will be applied to the selected reports.'
+                  : 'Your newly uploaded signature will be applied to the selected reports.'}
               </p>
             </div>
           )}

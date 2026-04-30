@@ -510,6 +510,17 @@ class TenantLandingPage(models.Model):
     RIBBON_SPEED_CHOICES = [("slow", "Slow"), ("medium", "Medium"), ("fast", "Fast")]
     ribbon_speed = models.CharField(max_length=10, choices=RIBBON_SPEED_CHOICES, default="medium")
 
+    # Stats strip
+    stats_enabled = models.BooleanField(default=True)
+    stat_1_label = models.CharField(max_length=80, default='Students')
+    stat_1_value = models.CharField(max_length=40, default='1,000+')
+    stat_2_label = models.CharField(max_length=80, default='Teachers')
+    stat_2_value = models.CharField(max_length=40, default='80+')
+    stat_3_label = models.CharField(max_length=80, default='Programmes')
+    stat_3_value = models.CharField(max_length=40, default='20+')
+    stat_4_label = models.CharField(max_length=80, default='Years of Excellence')
+    stat_4_value = models.CharField(max_length=40, default='15+')
+
     # Footer
     footer_text = models.TextField(blank=True, null=True)
     facebook_url = models.URLField(blank=True, null=True)
@@ -537,6 +548,7 @@ class LandingSection(models.Model):
         ("about", "About"),
         ("admissions", "Admissions"),
         ("contact", "Contact"),
+        ("school_activities", "School Activities"),
         ("custom", "Custom"),
     ]
 

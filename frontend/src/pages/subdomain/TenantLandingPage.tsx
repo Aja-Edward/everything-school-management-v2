@@ -168,27 +168,29 @@ const TenantLandingPage: React.FC = () => {
       />
 
       {/* ── Stats Strip ── */}
-      <div className="bg-white border-b border-gray-100 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            {[
-              { icon: <GraduationCap className="w-6 h-6" />, label: 'Students', value: '1,000+' },
-              { icon: <Users className="w-6 h-6" />, label: 'Teachers', value: '80+' },
-              { icon: <BookOpen className="w-6 h-6" />, label: 'Programmes', value: '20+' },
-              { icon: <Award className="w-6 h-6" />, label: 'Years of Excellence', value: '15+' },
-            ].map((s, i) => (
-              <div key={i} className="text-center">
-                <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl mb-2"
-                  style={{ backgroundColor: `${primaryColor}18`, color: primaryColor }}>
-                  {s.icon}
+      {(landing?.stats_enabled ?? true) && (
+        <div className="bg-white border-b border-gray-100 shadow-sm">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              {([
+                { icon: <GraduationCap className="w-6 h-6" />, label: landing?.stat_1_label ?? 'Students',          value: landing?.stat_1_value ?? '1,000+' },
+                { icon: <Users className="w-6 h-6" />,          label: landing?.stat_2_label ?? 'Teachers',          value: landing?.stat_2_value ?? '80+'    },
+                { icon: <BookOpen className="w-6 h-6" />,        label: landing?.stat_3_label ?? 'Programmes',        value: landing?.stat_3_value ?? '20+'    },
+                { icon: <Award className="w-6 h-6" />,           label: landing?.stat_4_label ?? 'Years of Excellence', value: landing?.stat_4_value ?? '15+' },
+              ] as { icon: React.ReactNode; label: string; value: string }[]).map((s, i) => (
+                <div key={i} className="text-center">
+                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl mb-2"
+                    style={{ backgroundColor: `${primaryColor}18`, color: primaryColor }}>
+                    {s.icon}
+                  </div>
+                  <div className="text-2xl font-bold text-gray-900">{s.value}</div>
+                  <div className="text-xs text-gray-500 font-medium">{s.label}</div>
                 </div>
-                <div className="text-2xl font-bold text-gray-900">{s.value}</div>
-                <div className="text-xs text-gray-500 font-medium">{s.label}</div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* ── About Section ── */}
       {aboutSection && (

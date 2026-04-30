@@ -4,7 +4,7 @@ import { API_BASE_URL } from './api';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type HeroType = 'static' | 'carousel';
-export type SectionType = 'about' | 'admissions' | 'contact' | 'custom';
+export type SectionType = 'about' | 'admissions' | 'contact' | 'school_activities' | 'custom';
 export type LinkType = 'internal' | 'section' | 'external';
 export type RibbonSpeed = 'slow' | 'medium' | 'fast';
 
@@ -64,6 +64,15 @@ export interface TenantLandingPage {
   ribbon_enabled: boolean;
   ribbon_text?: string;
   ribbon_speed: RibbonSpeed;
+  stats_enabled: boolean;
+  stat_1_label: string;
+  stat_1_value: string;
+  stat_2_label: string;
+  stat_2_value: string;
+  stat_3_label: string;
+  stat_3_value: string;
+  stat_4_label: string;
+  stat_4_value: string;
   footer_text?: string;
   facebook_url?: string;
   twitter_url?: string;

@@ -114,6 +114,9 @@ const AdminRemarksManager: React.FC<AdminRemarksManagerProps> = () => {
   const [headSignatureFile, setHeadSignatureFile] = useState<File | null>(null);
   const [headSignaturePreview, setHeadSignaturePreview] = useState<string | null>(null);
   const [headSignatureUrl, setHeadSignatureUrl] = useState('');
+  // Persisted signature fetched from tenant settings
+  const [existingHeadSignatureUrl, setExistingHeadSignatureUrl] = useState('');
+  const [headSignatureMode, setHeadSignatureMode] = useState<'existing' | 'new'>('new');
   const [schoolStampFile, setSchoolStampFile] = useState<File | null>(null);
   const [schoolStampPreview, setSchoolStampPreview] = useState<string | null>(null);
   const [schoolStampUrl, setSchoolStampUrl] = useState('');
@@ -140,6 +143,13 @@ const AdminRemarksManager: React.FC<AdminRemarksManagerProps> = () => {
   
   useEffect(() => {
     fetchExamSessions();
+    // Fetch the school's stored head teacher signature
+    ProfessionalAssignmentService.getHeadSignature().then(res => {
+      if (res.signature_url) {
+        setExistingHeadSignatureUrl(res.signature_url);
+        setHeadSignatureMode('existing');
+      }
+    });
   }, []);
 
   useEffect(() => {
@@ -337,9 +347,12 @@ const AdminRemarksManager: React.FC<AdminRemarksManagerProps> = () => {
     try {
       const result = await ProfessionalAssignmentService.uploadHeadTeacherSignature(headSignatureFile);
       setHeadSignatureUrl(result.signature_url);
+      // Also persist as the school's saved signature and switch to it
+      setExistingHeadSignatureUrl(result.signature_url);
+      setHeadSignatureMode('existing');
       setHeadSignatureFile(null);
       setHeadSignaturePreview(null);
-      alert('Signature uploaded successfully! You can now apply it to reports.');
+      alert('Signature uploaded and saved to school settings! It will be available for future sessions.');
     } catch (error: any) {
       console.error('Error uploading signature:', error);
       alert(`Error: ${error.message}`);
@@ -372,7 +385,8 @@ const AdminRemarksManager: React.FC<AdminRemarksManagerProps> = () => {
   };
 
   const handleApplyHeadSignature = async () => {
-    if (!headSignatureUrl) {
+    const activeHeadUrl = headSignatureMode === 'existing' ? existingHeadSignatureUrl : headSignatureUrl;
+    if (!activeHeadUrl) {
       alert('Please upload a signature first');
       return;
     }
@@ -398,7 +412,7 @@ const AdminRemarksManager: React.FC<AdminRemarksManagerProps> = () => {
       let totalApplied = 0;
       for (const [level, reportIds] of Object.entries(reportsByLevel) as [EducationLevel, string[]][]) {
         const result = await ProfessionalAssignmentService.applyHeadSignature({
-          signature_url: headSignatureUrl,
+          signature_url: activeHeadUrl,
           education_level: level,
           term_report_ids: reportIds
         });
@@ -1043,19 +1057,19 @@ const AdminRemarksManager: React.FC<AdminRemarksManagerProps> = () => {
         </div>
       )}
 
-      {/* Signature Upload Modal - keeping existing code */}
+      {/* Signature Modal */}
       {showSignatureUpload && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-2xl w-full">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
-              <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white">
                 Apply Head Teacher Signature
               </h2>
               <button
                 onClick={() => {
                   setShowSignatureUpload(false);
                   setHeadSignatureFile(null);
-                  setHeadSignatureUrl('');
+                  setHeadSignaturePreview(null);
                 }}
                 className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
@@ -1063,122 +1077,114 @@ const AdminRemarksManager: React.FC<AdminRemarksManagerProps> = () => {
               </button>
             </div>
 
-            <div className="p-6 space-y-6">
-              <div>
-                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                  Selected Reports: {selectedReports.length}
-                </p>
+            <div className="p-6 space-y-5">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                {selectedReports.length} report{selectedReports.length !== 1 ? 's' : ''} selected
+              </p>
 
-                {headSignatureUrl && !headSignaturePreview && (
-                  <div className="mb-6">
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                      Current Signature
-                    </label>
-                    <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-4 border-2 border-slate-200 dark:border-slate-600">
-                      <img 
-                        src={headSignatureUrl} 
-                        alt="Current Signature" 
-                        className="max-h-32 mx-auto"
-                      />
-                    </div>
-                  </div>
-                )}
+              {/* Mode toggle — shown only when a saved signature exists */}
+              {existingHeadSignatureUrl && (
+                <div className="flex gap-2 bg-slate-100 dark:bg-slate-800 rounded-xl p-1">
+                  <button
+                    onClick={() => setHeadSignatureMode('existing')}
+                    className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
+                      headSignatureMode === 'existing'
+                        ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                    }`}
+                  >
+                    Use Saved Signature
+                  </button>
+                  <button
+                    onClick={() => setHeadSignatureMode('new')}
+                    className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
+                      headSignatureMode === 'new'
+                        ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                    }`}
+                  >
+                    Upload New
+                  </button>
+                </div>
+              )}
 
-                {!headSignatureUrl || headSignaturePreview ? (
+              {/* ── USE EXISTING ── */}
+              {headSignatureMode === 'existing' && existingHeadSignatureUrl && (
+                <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                      {headSignatureUrl ? 'Update Signature Image' : 'Upload Signature Image'}
-                    </label>
-                    
-                    <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-8 text-center">
-                      <Upload className="w-12 h-12 mx-auto mb-4 text-slate-400" />
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleSignatureFileChange}
-                        className="hidden"
-                        id="head-signature-upload"
-                      />
-                      <label
-                        htmlFor="head-signature-upload"
-                        className="cursor-pointer text-blue-600 dark:text-blue-400 hover:underline"
-                      >
-                        Choose signature image
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                        Saved Signature
                       </label>
-                      <p className="text-xs text-slate-500 mt-2">PNG or JPEG (max 2MB)</p>
-                      {headSignatureFile && (
-                        <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">
-                          Selected: {headSignatureFile.name}
-                        </p>
-                      )}
+                      <span className="text-xs text-green-600 dark:text-green-400 font-medium flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3" /> Ready to apply
+                      </span>
                     </div>
+                    <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-4 border-2 border-green-200 dark:border-green-800">
+                      <img src={existingHeadSignatureUrl} alt="Saved Head Teacher Signature" className="max-h-32 mx-auto" />
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1.5 text-center">
+                      This signature is saved to your school settings. Switch to "Upload New" to replace it.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleApplyHeadSignature}
+                    disabled={uploading}
+                    className="w-full px-6 py-3 rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 font-semibold"
+                  >
+                    {uploading
+                      ? <><Loader2 className="w-5 h-5 animate-spin" /> Applying…</>
+                      : <><CheckCircle className="w-5 h-5" /> Apply to {selectedReports.length} Report(s)</>
+                    }
+                  </button>
+                </div>
+              )}
 
-                    {headSignaturePreview && (
-                      <div className="mt-4">
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                          Preview
-                        </label>
-                        <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-4 border-2 border-slate-200 dark:border-slate-600">
-                          <img 
-                            src={headSignaturePreview} 
-                            alt="Signature Preview" 
-                            className="max-h-32 mx-auto"
-                          />
-                        </div>
-                      </div>
+              {/* ── UPLOAD NEW ── */}
+              {(headSignatureMode === 'new' || !existingHeadSignatureUrl) && (
+                <div className="space-y-4">
+                  <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-8 text-center">
+                    <Upload className="w-12 h-12 mx-auto mb-3 text-slate-400" />
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/jpg"
+                      onChange={handleSignatureFileChange}
+                      className="hidden"
+                      id="head-signature-upload"
+                    />
+                    <label htmlFor="head-signature-upload" className="cursor-pointer text-blue-600 dark:text-blue-400 hover:underline font-medium">
+                      Choose signature image
+                    </label>
+                    <p className="text-xs text-slate-500 mt-1.5">PNG or JPEG · max 2MB</p>
+                    {headSignatureFile && (
+                      <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">{headSignatureFile.name}</p>
                     )}
+                  </div>
 
-                    <button
-                      onClick={handleUploadHeadSignature}
-                      disabled={!headSignatureFile || uploading}
-                      className="w-full mt-4 px-6 py-3 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-                    >
-                      {uploading ? (
-                        <>
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                          Uploading...
-                        </>
-                      ) : (
-                        <>
-                          <Upload className="w-5 h-5" />
-                          Upload Signature
-                        </>
-                      )}
-                    </button>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-4 mb-4">
-                      <p className="text-sm text-green-600 dark:text-green-400 mb-2 flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4" />
-                        Signature uploaded successfully!
-                      </p>
-                      <img
-                        src={headSignatureUrl}
-                        alt="Signature"
-                        className="max-h-32 mx-auto"
-                      />
+                  {headSignaturePreview && (
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Preview</label>
+                      <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-4 border-2 border-slate-200 dark:border-slate-600">
+                        <img src={headSignaturePreview} alt="Signature Preview" className="max-h-32 mx-auto" />
+                      </div>
                     </div>
-                    <button
-                      onClick={handleApplyHeadSignature}
-                      disabled={uploading}
-                      className="w-full px-6 py-3 rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-                    >
-                      {uploading ? (
-                        <>
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                          Applying...
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle className="w-5 h-5" />
-                          Apply to {selectedReports.length} Report(s)
-                        </>
-                      )}
-                    </button>
-                  </div>
-                )}
-              </div>
+                  )}
+
+                  <button
+                    onClick={handleUploadHeadSignature}
+                    disabled={!headSignatureFile || uploading}
+                    className="w-full px-6 py-3 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 font-semibold"
+                  >
+                    {uploading
+                      ? <><Loader2 className="w-5 h-5 animate-spin" /> Uploading…</>
+                      : <><Upload className="w-5 h-5" /> Save & Apply Signature</>
+                    }
+                  </button>
+                  <p className="text-xs text-center text-slate-400">
+                    The signature will be saved to your school settings for future use.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>

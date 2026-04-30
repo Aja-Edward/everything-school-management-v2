@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTenant } from '@/contexts/TenantContext';
-import LandingPageService, { TenantLandingPage } from '@/services/LandingPageService';
+import LandingPageService, { TenantLandingPage, LandingSection } from '@/services/LandingPageService';
 import TenantNavbar from '@/components/tenant/TenantNavbar';
 import TenantFooter from '@/components/tenant/TenantFooter';
 import RibbonBanner from '@/components/tenant/RibbonBanner';
@@ -36,6 +36,7 @@ function formatEventType(type: string): string {
 const TenantSchoolActivitiesPage: React.FC = () => {
   const { tenant, settings } = useTenant();
   const [landing, setLanding] = useState<TenantLandingPage | null>(null);
+  const [pageSection, setPageSection] = useState<LandingSection | null>(null);
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [ribbonText, setRibbonText] = useState<string | null>(null);
@@ -50,6 +51,11 @@ const TenantSchoolActivitiesPage: React.FC = () => {
     ]).then(([landingData, eventsData]) => {
       if (landingData) {
         setLanding(landingData);
+        // Read the school_activities section for page header customization
+        const activitiesSection = landingData.sections.find(
+          s => s.section_type === 'school_activities' && s.is_enabled
+        ) ?? null;
+        setPageSection(activitiesSection);
         if (landingData.ribbon_enabled && landingData.ribbon_text) {
           setRibbonText(landingData.ribbon_text);
           setRibbonSpeed(landingData.ribbon_speed ?? 'medium');
@@ -85,23 +91,51 @@ const TenantSchoolActivitiesPage: React.FC = () => {
         />
       </div>
 
-      {/* Page header */}
-      <div className="pt-28 pb-14 px-4 sm:px-6 lg:px-8"
-        style={{ background: `linear-gradient(135deg, ${primaryColor}14 0%, #f1f5f9 100%)` }}>
-        <div className="max-w-7xl mx-auto">
-          <Link to="/"
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 hover:text-gray-800 mb-6 transition-colors">
-            <ArrowLeft className="w-4 h-4" /> Back to Home
-          </Link>
-          <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-900 mb-4 leading-tight">
-            School Activities
-          </h1>
-          <p className="text-lg text-gray-500 max-w-2xl leading-relaxed">
-            Explore events, achievements, and activities happening at{' '}
-            <span className="font-semibold text-gray-700">{tenant?.name}</span>.
-          </p>
+      {/* Page header — uses banner image if the school_activities section has one */}
+      {pageSection?.banner_image ? (
+        <div className="relative pt-20">
+          <img
+            src={pageSection.banner_image}
+            alt={pageSection.title}
+            className="w-full h-64 sm:h-80 object-cover"
+          />
+          <div className="absolute inset-0 bg-black/45 flex flex-col justify-end pb-10 px-4 sm:px-6 lg:px-8">
+            <div className="max-w-7xl mx-auto w-full">
+              <Link to="/" className="inline-flex items-center gap-1 text-sm text-white/70 hover:text-white mb-4 transition-colors">
+                <ArrowLeft className="w-4 h-4" /> Back to Home
+              </Link>
+              <h1 className="text-4xl sm:text-5xl font-extrabold text-white mb-2">
+                {pageSection.title || 'School Activities'}
+              </h1>
+              {pageSection.subtitle && (
+                <p className="text-lg text-white/80 max-w-2xl">{pageSection.subtitle}</p>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="pt-28 pb-14 px-4 sm:px-6 lg:px-8"
+          style={{ background: `linear-gradient(135deg, ${primaryColor}14 0%, #f1f5f9 100%)` }}>
+          <div className="max-w-7xl mx-auto">
+            <Link to="/"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 hover:text-gray-800 mb-6 transition-colors">
+              <ArrowLeft className="w-4 h-4" /> Back to Home
+            </Link>
+            <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-900 mb-4 leading-tight">
+              {pageSection?.title || 'School Activities'}
+            </h1>
+            <p className="text-lg text-gray-500 max-w-2xl leading-relaxed">
+              {pageSection?.subtitle || (
+                <>Explore events, achievements, and activities happening at{' '}
+                <span className="font-semibold text-gray-700">{tenant?.name}</span>.</>
+              )}
+            </p>
+            {pageSection?.content && (
+              <p className="text-base text-gray-400 max-w-3xl mt-3 leading-relaxed">{pageSection.content}</p>
+            )}
+          </div>
+        </div>
+      )}
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         {loading ? (

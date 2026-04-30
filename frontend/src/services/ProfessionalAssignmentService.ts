@@ -117,6 +117,15 @@ class ProfessionalAssignmentService {
     return response.json();
   }
 
+  /** Fetch the teacher's stored signature URL (returns empty string if none). */
+  async getMySignature(): Promise<{ signature_url: string; signature_uploaded_at: string | null }> {
+    try {
+      return await api.get(`${this.baseUrl}/my-signature/`);
+    } catch {
+      return { signature_url: '', signature_uploaded_at: null };
+    }
+  }
+
   /** Upload teacher signature image to Cloudinary. */
   async uploadTeacherSignature(signatureFile: File): Promise<SignatureUploadResponse> {
     const form = new FormData();
@@ -200,6 +209,15 @@ class ProfessionalAssignmentService {
 
     if (!response.ok) await throwFromResponse(response);
     return response.json();
+  }
+
+  /** Fetch the tenant's stored head teacher signature URL (returns empty string if none). */
+  async getHeadSignature(): Promise<{ signature_url: string; signature_uploaded_at: string | null }> {
+    try {
+      return await api.get(`${this.headTeacherUrl}/get-head-signature/`);
+    } catch {
+      return { signature_url: '', signature_uploaded_at: null };
+    }
   }
 
   /** Upload head teacher signature image to Cloudinary. */

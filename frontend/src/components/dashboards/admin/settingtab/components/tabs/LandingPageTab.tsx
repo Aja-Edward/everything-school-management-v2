@@ -15,6 +15,7 @@ const sectionLabel: Record<SectionType, string> = {
   about: 'About Us',
   admissions: 'Admissions',
   contact: 'Contact',
+  school_activities: 'School Activities',
   custom: 'Custom Section',
 };
 
@@ -22,6 +23,7 @@ const sectionIcon: Record<SectionType, React.ReactNode> = {
   about: <Layers className="w-4 h-4" />,
   admissions: <CheckCircle className="w-4 h-4" />,
   contact: <MapPin className="w-4 h-4" />,
+  school_activities: <Globe className="w-4 h-4" />,
   custom: <Type className="w-4 h-4" />,
 };
 
@@ -65,7 +67,7 @@ const Toggle: React.FC<{ checked: boolean; onChange: (v: boolean) => void; label
 
 // ─── Section Editor ───────────────────────────────────────────────────────────
 
-const BANNER_SECTION_TYPES: SectionType[] = ['about', 'admissions', 'contact'];
+const BANNER_SECTION_TYPES: SectionType[] = ['about', 'admissions', 'contact', 'school_activities'];
 
 const SectionEditor: React.FC<{
   section: LandingSection;
@@ -284,7 +286,7 @@ const NavLinkEditor: React.FC<{
 
 // ─── Main Tab ─────────────────────────────────────────────────────────────────
 
-type TabKey = 'general' | 'hero' | 'ribbon' | 'sections' | 'navigation' | 'footer';
+type TabKey = 'general' | 'hero' | 'ribbon' | 'sections' | 'stats' | 'navigation' | 'footer';
 
 const LandingPageTab: React.FC = () => {
   const { settings } = useTenant();
@@ -468,6 +470,7 @@ const LandingPageTab: React.FC = () => {
     { key: 'hero', label: 'Hero', icon: <Image className="w-4 h-4" /> },
     { key: 'ribbon', label: 'Ribbon', icon: <Megaphone className="w-4 h-4" /> },
     { key: 'sections', label: 'Sections', icon: <Layers className="w-4 h-4" /> },
+    { key: 'stats', label: 'Stats', icon: <CheckCircle className="w-4 h-4" /> },
     { key: 'navigation', label: 'Navigation', icon: <Navigation className="w-4 h-4" /> },
     { key: 'footer', label: 'Footer', icon: <Layout className="w-4 h-4" /> },
   ];
@@ -778,7 +781,7 @@ const LandingPageTab: React.FC = () => {
           <div className="flex items-center justify-between">
             <p className="text-sm text-gray-500">Add and configure content sections for your landing page.</p>
             <div className="flex gap-2 flex-wrap justify-end">
-              {(['about', 'admissions', 'contact', 'custom'] as SectionType[]).map(type => (
+              {(['about', 'admissions', 'contact', 'school_activities', 'custom'] as SectionType[]).map(type => (
                 <button key={type} onClick={() => addSection(type)}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-700 transition-colors">
                   <Plus className="w-3.5 h-3.5" /> {sectionLabel[type]}
@@ -806,6 +809,47 @@ const LandingPageTab: React.FC = () => {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── STATS TAB ── */}
+      {activeTab === 'stats' && (
+        <div className="space-y-5">
+          <div className="p-6 bg-white rounded-2xl border border-gray-100 shadow-sm space-y-5">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-gray-900">Stats Strip</h3>
+              <Toggle
+                checked={landing?.stats_enabled ?? true}
+                onChange={v => upd({ stats_enabled: v })}
+                label={landing?.stats_enabled ? 'Visible' : 'Hidden'}
+              />
+            </div>
+            <p className="text-xs text-gray-400">
+              The stats strip appears below the hero on your landing page. You can edit the label and value for each stat, or hide the strip entirely.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {([1, 2, 3, 4] as const).map(n => (
+                <div key={n} className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Stat {n}</p>
+                  <Field label="Label">
+                    <Input
+                      value={(landing as any)?.[`stat_${n}_label`] ?? ''}
+                      onChange={e => upd({ [`stat_${n}_label`]: e.target.value } as any)}
+                      placeholder={['Students', 'Teachers', 'Programmes', 'Years of Excellence'][n - 1]}
+                    />
+                  </Field>
+                  <Field label="Value">
+                    <Input
+                      value={(landing as any)?.[`stat_${n}_value`] ?? ''}
+                      onChange={e => upd({ [`stat_${n}_value`]: e.target.value } as any)}
+                      placeholder={['1,000+', '80+', '20+', '15+'][n - 1]}
+                    />
+                  </Field>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 

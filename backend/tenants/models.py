@@ -661,6 +661,15 @@ class TenantSettings(models.Model):
     allow_class_overflow = models.BooleanField(default=False)
     enable_streaming = models.BooleanField(default=True)
     enable_subject_electives = models.BooleanField(default=True)
+
+    # Stored signatures — persisted so they don't need re-uploading each session
+    head_teacher_signature_url = models.URLField(
+        blank=True, null=True,
+        verbose_name="Head Teacher Signature URL",
+        help_text="Cloudinary URL of the head teacher's digital signature",
+    )
+    head_teacher_signature_uploaded_at = models.DateTimeField(blank=True, null=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

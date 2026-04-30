@@ -3536,6 +3536,18 @@ class ProfessionalAssignmentViewSet(
         except Exception as exc:
             return Response({"error": str(exc)}, status=500)
 
+    @action(detail=False, methods=["get"], url_path="my-signature")
+    def get_my_signature(self, request):
+        """Return the teacher's stored signature URL (empty if none uploaded yet)."""
+        try:
+            teacher = request.user.teacher
+            return Response({
+                "signature_url": teacher.signature_url or "",
+                "signature_uploaded_at": teacher.signature_uploaded_at,
+            })
+        except Exception:
+            return Response({"signature_url": "", "signature_uploaded_at": None})
+
     @action(detail=False, methods=["post"], url_path="upload-signature")
     def upload_teacher_signature(self, request):
         sig = request.FILES.get("signature_image")
@@ -3549,6 +3561,14 @@ class ProfessionalAssignmentViewSet(
             result = upload_signature_to_cloudinary(
                 sig, request.user, signature_type="teacher"
             )
+            # Persist URL on the Teacher profile so it can be reused
+            try:
+                teacher = request.user.teacher
+                teacher.signature_url = result["signature_url"]
+                teacher.signature_uploaded_at = timezone.now()
+                teacher.save(update_fields=["signature_url", "signature_uploaded_at"])
+            except Exception:
+                pass  # Don't fail the upload if the save fails
             return Response(
                 {
                     "signature_url": result["signature_url"],
@@ -3771,15 +3791,48 @@ class HeadTeacherAssignmentViewSet(
         except Exception as exc:
             return Response({"error": str(exc)}, status=500)
 
+    @action(detail=False, methods=["get"], url_path="get-head-signature")
+    def get_head_signature(self, request):
+        """Return the tenant's stored head teacher signature URL."""
+        from tenants.models import Tenant
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"signature_url": "", "signature_uploaded_at": None})
+        try:
+            settings = tenant.settings
+            return Response({
+                "signature_url": settings.head_teacher_signature_url or "",
+                "signature_uploaded_at": settings.head_teacher_signature_uploaded_at,
+            })
+        except Exception:
+            return Response({"signature_url": "", "signature_uploaded_at": None})
+
     @action(detail=False, methods=["post"], url_path="upload-head-signature")
     def upload_head_teacher_signature(self, request):
         sig = request.FILES.get("signature_image")
         if not sig:
             return Response({"error": "signature_image is required"}, status=400)
+        if sig.size > 2 * 1024 * 1024:
+            return Response({"error": "Max 2MB"}, status=400)
+        if sig.content_type not in ("image/png", "image/jpeg", "image/jpg"):
+            return Response({"error": "Only PNG/JPEG allowed"}, status=400)
         try:
             result = upload_signature_to_cloudinary(
                 sig, request.user, signature_type="head_teacher"
             )
+            # Persist on TenantSettings so it survives across sessions
+            tenant = getattr(request, "tenant", None)
+            if tenant:
+                try:
+                    settings = tenant.settings
+                    settings.head_teacher_signature_url = result["signature_url"]
+                    settings.head_teacher_signature_uploaded_at = timezone.now()
+                    settings.save(update_fields=[
+                        "head_teacher_signature_url",
+                        "head_teacher_signature_uploaded_at",
+                    ])
+                except Exception:
+                    pass
             return Response(
                 {
                     "signature_url": result["signature_url"],

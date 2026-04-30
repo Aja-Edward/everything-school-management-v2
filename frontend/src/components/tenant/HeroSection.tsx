@@ -79,16 +79,18 @@ const HeroSection: React.FC<HeroSectionProps> = ({
 
   return (
     <section className="relative min-h-screen flex items-center overflow-hidden" style={bgStyle}>
-      {/* Overlay */}
-      <div className="absolute inset-0 bg-black/50" />
-
-      {/* Carousel slides fade */}
+      {/* Carousel slides fade — rendered before the overlay so darkening applies on top */}
       {isCarousel && slides.length > 1 && (
         <div
           className="absolute inset-0 transition-opacity duration-700"
           style={{ opacity: fade ? 1 : 0, backgroundImage: `url(${slides[current].image})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
         />
       )}
+
+      {/* Overlay — sits above both the static bg and carousel slides */}
+      <div className="absolute inset-0 bg-black/65" />
+      {/* Bottom gradient for extra text legibility */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
 
       {/* Content */}
       <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 md:py-32 w-full">
