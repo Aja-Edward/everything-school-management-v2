@@ -56,11 +56,11 @@ const TenantAboutPage: React.FC = () => {
           <div className="absolute inset-0 bg-black/45 flex flex-col justify-end pb-10 px-4 sm:px-6 lg:px-8">
             <div className="max-w-7xl mx-auto w-full">
               <Link to="/" className="inline-flex items-center gap-1 text-sm text-white/70 hover:text-white mb-4 transition-colors">
-                <ArrowLeft className="w-4 h-4" /> Back to Home
+                <ArrowLeft className="w-4 h-4" /> Back to Home now or never
               </Link>
               <h1 className="text-4xl sm:text-5xl font-extrabold text-white mb-2">
-                { 'About Us Improved the'}
-                Edward Aja is here
+                {section.title ?? 'About Us'}
+                
               </h1>
               {section.subtitle && (
                 <p className="text-lg text-white/80 max-w-2xl">{section.subtitle}</p>
