@@ -10,6 +10,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import SettingsService, { SchoolSettings, Classroom } from '@/services/SettingsService';
 import { useAuth } from '@/hooks/useAuth';
+import { useTenant } from '@/contexts/TenantContext';
 
 
 // ── Context shape ─────────────────────────────────────────────────────────────
@@ -124,21 +125,26 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
  
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────
-  const { user, isLoading: authLoading } = useAuth(); 
+  const { user, isLoading: authLoading } = useAuth();
+  const { isLoading: tenantLoading } = useTenant();
+
   useEffect(() => {
-    if(user){
-    fetchSettings();
-    fetchClassrooms();
-    } else{
+    // Wait for tenant to resolve (critical on custom domains where a
+    // by-domain lookup must complete before tenantSlug is in localStorage)
+    if (tenantLoading) return;
+
+    if (user) {
+      fetchSettings();
+      fetchClassrooms();
+    } else {
       setLoading(false);
       setClassroomsLoading(false);
     }
-    
 
     const handleExternalUpdate = (e: CustomEvent) => setSettings(e.detail);
     window.addEventListener('settings-updated' as any, handleExternalUpdate);
     return () => window.removeEventListener('settings-updated' as any, handleExternalUpdate);
-  }, [authLoading, user, fetchSettings, fetchClassrooms]);
+  }, [authLoading, user, fetchSettings, fetchClassrooms, tenantLoading]);
 
   // ── Context value ─────────────────────────────────────────────────────────
   const value: SettingsContextType = {
