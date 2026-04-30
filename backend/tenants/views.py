@@ -603,26 +603,21 @@ class ServicePricingViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(serializer.data)
 
 
-# ============ Vercel domain helpers ============
+# ============ Cloudflare for SaaS domain helpers ============
 
-logger_vercel = logging.getLogger(__name__)
+logger_cf = logging.getLogger(__name__)
 
-def _vercel_request(method: str, path: str, body: dict | None = None) -> bool:
-    """Make an authenticated request to the Vercel API. Returns True on success."""
-    token = getattr(settings, 'VERCEL_API_TOKEN', '')
+
+def _cf_request(method: str, path: str, body: dict | None = None) -> dict | None:
+    """Make an authenticated request to the Cloudflare API. Returns parsed JSON or None."""
+    token = getattr(settings, 'CLOUDFLARE_API_TOKEN', '')
     if not token:
-        logger_vercel.warning("VERCEL_API_TOKEN not set — skipping Vercel domain sync")
-        return False
-
-    # Team projects require teamId on every request
-    team_id = getattr(settings, 'VERCEL_TEAM_ID', '')
-    separator = '&' if '?' in path else '?'
-    full_path = f"{path}{separator}teamId={team_id}" if team_id else path
-
+        logger_cf.warning("CLOUDFLARE_API_TOKEN not set — skipping Cloudflare domain sync")
+        return None
     try:
         data = _json.dumps(body).encode() if body else None
         req = urllib.request.Request(
-            f"https://api.vercel.com{full_path}",
+            f"https://api.cloudflare.com/client/v4{path}",
             data=data,
             headers={
                 "Authorization": f"Bearer {token}",
@@ -630,35 +625,80 @@ def _vercel_request(method: str, path: str, body: dict | None = None) -> bool:
             },
             method=method,
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            logger_vercel.info("Vercel API %s %s → %s", method, full_path, resp.status)
-        return True
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return _json.loads(resp.read())
     except urllib.error.HTTPError as e:
         body_text = e.read().decode(errors="replace")
-        logger_vercel.error("Vercel API %s %s → HTTP %s: %s", method, full_path, e.code, body_text)
-        return False
+        logger_cf.error("Cloudflare API %s %s → HTTP %s: %s", method, path, e.code, body_text)
+        return None
     except Exception as e:
-        logger_vercel.error("Vercel API %s %s → %s", method, full_path, e)
-        return False
+        logger_cf.error("Cloudflare API %s %s → %s", method, path, e)
+        return None
 
 
-def _register_vercel_domain(domain: str) -> None:
-    """Add apex + www domain to the Vercel project after successful verification."""
-    project_id = getattr(settings, 'VERCEL_PROJECT_ID', '')
-    if not project_id:
-        logger_vercel.warning("VERCEL_PROJECT_ID not set — skipping domain registration")
+def _register_cloudflare_hostname(domain: str, tenant=None) -> None:
+    """
+    Register apex + www as Cloudflare for SaaS custom hostnames.
+    Cloudflare provisions SSL and routes traffic to the fallback origin automatically.
+    Stores the apex hostname ID on the tenant for reliable cleanup later.
+    """
+    zone_id = getattr(settings, 'CLOUDFLARE_ZONE_ID', '')
+    if not zone_id:
+        logger_cf.warning("CLOUDFLARE_ZONE_ID not set — skipping Cloudflare domain registration")
         return
+
     for d in [domain, f"www.{domain}"]:
-        _vercel_request("POST", f"/v10/projects/{project_id}/domains", {"name": d})
+        result = _cf_request(
+            "POST",
+            f"/zones/{zone_id}/custom_hostnames",
+            {
+                "hostname": d,
+                "ssl": {
+                    "method": "http",
+                    "type": "dv",
+                    "settings": {"http2": "on", "min_tls_version": "1.2"},
+                },
+            },
+        )
+        if result and result.get("success"):
+            cf_id = result.get("result", {}).get("id")
+            logger_cf.info("Cloudflare: registered custom hostname %s → %s", d, cf_id)
+            # Store apex hostname ID on tenant for deletion
+            if cf_id and tenant and d == domain:
+                tenant.cloudflare_hostname_id = cf_id
+                tenant.save(update_fields=["cloudflare_hostname_id"])
+        else:
+            errors = result.get("errors") if result else "no response"
+            logger_cf.error("Cloudflare: failed to register %s — %s", d, errors)
 
 
-def _remove_vercel_domain(domain: str) -> None:
-    """Remove apex + www domain from the Vercel project when a tenant removes theirs."""
-    project_id = getattr(settings, 'VERCEL_PROJECT_ID', '')
-    if not project_id:
+def _remove_cloudflare_hostname(domain: str, hostname_id: str | None = None) -> None:
+    """
+    Remove apex + www custom hostnames from Cloudflare for SaaS.
+    Uses stored ID for apex (fast), looks up www by hostname.
+    """
+    zone_id = getattr(settings, 'CLOUDFLARE_ZONE_ID', '')
+    if not zone_id:
         return
-    for d in [domain, f"www.{domain}"]:
-        _vercel_request("DELETE", f"/v9/projects/{project_id}/domains/{d}")
+
+    def delete_by_id(cf_id: str) -> None:
+        _cf_request("DELETE", f"/zones/{zone_id}/custom_hostnames/{cf_id}")
+        logger_cf.info("Cloudflare: removed custom hostname ID %s", cf_id)
+
+    def lookup_and_delete(hostname: str) -> None:
+        result = _cf_request("GET", f"/zones/{zone_id}/custom_hostnames?hostname={hostname}")
+        if result and result.get("success"):
+            for item in result.get("result", []):
+                delete_by_id(item["id"])
+
+    # Apex: use stored ID if available, otherwise look up
+    if hostname_id:
+        delete_by_id(hostname_id)
+    else:
+        lookup_and_delete(domain)
+
+    # www: always look up
+    lookup_and_delete(f"www.{domain}")
 
 
 # ============ Domain Management ============
@@ -734,9 +774,10 @@ class DomainManagementViewSet(viewsets.ViewSet):
             'domain': domain,
             'verification_token': verification_token,
             'instructions': {
-                'step1': f"Add a TXT record: _nuventacloud-verify.{domain} with value: {verification_token}",
-                'step2': f"Add a CNAME record: www.{domain} pointing to: proxy.{platform_domain}",
-                'step3': f"Add an A record: {domain} pointing to: {platform_ip}",
+                'step1': f"Add a TXT record — Host: _nuventacloud-verify.{domain}  Value: {verification_token}",
+                'step2': f"Add a CNAME record — Host: www  Value: proxy.{platform_domain}",
+                'step3': f"Add an A record — Host: @  Value: {platform_ip}  (or ALIAS/CNAME @ → proxy.{platform_domain} if your DNS provider supports it)",
+                'note': "SSL is provisioned automatically by Cloudflare once verification passes — no extra steps needed.",
             },
             'message': 'Domain set. Please configure DNS records and verify.'
         })
@@ -768,8 +809,8 @@ class DomainManagementViewSet(viewsets.ViewSet):
                 if txt_value == tenant.domain_verification_token:
                     tenant.custom_domain_verified = True
                     tenant.save()
-                    # Auto-register on Vercel so the frontend serves this domain
-                    _register_vercel_domain(tenant.custom_domain)
+                    # Register with Cloudflare for SaaS — provisions SSL automatically
+                    _register_cloudflare_hostname(tenant.custom_domain, tenant)
                     return Response({
                         'verified': True,
                         'message': 'Domain verified successfully!',
@@ -805,9 +846,9 @@ class DomainManagementViewSet(viewsets.ViewSet):
         if not tenant:
             return Response({'error': 'No tenant context'}, status=400)
 
-        # Remove from Vercel before clearing the DB record
+        # Remove from Cloudflare for SaaS before clearing the DB record
         if tenant.custom_domain and tenant.custom_domain_verified:
-            _remove_vercel_domain(tenant.custom_domain)
+            _remove_cloudflare_hostname(tenant.custom_domain, tenant.cloudflare_hostname_id)
 
         tenant.custom_domain = None
         tenant.custom_domain_verified = False

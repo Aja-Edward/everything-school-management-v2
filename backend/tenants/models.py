@@ -68,6 +68,7 @@ class Tenant(models.Model):
     custom_domain = models.CharField(max_length=255, null=True, blank=True, unique=True)
     custom_domain_verified = models.BooleanField(default=False)
     domain_verification_token = models.CharField(max_length=64, null=True, blank=True)
+    cloudflare_hostname_id = models.CharField(max_length=100, null=True, blank=True)
 
     # Status
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
