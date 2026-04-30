@@ -93,7 +93,8 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 # Vercel API — used to auto-register/remove custom domains on verification
 # Cloudflare for SaaS — handles SSL and routing for all tenant custom domains
 CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "")
-CLOUDFLARE_ZONE_ID = os.getenv("CLOUDFLARE_ZONE_ID", "")  # Zone ID for nuventacloud.com
+CLOUDFLARE_ZONE_ID = os.getenv("CLOUDFLARE_ZONE_ID", "")
+CLOUDFLARE_ORIGIN_SERVER = os.getenv("CLOUDFLARE_ORIGIN_SERVER", "www.nuventacloud.com")
 
 # Vercel — kept for legacy/fallback but superseded by Cloudflare for SaaS
 VERCEL_API_TOKEN = os.getenv("VERCEL_API_TOKEN", "")

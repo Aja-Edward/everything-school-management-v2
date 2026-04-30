@@ -648,11 +648,13 @@ def _register_cloudflare_hostname(domain: str, tenant=None) -> None:
         return
 
     for d in [domain, f"www.{domain}"]:
+        origin_server = getattr(settings, 'CLOUDFLARE_ORIGIN_SERVER', 'www.nuventacloud.com')
         result = _cf_request(
             "POST",
             f"/zones/{zone_id}/custom_hostnames",
             {
                 "hostname": d,
+                "custom_origin_server": origin_server,
                 "ssl": {
                     "method": "http",
                     "type": "dv",
