@@ -48,7 +48,7 @@ const About: React.FC = () => {
         <div className="relative max-w-6xl mx-auto px-6">
           <div className="max-w-2xl">
             <p className="text-xs font-medium text-blue-400 tracking-widest uppercase mb-3">
-              About Us Edward 
+              About Us
             </p>
             <h1 className="text-3xl sm:text-4xl font-semibold text-white mb-4">
               Building Tomorrow's Leaders Today

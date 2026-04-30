@@ -60,6 +60,7 @@ const TenantAboutPage: React.FC = () => {
               </Link>
               <h1 className="text-4xl sm:text-5xl font-extrabold text-white mb-2">
                 {section.title ?? 'About Us'}
+                Edward Aja is here
               </h1>
               {section.subtitle && (
                 <p className="text-lg text-white/80 max-w-2xl">{section.subtitle}</p>
