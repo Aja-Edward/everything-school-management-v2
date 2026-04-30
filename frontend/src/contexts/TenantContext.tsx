@@ -96,6 +96,37 @@ interface TenantProviderProps {
   children: ReactNode;
 }
 
+// ─── Tenant cache (stale-while-revalidate) ────────────────────────────────────
+
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+interface TenantCache {
+  tenant: PublicTenant;
+  settings: PublicTenantSettings | null;
+  ts: number;
+}
+
+function readCache(key: string): TenantCache | null {
+  try {
+    const raw = localStorage.getItem(`tc_${key}`);
+    if (!raw) return null;
+    const cached: TenantCache = JSON.parse(raw);
+    if (Date.now() - cached.ts > CACHE_TTL) {
+      localStorage.removeItem(`tc_${key}`);
+      return null;
+    }
+    return cached;
+  } catch { return null; }
+}
+
+function writeCache(key: string, tenant: PublicTenant, settings: PublicTenantSettings | null) {
+  try {
+    localStorage.setItem(`tc_${key}`, JSON.stringify({ tenant, settings, ts: Date.now() }));
+  } catch {}
+}
+
+// ─── Provider ─────────────────────────────────────────────────────────────────
+
 export function TenantProvider({ children }: TenantProviderProps) {
   const [slug, setSlug] = useState<string | null>(null);
   const [tenant, setTenant] = useState<PublicTenant | null>(null);
@@ -105,14 +136,31 @@ export function TenantProvider({ children }: TenantProviderProps) {
 
   const isSubdomain = slug !== null;
 
+  const applyTenantData = (t: PublicTenant, s: PublicTenantSettings | null, tenantSlug: string) => {
+    setTenant(t);
+    setSettings(s);
+    setSlug(tenantSlug);
+    localStorage.setItem('tenantSlug', tenantSlug);
+    writeCache(tenantSlug, t, s);
+  };
+
   const fetchTenantData = async (tenantSlug: string) => {
+    const cached = readCache(tenantSlug);
+    if (cached) {
+      // Show cached data immediately — zero wait
+      applyTenantData(cached.tenant, cached.settings, tenantSlug);
+      setIsLoading(false);
+      // Refresh silently in background
+      tenantService.getTenantBySlug(tenantSlug)
+        .then(d => applyTenantData(d.tenant, d.settings || null, tenantSlug))
+        .catch(() => {});
+      return;
+    }
     try {
       setIsLoading(true);
       setError(null);
-      const tenantData = await tenantService.getTenantBySlug(tenantSlug);
-      setTenant(tenantData.tenant);
-      setSettings(tenantData.settings || null);
-      localStorage.setItem('tenantSlug', tenantSlug);
+      const d = await tenantService.getTenantBySlug(tenantSlug);
+      applyTenantData(d.tenant, d.settings || null, tenantSlug);
     } catch (err: any) {
       console.error('Failed to load tenant:', err);
       setError(err.response?.data?.message || 'Failed to load school information');
@@ -124,15 +172,21 @@ export function TenantProvider({ children }: TenantProviderProps) {
   };
 
   const fetchTenantByCustomDomain = async (domain: string) => {
+    const cached = readCache(domain);
+    if (cached) {
+      applyTenantData(cached.tenant, cached.settings, cached.tenant.slug);
+      setIsLoading(false);
+      tenantService.getTenantByCustomDomain(domain)
+        .then(d => applyTenantData(d.tenant, d.settings || null, d.tenant.slug))
+        .catch(() => {});
+      return;
+    }
     try {
       setIsLoading(true);
       setError(null);
-      const tenantData = await tenantService.getTenantByCustomDomain(domain);
-      setTenant(tenantData.tenant);
-      setSettings(tenantData.settings || null);
-      // Use the slug for all subsequent API header identification
-      setSlug(tenantData.tenant.slug);
-      localStorage.setItem('tenantSlug', tenantData.tenant.slug);
+      const d = await tenantService.getTenantByCustomDomain(domain);
+      applyTenantData(d.tenant, d.settings || null, d.tenant.slug);
+      writeCache(domain, d.tenant, d.settings || null); // also cache by domain key
     } catch (err: any) {
       console.error('Failed to load tenant for custom domain:', err);
       setError('School not found for this domain');
@@ -144,9 +198,7 @@ export function TenantProvider({ children }: TenantProviderProps) {
   };
 
   const refreshTenant = async () => {
-    if (slug) {
-      await fetchTenantData(slug);
-    }
+    if (slug) await fetchTenantData(slug);
   };
 
   useEffect(() => {

@@ -44,17 +44,42 @@ const TenantLandingPage: React.FC = () => {
 
   useEffect(() => {
     if (tenantLoading) return;
+
+    const cacheKey = `lp_${tenant?.slug}`;
+    const CACHE_TTL = 10 * 60 * 1000;
+
+    // Show cached landing data immediately if available
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (raw) {
+        const { data, ts } = JSON.parse(raw);
+        if (Date.now() - ts < CACHE_TTL) {
+          setLanding(data.landing);
+          setActiveEvents(data.events);
+          setLoading(false);
+        }
+      }
+    } catch {}
+
+    // Always fetch fresh in background (or foreground if no cache)
     Promise.all([
       LandingPageService.getPublic().catch(() => null),
       api.get('/events/events/?is_active=true&is_published=true').catch(() => ({ results: [] })),
     ]).then(([landingData, eventsData]) => {
-      if (!landingData) { setError('not_published'); setLoading(false); return; }
+      if (!landingData) {
+        if (!landing) { setError('not_published'); }
+        setLoading(false);
+        return;
+      }
+      const evts: EventItem[] = (eventsData?.results ?? eventsData ?? [])
+        .filter((e: EventItem) => e.is_active && e.is_published);
       setLanding(landingData);
-
-      const evts: EventItem[] = eventsData?.results ?? eventsData ?? [];
-      setActiveEvents(evts.filter((e: EventItem) => e.is_active && e.is_published));
+      setActiveEvents(evts);
       setLoading(false);
-    }).catch(() => { setError('error'); setLoading(false); });
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify({ data: { landing: landingData, events: evts }, ts: Date.now() }));
+      } catch {}
+    }).catch(() => { if (!landing) setError('error'); setLoading(false); });
   }, [tenantLoading, tenant]);
 
   // Fetch carousel images separately
