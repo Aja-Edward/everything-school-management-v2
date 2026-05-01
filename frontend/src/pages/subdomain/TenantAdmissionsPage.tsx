@@ -248,102 +248,40 @@ const TenantAdmissionsPage: React.FC = () => {
       <style>{`
         .adm-scope { --p: ${channels}; }
 
-        /* ── Content prose block ─────────────────────────────── */
-        .adm-content-block {
-          margin-top: 1.75rem;
-          border-radius: 18px;
-          background: #f8f9fb;
-          border: 1px solid #eef0f3;
-          overflow: hidden;
+        /* Content prose — typography-first, no structural manipulation */
+        .adm-prose-wrap {
+          padding: 0.25rem 0 0;
         }
 
-        /* Top accent bar using tenant primary */
-        .adm-content-bar {
-          height: 3px;
-          background: linear-gradient(90deg, rgb(var(--p)), rgb(var(--p) / 0.25));
-        }
-
-        .adm-content-inner {
-          padding: 1.5rem 1.75rem 1.75rem;
-        }
-
-        /* Eyebrow label */
-        .adm-content-eyebrow {
+        .adm-prose-eyebrow {
           display: inline-flex;
           align-items: center;
-          gap: 0.4rem;
+          gap: 0.5rem;
           font-size: 0.6563rem;
           font-weight: 700;
-          letter-spacing: 0.12em;
+          letter-spacing: 0.13em;
           text-transform: uppercase;
           color: rgb(var(--p));
           margin-bottom: 0.875rem;
         }
-        .adm-content-eyebrow-line {
+        .adm-prose-eyebrow::before {
+          content: '';
           display: inline-block;
-          width: 18px;
+          width: 20px;
           height: 2px;
           border-radius: 2px;
           background: rgb(var(--p));
+          flex-shrink: 0;
         }
 
-        /* Large opening quote mark — decorative */
-        .adm-content-quote-mark {
-          font-size: 4rem;
-          line-height: 0.6;
-          color: rgb(var(--p) / 0.12);
-          font-family: Georgia, serif;
-          font-weight: 900;
-          margin-bottom: 0.5rem;
-          display: block;
-          user-select: none;
-        }
-
-        /* Body text */
-        .adm-content-text {
+        .adm-prose-text {
           font-size: 0.9375rem;
-          line-height: 1.85;
-          color: #374151;
+          line-height: 1.9;
+          color: #4b5563;
           white-space: pre-line;
+          border-left: 3px solid rgb(var(--p) / 0.2);
+          padding-left: 1.125rem;
         }
-
-        /* Highlight the first sentence / lead paragraph */
-        .adm-content-lead {
-          font-size: 1rem;
-          font-weight: 500;
-          color: #111827;
-          line-height: 1.7;
-          margin-bottom: 0.875rem;
-          padding-bottom: 0.875rem;
-          border-bottom: 1px solid #e5e7eb;
-        }
-
-        /* Bottom strip: subtle CTA nudge */
-        .adm-content-footer {
-          margin-top: 1.375rem;
-          padding-top: 1.125rem;
-          border-top: 1px solid #e9ebee;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          flex-wrap: wrap;
-          gap: 0.75rem;
-        }
-        .adm-content-footer-note {
-          font-size: 0.8rem;
-          color: #9ca3af;
-        }
-        .adm-content-footer-link {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.35rem;
-          font-size: 0.8125rem;
-          font-weight: 600;
-          color: rgb(var(--p));
-          text-decoration: none;
-          transition: gap 0.2s;
-        }
-        .adm-content-footer-link:hover { gap: 0.55rem; }
       `}</style>
 
       {ribbonText && (
@@ -402,51 +340,24 @@ const TenantAdmissionsPage: React.FC = () => {
         {/* Main content + info card */}
         {section && (
           <section className="adm-scope grid grid-cols-1 lg:grid-cols-3 gap-12">
-
-            {/* Left column */}
             <div className="lg:col-span-2 space-y-6">
+
+              {/* Image — slightly taller than original h-64 */}
               {section.image && (
-                <img src={section.image} alt="Admissions" className="w-full rounded-2xl shadow-lg object-cover h-64" />
+                <img src={section.image} alt="Admissions" className="w-full rounded-2xl shadow-lg object-cover h-80" />
               )}
 
-              {/* ── REDESIGNED: content block below the image ── */}
+              {/* Content — clean typographic treatment, raw string respected as-is */}
               {section.content && (
-                <div className="adm-content-block">
-                  <div className="adm-content-bar" />
-                  <div className="adm-content-inner">
-                    <span className="adm-content-eyebrow">
-                      <span className="adm-content-eyebrow-line" />
-                      About Admissions
-                    </span>
-
-                    <span className="adm-content-quote-mark">"</span>
-
-                    {/* Split first sentence as a lead, rest as body */}
-                    {(() => {
-                      const text = section.content.trim();
-                      const firstStop = text.search(/(?<=[.!?])\s+[A-Z]/);
-                      const lead = firstStop > -1 ? text.slice(0, firstStop + 1) : '';
-                      const rest = firstStop > -1 ? text.slice(firstStop + 1) : text;
-                      return (
-                        <>
-                          {lead && <p className="adm-content-lead">{lead}</p>}
-                          <p className="adm-content-text">{rest}</p>
-                        </>
-                      );
-                    })()}
-
-                    <div className="adm-content-footer">
-                      <span className="adm-content-footer-note">Ready to join us?</span>
-                      <Link to="/login" className="adm-content-footer-link">
-                        Start your application <ArrowRight className="w-3.5 h-3.5" />
-                      </Link>
-                    </div>
-                  </div>
+                <div className="adm-prose-wrap">
+                  <span className="adm-prose-eyebrow">About Admissions</span>
+                  <p className="adm-prose-text">{section.content}</p>
                 </div>
               )}
+
             </div>
 
-            {/* Right column — original, untouched */}
+            {/* Right column — original, completely untouched */}
             <div>
               <div className="rounded-2xl border border-gray-100 shadow-md p-6 space-y-5 sticky top-24">
                 <h3 className="font-bold text-gray-900 text-lg">Key Information</h3>
