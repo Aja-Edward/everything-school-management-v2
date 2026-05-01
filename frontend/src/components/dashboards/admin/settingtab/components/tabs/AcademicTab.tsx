@@ -12,12 +12,14 @@ import {
   GitBranch,
   Layers,
   Loader2,
+  GroupIcon,
 } from 'lucide-react';
 import ToggleSwitch from '@/components/dashboards/admin/settingtab/components/ToggleSwitch';
 import { StreamConfigurationProvider } from '@/contexts/StreamConfigurationContext';
 import StreamManagement from '@/components/admin/StreamManagement';
 import StreamConfigurationManager from '@/components/admin/StreamConfigurationManager';
 import SubjectCombinationsManager from '@/components/admin/SubjectCombinationsManager';
+import SubjectCategoryManagement from './SubjectCategoryManagement';
 import ClassSettingsSection from './ClassSettingsSection';
 import academicSettingsService, {
   type AllAcademicSettings,
@@ -39,7 +41,7 @@ const MONTHS = [
 ];
 
 // Sections that own their own save logic — hide the global Save button for these
-const SELF_SAVING_SECTIONS = ['stream-management', 'stream-config', 'subject-combinations'];
+const SELF_SAVING_SECTIONS = ['stream-management', 'stream-config', 'subject-combinations', 'subject-category'];
 
 const SECTIONS = [
   {
@@ -58,6 +60,12 @@ const SECTIONS = [
     id: 'subject-combinations',
     label: 'Subject Combinations',
     icon: GitBranch,
+    description: 'Define valid combinations',
+  },
+  {
+    id: 'subject-category',
+    label: 'Subject Category',
+    icon: GroupIcon,
     description: 'Define valid combinations',
   },
   {
@@ -296,6 +304,8 @@ const AcademicTabContent: React.FC = () => {
         return <StreamConfigurationManager />;
       case 'subject-combinations':
         return <SubjectCombinationsManager />;
+        case 'subject-category':
+          return <SubjectCategoryManagement/>
 
       // ── Academic Year ─────────────────────────────────────────────────────
       case 'academic-settings':
