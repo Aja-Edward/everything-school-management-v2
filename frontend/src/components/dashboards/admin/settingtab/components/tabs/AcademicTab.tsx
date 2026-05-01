@@ -20,6 +20,7 @@ import StreamManagement from '@/components/admin/StreamManagement';
 import StreamConfigurationManager from '@/components/admin/StreamConfigurationManager';
 import SubjectCombinationsManager from '@/components/admin/SubjectCombinationsManager';
 import SubjectCategoryManagement from './SubjectCategoryManagement';
+import SubjectTypeManagement from './SubjectTypeManagement';
 import ClassSettingsSection from './ClassSettingsSection';
 import academicSettingsService, {
   type AllAcademicSettings,
@@ -41,7 +42,7 @@ const MONTHS = [
 ];
 
 // Sections that own their own save logic — hide the global Save button for these
-const SELF_SAVING_SECTIONS = ['stream-management', 'stream-config', 'subject-combinations', 'subject-category'];
+const SELF_SAVING_SECTIONS = ['stream-management', 'stream-config', 'subject-combinations', 'subject-category', 'subject-type'];
 
 const SECTIONS = [
   {
@@ -66,7 +67,13 @@ const SECTIONS = [
     id: 'subject-category',
     label: 'Subject Category',
     icon: GroupIcon,
-    description: 'Define valid combinations',
+    description: 'Organise subjects into categories',
+  },
+  {
+    id: 'subject-type',
+    label: 'Subject Type',
+    icon: Layers,
+    description: 'Stream types for Senior Secondary (Science, Arts, Commercial)',
   },
   {
     id: 'academic-settings',
@@ -305,7 +312,9 @@ const AcademicTabContent: React.FC = () => {
       case 'subject-combinations':
         return <SubjectCombinationsManager />;
         case 'subject-category':
-          return <SubjectCategoryManagement/>
+          return <SubjectCategoryManagement />;
+        case 'subject-type':
+          return <SubjectTypeManagement />;
 
       // ── Academic Year ─────────────────────────────────────────────────────
       case 'academic-settings':
