@@ -342,9 +342,15 @@ const TenantAdmissionsPage: React.FC = () => {
           <section className="adm-scope grid grid-cols-1 lg:grid-cols-3 gap-12">
             <div className="lg:col-span-2 space-y-6">
 
-              {/* Image — slightly taller than original h-64 */}
+              {/* Image — taller with hover zoom */}
               {section.image && (
-                <img src={section.image} alt="Admissions" className="w-full rounded-2xl shadow-lg object-cover h-80" />
+                <div className="w-full rounded-2xl shadow-lg overflow-hidden h-96" style={{ position: 'relative' }}>
+                  <img
+                    src={section.image}
+                    alt="Admissions"
+                    className="w-full h-full object-cover transition-transform duration-500 ease-out hover:scale-105"
+                  />
+                </div>
               )}
 
               {/* Content — clean typographic treatment, raw string respected as-is */}
