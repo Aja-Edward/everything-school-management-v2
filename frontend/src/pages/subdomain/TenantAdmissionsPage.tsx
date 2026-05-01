@@ -191,6 +191,7 @@
 
 
 import React, { useEffect, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { Link } from 'react-router-dom';
 import { useTenant } from '@/contexts/TenantContext';
 import LandingPageService, { TenantLandingPage, LandingSection } from '@/services/LandingPageService';
@@ -353,11 +354,42 @@ const TenantAdmissionsPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Content — clean typographic treatment, raw string respected as-is */}
+              {/* Content — rendered as markdown with tenant-branded headings */}
               {section.content && (
                 <div className="adm-prose-wrap">
                   <span className="adm-prose-eyebrow">About Admissions</span>
-                  <p className="adm-prose-text">{section.content}</p>
+                  <div className="adm-prose-text">
+                    <ReactMarkdown
+                      components={{
+                        h1: ({ children }) => (
+                          <h1 className="adm-md-h1" style={{ color: primaryColor }}>{children}</h1>
+                        ),
+                        h2: ({ children }) => (
+                          <h2 className="adm-md-h2" style={{ color: primaryColor }}>{children}</h2>
+                        ),
+                        h3: ({ children }) => (
+                          <h3 className="adm-md-h3">{children}</h3>
+                        ),
+                        strong: ({ children }) => (
+                          <strong className="adm-md-strong">{children}</strong>
+                        ),
+                        ul: ({ children }) => (
+                          <ul className="adm-md-ul">{children}</ul>
+                        ),
+                        li: ({ children }) => (
+                          <li className="adm-md-li">
+                            <span className="adm-md-li-dot" style={{ background: primaryColor }} />
+                            {children}
+                          </li>
+                        ),
+                        p: ({ children }) => (
+                          <p className="adm-md-p">{children}</p>
+                        ),
+                      }}
+                    >
+                      {section.content}
+                    </ReactMarkdown>
+                  </div>
                 </div>
               )}
 
