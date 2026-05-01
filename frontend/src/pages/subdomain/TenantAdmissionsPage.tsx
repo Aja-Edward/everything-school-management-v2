@@ -209,7 +209,6 @@ const TenantAdmissionsPage: React.FC = () => {
 
   const primaryColor = settings?.primary_color || '#1e40af';
 
-  // Convert hex → "r g g" channels for CSS rgb() / rgba() with slash syntax
   const hexToChannels = (hex: string) => {
     const h = hex.replace('#', '');
     const r = parseInt(h.substring(0, 2), 16);
@@ -247,213 +246,104 @@ const TenantAdmissionsPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-white">
       <style>{`
-        /* CSS custom property so every adm-* rule picks up the tenant color */
         .adm-scope { --p: ${channels}; }
 
-        /* ─── Layout ─────────────────────────────────────────── */
-        .adm-grid {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 2.5rem;
-          align-items: start;
-        }
-        @media (min-width: 1024px) {
-          .adm-grid { grid-template-columns: 1fr 340px; gap: 4rem; }
-        }
-
-        /* ─── Left: image ────────────────────────────────────── */
-        .adm-img-wrap {
-          position: relative;
-          border-radius: 20px;
+        /* ── Content prose block ─────────────────────────────── */
+        .adm-content-block {
+          margin-top: 1.75rem;
+          border-radius: 18px;
+          background: #f8f9fb;
+          border: 1px solid #eef0f3;
           overflow: hidden;
-          aspect-ratio: 16 / 9;
-          /* coloured glow that uses the tenant primary */
-          box-shadow: 0 20px 60px -10px rgb(var(--p) / 0.25);
-        }
-        .adm-img-wrap img {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-          display: block;
-          transition: transform 0.55s cubic-bezier(0.25,0.46,0.45,0.94);
-        }
-        .adm-img-wrap:hover img { transform: scale(1.04); }
-
-        /* bottom scrim */
-        .adm-img-scrim {
-          position: absolute;
-          inset: 0;
-          background: linear-gradient(to top, rgba(0,0,0,0.52) 0%, transparent 55%);
-          pointer-events: none;
         }
 
-        /* live-applications pill sitting on the image */
-        .adm-pill {
-          position: absolute;
-          bottom: 1.125rem;
-          left: 1.125rem;
+        /* Top accent bar using tenant primary */
+        .adm-content-bar {
+          height: 3px;
+          background: linear-gradient(90deg, rgb(var(--p)), rgb(var(--p) / 0.25));
+        }
+
+        .adm-content-inner {
+          padding: 1.5rem 1.75rem 1.75rem;
+        }
+
+        /* Eyebrow label */
+        .adm-content-eyebrow {
           display: inline-flex;
           align-items: center;
-          gap: 0.45rem;
-          padding: 0.4rem 0.9rem;
-          border-radius: 100px;
-          background: rgb(var(--p) / 0.88);
-          backdrop-filter: blur(10px);
-          color: #fff;
-          font-size: 0.6875rem;
-          font-weight: 700;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-        }
-        .adm-pill-dot {
-          width: 6px; height: 6px;
-          border-radius: 50%;
-          background: rgba(255,255,255,0.85);
-          animation: adm-blink 1.8s ease-in-out infinite;
-        }
-        @keyframes adm-blink { 0%,100%{opacity:1} 50%{opacity:0.25} }
-
-        /* ─── Left: prose ────────────────────────────────────── */
-        .adm-prose { margin-top: 1.75rem; }
-
-        .adm-prose-eyebrow {
-          display: inline-block;
-          font-size: 0.6875rem;
-          font-weight: 700;
-          letter-spacing: 0.13em;
-          text-transform: uppercase;
-          color: rgb(var(--p));
-          margin-bottom: 0.75rem;
-        }
-
-        .adm-prose-rule {
-          width: 2.25rem;
-          height: 3px;
-          background: rgb(var(--p));
-          border-radius: 2px;
-          margin-bottom: 1rem;
-        }
-
-        .adm-prose-body {
-          font-size: 0.9375rem;
-          line-height: 1.82;
-          color: #4b5563;
-          white-space: pre-line;
-        }
-
-        /* ─── Right: info card ───────────────────────────────── */
-        .adm-card {
-          position: sticky;
-          top: 6rem;
-          border-radius: 22px;
-          overflow: hidden;
-          /* primary-tinted shadow */
-          box-shadow:
-            0 0 0 1px rgb(var(--p) / 0.14),
-            0 24px 56px -8px rgb(var(--p) / 0.2);
-        }
-
-        /* thin coloured strip at the top */
-        .adm-card-strip {
-          height: 5px;
-          background: linear-gradient(90deg, rgb(var(--p)), rgb(var(--p) / 0.4));
-        }
-
-        /* dark body */
-        .adm-card-inner {
-          background: #0d1117;
-          padding: 1.625rem 1.75rem 1.75rem;
-        }
-
-        .adm-card-title {
-          font-size: 0.9375rem;
-          font-weight: 700;
-          color: #fff;
-          letter-spacing: -0.01em;
-          margin-bottom: 1.375rem;
-        }
-
-        /* each data row */
-        .adm-row {
-          display: flex;
-          align-items: flex-start;
-          gap: 0.875rem;
-          padding: 0.9rem 0;
-          border-bottom: 1px solid rgba(255,255,255,0.055);
-        }
-        .adm-row:last-of-type { border-bottom: none; }
-
-        .adm-row-icon {
-          flex-shrink: 0;
-          width: 34px; height: 34px;
-          border-radius: 9px;
-          background: rgb(var(--p) / 0.15);
-          display: flex; align-items: center; justify-content: center;
-          color: rgb(var(--p));
-        }
-
-        .adm-row-label {
-          font-size: 0.65rem;
-          font-weight: 600;
-          letter-spacing: 0.09em;
-          text-transform: uppercase;
-          color: rgba(255,255,255,0.3);
-          margin-bottom: 0.2rem;
-        }
-        .adm-row-value {
-          font-size: 0.8125rem;
-          font-weight: 600;
-          color: rgba(255,255,255,0.88);
-        }
-        .adm-row-link {
-          font-size: 0.8125rem;
-          font-weight: 500;
-          color: rgb(var(--p));
-          text-decoration: none;
-          transition: opacity 0.18s;
-        }
-        .adm-row-link:hover { opacity: 0.72; text-decoration: underline; }
-
-        /* hairline between fee rows and contact */
-        .adm-card-sep {
-          height: 1px;
-          background: rgba(255,255,255,0.065);
-          margin: 0.5rem 0 1.125rem;
-        }
-        .adm-contact-header {
-          font-size: 0.625rem;
+          gap: 0.4rem;
+          font-size: 0.6563rem;
           font-weight: 700;
           letter-spacing: 0.12em;
           text-transform: uppercase;
-          color: rgba(255,255,255,0.25);
-          margin-bottom: 0.5rem;
+          color: rgb(var(--p));
+          margin-bottom: 0.875rem;
+        }
+        .adm-content-eyebrow-line {
+          display: inline-block;
+          width: 18px;
+          height: 2px;
+          border-radius: 2px;
+          background: rgb(var(--p));
         }
 
-        /* CTA */
-        .adm-cta {
+        /* Large opening quote mark — decorative */
+        .adm-content-quote-mark {
+          font-size: 4rem;
+          line-height: 0.6;
+          color: rgb(var(--p) / 0.12);
+          font-family: Georgia, serif;
+          font-weight: 900;
+          margin-bottom: 0.5rem;
+          display: block;
+          user-select: none;
+        }
+
+        /* Body text */
+        .adm-content-text {
+          font-size: 0.9375rem;
+          line-height: 1.85;
+          color: #374151;
+          white-space: pre-line;
+        }
+
+        /* Highlight the first sentence / lead paragraph */
+        .adm-content-lead {
+          font-size: 1rem;
+          font-weight: 500;
+          color: #111827;
+          line-height: 1.7;
+          margin-bottom: 0.875rem;
+          padding-bottom: 0.875rem;
+          border-bottom: 1px solid #e5e7eb;
+        }
+
+        /* Bottom strip: subtle CTA nudge */
+        .adm-content-footer {
+          margin-top: 1.375rem;
+          padding-top: 1.125rem;
+          border-top: 1px solid #e9ebee;
           display: flex;
           align-items: center;
-          justify-content: center;
-          gap: 0.5rem;
-          width: 100%;
-          margin-top: 1.5rem;
-          padding: 0.875rem 1rem;
-          border-radius: 13px;
-          font-size: 0.875rem;
-          font-weight: 700;
-          color: #fff;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 0.75rem;
+        }
+        .adm-content-footer-note {
+          font-size: 0.8rem;
+          color: #9ca3af;
+        }
+        .adm-content-footer-link {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
+          font-size: 0.8125rem;
+          font-weight: 600;
+          color: rgb(var(--p));
           text-decoration: none;
-          letter-spacing: 0.01em;
-          background: linear-gradient(135deg, rgb(var(--p)), rgb(var(--p) / 0.7));
-          box-shadow: 0 8px 22px -4px rgb(var(--p) / 0.45);
-          transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+          transition: gap 0.2s;
         }
-        .adm-cta:hover {
-          opacity: 0.9;
-          transform: translateY(-1px);
-          box-shadow: 0 14px 30px -4px rgb(var(--p) / 0.5);
-        }
-        .adm-cta:active { transform: none; }
+        .adm-content-footer-link:hover { gap: 0.55rem; }
       `}</style>
 
       {ribbonText && (
@@ -462,14 +352,8 @@ const TenantAdmissionsPage: React.FC = () => {
         </div>
       )}
       <div>
-        <TenantNavbar
-          schoolName={tenant?.name ?? ''}
-          logo={settings?.logo}
-          primaryColor={primaryColor}
-          navLinks={landing?.nav_links ?? []}
-          portalLabel="Portal Login"
-          ribbonVisible={!!ribbonText}
-        />
+        <TenantNavbar schoolName={tenant?.name ?? ''} logo={settings?.logo} primaryColor={primaryColor}
+          navLinks={landing?.nav_links ?? []} portalLabel="Portal Login" ribbonVisible={!!ribbonText} />
       </div>
 
       {/* Page header / banner — unchanged */}
@@ -487,10 +371,8 @@ const TenantAdmissionsPage: React.FC = () => {
           </div>
         </div>
       ) : (
-        <div
-          className="pt-28 pb-16 px-4 sm:px-6 lg:px-8"
-          style={{ background: `linear-gradient(135deg, ${primaryColor} 0%, ${primaryColor}bb 100%)` }}
-        >
+        <div className="pt-28 pb-16 px-4 sm:px-6 lg:px-8"
+          style={{ background: `linear-gradient(135deg, ${primaryColor} 0%, ${primaryColor}bb 100%)` }}>
           <div className="max-w-7xl mx-auto">
             <Link to="/" className="inline-flex items-center gap-1 text-sm text-white/70 hover:text-white mb-6 transition-colors">
               <ArrowLeft className="w-4 h-4" /> Back to Home
@@ -503,7 +385,7 @@ const TenantAdmissionsPage: React.FC = () => {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 space-y-20">
 
-        {/* Application steps — untouched */}
+        {/* Application steps — unchanged */}
         <section>
           <h2 className="text-2xl font-bold text-gray-900 mb-8">How to Apply</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -517,104 +399,109 @@ const TenantAdmissionsPage: React.FC = () => {
           </div>
         </section>
 
-        {/* ── REDESIGNED: Main content + info card ── */}
+        {/* Main content + info card */}
         {section && (
-          <section className="adm-scope adm-grid">
+          <section className="adm-scope grid grid-cols-1 lg:grid-cols-3 gap-12">
 
-            {/* ── Left column ── */}
-            <div>
+            {/* Left column */}
+            <div className="lg:col-span-2 space-y-6">
               {section.image && (
-                <div className="adm-img-wrap">
-                  <img src={section.image} alt="Admissions" />
-                  <div className="adm-img-scrim" />
-                  <span className="adm-pill">
-                    <span className="adm-pill-dot" />
-                    Now Accepting Applications
-                  </span>
-                </div>
+                <img src={section.image} alt="Admissions" className="w-full rounded-2xl shadow-lg object-cover h-64" />
               )}
 
+              {/* ── REDESIGNED: content block below the image ── */}
               {section.content && (
-                <div className="adm-prose">
-                  <span className="adm-prose-eyebrow">About Admissions</span>
-                  <div className="adm-prose-rule" />
-                  <p className="adm-prose-body">{section.content}</p>
+                <div className="adm-content-block">
+                  <div className="adm-content-bar" />
+                  <div className="adm-content-inner">
+                    <span className="adm-content-eyebrow">
+                      <span className="adm-content-eyebrow-line" />
+                      About Admissions
+                    </span>
+
+                    <span className="adm-content-quote-mark">"</span>
+
+                    {/* Split first sentence as a lead, rest as body */}
+                    {(() => {
+                      const text = section.content.trim();
+                      const firstStop = text.search(/(?<=[.!?])\s+[A-Z]/);
+                      const lead = firstStop > -1 ? text.slice(0, firstStop + 1) : '';
+                      const rest = firstStop > -1 ? text.slice(firstStop + 1) : text;
+                      return (
+                        <>
+                          {lead && <p className="adm-content-lead">{lead}</p>}
+                          <p className="adm-content-text">{rest}</p>
+                        </>
+                      );
+                    })()}
+
+                    <div className="adm-content-footer">
+                      <span className="adm-content-footer-note">Ready to join us?</span>
+                      <Link to="/login" className="adm-content-footer-link">
+                        Start your application <ArrowRight className="w-3.5 h-3.5" />
+                      </Link>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* ── Right column: info card ── */}
+            {/* Right column — original, untouched */}
             <div>
-              <div className="adm-card">
-                <div className="adm-card-strip" />
-                <div className="adm-card-inner">
-                  <p className="adm-card-title">Key Information</p>
-
-                  {section.admissions_deadline && (
-                    <div className="adm-row">
-                      <div className="adm-row-icon"><Calendar className="w-4 h-4" /></div>
-                      <div>
-                        <p className="adm-row-label">Application Deadline</p>
-                        <p className="adm-row-value">{section.admissions_deadline}</p>
-                      </div>
+              <div className="rounded-2xl border border-gray-100 shadow-md p-6 space-y-5 sticky top-24">
+                <h3 className="font-bold text-gray-900 text-lg">Key Information</h3>
+                {section.admissions_deadline && (
+                  <div className="flex gap-3 items-start">
+                    <Calendar className="w-5 h-5 mt-0.5 shrink-0" style={{ color: primaryColor }} />
+                    <div>
+                      <p className="text-xs text-gray-400">Deadline</p>
+                      <p className="font-semibold text-gray-800 text-sm">{section.admissions_deadline}</p>
                     </div>
-                  )}
-
-                  {section.admissions_fee && (
-                    <div className="adm-row">
-                      <div className="adm-row-icon"><DollarSign className="w-4 h-4" /></div>
-                      <div>
-                        <p className="adm-row-label">Application Fee</p>
-                        <p className="adm-row-value">{section.admissions_fee}</p>
-                      </div>
+                  </div>
+                )}
+                {section.admissions_fee && (
+                  <div className="flex gap-3 items-start">
+                    <DollarSign className="w-5 h-5 mt-0.5 shrink-0" style={{ color: primaryColor }} />
+                    <div>
+                      <p className="text-xs text-gray-400">Application Fee</p>
+                      <p className="font-semibold text-gray-800 text-sm">{section.admissions_fee}</p>
                     </div>
-                  )}
-
-                  {(section.admissions_contact_name || section.admissions_contact_email || section.admissions_contact_phone) && (
-                    <>
-                      <div className="adm-card-sep" />
-                      <p className="adm-contact-header">Admissions Contact</p>
-
-                      {section.admissions_contact_name && (
-                        <div className="adm-row">
-                          <div className="adm-row-icon"><User className="w-4 h-4" /></div>
-                          <div>
-                            <p className="adm-row-label">Name</p>
-                            <p className="adm-row-value">{section.admissions_contact_name}</p>
-                          </div>
-                        </div>
-                      )}
-
-                      {section.admissions_contact_email && (
-                        <div className="adm-row">
-                          <div className="adm-row-icon"><Mail className="w-4 h-4" /></div>
-                          <div>
-                            <p className="adm-row-label">Email</p>
-                            <a href={`mailto:${section.admissions_contact_email}`} className="adm-row-link">
-                              {section.admissions_contact_email}
-                            </a>
-                          </div>
-                        </div>
-                      )}
-
-                      {section.admissions_contact_phone && (
-                        <div className="adm-row">
-                          <div className="adm-row-icon"><Phone className="w-4 h-4" /></div>
-                          <div>
-                            <p className="adm-row-label">Phone</p>
-                            <a href={`tel:${section.admissions_contact_phone}`} className="adm-row-link">
-                              {section.admissions_contact_phone}
-                            </a>
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  <Link to="/login" className="adm-cta">
-                    Apply via Portal <ArrowRight className="w-4 h-4" />
-                  </Link>
-                </div>
+                  </div>
+                )}
+                {(section.admissions_contact_name || section.admissions_contact_email || section.admissions_contact_phone) && (
+                  <div className="pt-4 border-t border-gray-100 space-y-2">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Admissions Contact</p>
+                    {section.admissions_contact_name && (
+                      <div className="flex gap-2 items-center text-sm">
+                        <User className="w-4 h-4 text-gray-400" />
+                        <span className="font-medium text-gray-800">{section.admissions_contact_name}</span>
+                      </div>
+                    )}
+                    {section.admissions_contact_email && (
+                      <div className="flex gap-2 items-center text-sm">
+                        <Mail className="w-4 h-4 text-gray-400" />
+                        <a href={`mailto:${section.admissions_contact_email}`}
+                          className="hover:underline" style={{ color: primaryColor }}>
+                          {section.admissions_contact_email}
+                        </a>
+                      </div>
+                    )}
+                    {section.admissions_contact_phone && (
+                      <div className="flex gap-2 items-center text-sm">
+                        <Phone className="w-4 h-4 text-gray-400" />
+                        <a href={`tel:${section.admissions_contact_phone}`}
+                          className="hover:underline" style={{ color: primaryColor }}>
+                          {section.admissions_contact_phone}
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <Link to="/login"
+                  className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-semibold text-sm text-white transition-all hover:opacity-90"
+                  style={{ backgroundColor: primaryColor }}>
+                  Apply via Portal <ArrowRight className="w-4 h-4" />
+                </Link>
               </div>
             </div>
 
@@ -623,13 +510,8 @@ const TenantAdmissionsPage: React.FC = () => {
       </main>
 
       {landing && (
-        <TenantFooter
-          landing={landing}
-          schoolName={tenant?.name ?? ''}
-          logo={settings?.logo}
-          primaryColor={primaryColor}
-          contactSection={landing.sections.find(s => s.section_type === 'contact' && s.is_enabled)}
-        />
+        <TenantFooter landing={landing} schoolName={tenant?.name ?? ''} logo={settings?.logo} primaryColor={primaryColor}
+          contactSection={landing.sections.find(s => s.section_type === 'contact' && s.is_enabled)} />
       )}
     </div>
   );
