@@ -315,14 +315,6 @@ class SubjectSerializer(serializers.ModelSerializer):
         )  # FK field (internal key after source mapping)
         is_cross_cutting = data.get("is_cross_cutting", False)
 
-        # SS validations
-        if "SENIOR_SECONDARY" in level_types and not subject_type:
-            raise serializers.ValidationError(
-                {
-                    "ss_subject_type": "Senior Secondary subjects must have a subject type."
-                }
-            )
-
         if is_cross_cutting and "SENIOR_SECONDARY" not in level_types:
             raise serializers.ValidationError(
                 {
@@ -536,13 +528,6 @@ class SubjectCreateUpdateSerializer(serializers.ModelSerializer):
                 level_types = set(raw_education_levels)
         subject_type = data.get("subject_type_new")
         is_cross_cutting = data.get("is_cross_cutting", False)
-
-        if "SENIOR_SECONDARY" in level_types and not subject_type:
-            raise serializers.ValidationError(
-                {
-                    "ss_subject_type": "Senior Secondary subjects must have a subject type."
-                }
-            )
 
         if is_cross_cutting and "SENIOR_SECONDARY" not in level_types:
             raise serializers.ValidationError(

@@ -207,9 +207,7 @@ const SubjectManagement = () => {
     if (!formData.code.trim()) e.code = 'Subject code is required';
     if (!formData.category_new_id) e.category = 'Category is required';
     if (!formData.education_levels.length) e.education_levels = 'Select at least one education level';
-    if (isSeniorSecondary && !formData.ss_subject_type_id) {
-      e.ss_subject_type = 'Subject type is required for Senior Secondary';
-    }
+    // Subject type is optional for Senior Secondary (used for stream organisation)
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -672,22 +670,27 @@ const SubjectManagement = () => {
                   {errors.education_levels && <p className="text-red-500 text-xs mt-1">{errors.education_levels}</p>}
                 </div>
 
-                {/* Subject Type — only shown when Senior Secondary is selected */}
-                {isSeniorSecondary && subjectTypes.length > 0 && (
+                {/* Subject Type — optional, shown when Senior Secondary is selected */}
+                {isSeniorSecondary && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Subject Type <span className="text-red-500">*</span>
-                      <span className="ml-1 text-xs text-gray-400 font-normal">(required for Senior Secondary)</span>
+                      Subject Type
+                      <span className="ml-1 text-xs text-gray-400 font-normal">(optional — used for stream organisation)</span>
                     </label>
-                    <select
-                      className={`w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white ${errors.ss_subject_type ? 'border-red-400 bg-red-50' : 'border-gray-300'}`}
-                      value={formData.ss_subject_type_id || ''}
-                      onChange={e => setFormData(prev => ({ ...prev, ss_subject_type_id: e.target.value ? parseInt(e.target.value) : undefined }))}
-                    >
-                      <option value="">Select subject type…</option>
-                      {subjectTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                    </select>
-                    {errors.ss_subject_type && <p className="text-red-500 text-xs mt-1">{errors.ss_subject_type}</p>}
+                    {subjectTypes.length > 0 ? (
+                      <select
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white"
+                        value={formData.ss_subject_type_id || ''}
+                        onChange={e => setFormData(prev => ({ ...prev, ss_subject_type_id: e.target.value ? parseInt(e.target.value) : undefined }))}
+                      >
+                        <option value="">— None (no stream assignment) —</option>
+                        {subjectTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                      </select>
+                    ) : (
+                      <p className="text-xs text-gray-400 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
+                        No subject types configured yet. You can add them later via Subject Category settings.
+                      </p>
+                    )}
                   </div>
                 )}
 
