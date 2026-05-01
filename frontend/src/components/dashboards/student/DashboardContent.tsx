@@ -8,7 +8,7 @@ interface DashboardData {
     class: string;
     education_level: string;
     registration_number: string;
-    admission_date: string;
+    admission_date?: string;
   };
   statistics: {
     performance: {
@@ -94,7 +94,7 @@ const DashboardContent = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-     console.log("useEffect triggered");
+;
     const fetchDashboardData = async () => {
       try {
         setLoading(true);

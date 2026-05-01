@@ -3,6 +3,7 @@ import { User, ChevronRight, ChevronLeft, Check, X, AlertCircle, Plus, Trash2 } 
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import teacherService from '@/services/TeacherService';
+import academicSettingsService, { type TeachingModelSettings } from '@/services/AcademicSettingsService';
 
 import type {FormData, GradeLevel, LevelType, SubjectOption, ClassroomOption, CreateTeacherPayload, PrimaryAssignmentPayload, SecondaryAssignmentPayload, AssignmentRow
 } from '@/types/teacher'
@@ -56,9 +57,39 @@ const AddTeacherForm: React.FC<AddTeacherFormProps> = ({ onTeacherAdded }) => {
   const [loadingSubjects, setLoadingSubjects]     = useState(false);
   const [loadingClassrooms, setLoadingClassrooms] = useState(false);
 
-  const isPrimary   = form.level === 'nursery' || form.level === 'primary';
-  const isSecondary = form.level === 'junior_secondary' || form.level === 'senior_secondary';
-  const isTeaching  = form.staffType === 'teaching';
+  // Teaching model config — fetched once from tenant settings
+  const [teachingModel, setTeachingModel] = useState<TeachingModelSettings>({
+    nursery_use_subject_teachers: false,
+    primary_use_subject_teachers: false,
+    junior_secondary_use_subject_teachers: true,
+    senior_secondary_use_subject_teachers: true,
+  });
+
+  useEffect(() => {
+    academicSettingsService.getAcademicSettings().then(s => {
+      setTeachingModel({
+        nursery_use_subject_teachers:           s.nursery_use_subject_teachers,
+        primary_use_subject_teachers:           s.primary_use_subject_teachers,
+        junior_secondary_use_subject_teachers:  s.junior_secondary_use_subject_teachers,
+        senior_secondary_use_subject_teachers:  s.senior_secondary_use_subject_teachers,
+      });
+    }).catch(() => { /* keep defaults */ });
+  }, []);
+
+  const levelUsesSubjectTeachers = (level: string | undefined): boolean => {
+    if (!level) return false;
+    const map: Record<string, boolean> = {
+      nursery:           teachingModel.nursery_use_subject_teachers,
+      primary:           teachingModel.primary_use_subject_teachers,
+      junior_secondary:  teachingModel.junior_secondary_use_subject_teachers,
+      senior_secondary:  teachingModel.senior_secondary_use_subject_teachers,
+    };
+    return map[level] ?? (level === 'junior_secondary' || level === 'senior_secondary');
+  };
+
+  const isTeaching      = form.staffType === 'teaching';
+  const isPrimary       = isTeaching && !levelUsesSubjectTeachers(form.level);   // class-teacher model
+  const isSecondary     = isTeaching && levelUsesSubjectTeachers(form.level);    // subject-teacher model
 
   // ── Fetch grade levels ────────────────────────────────────────────────────────
   useEffect(() => {

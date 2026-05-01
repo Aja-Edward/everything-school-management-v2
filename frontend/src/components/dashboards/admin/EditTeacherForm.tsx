@@ -8,6 +8,7 @@ import type {
   SubjectOption,
 } from '@/types/teacher';
 import api from '@/services/api';
+import academicSettingsService, { type TeachingModelSettings } from '@/services/AcademicSettingsService';
 
 interface EditTeacherFormProps {
   teacher: Teacher | null;
@@ -80,6 +81,36 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
 
   // ── Classroom Assignments ─────────────────────────────────────────────────
   const [currentAssignments, setCurrentAssignments] = useState<AssignmentRow[]>([]);
+
+  // ── Teaching model config ─────────────────────────────────────────────────
+  const [teachingModel, setTeachingModel] = useState<TeachingModelSettings>({
+    nursery_use_subject_teachers: false,
+    primary_use_subject_teachers: false,
+    junior_secondary_use_subject_teachers: true,
+    senior_secondary_use_subject_teachers: true,
+  });
+
+  useEffect(() => {
+    academicSettingsService.getAcademicSettings().then(s => {
+      setTeachingModel({
+        nursery_use_subject_teachers:           s.nursery_use_subject_teachers,
+        primary_use_subject_teachers:           s.primary_use_subject_teachers,
+        junior_secondary_use_subject_teachers:  s.junior_secondary_use_subject_teachers,
+        senior_secondary_use_subject_teachers:  s.senior_secondary_use_subject_teachers,
+      });
+    }).catch(() => { /* keep defaults */ });
+  }, []);
+
+  const levelUsesSubjectTeachers = (level: string | undefined): boolean => {
+    if (!level) return false;
+    const map: Record<string, boolean> = {
+      nursery:           teachingModel.nursery_use_subject_teachers,
+      primary:           teachingModel.primary_use_subject_teachers,
+      junior_secondary:  teachingModel.junior_secondary_use_subject_teachers,
+      senior_secondary:  teachingModel.senior_secondary_use_subject_teachers,
+    };
+    return map[level] ?? (level === 'junior_secondary' || level === 'senior_secondary');
+  };
 
   // ─────────────────────────────────────────────────────────────────────────
   // Effect 1 — Reset page + selections when level changes
@@ -381,7 +412,8 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
     focus:border-transparent outline-none transition-all duration-300
     ${themeClasses.inputBg} ${themeClasses.inputFocus} ${themeClasses.textPrimary}`;
 
-  const isTeaching = formData.staff_type === 'teaching' && !!formData.level;
+  const isTeaching          = formData.staff_type === 'teaching' && !!formData.level;
+  const isSubjectTeacherModel = isTeaching && levelUsesSubjectTeachers(formData.level);
   const totalPages = Math.ceil(subjectTotalCount / PAGE_SIZE);
   const levelLabel = formData.level?.replace(/_/g, ' ') ?? '';
   const rangeStart = (subjectPage - 1) * PAGE_SIZE + 1;
@@ -626,8 +658,8 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
         </div>
       )}
 
-      {/* ── Classroom Assignments ──────────────────────────────────────────── */}
-      {isTeaching && (
+      {/* ── Classroom Assignments (subject-teacher model only) ─────────────── */}
+      {isSubjectTeacherModel && (
         <div>
           <div className="flex items-center justify-between mb-3">
             <label className={`block text-sm font-medium ${themeClasses.textSecondary}`}>

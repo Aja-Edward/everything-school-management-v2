@@ -104,6 +104,11 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
             "enable_subject_prerequisites",
             "allow_subject_changes",
             "enable_credit_system",
+            # Teaching model per education level
+            "nursery_use_subject_teachers",
+            "primary_use_subject_teachers",
+            "junior_secondary_use_subject_teachers",
+            "senior_secondary_use_subject_teachers",
             "created_at",
             "updated_at",
         ]

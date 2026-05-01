@@ -131,8 +131,6 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
     }
 
     let isMounted = true;
-    console.log('✅ Starting data fetch with verified token');
-    console.log('📋 Verified token data:', verifiedTokenData);
 
     const fetchAllData = async (): Promise<void> => {
       setLoading(true);
@@ -140,33 +138,27 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
 
       try {
         const fetchOptions: RequestInit = {
-        credentials: 'include',  // ✅ Top-level fetch option
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      };
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        };
 
         const verifiedStudent: StudentInfo = {
           full_name: verifiedTokenData.student_name || 'Student',
           education_level: verifiedTokenData.education_level || '',
           current_class: verifiedTokenData.current_class,
-          verified: true
+          verified: true,
         };
-        
-        console.log('✅ Verified student:', verifiedStudent);
         setStudentInfo(verifiedStudent);
 
-        // Fetch academic session and exam sessions in parallel
+        // Fetch current academic session and exam sessions in parallel
         const [sessionRes, examsRes] = await Promise.all([
           fetch(`${API_BASE_URL}/classrooms/academic-sessions/current/`, fetchOptions),
           fetch(`${API_BASE_URL}/results/exam-sessions/`, fetchOptions),
         ]);
 
-
         if (!sessionRes.ok) throw new Error('Failed to load current academic session');
 
         const currentSession: AcademicSession = await sessionRes.json();
-        console.log('📅 Current session:', currentSession.name);
 
         // Fetch terms for current session
         const termsRes = await fetch(
@@ -180,103 +172,33 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
         const examSessionsData: ExamSession[] = examsRes.ok ? await examsRes.json() : [];
 
 
-        // Fetch classes
+        // Fetch classrooms directly for the current academic session, filtered by education level
         let classesData: ClassInfo[] = [];
-        
-        console.log('📍 Education level to fetch:', verifiedStudent.education_level);
-        
-        try {
-          // Step 1: Fetch all grade levels
-          const gradesRes = await fetch(`${API_BASE_URL}/classrooms/results-portal/grades/`, fetchOptions);
-          
-          if (!gradesRes.ok) {
-            throw new Error(`Grades fetch failed: ${gradesRes.status}`);
-          }
-          
-          const gradesData = await gradesRes.json();
-          const allGrades: GradeLevel[] = Array.isArray(gradesData) ? gradesData : (gradesData.results || []);
-          
-          console.log(`✅ Total grades fetched: ${allGrades.length}`);
-          if (allGrades.length > 0) {
-            console.log('📋 Sample grade:', allGrades[0]);
-          }
-          
-          // Step 2: Filter grades by education level
-          const relevantGrades = verifiedStudent.education_level 
-            ? allGrades.filter((g) => g.education_level === verifiedStudent.education_level)
-            : allGrades;
-          
-          console.log(`✅ Relevant grades for ${verifiedStudent.education_level}: ${relevantGrades.length}`);
-          
-          if (relevantGrades.length === 0) {
-            console.warn(`⚠️ No grades found for: ${verifiedStudent.education_level}`);
-            console.log('Available education levels:', [...new Set(allGrades.map((g) => g.education_level))]);
-          }
-          
-          // Step 3: For each grade, get sections then classrooms
-          for (const grade of relevantGrades) {
-            console.log(`\n📌 Processing Grade: ${grade.name} (ID: ${grade.id})`);
-            
-            // Get sections for this grade
-            const sectionsRes = await fetch(`...grades/${grade.id}/sections/`, fetchOptions);
-            
-            if (!sectionsRes.ok) {
-              console.warn(`   ⚠️ Sections fetch failed (${sectionsRes.status})`);
-              continue;
-            }
-            
-            const sectionsData = await sectionsRes.json();
-            const sections: Section[] = Array.isArray(sectionsData) ? sectionsData : (sectionsData.results || []);
-            
-            console.log(`   ✅ Found ${sections.length} sections`);
-            
-            // For each section, get classrooms
-            for (const section of sections) {
-              console.log(`      📌 Section: ${section.name} (ID: ${section.id})`);
-              
-              const classroomsRes = await fetch(`...sections/${section.id}/classrooms/`, fetchOptions);
 
-              if (!classroomsRes.ok) {
-                console.warn(`         ⚠️ Classrooms fetch failed (${classroomsRes.status})`);
-                continue;
-              }
-              
-              const classroomsData = await classroomsRes.json();
-              const classrooms: any[] = Array.isArray(classroomsData) ? classroomsData : (classroomsData.results || []);
-              
-              console.log(`         ✅ Found ${classrooms.length} classrooms`);
-              
-              classrooms.forEach((classroom: any) => {
-                const mappedClass: ClassInfo = {
-                  id: classroom.id,
-                  name: classroom.name || `${grade.name} ${section.name}`,
-                  class_name: classroom.name,
-                  education_level: grade.education_level,
-                  section_id: section.id,
-                  grade_level_id: grade.id,
-                  grade_name: grade.name,
-                  section_name: section.name
-                };
-                classesData.push(mappedClass);
-                console.log(`            ✅ Added classroom: ${mappedClass.name}`);
-              });
-            }
-          }
-          
-          console.log(`\n✅ Total classrooms collected: ${classesData.length}`);
-          
-          if (classesData.length === 0) {
-            console.error('❌ DIAGNOSTIC: No classrooms found. Checking each step:');
-            console.error(`   1. GradeLevel count: ${allGrades.length}`);
-            console.error(`   2. Relevant grades for ${verifiedStudent.education_level}: ${relevantGrades.length}`);
-            console.error('   3. Check if Sections exist in Django admin');
-            console.error('   4. Check if Classrooms exist in Django admin');
-            console.error('   5. Verify relationships: Grade → Section → Classroom');
-          }
-          
-        } catch (e) {
-          console.error('❌ Error in classroom fetching:', e);
-          setError(`Failed to load classrooms: ${e instanceof Error ? e.message : 'Unknown error'}`);
+        const classroomsRes = await fetch(
+          `${API_BASE_URL}/classrooms/classrooms/?is_active=true&academic_session=${currentSession.id}`,
+          fetchOptions
+        );
+
+        if (classroomsRes.ok) {
+          const raw = await classroomsRes.json();
+          const allClassrooms: any[] = Array.isArray(raw) ? raw : (raw.results ?? []);
+
+          classesData = allClassrooms
+            .filter((c: any) =>
+              !verifiedStudent.education_level ||
+              (c.education_level ?? '').toUpperCase() === verifiedStudent.education_level.toUpperCase()
+            )
+            .map((c: any) => ({
+              id: c.id,
+              name: c.name || c.section_name || 'Unknown Class',
+              class_name: c.name,
+              education_level: (c.education_level ?? '') as EducationLevel,
+              section_id: typeof c.section === 'number' ? c.section : c.section?.id,
+              grade_level_id: c.grade_level_id,
+              grade_name: c.grade_level_name,
+              section_name: c.section_name,
+            }));
         }
 
         if (!isMounted) return;
@@ -287,52 +209,36 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
         setExamSessions(Array.isArray(examSessionsData) ? examSessionsData : []);
         setClasses(classesData);
 
-        // Auto-select term
+        // Auto-select the term that matches the student's verified token term
         if (verifiedTokenData.school_term && Array.isArray(termsData)) {
           const tokenTerm = verifiedTokenData.school_term.toLowerCase();
           const match = termsData.find((t: Term) => {
             const termName = (t?.name || t?.name_display || '').toLowerCase();
             return termName === tokenTerm || termName.includes(tokenTerm);
           });
-          if (match) {
-            console.log('🎯 Auto-selected term:', match.name);
-            setSelectedTermId(match.id);
-          }
+          if (match) setSelectedTermId(match.id);
         }
 
-        // Auto-select student's class
+        // Auto-select the student's current class
         if (verifiedTokenData.current_class && classesData.length > 0) {
           const currentClassName = String(verifiedTokenData.current_class).trim();
-          console.log('🔍 Looking for class:', currentClassName);
-          
           const normalizedTarget = normalizeClassName(currentClassName);
-          
-          // Try exact match first
-          let studentClass = classesData.find(c => 
-            (c.name === currentClassName) || (c.class_name === currentClassName)
+
+          let studentClass = classesData.find(
+            c => c.name === currentClassName || c.class_name === currentClassName
           );
-          
-          // Try normalized fuzzy match
+
           if (!studentClass) {
             studentClass = classesData.find(c => {
-              const name1 = normalizeClassName(c.name || '');
-              const name2 = normalizeClassName(c.class_name || '');
-              return name1 === normalizedTarget || name2 === normalizedTarget;
+              const n1 = normalizeClassName(c.name || '');
+              const n2 = normalizeClassName(c.class_name || '');
+              return n1 === normalizedTarget || n2 === normalizedTarget;
             });
           }
-          
-          if (studentClass) {
-            console.log('✅ Auto-selected class:', studentClass.name);
-            setSelectedClassId(studentClass.id);
-          } else {
-            console.warn('⚠️ Could not find class:', currentClassName);
-            console.log('Available:', classesData.map(c => c.name).join(', '));
-            console.log('Normalized target:', normalizedTarget);
-            console.log('Normalized available:', classesData.map(c => normalizeClassName(c.name || '')).join(', '));
-          }
+
+          if (studentClass) setSelectedClassId(studentClass.id);
         }
       } catch (err) {
-        console.error('❌ Error:', err);
         setError(err instanceof Error ? err.message : 'Failed to load academic data');
       } finally {
         if (isMounted) setLoading(false);

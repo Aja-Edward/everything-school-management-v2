@@ -33,8 +33,7 @@
 //       setLoading(true);
 //       setError(null);
       
-//       console.log('🔄 Fetching schedule data with filters:', filters);
-      
+//       
 //       // Fetch main schedule data
 //       const [schedule, weekly, current] = await Promise.all([
 //         StudentService.getStudentSchedule(undefined, filters),
@@ -391,19 +390,22 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import StudentSchedule from '@/components/dashboards/student/StudentSchedule';
-import StudentService, { 
-  StudentService as StudentServiceClass,
-  StudentSchedule as StudentScheduleType, 
-  DaySchedule, 
-  ScheduleItem,
-  WeeklySchedule,
-  ScheduleFilters,
+import StudentService, {
+  StudentSchedule as StudentScheduleType,
 } from '@/services/StudentService';
+
+const formatTime = (t: string) => {
+  if (!t) return '';
+  const [h, m] = t.split(':');
+  const hour = parseInt(h, 10);
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  return `${hour % 12 || 12}:${m} ${ampm}`;
+};
 import { Bell, Settings, Download, Calendar, Clock } from 'lucide-react';
 
 const StudentLessons: React.FC = () => {
-  const [scheduleData, setScheduleData] = useState<StudentScheduleType | null>(null);
-  const [weeklySchedule, setWeeklySchedule] = useState<WeeklySchedule | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [scheduleData, setScheduleData] = useState<any>(null);
   const [currentPeriod, setCurrentPeriod] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -419,29 +421,29 @@ const StudentLessons: React.FC = () => {
   });
 
   // Fetch all schedule data
-  const fetchScheduleData = useCallback(async (filters?: ScheduleFilters) => {
+  const fetchScheduleData = useCallback(async (filters?: Record<string, any>) => {
     try {
       setLoading(true);
       setError(null);
-      
-      console.log('🔄 Fetching schedule data with filters:', filters);
-      
-      // Fetch main schedule data
-      const [schedule, weekly, current] = await Promise.all([
-        StudentService.getStudentSchedule(undefined, filters),
-        StudentService.getWeeklySchedule(),
-        StudentService.getCurrentPeriod().catch(() => ({ current: null, next: null }))
+
+      // 404 means the student has no schedule yet — treat as empty, not an error
+      const emptyDays = { monday: [], tuesday: [], wednesday: [], thursday: [], friday: [], saturday: [], sunday: [] };
+      const emptySchedule: StudentScheduleType = {
+        student_info: { id: 0, name: '', class: '' },
+        schedule: [],
+        schedule_by_day: emptyDays,
+        total_periods: 0,
+      };
+      const [schedule, current] = await Promise.all([
+        StudentService.getStudentSchedule().catch((e: any) =>
+          e?.response?.status === 404 || e?.status === 404 ? emptySchedule : Promise.reject(e)
+        ),
+        StudentService.getCurrentPeriod().catch(() => ({ current: null, next: null })),
       ]);
 
-      console.log('Raw schedule data:', schedule);
-      console.log('Schedule by day:', schedule?.schedule_by_day);
-
       setScheduleData(schedule);
-      setWeeklySchedule(weekly);
       setCurrentPeriod(current);
       setLastUpdated(new Date());
-      
-      console.log('✅ Schedule data loaded:', { schedule, weekly, current });
       
     } catch (err) {
       console.error('❌ Error loading schedule:', err);
@@ -487,8 +489,7 @@ const StudentLessons: React.FC = () => {
     await fetchScheduleData();
   }, [fetchScheduleData]);
 
-  const handleFilterChange = useCallback((filters: ScheduleFilters) => {
-    // fire-and-forget to satisfy (filters) => void signature
+  const handleFilterChange = useCallback((filters: Record<string, any>) => {
     void fetchScheduleData(filters);
   }, [fetchScheduleData]);
 
@@ -502,15 +503,15 @@ const StudentLessons: React.FC = () => {
       exportText += `Generated: ${new Date().toLocaleString()}\n\n`;
 
       // Safe iteration over schedule_by_day
-      const scheduleByDay = scheduleData.schedule_by_day || {};
-      Object.entries(scheduleByDay).forEach(([day, daySchedule]) => {
+      const scheduleByDay: Record<string, any> = scheduleData.schedule_by_day || {};
+      Object.entries(scheduleByDay).forEach(([day, daySchedule]: [string, any]) => {
         if (daySchedule && daySchedule.periods && daySchedule.periods.length > 0) {
           exportText += `${daySchedule.day_display?.toUpperCase() || day.toUpperCase()}\n`;
           exportText += '=' + '='.repeat((daySchedule.day_display || day).length) + '\n';
-          
-          daySchedule.periods.forEach(period => {
+
+          daySchedule.periods.forEach((period: any) => {
             if (period && !period.is_break) {
-              exportText += `${StudentServiceClass.formatTime(period.start_time)} - ${StudentServiceClass.formatTime(period.end_time)}: `;
+              exportText += `${formatTime(period.start_time)} - ${formatTime(period.end_time)}: `;
               exportText += `${period.subject?.name || period.subject_name || 'N/A'} `;
               exportText += `(${period.teacher?.full_name || period.teacher_name || 'N/A'}) `;
               exportText += `[${period.classroom?.name || period.classroom_name || 'N/A'}]\n`;

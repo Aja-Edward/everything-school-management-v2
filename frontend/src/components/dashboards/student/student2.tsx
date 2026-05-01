@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import {
   User, Calendar, BookOpen, Trophy, Clock, CreditCard, MessageSquare, Settings,
-  GraduationCap, Home, AlertTriangle, ArrowLeft, Download, Eye,
+  GraduationCap, Home, AlertTriangle, ArrowLeft, Download,
   LogOut, Menu, X, Check
 } from 'lucide-react';
 
@@ -109,27 +109,7 @@ const StudentPortal = () => {
     fetchStudentRecord();
   }, [user?.id]);
 
-  // CRITICAL FIX: Get the actual student ID (not user ID)
-  const getAuthenticatedStudentId = (): string => {
-    // Priority 1: From student record (this is the CORRECT student ID)
-    if (studentRecord?.id) {
-      console.log('✅ Using student record ID:', studentRecord.id);
-      return String(studentRecord.id);
-    }
-
-    // Priority 2: From verified token data
-    if (verifiedTokenData?.student_id) {
-      console.log('⚠️ Using token student ID:', verifiedTokenData.student_id);
-      return String(verifiedTokenData.student_id);
-    }
-
-    // DO NOT fallback to user.id - this is the wrong ID!
-    console.error('❌ No student record found! Cannot use user ID as student ID.');
-    return '';
-  };
-
   const handleTokenVerified = (tokenData?: TokenVerificationData | any) => {
-    console.log('✅ Token verified in parent:', tokenData);
 
     // Use the student record ID if we have it, otherwise try to extract from token
     const studentId = studentRecord?.id || tokenData?.student_id;
@@ -157,8 +137,6 @@ const StudentPortal = () => {
   };
 
   const handleSelectionComplete = (data: SelectionData) => {
-    console.log('✅ Selection completed:', data);
-    console.log('🔍 Authenticated student ID at selection:', getAuthenticatedStudentId());
     setSelections(data);
     setPortalStep('results');
   };
@@ -415,7 +393,6 @@ const StudentPortal = () => {
                 onSelectionComplete={handleSelectionComplete}
                 onBackToSelection={handleBackToSelection}
                 onPortalLogout={handlePortalLogout}
-                getAuthenticatedStudentId={getAuthenticatedStudentId}
               />
             ) : activeSection === 'dashboard' ? (
               <DashboardContent />
@@ -443,10 +420,7 @@ const PortalContent = ({
   onSelectionComplete,
   onBackToSelection,
   onPortalLogout,
-  getAuthenticatedStudentId
 }: any) => {
-  const [showBackendPdf, setShowBackendPdf] = useState(false);
-
   if (!studentRecord) {
     return (
       <div className="bg-white dark:bg-gray-900 rounded-xl p-8 text-center shadow-lg border border-gray-200 dark:border-gray-800">
@@ -457,20 +431,6 @@ const PortalContent = ({
       </div>
     );
   }
-
-  // Log selection data for debugging
-  useEffect(() => {
-    if (selections) {
-      console.log('🔍 [PortalContent] Current selections:', {
-        academicSession: selections.academicSession,
-        term: selections.term,
-        class: selections.class,
-        resultType: selections.resultType,
-        examSession: selections.examSession,
-        studentId: studentRecord.id
-      });
-    }
-  }, [selections, studentRecord]);
 
   return (
     <div className="space-y-6">
@@ -561,97 +521,30 @@ const PortalContent = ({
       )}
 
       {portalStep === 'results' && selections && verifiedTokenData && (
-        <div className="space-y-6">
+        <div className="space-y-4">
           <button
             onClick={onBackToSelection}
-            className="px-4 py-2.5 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex items-center gap-2 shadow-lg border border-gray-200 dark:border-gray-800 font-medium text-sm"
+            className="px-4 py-2.5 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex items-center gap-2 shadow-sm border border-gray-200 dark:border-gray-800 font-medium text-sm"
           >
             <ArrowLeft size={18} />
             Back to Selection
           </button>
 
-          {/* View Mode Toggle */}
-          <div className="bg-white dark:bg-gray-900 rounded-xl p-6 shadow-lg border border-gray-200 dark:border-gray-800">
-            <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-4">Choose View Mode</h3>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <button
-                onClick={() => setShowBackendPdf(false)}
-                className={`flex-1 flex items-center justify-center gap-3 px-6 py-3 rounded-lg transition-colors font-medium text-sm ${
-                  !showBackendPdf
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-700'
-                }`}
-              >
-                <Eye size={18} />
-                <span>View Online</span>
-              </button>
-              <button
-                onClick={() => setShowBackendPdf(true)}
-                className={`flex-1 flex items-center justify-center gap-3 px-6 py-3 rounded-lg transition-colors font-medium text-sm ${
-                  showBackendPdf
-                    ? 'bg-green-600 text-white'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-700'
-                }`}
-              >
-                <Download size={18} />
-                <span>Download Official PDF</span>
-              </button>
-            </div>
-          </div>
-
-          {!showBackendPdf ? (
-            <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-xl p-6 border border-yellow-200 dark:border-yellow-800">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 bg-yellow-600 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <AlertTriangle className="text-white" size={20} />
-                </div>
-                <div>
-                  <h3 className="text-base font-semibold text-yellow-900 dark:text-yellow-100 mb-2">
-                    Frontend PDF Generator (Temporarily Disabled)
-                  </h3>
-                  <p className="text-sm text-yellow-800 dark:text-yellow-200 mb-3">
-                    This view has been temporarily disabled to debug the backend PDF generator.
-                  </p>
-                  <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                    Please use the "Download Official PDF" option to access your results.
-                  </p>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-white dark:bg-gray-900 rounded-xl p-8 shadow-lg border border-gray-200 dark:border-gray-800">
-              <div className="flex flex-col items-center gap-6">
-                <div className="w-20 h-20 bg-green-600 rounded-xl flex items-center justify-center">
-                  <Download className="text-white" size={32} />
-                </div>
-
-                <div className="text-center max-w-md">
-                  <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
-                    Official Report Card
-                  </h3>
-                  <p className="text-gray-600 dark:text-gray-400 text-sm mb-6">
-                    Download a professionally formatted PDF report card generated by the server with official stamps and signatures.
-                  </p>
-                </div>
-
-                <StudentResultDisplay2
-                  student={{
-                    id: String(studentRecord.id),
-                    full_name: studentRecord.full_name,
-                    username: studentRecord.username,
-                    student_class: studentRecord.student_class,
-                    education_level: studentRecord.education_level,
-                    profile_picture: studentRecord.profile_picture
-                  }}
-                  selections={selections}
-                  currentUser={{
-                    id: String(studentRecord.user),
-                    student_id: String(studentRecord.id)
-                  }}
-                />
-              </div>
-            </div>
-          )}
+          <StudentResultDisplay2
+            student={{
+              id: String(studentRecord.id),
+              full_name: studentRecord.full_name,
+              username: studentRecord.username,
+              student_class: studentRecord.student_class,
+              education_level: studentRecord.education_level,
+              profile_picture: studentRecord.profile_picture,
+            }}
+            selections={selections}
+            currentUser={{
+              id: String(studentRecord.user),
+              student_id: String(studentRecord.id),
+            }}
+          />
         </div>
       )}
     </div>

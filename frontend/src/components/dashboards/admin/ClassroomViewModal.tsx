@@ -9,6 +9,7 @@ import {
 import { Classroom, Teacher } from '@/types/classroomtypes';
 import { useStudentEnrollment, useClassroomList, useClassroom } from '@/contexts/ClassroomContext';
 import TimetableTab from './TimeTable';
+import academicSettingsService, { type TeachingModelSettings } from '@/services/AcademicSettingsService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -35,10 +36,27 @@ const getInitials = (name: string) =>
   name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
 
 
-const getFormTeacherLabel = (level: string) => {
+// Returns the label for the designated teacher of a classroom based on the
+// teaching model: subject-teacher levels say "Form Teacher", class-teacher
+// levels say "Class Teacher".
+const getFormTeacherLabel = (level: string, model: TeachingModelSettings): string => {
   const upper = (level ?? '').toUpperCase().replace(/-/g, '_');
-  if (upper === 'JUNIOR_SECONDARY' || upper === 'SENIOR_SECONDARY') return 'Form Teacher';
-  return 'Class Teacher';
+  const levelKey: Record<string, keyof TeachingModelSettings> = {
+    NURSERY:            'nursery_use_subject_teachers',
+    PRIMARY:            'primary_use_subject_teachers',
+    JUNIOR_SECONDARY:   'junior_secondary_use_subject_teachers',
+    SENIOR_SECONDARY:   'senior_secondary_use_subject_teachers',
+  };
+  const key = levelKey[upper];
+  const usesSubjectTeachers = key ? model[key] : (upper === 'JUNIOR_SECONDARY' || upper === 'SENIOR_SECONDARY');
+  return usesSubjectTeachers ? 'Form Teacher' : 'Class Teacher';
+};
+
+const DEFAULT_TEACHING_MODEL: TeachingModelSettings = {
+  nursery_use_subject_teachers: false,
+  primary_use_subject_teachers: false,
+  junior_secondary_use_subject_teachers: true,
+  senior_secondary_use_subject_teachers: true,
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -73,6 +91,19 @@ const ClassroomViewModal: React.FC<ClassroomViewModalProps> = ({
   const [selectedCoTeacherId, setSelectedCoTeacherId] = useState<number | ''>('');
   const [coTeacherSaving, setCoTeacherSaving] = useState(false);
   const [promotingTeacherId, setPromotingTeacherId] = useState<number | null>(null);
+
+  // ── Teaching model config ──────────────────────────────────────────────────
+  const [teachingModel, setTeachingModel] = useState<TeachingModelSettings>(DEFAULT_TEACHING_MODEL);
+  useEffect(() => {
+    academicSettingsService.getAcademicSettings().then(s => {
+      setTeachingModel({
+        nursery_use_subject_teachers:           s.nursery_use_subject_teachers,
+        primary_use_subject_teachers:           s.primary_use_subject_teachers,
+        junior_secondary_use_subject_teachers:  s.junior_secondary_use_subject_teachers,
+        senior_secondary_use_subject_teachers:  s.senior_secondary_use_subject_teachers,
+      });
+    }).catch(() => { /* keep defaults */ });
+  }, []);
 
   const { transferStudent, transferring, getClassroomStudents } = useStudentEnrollment();
   const { classrooms } = useClassroomList();
@@ -205,7 +236,20 @@ const previewTeacher = selectedTeacherId !== ''
   const enrollmentPct = classroom.max_capacity > 0
     ? Math.round(((classroom.current_enrollment ?? 0) / classroom.max_capacity) * 100) : 0;
 
-  const formTeacherLabel = getFormTeacherLabel(classroom.education_level);
+  const formTeacherLabel = getFormTeacherLabel(classroom.education_level, teachingModel);
+
+  // True when this classroom uses the class-teacher model (one teacher for all subjects)
+  const isClassTeacherModel = (() => {
+    const upper = (classroom.education_level ?? '').toUpperCase().replace(/-/g, '_');
+    const levelKey: Record<string, keyof TeachingModelSettings> = {
+      NURSERY:          'nursery_use_subject_teachers',
+      PRIMARY:          'primary_use_subject_teachers',
+      JUNIOR_SECONDARY: 'junior_secondary_use_subject_teachers',
+      SENIOR_SECONDARY: 'senior_secondary_use_subject_teachers',
+    };
+    const key = levelKey[upper];
+    return key ? !teachingModel[key] : !['JUNIOR_SECONDARY', 'SENIOR_SECONDARY'].includes(upper);
+  })();
 
   // Currently assigned teacher object (from live teachers list for up-to-date info)
   const assignedTeacher: Teacher | undefined = teachers.find(
@@ -718,14 +762,13 @@ const previewTeacher = selectedTeacherId !== ''
 
             {/* ── TEACHERS ── */}
             {activeTab === 'teachers' && (() => {
-              const isNurseryOrPrimary = ['NURSERY', 'PRIMARY'].includes((classroom.education_level ?? '').toUpperCase());
               const coTeachers = classroom.co_teachers ?? [];
               const assignedCoTeacherIds = new Set(coTeachers.map(ct => ct.teacher_id));
               const availableToAdd = teachers.filter(
                 t => t.is_active && t.id !== classroom.class_teacher && !assignedCoTeacherIds.has(t.id)
               );
 
-              if (isNurseryOrPrimary) {
+              if (isClassTeacherModel) {
                 return (
                   <div>
                     {/* Form teacher dark card */}
@@ -1048,8 +1091,8 @@ const previewTeacher = selectedTeacherId !== ''
                   </div>
                 </div>
 
-                {/* ── Co-teachers (Nursery/Primary only) ── */}
-                {['NURSERY', 'PRIMARY'].includes((classroom.education_level ?? '').toUpperCase()) && (
+                {/* ── Co-teachers (class-teacher model only) ── */}
+                {isClassTeacherModel && (
                   <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm mb-5">
                     <div className="px-5 py-3.5 flex items-center gap-2.5 border-b border-gray-100 bg-gray-50">
                       <Users size={13} className="text-gray-400" />

@@ -59,6 +59,38 @@ logger = logging.getLogger(__name__)
 
 
 # ==============================================================================
+# TEACHING MODEL HELPER
+# ==============================================================================
+
+_SUBJECT_TEACHER_DEFAULTS = {
+    "NURSERY": False,
+    "PRIMARY": False,
+    "JUNIOR_SECONDARY": True,
+    "SENIOR_SECONDARY": True,
+}
+
+def _uses_subject_teachers(tenant, level_type: str) -> bool:
+    """
+    Return True if the given education level uses the subject-teacher model for
+    this tenant (i.e. different teachers per subject rather than one class teacher).
+
+    Falls back to the system defaults when TenantSettings are unavailable.
+    """
+    default = _SUBJECT_TEACHER_DEFAULTS.get(level_type, False)
+    try:
+        s = tenant.settings
+        mapping = {
+            "NURSERY":            s.nursery_use_subject_teachers,
+            "PRIMARY":            s.primary_use_subject_teachers,
+            "JUNIOR_SECONDARY":   s.junior_secondary_use_subject_teachers,
+            "SENIOR_SECONDARY":   s.senior_secondary_use_subject_teachers,
+        }
+        return mapping.get(level_type, default)
+    except Exception:
+        return default
+
+
+# ==============================================================================
 # VIEWSETS
 # ==============================================================================
 
@@ -825,10 +857,10 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                 classroom=classroom, teacher=teacher, subject=subject
             )
 
-            if classroom.section.class_grade.education_level.level_type in [
-                "NURSERY",
-                "PRIMARY",
-            ]:
+            level_type = classroom.section.class_grade.education_level.level_type
+            if not _uses_subject_teachers(request.tenant, level_type):
+                # Class-teacher model: the first/only teacher for the classroom is
+                # also the class teacher.
                 classroom.class_teacher = teacher
                 classroom.save()
 
@@ -881,10 +913,8 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
             assignment.is_active = False
             assignment.save()
 
-            if classroom.section.class_grade.education_level.level_type in [
-                "NURSERY",
-                "PRIMARY",
-            ]:
+            level_type = classroom.section.class_grade.education_level.level_type
+            if not _uses_subject_teachers(request.tenant, level_type):
                 remaining = classroom.classroomteacherassignment_set.filter(
                     is_active=True
                 ).count()
@@ -1305,12 +1335,13 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                     source_classroom.class_teacher = None
                     source_classroom.save(update_fields=["class_teacher"])
 
-                # If target is Nursery/Primary and has no class_teacher yet, assign this teacher
+                # If the target uses the class-teacher model and has no class_teacher yet,
+                # auto-assign this teacher.
                 target_level = (
                     target_classroom.section.class_grade.education_level.level_type
                 )
                 if (
-                    target_level in ["NURSERY", "PRIMARY"]
+                    not _uses_subject_teachers(request.tenant, target_level)
                     and target_classroom.class_teacher is None
                     and transferred
                 ):

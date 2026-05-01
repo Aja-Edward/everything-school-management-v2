@@ -90,6 +90,12 @@ const SECTIONS = [
     icon: BookOpen,
     description: 'Prerequisites and credits',
   },
+  {
+    id: 'teaching-model',
+    label: 'Teaching Model',
+    icon: Users,
+    description: 'Class teacher vs subject teachers',
+  },
 ];
 
 const DEFAULT_SETTINGS: AllAcademicSettings = {
@@ -112,6 +118,10 @@ const DEFAULT_SETTINGS: AllAcademicSettings = {
   enable_subject_prerequisites: true,
   allow_subject_changes: true,
   enable_credit_system: true,
+  nursery_use_subject_teachers: false,
+  primary_use_subject_teachers: false,
+  junior_secondary_use_subject_teachers: true,
+  senior_secondary_use_subject_teachers: true,
 };
 
 // ============================================================================
@@ -242,6 +252,15 @@ const AcademicTabContent: React.FC = () => {
             enable_subject_prerequisites: settings.enable_subject_prerequisites,
             allow_subject_changes: settings.allow_subject_changes,
             enable_credit_system: settings.enable_credit_system,
+          });
+          break;
+
+        case 'teaching-model':
+          updatedSettings = await academicSettingsService.updateAcademicSettings({
+            nursery_use_subject_teachers:              settings.nursery_use_subject_teachers,
+            primary_use_subject_teachers:              settings.primary_use_subject_teachers,
+            junior_secondary_use_subject_teachers:     settings.junior_secondary_use_subject_teachers,
+            senior_secondary_use_subject_teachers:     settings.senior_secondary_use_subject_teachers,
           });
           break;
       }
@@ -594,6 +613,90 @@ const AcademicTabContent: React.FC = () => {
                   label="Enable Credit System"
                   description="Use credits for course completion"
                 />
+              </div>
+            </div>
+          </div>
+        );
+
+      // ── Teaching Model ────────────────────────────────────────────────────
+      case 'teaching-model':
+        return (
+          <div className="space-y-6">
+            <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200">
+              <h3 className="text-2xl font-bold text-slate-900 flex items-center gap-3 mb-2">
+                <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center">
+                  <Users className="w-5 h-5 text-white" />
+                </div>
+                Teaching Model
+              </h3>
+              <p className="text-slate-500 text-sm mb-6">
+                Choose how teachers are assigned in each education level.{' '}
+                <strong>Class-teacher model</strong> — one teacher handles all subjects.{' '}
+                <strong>Subject-teacher model</strong> — each subject has its own teacher.
+                Regardless of the model, a <strong>form teacher</strong> is always assigned per classroom.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                {[
+                  {
+                    level: 'Nursery',
+                    field: 'nursery_use_subject_teachers' as const,
+                    description: 'Nursery classes normally have one class teacher. Enable this only if your nursery level uses separate subject teachers.',
+                  },
+                  {
+                    level: 'Primary',
+                    field: 'primary_use_subject_teachers' as const,
+                    description: 'Primary classes normally have one class teacher. Enable if your primary level uses separate teachers per subject.',
+                  },
+                  {
+                    level: 'Junior Secondary',
+                    field: 'junior_secondary_use_subject_teachers' as const,
+                    description: 'Junior Secondary normally uses subject teachers. Disable only if you want a single class teacher model.',
+                  },
+                  {
+                    level: 'Senior Secondary',
+                    field: 'senior_secondary_use_subject_teachers' as const,
+                    description: 'Senior Secondary normally uses subject teachers. Disable only if you want a single class teacher model.',
+                  },
+                ].map(({ level, field, description }) => (
+                  <div
+                    key={field}
+                    className={`rounded-2xl border p-5 transition-all ${
+                      settings[field]
+                        ? 'border-blue-200 bg-blue-50'
+                        : 'border-slate-200 bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-4 mb-3">
+                      <div>
+                        <p className="font-semibold text-slate-900">{level}</p>
+                        <span
+                          className={`inline-block mt-1 text-xs font-medium px-2 py-0.5 rounded-full ${
+                            settings[field]
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'bg-slate-200 text-slate-600'
+                          }`}
+                        >
+                          {settings[field] ? 'Subject Teachers' : 'Class Teacher'}
+                        </span>
+                      </div>
+                      <ToggleSwitch
+                        id={`toggle-${field}`}
+                        checked={settings[field]}
+                        onChange={(checked) => updateSetting(field, checked)}
+                        label=""
+                        description=""
+                      />
+                    </div>
+                    <p className="text-xs text-slate-500 leading-relaxed">{description}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl text-sm text-amber-800 leading-relaxed">
+                <strong>Note:</strong> Changing the teaching model only affects new teacher assignments going forward.
+                Existing classroom assignments are not automatically changed.
+                Each classroom also retains a designated <strong>form teacher</strong> regardless of which model is active.
               </div>
             </div>
           </div>

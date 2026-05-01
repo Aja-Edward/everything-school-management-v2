@@ -261,6 +261,9 @@ def verify_result_token(request):
             status=status.HTTP_403_FORBIDDEN,
         )
 
+    # Mark the token as used so it cannot be verified again
+    token_obj.mark_as_used()
+
     student = None
     try:
         student = Student.objects.select_related(
@@ -651,7 +654,7 @@ def student_schedule_view(request):
                 "student_info": {
                     "id": student.id,
                     "name": student.full_name,
-                    "class": student.student_class_display,
+                    "class": student.student_class.name if student.student_class else "",
                     "classroom": getattr(student, "classroom", None),
                 },
                 "schedule": serializer.data,
@@ -878,7 +881,7 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                     "student_info": {
                         "id": student.id,
                         "name": student.full_name,
-                        "class": student.student_class_display,
+                        "class": student.student_class.name if student.student_class else "",
                         "classroom": getattr(student, "classroom", None),
                     },
                     "schedule": serializer.data,
@@ -1058,7 +1061,7 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                 "student_info": {
                     "id": student.id,
                     "name": student.full_name,
-                    "class": student.student_class_display,
+                    "class": student.student_class.name if student.student_class else "",
                     "classroom": getattr(student, "classroom", None),
                     "education_level": student.education_level_display,
                 },
@@ -1330,7 +1333,7 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         dashboard_data = {
             "student_info": {
                 "name": student.full_name,
-                "class": student.student_class_display,
+                "class": student.student_class.name if student.student_class else "",
                 "education_level": student.education_level_display,
                 "registration_number": student.registration_number,
                 "admission_date": (
@@ -1397,7 +1400,7 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                         "date_joined": student.user.date_joined,
                     },
                     "academic_info": {
-                        "class": student.student_class_display,
+                        "class": student.student_class.name if student.student_class else "",
                         "education_level": student.education_level_display,
                         "admission_date": student.admission_date,
                         "registration_number": student.registration_number,

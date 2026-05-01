@@ -662,6 +662,26 @@ class TenantSettings(models.Model):
     enable_streaming = models.BooleanField(default=True)
     enable_subject_electives = models.BooleanField(default=True)
 
+    # Teaching model — configurable per education level
+    # When True for a level, that level uses subject teachers (different teacher per subject).
+    # When False, the level uses a single class teacher for all subjects.
+    nursery_use_subject_teachers = models.BooleanField(
+        default=False,
+        help_text="Nursery classrooms use subject teachers instead of a single class teacher",
+    )
+    primary_use_subject_teachers = models.BooleanField(
+        default=False,
+        help_text="Primary classrooms use subject teachers instead of a single class teacher",
+    )
+    junior_secondary_use_subject_teachers = models.BooleanField(
+        default=True,
+        help_text="Junior Secondary classrooms use subject teachers (standard behaviour)",
+    )
+    senior_secondary_use_subject_teachers = models.BooleanField(
+        default=True,
+        help_text="Senior Secondary classrooms use subject teachers (standard behaviour)",
+    )
+
     # Stored signatures — persisted so they don't need re-uploading each session
     head_teacher_signature_url = models.URLField(
         blank=True, null=True,

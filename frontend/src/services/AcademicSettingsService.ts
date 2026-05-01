@@ -49,12 +49,20 @@ export interface CurriculumSettings {
   enable_credit_system: boolean;
 }
 
+export interface TeachingModelSettings {
+  nursery_use_subject_teachers: boolean;
+  primary_use_subject_teachers: boolean;
+  junior_secondary_use_subject_teachers: boolean;
+  senior_secondary_use_subject_teachers: boolean;
+}
+
 export interface AllAcademicSettings
   extends AcademicYearSettings,
     ClassSettings,
     GradingSettings,
     AttendanceSettings,
-    CurriculumSettings {}
+    CurriculumSettings,
+    TeachingModelSettings {}
 
 // ============================================================================
 // DEFAULTS (fallback if backend fields are missing pre-migration)
@@ -80,6 +88,10 @@ const DEFAULTS: AllAcademicSettings = {
   enable_subject_prerequisites: true,
   allow_subject_changes: true,
   enable_credit_system: true,
+  nursery_use_subject_teachers: false,
+  primary_use_subject_teachers: false,
+  junior_secondary_use_subject_teachers: true,
+  senior_secondary_use_subject_teachers: true,
 };
 
 // ============================================================================
@@ -115,10 +127,14 @@ class AcademicSettingsService {
         minimum_attendance_percentage:  response.minimum_attendance_percentage  ?? DEFAULTS.minimum_attendance_percentage,
         enable_attendance_tracking:     response.enable_attendance_tracking     ?? DEFAULTS.enable_attendance_tracking,
         allow_late_arrival:             response.allow_late_arrival             ?? DEFAULTS.allow_late_arrival,
-        enable_cross_cutting_subjects:  response.enable_cross_cutting_subjects  ?? DEFAULTS.enable_cross_cutting_subjects,
-        enable_subject_prerequisites:   response.enable_subject_prerequisites   ?? DEFAULTS.enable_subject_prerequisites,
-        allow_subject_changes:          response.allow_subject_changes          ?? DEFAULTS.allow_subject_changes,
-        enable_credit_system:           response.enable_credit_system           ?? DEFAULTS.enable_credit_system,
+        enable_cross_cutting_subjects:              response.enable_cross_cutting_subjects              ?? DEFAULTS.enable_cross_cutting_subjects,
+        enable_subject_prerequisites:               response.enable_subject_prerequisites               ?? DEFAULTS.enable_subject_prerequisites,
+        allow_subject_changes:                      response.allow_subject_changes                      ?? DEFAULTS.allow_subject_changes,
+        enable_credit_system:                       response.enable_credit_system                       ?? DEFAULTS.enable_credit_system,
+        nursery_use_subject_teachers:               response.nursery_use_subject_teachers               ?? DEFAULTS.nursery_use_subject_teachers,
+        primary_use_subject_teachers:               response.primary_use_subject_teachers               ?? DEFAULTS.primary_use_subject_teachers,
+        junior_secondary_use_subject_teachers:      response.junior_secondary_use_subject_teachers      ?? DEFAULTS.junior_secondary_use_subject_teachers,
+        senior_secondary_use_subject_teachers:      response.senior_secondary_use_subject_teachers      ?? DEFAULTS.senior_secondary_use_subject_teachers,
       };
     } catch (error) {
       console.error('Error fetching academic settings:', error);
@@ -155,10 +171,14 @@ class AcademicSettingsService {
           minimum_attendance_percentage:  response.minimum_attendance_percentage  ?? DEFAULTS.minimum_attendance_percentage,
           enable_attendance_tracking:     response.enable_attendance_tracking     ?? DEFAULTS.enable_attendance_tracking,
           allow_late_arrival:             response.allow_late_arrival             ?? DEFAULTS.allow_late_arrival,
-          enable_cross_cutting_subjects:  response.enable_cross_cutting_subjects  ?? DEFAULTS.enable_cross_cutting_subjects,
-          enable_subject_prerequisites:   response.enable_subject_prerequisites   ?? DEFAULTS.enable_subject_prerequisites,
-          allow_subject_changes:          response.allow_subject_changes          ?? DEFAULTS.allow_subject_changes,
-          enable_credit_system:           response.enable_credit_system           ?? DEFAULTS.enable_credit_system,
+          enable_cross_cutting_subjects:              response.enable_cross_cutting_subjects              ?? DEFAULTS.enable_cross_cutting_subjects,
+          enable_subject_prerequisites:               response.enable_subject_prerequisites               ?? DEFAULTS.enable_subject_prerequisites,
+          allow_subject_changes:                      response.allow_subject_changes                      ?? DEFAULTS.allow_subject_changes,
+          enable_credit_system:                       response.enable_credit_system                       ?? DEFAULTS.enable_credit_system,
+          nursery_use_subject_teachers:               response.nursery_use_subject_teachers               ?? DEFAULTS.nursery_use_subject_teachers,
+          primary_use_subject_teachers:               response.primary_use_subject_teachers               ?? DEFAULTS.primary_use_subject_teachers,
+          junior_secondary_use_subject_teachers:      response.junior_secondary_use_subject_teachers      ?? DEFAULTS.junior_secondary_use_subject_teachers,
+          senior_secondary_use_subject_teachers:      response.senior_secondary_use_subject_teachers      ?? DEFAULTS.senior_secondary_use_subject_teachers,
         };
       }
       throw new Error('Invalid response format from server');
