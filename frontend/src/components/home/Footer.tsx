@@ -72,7 +72,7 @@ const Footer: React.FC<FooterProps> = ({ isDashboard = false }) => {
             <div className="flex items-center gap-2 mb-4">
               {settings?.logo ? (
                 <img
-                  src={getAbsoluteUrl(settings.logo)}
+                  src={settings?.logo ? getAbsoluteUrl(settings.logo) : '/nuventa-logo.png'}
                   alt=""
                   className="w-8 h-8 rounded object-contain"
                 />
