@@ -39,17 +39,11 @@ const Nav: React.FC = () => {
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2.5">
-            {settings?.logo ? (
-              <img
-                src={getAbsoluteUrl(settings.logo)}
-                alt=""
-                className="w-8 h-8 rounded object-contain"
-              />
-            ) : (
-              <div className="w-8 h-8 rounded bg-blue-600 flex items-center justify-center text-white text-sm font-bold">
-                N
-              </div>
-            )}
+            <img
+              src={settings?.logo ? getAbsoluteUrl(settings.logo) : '/nuventa-logo.png'}
+              alt={settings?.school_name || 'Nuventa Cloud'}
+              className="w-8 h-8 rounded object-contain"
+            />
             <span className={`hidden sm:block text-sm font-semibold truncate max-w-[140px] ${
               scrolled ? 'text-gray-900 dark:text-white' : 'text-white'
             }`}>
