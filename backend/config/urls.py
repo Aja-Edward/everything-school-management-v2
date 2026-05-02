@@ -3,6 +3,7 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from .sitemaps import sitemap_view, robots_txt_view
 
 from .views import api_root, debug_login_function
 from authentication.views import GoogleLogin
@@ -11,12 +12,11 @@ from .views import force_migrate
 from .views import force_migrate, check_database_schema
 from authentication.views import create_first_superuser
 
-# Create router for backward compatibility aliases
-
-
 urlpatterns = [
     # ===== API ROOT =====
     path("health/", health_check, name="health"),
+    path("sitemap.xml", sitemap_view, name="sitemap"),
+    path("robots.txt", robots_txt_view, name="robots_txt"),
     path("admin/", admin.site.urls),
     # ===== AUTHENTICATION ROUTES =====
     # Django Rest Auth routes (MAIN AUTHENTICATION)

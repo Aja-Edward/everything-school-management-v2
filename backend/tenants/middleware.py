@@ -144,6 +144,8 @@ class TenantMiddleware:
             "/api/force-migrate/",
             "/api/check-schema/",
             "/api/platform/",
+            "/sitemap.xml",
+            "/robots.txt",
         ]
         return any(path.startswith(p) for p in public_paths)
 

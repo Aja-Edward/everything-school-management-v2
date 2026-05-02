@@ -143,6 +143,7 @@ INSTALLED_APPS = [
     "django_filters",
     "django.contrib.sites",
     "django_extensions",
+    "django.contrib.sitemaps",
     # Third-party apps
     "corsheaders",
     "rest_framework",

@@ -23,6 +23,14 @@
   ],
   "rewrites": [
     {
+      "source": "/sitemap.xml",
+      "destination": "https://everything-school-management-v2.onrender.com/sitemap.xml"
+    },
+    {
+      "source": "/robots.txt",
+      "destination": "https://everything-school-management-v2.onrender.com/robots.txt"
+    },
+    {
       "source": "/((?!assets/).*)",
       "destination": "/index.html"
     }
