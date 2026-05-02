@@ -160,8 +160,8 @@ const RootLayout = () => (
     <GlobalThemeProvider>       {/* ← calls useDesign(), so needs DesignProvider above */}
       <TenantProvider>
         <AuthProvider>
-          <AuthLostProvider>
-            <SettingsProvider>
+          <SettingsProvider>
+            <AuthLostProvider>
               <ThemeProvider>
                 <FaviconUpdater />
                 <TitleManager />
@@ -170,8 +170,8 @@ const RootLayout = () => (
                   <Outlet />
                 </ErrorBoundary>
               </ThemeProvider>
-            </SettingsProvider>
-          </AuthLostProvider>
+            </AuthLostProvider>
+          </SettingsProvider>
         </AuthProvider>
       </TenantProvider>
     </GlobalThemeProvider>
