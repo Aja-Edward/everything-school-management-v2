@@ -1570,6 +1570,7 @@ class SeniorSecondaryTermReport(
             models.Index(fields=["tenant", "student", "exam_session"]),
             models.Index(fields=["tenant", "exam_session", "status"]),
             models.Index(fields=["tenant", "is_published"]),
+            models.Index(fields=["tenant", "created_at"]),
         ]
 
     def __str__(self):
@@ -1782,6 +1783,7 @@ class JuniorSecondaryTermReport(
         indexes = [
             models.Index(fields=["tenant", "student", "exam_session"]),
             models.Index(fields=["tenant", "exam_session", "status"]),
+            models.Index(fields=["tenant", "created_at"]),
         ]
 
     def __str__(self):
@@ -1975,6 +1977,7 @@ class PrimaryTermReport(TenantMixin, BaseTermReport, TermReportFields, models.Mo
         indexes = [
             models.Index(fields=["tenant", "student", "exam_session"]),
             models.Index(fields=["tenant", "exam_session", "status"]),
+            models.Index(fields=["tenant", "created_at"]),
         ]
 
     def __str__(self):
@@ -2236,6 +2239,7 @@ class NurseryTermReport(TenantMixin, BaseTermReport, models.Model):
             models.Index(fields=["tenant", "student", "exam_session"]),
             models.Index(fields=["tenant", "exam_session", "status"]),
             models.Index(fields=["tenant", "overall_percentage"]),
+            models.Index(fields=["tenant", "created_at"]),
         ]
 
     def __str__(self):

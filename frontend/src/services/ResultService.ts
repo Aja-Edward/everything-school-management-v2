@@ -584,8 +584,23 @@ class ResultService {
   // ── TERM REPORTS ────────────────────────────────────────────────────────────
 
   /**
+   * Fetch a single page of term reports (server-side pagination).
+   * Use this in all UI components to avoid loading the full dataset.
+   */
+  async getTermReportsPaginated<T extends AnyTermReport>(
+    level: EducationLevelType,
+    params?: Record<string, unknown>
+  ): Promise<PaginatedResponse<T>> {
+    const res = await api.get(this.termReportEndpoint(level), params);
+    if (Array.isArray(res)) {
+      return { count: res.length, next: null, previous: null, results: res as T[] };
+    }
+    return res as PaginatedResponse<T>;
+  }
+
+  /**
    * Fetch all term reports for a given education level (all pages).
-   * Returns the raw API shape — no client-side transformation needed.
+   * WARNING: Only use this for exports or batch operations — never for UI lists.
    */
   async getTermReports<T extends AnyTermReport>(
     level: EducationLevelType,
@@ -747,6 +762,18 @@ class ResultService {
     return results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
   }
 
+  /** Fetch a single page of session reports (server-side pagination). */
+  async getSessionReportsPaginated<T extends SessionReport>(
+    level: EducationLevelType,
+    params?: Record<string, unknown>
+  ): Promise<PaginatedResponse<T>> {
+    const res = await api.get(this.sessionReportEndpoint(level), params);
+    if (Array.isArray(res)) {
+      return { count: res.length, next: null, previous: null, results: res as T[] };
+    }
+    return res as PaginatedResponse<T>;
+  }
+
   /**
    * Recompute session totals from approved term reports (server-side).
    * Triggers BaseSessionReport.compute_from_term_reports().
@@ -757,6 +784,16 @@ class ResultService {
 
   async publishSessionReport(level: EducationLevelType, reportId: string) {
     return api.post(`${this.sessionReportEndpoint(level, reportId)}publish/`, {});
+  }
+
+  /** Recalculate class positions for all classes in an exam session. */
+  async recalculatePositions(
+    level: EducationLevelType,
+    examSessionId: string
+  ): Promise<{ recalculated_groups: number; exam_session: string }> {
+    return api.post(`${this.termReportEndpoint(level)}recalculate-positions/`, {
+      exam_session: examSessionId,
+    });
   }
 
   // ── PDF DOWNLOADS ───────────────────────────────────────────────────────────

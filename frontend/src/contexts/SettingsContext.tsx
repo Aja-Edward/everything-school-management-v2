@@ -126,17 +126,22 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────
   const { user, isLoading: authLoading } = useAuth();
-  const { isLoading: tenantLoading } = useTenant();
+  const { tenant, isLoading: tenantLoading } = useTenant();
 
   useEffect(() => {
     // Wait for tenant to resolve (critical on custom domains where a
     // by-domain lookup must complete before tenantSlug is in localStorage)
     if (tenantLoading) return;
 
-    if (user) {
+    if (user && tenant) {
+      // Only fetch tenant settings when there is an active tenant context.
+      // On the main platform (nuventacloud.com) tenant is null — calling
+      // /api/tenants/settings/current/ would return 400 "No tenant context".
       fetchSettings();
       fetchClassrooms();
     } else {
+      // No tenant context (main platform page or unauthenticated) —
+      // leave settings as null so components fall back to platform defaults.
       setLoading(false);
       setClassroomsLoading(false);
     }
@@ -144,7 +149,7 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     const handleExternalUpdate = (e: CustomEvent) => setSettings(e.detail);
     window.addEventListener('settings-updated' as any, handleExternalUpdate);
     return () => window.removeEventListener('settings-updated' as any, handleExternalUpdate);
-  }, [authLoading, user, fetchSettings, fetchClassrooms, tenantLoading]);
+  }, [authLoading, user, tenant, fetchSettings, fetchClassrooms, tenantLoading]);
 
   // ── Context value ─────────────────────────────────────────────────────────
   const value: SettingsContextType = {

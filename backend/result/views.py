@@ -727,27 +727,27 @@ class BaseResultViewSetMixin:
             is_classroom_teacher = any(
                 l in (NURSERY, PRIMARY) for l in classroom_levels
             )
-            student_ids = list(
-                StudentEnrollment.objects.filter(
-                    classroom__in=assigned_classrooms, is_active=True
-                ).values_list("student_id", flat=True)
-            )
-            if not student_ids:
+            # Use subqueries instead of list() to avoid loading large ID sets
+            # into Python memory — the DB handles the join efficiently.
+            student_qs = StudentEnrollment.objects.filter(
+                classroom__in=assigned_classrooms, is_active=True
+            ).values("student_id")
+            if not student_qs.exists():
                 return queryset.none()
 
             if is_classroom_teacher:
-                return queryset.filter(student_id__in=student_ids)
+                return queryset.filter(student_id__in=student_qs)
 
-            assigned_subject_ids = list(
+            assigned_subject_qs = (
                 ClassroomTeacherAssignment.objects.filter(teacher=teacher)
                 .exclude(subject__isnull=True)
-                .values_list("subject_id", flat=True)
+                .values("subject_id")
                 .distinct()
             )
-            if not assigned_subject_ids:
+            if not assigned_subject_qs.exists():
                 return queryset.none()
             return queryset.filter(
-                subject_id__in=assigned_subject_ids, student_id__in=student_ids
+                subject_id__in=assigned_subject_qs, student_id__in=student_qs
             )
         except Teacher.DoesNotExist:
             return queryset.none()
@@ -1466,6 +1466,41 @@ class SeniorSecondaryTermReportViewSet(
             {"published_reports": count, "published_subject_results": result_count}
         )
 
+    @action(detail=False, methods=["post"], url_path="recalculate-positions")
+    def recalculate_positions(self, request):
+        """Re-rank all APPROVED/PUBLISHED reports for an exam session using SQL RANK()."""
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        exam_session_id = request.data.get("exam_session")
+        if not exam_session_id:
+            return Response({"error": "exam_session is required."}, status=400)
+        try:
+            exam_session = ExamSession.objects.get(
+                pk=exam_session_id, tenant=request.tenant
+            )
+        except ExamSession.DoesNotExist:
+            return Response({"error": "Exam session not found."}, status=404)
+        combos = (
+            SeniorSecondaryTermReport.objects.filter(
+                tenant=request.tenant, exam_session=exam_session
+            )
+            .values("student__student_class", "student__education_level")
+            .distinct()
+        )
+        count = 0
+        with transaction.atomic():
+            for combo in combos:
+                sc = combo["student__student_class"]
+                el = combo["student__education_level"]
+                if sc and el:
+                    SeniorSecondaryTermReport.bulk_recalculate_positions(
+                        exam_session=exam_session,
+                        student_class=sc,
+                        education_level=el,
+                    )
+                    count += 1
+        return Response({"recalculated_groups": count, "exam_session": str(exam_session_id)})
+
 
 # ── Senior Secondary Session Report ──────────────────────────────────────────
 
@@ -1807,6 +1842,33 @@ class JuniorSecondaryTermReportViewSet(
             {"published_reports": count, "published_subject_results": result_count}
         )
 
+    @action(detail=False, methods=["post"], url_path="recalculate-positions")
+    def recalculate_positions(self, request):
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        exam_session_id = request.data.get("exam_session")
+        if not exam_session_id:
+            return Response({"error": "exam_session is required."}, status=400)
+        try:
+            exam_session = ExamSession.objects.get(pk=exam_session_id, tenant=request.tenant)
+        except ExamSession.DoesNotExist:
+            return Response({"error": "Exam session not found."}, status=404)
+        combos = (
+            JuniorSecondaryTermReport.objects.filter(tenant=request.tenant, exam_session=exam_session)
+            .values("student__student_class", "student__education_level")
+            .distinct()
+        )
+        count = 0
+        with transaction.atomic():
+            for combo in combos:
+                sc, el = combo["student__student_class"], combo["student__education_level"]
+                if sc and el:
+                    JuniorSecondaryTermReport.bulk_recalculate_positions(
+                        exam_session=exam_session, student_class=sc, education_level=el
+                    )
+                    count += 1
+        return Response({"recalculated_groups": count, "exam_session": str(exam_session_id)})
+
 
 # ── Junior Secondary Session Report ──────────────────────────────────────────
 
@@ -1848,6 +1910,8 @@ class JuniorSecondarySessionReportViewSet(
 
     @action(detail=True, methods=["post"])
     def compute(self, request, pk=None):
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
         report = self.get_object()
         try:
             report.compute_from_term_reports()
@@ -2118,6 +2182,33 @@ class PrimaryTermReportViewSet(
             {"published_reports": count, "published_subject_results": result_count}
         )
 
+    @action(detail=False, methods=["post"], url_path="recalculate-positions")
+    def recalculate_positions(self, request):
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        exam_session_id = request.data.get("exam_session")
+        if not exam_session_id:
+            return Response({"error": "exam_session is required."}, status=400)
+        try:
+            exam_session = ExamSession.objects.get(pk=exam_session_id, tenant=request.tenant)
+        except ExamSession.DoesNotExist:
+            return Response({"error": "Exam session not found."}, status=404)
+        combos = (
+            PrimaryTermReport.objects.filter(tenant=request.tenant, exam_session=exam_session)
+            .values("student__student_class", "student__education_level")
+            .distinct()
+        )
+        count = 0
+        with transaction.atomic():
+            for combo in combos:
+                sc, el = combo["student__student_class"], combo["student__education_level"]
+                if sc and el:
+                    PrimaryTermReport.bulk_recalculate_positions(
+                        exam_session=exam_session, student_class=sc, education_level=el
+                    )
+                    count += 1
+        return Response({"recalculated_groups": count, "exam_session": str(exam_session_id)})
+
 
 # ── Primary Session Report ────────────────────────────────────────────────────
 
@@ -2159,6 +2250,8 @@ class PrimarySessionReportViewSet(
 
     @action(detail=True, methods=["post"])
     def compute(self, request, pk=None):
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
         report = self.get_object()
         try:
             report.compute_from_term_reports()
@@ -2526,6 +2619,33 @@ class NurseryTermReportViewSet(
             {"published_reports": count, "published_subject_results": result_count}
         )
 
+    @action(detail=False, methods=["post"], url_path="recalculate-positions")
+    def recalculate_positions(self, request):
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
+        exam_session_id = request.data.get("exam_session")
+        if not exam_session_id:
+            return Response({"error": "exam_session is required."}, status=400)
+        try:
+            exam_session = ExamSession.objects.get(pk=exam_session_id, tenant=request.tenant)
+        except ExamSession.DoesNotExist:
+            return Response({"error": "Exam session not found."}, status=404)
+        combos = (
+            NurseryTermReport.objects.filter(tenant=request.tenant, exam_session=exam_session)
+            .values("student__student_class", "student__education_level")
+            .distinct()
+        )
+        count = 0
+        with transaction.atomic():
+            for combo in combos:
+                sc, el = combo["student__student_class"], combo["student__education_level"]
+                if sc and el:
+                    NurseryTermReport.bulk_recalculate_positions(
+                        exam_session=exam_session, student_class=sc, education_level=el
+                    )
+                    count += 1
+        return Response({"recalculated_groups": count, "exam_session": str(exam_session_id)})
+
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         if not _is_admin(request.user):
@@ -2583,6 +2703,8 @@ class NurserySessionReportViewSet(
 
     @action(detail=True, methods=["post"])
     def compute(self, request, pk=None):
+        if not _is_admin(request.user):
+            return Response({"error": "Permission denied."}, status=403)
         report = self.get_object()
         try:
             report.compute_from_term_reports()

@@ -353,8 +353,8 @@ class SettingsService {
     
     return {
       // These come from tenant relationship - read-only from frontend perspective
-      site_name: response.school_name ?? response.school_name ?? 'School Site',
-      school_name: response.school_name ?? 'School Name',
+      site_name: response.school_name ?? response.school_name ?? 'Nuventa Cloud',
+      school_name: response.school_name ?? 'Nuventa Cloud',
       // Actual editable fields
       school_code: response.school_code ?? '',
       motto: response.school_motto ?? 'Knowledge at its springs',
@@ -543,8 +543,8 @@ class SettingsService {
   
   private getDefaultSettings(): SchoolSettings {
     return {
-      site_name: 'School Site',
-      school_name: 'School Name',
+      site_name: 'Nuventa Cloud',
+      school_name: 'Nuventa Cloud',
       school_code: '',
       address: '',
       phone: '',

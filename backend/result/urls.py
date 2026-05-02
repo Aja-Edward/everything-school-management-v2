@@ -18,12 +18,15 @@ from .views import (
     # Junior Secondary ViewSets
     JuniorSecondaryResultViewSet,
     JuniorSecondaryTermReportViewSet,
+    JuniorSecondarySessionReportViewSet,
     # Primary ViewSets
     PrimaryResultViewSet,
     PrimaryTermReportViewSet,
+    PrimarySessionReportViewSet,
     # Nursery ViewSets
     NurseryResultViewSet,
     NurseryTermReportViewSet,
+    NurserySessionReportViewSet,
     # Supporting ViewSets
     ResultSheetViewSet,
     AssessmentScoreViewSet,
@@ -100,17 +103,32 @@ router.register(
     JuniorSecondaryTermReportViewSet,
     basename="junior-secondary-term-report",
 )
+router.register(
+    r"junior-secondary/session-reports",
+    JuniorSecondarySessionReportViewSet,
+    basename="junior-secondary-session-report",
+)
 
 # ===== PRIMARY ROUTES =====
 router.register(r"primary/results", PrimaryResultViewSet, basename="primary-result")
 router.register(
     r"primary/term-reports", PrimaryTermReportViewSet, basename="primary-term-report"
 )
+router.register(
+    r"primary/session-reports",
+    PrimarySessionReportViewSet,
+    basename="primary-session-report",
+)
 
 # ===== NURSERY ROUTES =====
 router.register(r"nursery/results", NurseryResultViewSet, basename="nursery-result")
 router.register(
     r"nursery/term-reports", NurseryTermReportViewSet, basename="nursery-term-report"
+)
+router.register(
+    r"nursery/session-reports",
+    NurserySessionReportViewSet,
+    basename="nursery-session-report",
 )
 
 # ===== SUPPORTING ROUTES =====
