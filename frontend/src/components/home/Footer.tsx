@@ -38,19 +38,13 @@ const Footer: React.FC<FooterProps> = ({ isDashboard = false }) => {
         <div className="max-w-6xl mx-auto px-6 py-6">
           <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
             <div className="flex items-center gap-2">
-              {settings?.logo ? (
-                <img
-                  src={getAbsoluteUrl(settings.logo)}
-                  alt=""
-                  className="w-6 h-6 rounded object-contain"
-                />
-              ) : (
-                <div className="w-6 h-6 rounded bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
-                  S
-                </div>
-              )}
+              <img
+                src={settings?.logo ? getAbsoluteUrl(settings.logo) : '/nuventa-logo.png'}
+                alt={settings?.school_name || 'Nuventa Cloud'}
+                className="w-6 h-6 rounded object-contain"
+              />
               <span className="text-sm font-medium text-gray-900 dark:text-white">
-                {settings?.school_name || 'School'}
+                {settings?.school_name || 'Nuventa Cloud'}
               </span>
             </div>
             <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -70,17 +64,11 @@ const Footer: React.FC<FooterProps> = ({ isDashboard = false }) => {
           {/* Brand */}
           <div className="col-span-2 md:col-span-1">
             <div className="flex items-center gap-2 mb-4">
-              {settings?.logo ? (
-                <img
-                  src={settings?.logo ? getAbsoluteUrl(settings.logo) : '/nuventa-logo.png'}
-                  alt=""
-                  className="w-8 h-8 rounded object-contain"
-                />
-              ) : (
-                <div className="w-8 h-8 rounded bg-blue-600 flex items-center justify-center text-white text-sm font-bold">
-                N
-                </div>
-              )}
+              <img
+                src={settings?.logo ? getAbsoluteUrl(settings.logo) : '/nuventa-logo.png'}
+                alt={settings?.school_name || 'Nuventa Cloud'}
+                className="w-8 h-8 rounded object-contain"
+              />
               <span className="text-sm font-semibold text-gray-900 dark:text-white">
                 {settings?.school_name || 'Nuventa Cloud'}
               </span>
