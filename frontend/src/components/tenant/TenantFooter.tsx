@@ -123,14 +123,14 @@ const TenantFooter: React.FC<TenantFooterProps> = ({
                     <span>{contactSection.contact_address}</span>
                   </li>
                 )}
-                {contactSection.contact_phone && (
-                  <li className="flex gap-2 items-center">
-                    <Phone className="w-4 h-4 shrink-0 text-gray-400" />
-                    <a href={`tel:${contactSection.contact_phone}`} className="hover:text-white transition-colors">
-                      {contactSection.contact_phone}
-                    </a>
-                  </li>
-                )}
+                {contactSection.contact_phone &&
+                  contactSection.contact_phone.split('\n').map(p => p.trim()).filter(Boolean).map((ph, i) => (
+                    <li key={i} className="flex gap-2 items-center">
+                      <Phone className="w-4 h-4 shrink-0 text-gray-400" />
+                      <a href={`tel:${ph}`} className="hover:text-white transition-colors">{ph}</a>
+                    </li>
+                  ))
+                }
                 {contactSection.contact_email && (
                   <li className="flex gap-2 items-center">
                     <Mail className="w-4 h-4 shrink-0 text-gray-400" />

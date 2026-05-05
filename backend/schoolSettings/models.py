@@ -568,7 +568,7 @@ class LandingSection(models.Model):
 
     # Contact-specific structured fields
     contact_address = models.TextField(blank=True, null=True)
-    contact_phone = models.CharField(max_length=50, blank=True, null=True)
+    contact_phone = models.TextField(blank=True, null=True, help_text="One phone number per line — supports multiple numbers")
     contact_email = models.EmailField(blank=True, null=True)
     contact_hours = models.CharField(max_length=200, blank=True, null=True)
     contact_map_embed = models.TextField(blank=True, null=True, help_text="Google Maps embed URL")

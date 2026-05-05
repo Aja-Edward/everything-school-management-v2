@@ -34,9 +34,18 @@ const TenantContactPage: React.FC = () => {
       .catch(() => {});
   }, []);
 
+  const phones = section?.contact_phone
+    ? section.contact_phone.split('\n').map(p => p.trim()).filter(Boolean)
+    : [];
+
   const contactItems = section ? [
     section.contact_address && { icon: <MapPin className="w-5 h-5" />, label: 'Address', value: section.contact_address, href: undefined },
-    section.contact_phone && { icon: <Phone className="w-5 h-5" />, label: 'Phone', value: section.contact_phone, href: `tel:${section.contact_phone}` },
+    ...phones.map((ph, i) => ({
+      icon: <Phone className="w-5 h-5" />,
+      label: phones.length > 1 ? `Phone ${i + 1}` : 'Phone',
+      value: ph,
+      href: `tel:${ph}`,
+    })),
     section.contact_email && { icon: <Mail className="w-5 h-5" />, label: 'Email', value: section.contact_email, href: `mailto:${section.contact_email}` },
     section.contact_hours && { icon: <Clock className="w-5 h-5" />, label: 'Office Hours', value: section.contact_hours, href: undefined },
   ].filter(Boolean) : [];
