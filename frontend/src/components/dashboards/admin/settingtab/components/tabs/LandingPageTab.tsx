@@ -185,14 +185,17 @@ const SectionEditor: React.FC<{
               )}
               <div className="flex-1">
                 <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-                <button onClick={() => fileRef.current?.click()} disabled={uploading}
+                <button onClick={() => fileRef.current?.click()} disabled={uploading || !section.id}
                   className="inline-flex items-center gap-2 px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50">
                   <Upload className="w-3.5 h-3.5" />
-                  {uploading ? 'Uploading…' : 'Upload Image'}
+                  {uploading ? 'Uploading…' : section.image ? 'Replace Image' : 'Upload Image'}
                 </button>
                 {section.image && (
                   <button onClick={() => upd({ image: undefined })}
                     className="ml-2 text-xs text-red-400 hover:text-red-600 transition-colors">Remove</button>
+                )}
+                {!section.id && (
+                  <p className="text-xs text-amber-600 mt-1">Save the section first before uploading an image.</p>
                 )}
               </div>
             </div>
@@ -352,14 +355,18 @@ const LandingPageTab: React.FC = () => {
         youtube_url: landing.youtube_url,
       });
 
-      // Save / update sections
+      // Save / update sections — capture real IDs for newly-created sections
+      const savedSections: LandingSection[] = [];
       for (const s of sections) {
         if (s.id) {
-          await LandingPageService.updateSection(s.id, s);
+          const updated = await LandingPageService.updateSection(s.id, s);
+          savedSections.push(updated ?? s);
         } else {
-          await LandingPageService.createSection(s);
+          const created = await LandingPageService.createSection(s);
+          savedSections.push(created);
         }
       }
+      setSections(savedSections);
 
       // Save / update nav links
       for (const l of navLinks) {

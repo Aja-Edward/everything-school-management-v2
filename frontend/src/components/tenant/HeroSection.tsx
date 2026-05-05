@@ -87,10 +87,10 @@ const HeroSection: React.FC<HeroSectionProps> = ({
         />
       )}
 
-      {/* Overlay — sits above both the static bg and carousel slides */}
-      <div className="absolute inset-0 bg-black/30" />
-      {/* Bottom gradient keeps text readable without hiding the image */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/10 to-transparent" />
+      {/* Overlay — light tint so the image shows clearly */}
+      <div className="absolute inset-0 bg-black/15" />
+      {/* Narrow bottom gradient anchors the text without dimming the rest */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" style={{ backgroundSize: '100% 50%', backgroundPosition: 'bottom', backgroundRepeat: 'no-repeat' }} />
 
       {/* Content */}
       <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 md:py-32 w-full">
@@ -103,19 +103,19 @@ const HeroSection: React.FC<HeroSectionProps> = ({
             />
           )}
 
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/20 backdrop-blur-sm border border-white/30 mb-5">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/30 backdrop-blur-sm border border-white/30 mb-5">
             <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            <span className="text-white/90 text-xs font-medium tracking-wide uppercase">
+            <span className="text-white text-xs font-medium tracking-wide uppercase drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)]">
               Now Enrolling
             </span>
           </div>
 
-          <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white leading-tight mb-5 drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
+          <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white leading-tight mb-5 drop-shadow-[0_2px_12px_rgba(0,0,0,0.9)]">
             {heroTitle}
           </h1>
 
           {heroSubtitle && (
-            <p className="text-lg sm:text-xl text-white leading-relaxed mb-8 max-w-2xl drop-shadow-[0_1px_4px_rgba(0,0,0,0.7)]">
+            <p className="text-lg sm:text-xl text-white leading-relaxed mb-8 max-w-2xl drop-shadow-[0_1px_6px_rgba(0,0,0,0.8)]">
               {heroSubtitle}
             </p>
           )}

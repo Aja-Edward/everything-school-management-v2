@@ -1690,6 +1690,7 @@ class LandingSectionViewSet(viewsets.ModelViewSet):
     """CRUD for landing page sections."""
     serializer_class = LandingSectionSerializer
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
 
     def get_queryset(self):
         tenant = getattr(self.request, "tenant", None)
