@@ -1690,7 +1690,7 @@ class LandingSectionViewSet(viewsets.ModelViewSet):
     """CRUD for landing page sections."""
     serializer_class = LandingSectionSerializer
     permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
+    # Keep default parsers (JSON + form) for CRUD; upload actions override with multipart below.
 
     def get_queryset(self):
         tenant = getattr(self.request, "tenant", None)
@@ -1713,7 +1713,7 @@ class LandingSectionViewSet(viewsets.ModelViewSet):
             ).update(display_order=item["display_order"])
         return Response({"status": "ok"})
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post"], parser_classes=[MultiPartParser, FormParser])
     def upload_image(self, request, pk=None):
         section = self.get_object()
         file = request.FILES.get("image")
@@ -1728,7 +1728,7 @@ class LandingSectionViewSet(viewsets.ModelViewSet):
         section.save(update_fields=["image"])
         return Response({"url": section.image})
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post"], parser_classes=[MultiPartParser, FormParser])
     def upload_banner_image(self, request, pk=None):
         section = self.get_object()
         file = request.FILES.get("image")
