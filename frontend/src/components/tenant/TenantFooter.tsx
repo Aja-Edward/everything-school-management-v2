@@ -106,9 +106,6 @@ const TenantFooter: React.FC<TenantFooterProps> = ({
                   )}
                 </li>
               ))}
-              <li>
-                <Link to="/login" className="hover:text-white transition-colors">Portal Login</Link>
-              </li>
             </ul>
           </div>
 
