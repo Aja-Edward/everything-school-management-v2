@@ -103,7 +103,7 @@ export interface ExamCreateData {
   end_time: string;
   duration_minutes?: number;
   total_marks: number;
-  pass_marks?: number;
+  pass_marks: number;
   venue?: string;
   max_students?: number;
   instructions?: string;

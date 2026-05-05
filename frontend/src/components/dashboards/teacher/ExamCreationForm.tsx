@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { useAuth } from '@/hooks/useAuth';
 import TeacherDashboardService from '@/services/TeacherDashboardService';
 import ClassroomService from '@/services/ClassroomService';
@@ -35,8 +34,6 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({
   const [loading, setLoading] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
   const [activeTab, setActiveTab] = useState<'basic' | 'questions' | 'upload'>('basic');
-  const [showDocumentUploader, setShowDocumentUploader] = useState(false);
-  
   const [formData, setFormData] = useState<ExamCreateData>({
     title: '',
     subject: 0,
@@ -384,19 +381,6 @@ const handleInputChange = (field: keyof ExamCreateData, value: any) => {
     return objectiveMarks + theoryMarks + practicalMarks + customMarks;
   };
 
-  const uploadImage = async (file: File): Promise<string | null> => {
-    try {
-      const cloudinaryData = new FormData();
-      cloudinaryData.append('file', file);
-      cloudinaryData.append('upload_preset', 'profile_upload');
-      const res = await axios.post('https://api.cloudinary.com/v1_1/djbz7wunu/image/upload', cloudinaryData);
-      return res.data.secure_url as string;
-    } catch (err) {
-      toast.error('Image upload failed. Please try again.');
-      return null;
-    }
-  };
-
   const addSubQuestion = (questionIndex: number) => {
     const newSub = { id: Date.now(), question: '', marks: 0, subSubQuestions: [] as Array<{ id: number; question: string; marks: number }> };
     setTheoryQuestions(prev => prev.map((q, i) => i === questionIndex ? { ...q, subQuestions: [ ...(q.subQuestions || []), newSub ] } : q));
@@ -616,7 +600,6 @@ const handleInputChange = (field: keyof ExamCreateData, value: any) => {
 
     // Switch to questions tab to review imported content
     setActiveTab('questions');
-    setShowDocumentUploader(false);
   };
 
   const validateForm = () => {

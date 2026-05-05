@@ -127,26 +127,34 @@ const loadTeacherData = async () => {
       return exam && exam.id && exam.id > 0 && exam.title && exam.exam_type;
     });
     
-    const transformedExams: TeacherExamData[] = validExamsData.map((exam: any) => ({
-      id: exam.id,
-      title: exam.title,
-      code: exam.code || `EX-${exam.id}`,
-      subject_name: exam.subject_name || exam.subject?.name || 'Unknown Subject',
-      grade_level_name: exam.grade_level_name || exam.grade_level?.name || 'Unknown Class',
-      section_name: exam.section_name || exam.section?.name,
-      exam_type: exam.exam_type,
-      exam_type_display: exam.exam_type_display || exam.exam_type,
-      exam_date: exam.exam_date || '',
-      start_time: exam.start_time || '',
-      end_time: exam.end_time || '',
-      duration_minutes: exam.duration_minutes || 0,
-      total_marks: exam.total_marks || 0,
-      status: exam.status || 'scheduled',
-      status_display: exam.status_display || exam.status || 'Scheduled',
-      student_count: exam.student_count || 0,
-      created_at: exam.created_at,
-      updated_at: exam.updated_at || exam.created_at
-    }));
+    const transformedExams: TeacherExamData[] = validExamsData.map((exam: any) => {
+      // exam_type and status come from the API as nested objects {id, code, name, ...}
+      const examTypeCode = exam.exam_type?.code ?? (typeof exam.exam_type === 'string' ? exam.exam_type : '');
+      const examTypeName = exam.exam_type?.name ?? exam.exam_type_display ?? examTypeCode;
+      const statusCode   = exam.status?.code   ?? (typeof exam.status   === 'string' ? exam.status   : 'scheduled');
+      const statusName   = exam.status?.name   ?? exam.status_display   ?? statusCode;
+
+      return {
+        id: exam.id,
+        title: exam.title,
+        code: exam.code || `EX-${exam.id}`,
+        subject_name: exam.subject_name || exam.subject?.name || 'Unknown Subject',
+        grade_level_name: exam.grade_level_name || exam.grade_level?.name || 'Unknown Class',
+        section_name: exam.section_name || exam.section?.name,
+        exam_type: examTypeCode,
+        exam_type_display: examTypeName,
+        exam_date: exam.exam_date || '',
+        start_time: exam.start_time || '',
+        end_time: exam.end_time || '',
+        duration_minutes: exam.duration_minutes || 0,
+        total_marks: exam.total_marks || 0,
+        status: statusCode,
+        status_display: statusName,
+        student_count: exam.student_count || 0,
+        created_at: exam.created_at,
+        updated_at: exam.updated_at || exam.created_at,
+      };
+    });
 
     setExams(transformedExams);
 
@@ -965,29 +973,27 @@ const handleDeleteExam = async (examId: number) => {
                       <div className="space-y-4">
                         {selectedExamDetail.objective_questions!.map((q: any, i: number) => (
                           <div key={i} className="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg">
-                            <div className="font-medium text-slate-900 dark:text-white mb-3">
-                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-sm font-semibold mr-2">
+                            <div className="font-medium text-slate-900 dark:text-white mb-3 flex items-start gap-2">
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-sm font-semibold flex-shrink-0">
                                 {i + 1}
                               </span>
-                              {q.question}
+                              <div dangerouslySetInnerHTML={{ __html: q.question }} />
                             </div>
                             {q.imageUrl && (
                               <img src={q.imageUrl} alt={q.imageAlt || 'question image'} className="max-h-48 object-contain mb-3 rounded border border-slate-200 dark:border-slate-600" />
                             )}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm">
-                                <span className="font-semibold text-slate-600 dark:text-slate-400">A.</span> {q.optionA}
-                              </div>
-                              <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm">
-                                <span className="font-semibold text-slate-600 dark:text-slate-400">B.</span> {q.optionB}
-                              </div>
-                              <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm">
-                                <span className="font-semibold text-slate-600 dark:text-slate-400">C.</span> {q.optionC}
-                              </div>
-                              <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm">
-                                <span className="font-semibold text-slate-600 dark:text-slate-400">D.</span> {q.optionD}
-                              </div>
+                              {q.optionA && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">A.</span> {q.optionA}</div>}
+                              {q.optionB && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">B.</span> {q.optionB}</div>}
+                              {q.optionC && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">C.</span> {q.optionC}</div>}
+                              {q.optionD && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">D.</span> {q.optionD}</div>}
+                              {q.optionE && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">E.</span> {q.optionE}</div>}
                             </div>
+                            {q.correctAnswer && (
+                              <div className="mt-2 text-xs text-green-600 dark:text-green-400 font-medium">
+                                Correct: {q.correctAnswer}
+                              </div>
+                            )}
                             <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-200 dark:border-slate-600">
                               <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
                                 Marks: <span className="text-blue-600 dark:text-blue-400 font-semibold">{q.marks}</span>
@@ -1008,44 +1014,34 @@ const handleDeleteExam = async (examId: number) => {
                       <div className="space-y-4">
                         {selectedExamDetail.theory_questions!.map((q: any, i: number) => (
                           <div key={i} className="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg">
-                            <div className="font-medium text-slate-900 dark:text-white mb-3">
-                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 text-sm font-semibold mr-2">
+                            <div className="font-medium text-slate-900 dark:text-white mb-3 flex items-start gap-2">
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 text-sm font-semibold flex-shrink-0">
                                 {i + 1}
                               </span>
-                              {q.question}
+                              <div dangerouslySetInnerHTML={{ __html: q.question }} />
                             </div>
                             {q.imageUrl && (
                               <img src={q.imageUrl} alt={q.imageAlt || 'theory image'} className="max-h-48 object-contain mb-3 rounded border border-slate-200 dark:border-slate-600" />
                             )}
-                            {q.table && (
-                              <div className="overflow-auto mb-3">
-                                <table className="min-w-full border border-slate-300 dark:border-slate-600 text-sm">
-                                  <tbody>
-                                    {q.table.data.map((row: string[], r: number) => (
-                                      <tr key={r}>
-                                        {row.map((cell: string, c: number) => (
-                                          <td key={c} className="border border-slate-300 dark:border-slate-600 p-2">{cell}</td>
-                                        ))}
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
+                            {q.table && typeof q.table === 'string' && q.table.includes('<table') && (
+                              <div className="overflow-auto mb-3" dangerouslySetInnerHTML={{ __html: q.table }} />
                             )}
                             {(q.subQuestions || []).length > 0 && (
                               <div className="space-y-3 mt-3 pl-4 border-l-2 border-green-200 dark:border-green-800">
                                 {q.subQuestions.map((sq: any, si: number) => (
                                   <div key={si}>
-                                    <div className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                                      {String.fromCharCode(97 + si)}. {sq.question} 
-                                      <span className="ml-2 text-xs text-slate-500">({sq.marks || 0} marks)</span>
+                                    <div className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 flex items-start gap-1">
+                                      <span>{String.fromCharCode(97 + si)}.</span>
+                                      <div dangerouslySetInnerHTML={{ __html: sq.question }} />
+                                      <span className="ml-2 text-xs text-slate-500 flex-shrink-0">({sq.marks || 0} marks)</span>
                                     </div>
                                     {(sq.subSubQuestions || []).length > 0 && (
                                       <div className="pl-4 space-y-1">
                                         {sq.subSubQuestions.map((ssq: any, ssi: number) => (
-                                          <div key={ssi} className="text-sm text-slate-600 dark:text-slate-400">
-                                            {String.fromCharCode(105 + ssi)}. {ssq.question}
-                                            <span className="ml-2 text-xs text-slate-500">({ssq.marks || 0} marks)</span>
+                                          <div key={ssi} className="text-sm text-slate-600 dark:text-slate-400 flex items-start gap-1">
+                                            <span>{String.fromCharCode(105 + ssi)}.</span>
+                                            <div dangerouslySetInnerHTML={{ __html: ssq.question }} />
+                                            <span className="ml-2 text-xs text-slate-500 flex-shrink-0">({ssq.marks || 0} marks)</span>
                                           </div>
                                         ))}
                                       </div>
@@ -1057,6 +1053,37 @@ const handleDeleteExam = async (examId: number) => {
                             <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-200 dark:border-slate-600">
                               <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
                                 Total Marks: <span className="text-green-600 dark:text-green-400 font-semibold">{q.marks}</span>
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {(selectedExamDetail.practical_questions || []).length > 0 && (
+                    <div className="bg-slate-50 dark:bg-slate-900/50 rounded-lg p-4">
+                      <h3 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center">
+                        <GraduationCap className="w-5 h-5 mr-2 text-purple-600" />
+                        Practical Questions ({selectedExamDetail.practical_questions?.length})
+                      </h3>
+                      <div className="space-y-4">
+                        {selectedExamDetail.practical_questions!.map((q: any, i: number) => (
+                          <div key={i} className="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg">
+                            <div className="font-medium text-slate-900 dark:text-white mb-2 flex items-start gap-2">
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 text-sm font-semibold flex-shrink-0">
+                                {i + 1}
+                              </span>
+                              <div dangerouslySetInnerHTML={{ __html: q.question || q.task || '' }} />
+                            </div>
+                            {q.expectedOutcome && (
+                              <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 italic">
+                                Expected: {q.expectedOutcome}
+                              </p>
+                            )}
+                            <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-600">
+                              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                Marks: <span className="text-purple-600 dark:text-purple-400 font-semibold">{q.marks}</span>
                               </span>
                             </div>
                           </div>
@@ -1083,8 +1110,9 @@ const handleDeleteExam = async (examId: number) => {
                             <div className="space-y-3">
                               {(s.questions || []).map((q: any, qi: number) => (
                                 <div key={q.id || qi} className="pl-4 border-l-2 border-purple-200 dark:border-purple-800">
-                                  <div className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                                    {qi + 1}. {q.question}
+                                  <div className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 flex items-start gap-1">
+                                    <span className="flex-shrink-0">{qi + 1}.</span>
+                                    <div dangerouslySetInnerHTML={{ __html: q.question }} />
                                   </div>
                                   {q.imageUrl && (
                                     <img src={q.imageUrl} alt={q.imageAlt || 'custom image'} className="max-h-40 object-contain mb-2 rounded border border-slate-200 dark:border-slate-600" />

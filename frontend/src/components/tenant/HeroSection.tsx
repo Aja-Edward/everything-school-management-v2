@@ -88,9 +88,9 @@ const HeroSection: React.FC<HeroSectionProps> = ({
       )}
 
       {/* Overlay — sits above both the static bg and carousel slides */}
-      <div className="absolute inset-0 bg-black/65" />
-      {/* Bottom gradient for extra text legibility */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+      <div className="absolute inset-0 bg-black/30" />
+      {/* Bottom gradient keeps text readable without hiding the image */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/10 to-transparent" />
 
       {/* Content */}
       <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 md:py-32 w-full">
@@ -110,12 +110,12 @@ const HeroSection: React.FC<HeroSectionProps> = ({
             </span>
           </div>
 
-          <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white leading-tight mb-5 drop-shadow-lg">
+          <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white leading-tight mb-5 drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
             {heroTitle}
           </h1>
 
           {heroSubtitle && (
-            <p className="text-lg sm:text-xl text-white/85 leading-relaxed mb-8 max-w-2xl">
+            <p className="text-lg sm:text-xl text-white leading-relaxed mb-8 max-w-2xl drop-shadow-[0_1px_4px_rgba(0,0,0,0.7)]">
               {heroSubtitle}
             </p>
           )}
