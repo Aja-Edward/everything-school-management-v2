@@ -6,6 +6,7 @@ import RibbonBanner from '@/components/tenant/RibbonBanner';
 import TenantNavbar from '@/components/tenant/TenantNavbar';
 import HeroSection from '@/components/tenant/HeroSection';
 import TenantFooter from '@/components/tenant/TenantFooter';
+import LazyImage from '@/components/tenant/LazyImage';
 import api from '@/services/api';
 import {
   BookOpen, Users, Award, MapPin, Phone, Mail, Calendar,
@@ -201,8 +202,12 @@ const TenantLandingPage: React.FC = () => {
               <div className="order-2 lg:order-1">
                 {aboutSection.image ? (
                   <div className="relative">
-                    <img src={aboutSection.image} alt={aboutSection.title}
-                      className="w-full rounded-2xl shadow-2xl object-cover h-[420px]" />
+                    <LazyImage
+                      src={aboutSection.image}
+                      alt={aboutSection.title}
+                      containerClassName="w-full rounded-2xl shadow-2xl h-[420px]"
+                      className="w-full h-full object-cover"
+                    />
                     <div className="absolute -bottom-4 -right-4 w-32 h-32 rounded-2xl opacity-20"
                       style={{ backgroundColor: primaryColor }} />
                   </div>
@@ -268,8 +273,12 @@ const TenantLandingPage: React.FC = () => {
                   </div>
                 )}
                 {admissionsSection.image && (
-                  <img src={admissionsSection.image} alt="Admissions"
-                    className="w-full rounded-2xl shadow-lg object-cover h-64" />
+                  <LazyImage
+                    src={admissionsSection.image}
+                    alt="Admissions"
+                    containerClassName="w-full rounded-2xl shadow-lg h-64"
+                    className="w-full h-full object-cover"
+                  />
                 )}
               </div>
 
@@ -350,8 +359,12 @@ const TenantLandingPage: React.FC = () => {
               </div>
               {section.image && (
                 <div className={idx % 2 === 0 ? 'order-last' : ''}>
-                  <img src={section.image} alt={section.title}
-                    className="w-full rounded-2xl shadow-xl object-cover h-80" />
+                  <LazyImage
+                    src={section.image}
+                    alt={section.title}
+                    containerClassName="w-full rounded-2xl shadow-xl h-80"
+                    className="w-full h-full object-cover"
+                  />
                 </div>
               )}
             </div>
