@@ -375,6 +375,8 @@ class TeacherSerializer(serializers.ModelSerializer):
                     ),
                     "education_level": education_level,
                     "student_count": student_count,
+                    "grade_level_id":   grade_level.id   if grade_level else None,
+                    "grade_level_name": grade_level.name if grade_level else "",
                     "is_primary_teacher": assignment.is_primary_teacher,
                     "periods_per_week": assignment.periods_per_week,
                 }

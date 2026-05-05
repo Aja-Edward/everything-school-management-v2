@@ -1,12 +1,13 @@
-// export default ExamCreationForm;
-
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '@/hooks/useAuth';
 import TeacherDashboardService from '@/services/TeacherDashboardService';
+import ClassroomService from '@/services/ClassroomService';
+import TeacherService from '@/services/TeacherService';
 import { ExamService, ExamCreateData } from '@/services/ExamService';
 import { toast } from 'react-toastify';
-import { X, Plus, Trash2, Save, Clock, CheckCircle, AlertCircle, Upload } from 'lucide-react';
+import { X, Plus, Trash2, Save, Clock, CheckCircle, AlertCircle, Upload, FileDown } from 'lucide-react';
+import { generateExamWordTemplate, generateExamCsvTemplate } from '@/utils/examTemplateGenerator';
 import { RichTextEditor } from '@/components/shared/ExamEditor';
 import {
   normalizeExamDataForSave,
@@ -40,8 +41,8 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({
     title: '',
     subject: 0,
     grade_level: 0,
-    exam_type: 'test',
-    difficulty_level: 'medium',
+    exam_type: 0,          // replaced with PK after loadTeacherData
+    difficulty_level: 0,   // replaced with PK after loadTeacherData
     exam_date: '',
     start_time: '',
     end_time: '',
@@ -50,7 +51,7 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({
     pass_marks: 50,
     venue: '',
     instructions: '',
-    status: 'scheduled',
+    status: 0,          // replaced with PK after loadTeacherData
     is_practical: false,
     requires_computer: false,
     is_online: false,
@@ -68,8 +69,11 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({
   const [practicalQuestions, setPracticalQuestions] = useState<any[]>([]);
   const [customSections, setCustomSections] = useState<any[]>([]);
   const [sectionOrder, setSectionOrder] = useState<Array<{ kind: 'objective' | 'theory' | 'practical' | 'custom'; id?: number }>>([]);
-  const [gradeLevels, setGradeLevels] = useState<any[]>([]);
-  const [subjects, setSubjects] = useState<any[]>([]);
+  const [gradeLevels,      setGradeLevels]      = useState<any[]>([]);
+  const [subjects,         setSubjects]         = useState<any[]>([]);
+  const [examTypes,        setExamTypes]        = useState<any[]>([]);
+  const [difficultyLevels, setDifficultyLevels] = useState<any[]>([]);
+  const [examStatuses,     setExamStatuses]     = useState<any[]>([]);
   const [objectiveInstructions, setObjectiveInstructions] = useState<string>('');
   const [theoryInstructions, setTheoryInstructions] = useState<string>('');
   const [practicalInstructions, setPracticalInstructions] = useState<string>('');
@@ -134,9 +138,9 @@ useEffect(() => {
       pass_marks: normalized.pass_marks || 50,
       venue: normalized.venue || '',
       instructions: normalized.instructions || '',
-      status: normalized.status || 'scheduled',
+      status: normalized.status || formData.status,
       is_practical: normalized.is_practical || false,
-      requires_computer: normalized.is_requires_computer || false,
+      requires_computer: normalized.requires_computer || false,
       is_online: normalized.is_online || false,
       objective_questions: normalized.objective_questions || [],
       theory_questions: normalized.theory_questions || [],
@@ -179,73 +183,71 @@ useEffect(() => {
   const loadTeacherData = async () => {
     try {
       const teacherId = await TeacherDashboardService.getTeacherIdFromUser(user);
-      console.log('🔍 Loaded Teacher ID:', teacherId);
-      console.log('🔍 User object:', user);
-
       if (!teacherId) {
         toast.error('Teacher ID not found. Please ensure you are logged in as a teacher.');
         return;
       }
       setCurrentTeacherId(Number(teacherId));
 
-      const assignments = await TeacherDashboardService.getTeacherClasses(teacherId);
-      console.log('🔍 Teacher assignments RAW:', JSON.stringify(assignments, null, 2));
-      console.log('🔍 Assignment count:', assignments?.length || 0);
+      // Fetch all data needed for the form in parallel.
+      const [teacherProfile, teacherSubjects, rawExamTypes, rawDifficulties, rawStatuses] = await Promise.all([
+        TeacherService.getTeacher(Number(teacherId)),
+        TeacherDashboardService.getTeacherSubjects(teacherId),
+        ExamService.fetchExamTypes(),
+        ExamService.fetchDifficultyLevels(),
+        ExamService.fetchExamStatuses(),
+      ]);
 
-      if (!assignments || assignments.length === 0) {
-        toast.warning('You have no class assignments yet. Please contact your administrator to assign classes and subjects to you.');
-        setGradeLevels([]);
-        setSubjects([]);
-        return;
+      // Extract unique grade levels from classroom assignments.
+      // The backend fix adds grade_level_id and grade_level_name to each assignment.
+      const assignments: any[] = (teacherProfile as any)?.classroom_assignments ?? [];
+      const gradeLevelMap = new Map<number, { id: number; name: string }>();
+
+      assignments.forEach((a: any) => {
+        const id   = a.grade_level_id   ?? a.grade_level?.id;
+        const name = a.grade_level_name ?? a.grade_level?.name;
+        if (id && name) gradeLevelMap.set(Number(id), { id: Number(id), name: String(name) });
+      });
+
+      let gradeLevelOptions = Array.from(gradeLevelMap.values());
+
+      // Fallback: if assignments don't carry grade level data, fetch all grade levels
+      // for the tenant directly from the Academics API.
+      if (gradeLevelOptions.length === 0) {
+        const res = await ClassroomService.getGradeLevels();
+        const raw: any[] = Array.isArray(res) ? res : (res as any)?.results ?? [];
+        gradeLevelOptions = raw
+          .filter((g: any) => g.id && g.name)
+          .map((g: any) => ({ id: Number(g.id), name: String(g.name) }));
       }
 
-      console.log('🔍 First assignment structure:', assignments[0]);
-      console.log('🔍 First assignment has subject_id?', 'subject_id' in assignments[0]);
-      console.log('🔍 First assignment subject_id value:', assignments[0]?.subject_id);
-      console.log('🔍 First assignment has grade_level_id?', 'grade_level_id' in assignments[0]);
-      console.log('🔍 First assignment grade_level_id value:', assignments[0]?.grade_level_id);
+      const subjectOptions = teacherSubjects
+        .filter((s: any) => s.id && s.name)
+        .map((s: any) => ({ id: s.id, name: s.name }));
 
-      const uniqueGradeLevels = Array.from(
-        new Map(
-          assignments
-            .filter((a: any) => a.grade_level_id && a.grade_level_name)
-            .map((a: any) => [a.grade_level_id, { id: a.grade_level_id, name: a.grade_level_name }])
-        ).values()
-      );
-      console.log('🔍 Unique grade levels extracted:', uniqueGradeLevels);
+      setGradeLevels(gradeLevelOptions);
+      setSubjects(subjectOptions);
+      setExamTypes(rawExamTypes);
+      setDifficultyLevels(rawDifficulties);
+      setExamStatuses(rawStatuses);
 
-      const uniqueSubjects = Array.from(
-        new Map(
-          assignments
-            .filter((a: any) => a.subject_id && a.subject_name)
-            .map((a: any) => [a.subject_id, { id: a.subject_id, name: a.subject_name }])
-        ).values()
-      );
-      console.log('🔍 Unique subjects extracted:', uniqueSubjects);
+      // Pre-select first valid PKs so the form doesn't submit with string codes
+      const initialStatus = rawStatuses.find((s: any) => s.is_initial) ?? rawStatuses[0];
+      setFormData(prev => ({
+        ...prev,
+        exam_type:        rawExamTypes[0]?.id  ?? prev.exam_type,
+        difficulty_level: rawDifficulties[0]?.id ?? prev.difficulty_level,
+        status:           initialStatus?.id     ?? prev.status,
+      }));
 
-      setGradeLevels(uniqueGradeLevels);
-      setSubjects(uniqueSubjects);
-
-      if (uniqueSubjects.length === 0) {
-        toast.warning('No subjects found in your assignments. Please contact your administrator to assign subjects to you.');
+      if (subjectOptions.length === 0) {
+        toast.warning('No subjects found in your assignments. Please contact your administrator.');
       }
-
-      if (uniqueGradeLevels.length === 0) {
-        toast.warning('No grade levels found in your assignments. Please contact your administrator.');
-      }
-    } catch (error) {
-      console.error('❌ Error loading teacher data:', error);
-      if (error instanceof Error) {
-        console.error('❌ Error message:', error.message);
-        console.error('❌ Error stack:', error.stack);
-      }
-      toast.error('Failed to load teacher data. Please try refreshing the page.');
+    } catch (error: any) {
+      console.error('❌ Error loading teacher data:', error?.message ?? error);
+      toast.error('Failed to load teacher data. Please refresh the page.');
     }
   };
-
-  // const handleInputChange = (field: keyof ExamCreateData, value: any) => {
-  //   setFormData(prev => ({ ...prev, [field]: value }));
-  // };
 
 const handleInputChange = (field: keyof ExamCreateData, value: any) => {
   const numericFields: (keyof ExamCreateData)[] = ['total_marks', 'pass_marks', 'duration_minutes'];
@@ -577,13 +579,20 @@ const handleInputChange = (field: keyof ExamCreateData, value: any) => {
     toast.success('Document imported successfully!');
 
     // Populate form data with imported exam data
-    setFormData(prev => ({
-      ...prev,
-      title: examData.title || prev.title,
-      instructions: examData.instructions || prev.instructions,
-      total_marks: examData.total_marks || prev.total_marks,
-      duration_minutes: examData.duration_minutes || prev.duration_minutes,
-    }));
+    setFormData(prev => {
+      const newTotalMarks = examData.total_marks || prev.total_marks;
+      const newPassMarks = prev.pass_marks > newTotalMarks
+        ? Math.round(newTotalMarks * 0.5)
+        : prev.pass_marks;
+      return {
+        ...prev,
+        title: examData.title || prev.title,
+        instructions: examData.instructions || prev.instructions,
+        total_marks: newTotalMarks,
+        pass_marks: newPassMarks,
+        duration_minutes: examData.duration_minutes || prev.duration_minutes,
+      };
+    });
 
     // Populate questions from imported data
     if (examData.objective_questions?.length > 0) {
@@ -645,15 +654,24 @@ const handleInputChange = (field: keyof ExamCreateData, value: any) => {
     return true;
   };
 
+/** Look up a status PK by code; fall back to the initial status or formData.status */
+const statusPk = (code: string): string | number => {
+  const found = examStatuses.find((s: any) => s.code === code);
+  if (found) return found.id;
+  const initial = examStatuses.find((s: any) => s.is_initial) ?? examStatuses[0];
+  return initial?.id ?? formData.status;
+};
+
 const saveAsDraft = async () => {
   if (!validateForm()) return;
 
   try {
     setSavingDraft(true);
     
+    const computedTotalMarks = calculateTotalMarks();
     const examData: ExamCreateData = {
       ...formData,
-      status: 'scheduled',
+      status: statusPk('scheduled'),
       teacher: currentTeacherId!,
       objective_questions: objectiveQuestions,
       theory_questions: theoryQuestions,
@@ -662,27 +680,19 @@ const saveAsDraft = async () => {
       objective_instructions: objectiveInstructions,
       theory_instructions: theoryInstructions,
       practical_instructions: practicalInstructions,
-      total_marks: calculateTotalMarks()
+      total_marks: computedTotalMarks,
+      pass_marks: Math.min(formData.pass_marks ?? computedTotalMarks, computedTotalMarks),
     };
 
     // NORMALIZE DATA FOR COMPATIBILITY
     const normalizedData = normalizeExamDataForSave(examData);
 
-    console.log('📝 CREATING EXAM - Full payload:', normalizedData);
-    console.log('📝 Teacher ID being sent:', normalizedData.teacher);
-    console.log('📝 Subject ID being sent:', normalizedData.subject);
-    console.log('📝 Grade Level ID being sent:', normalizedData.grade_level);
-
     if (editingExam) {
-      const response = await ExamService.updateExam(editingExam.id, normalizedData);
-      console.log('✅ EXAM UPDATED - Response:', response);
+      await ExamService.updateExam(editingExam.id, normalizedData);
       toast.success('Exam updated successfully!');
     } else {
-      const response = await ExamService.createExam(normalizedData);
-      console.log('✅ EXAM CREATED - Response:', response);
-      console.log('✅ Created exam ID:', response?.id);
-      console.log('✅ Created exam teacher:', response?.teacher);
-      toast.success(`Exam saved successfully! ID: ${response?.id || 'N/A'}`);
+      await ExamService.createExam(normalizedData);
+      toast.success('Exam saved as draft successfully!');
     }
 
     onExamCreated();
@@ -702,9 +712,10 @@ const submitForApproval = async () => {
   try {
     setLoading(true);
     
+    const computedTotalMarks = calculateTotalMarks();
     const examData: ExamCreateData = {
       ...formData,
-      status: 'scheduled',
+      status: statusPk('scheduled'),
       teacher: currentTeacherId!,
       objective_questions: objectiveQuestions,
       theory_questions: theoryQuestions,
@@ -713,25 +724,18 @@ const submitForApproval = async () => {
       objective_instructions: objectiveInstructions,
       theory_instructions: theoryInstructions,
       practical_instructions: practicalInstructions,
-      total_marks: calculateTotalMarks()
+      total_marks: computedTotalMarks,
+      pass_marks: Math.min(formData.pass_marks ?? computedTotalMarks, computedTotalMarks),
     };
 
     // NORMALIZE DATA FOR COMPATIBILITY
     const normalizedData = normalizeExamDataForSave(examData);
 
-    console.log('🔍 Submitting exam for approval with data:', {
-      teacher: normalizedData.teacher,
-      title: normalizedData.title,
-      subject: normalizedData.subject,
-      grade_level: normalizedData.grade_level
-    });
-
     if (editingExam) {
       await ExamService.updateExam(editingExam.id, normalizedData);
       toast.success('Exam submitted for review successfully!');
     } else {
-      const response = await ExamService.createExam(normalizedData);
-      console.log('🔍 Exam created and submitted successfully:', response);
+      await ExamService.createExam(normalizedData);
       toast.success('Exam submitted for review successfully!');
     }
 
@@ -856,15 +860,13 @@ const submitForApproval = async () => {
                   </label>
                   <select
                     value={formData.exam_type}
-                    onChange={(e) => handleInputChange('exam_type', e.target.value)}
+                    onChange={(e) => handleInputChange('exam_type', parseInt(e.target.value))}
                     className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
                   >
-                    <option value="test">Class Test</option>
-                    <option value="quiz">Quiz</option>
-                    <option value="mid_term">Mid-Term Examination</option>
-                    <option value="final_exam">Final Examination</option>
-                    <option value="practical">Practical Examination</option>
-                    <option value="oral_exam">Oral Examination</option>
+                    <option value="">Select Exam Type</option>
+                    {examTypes.map((t: any) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -910,12 +912,13 @@ const submitForApproval = async () => {
                   </label>
                   <select
                     value={formData.difficulty_level}
-                    onChange={(e) => handleInputChange('difficulty_level', e.target.value)}
+                    onChange={(e) => handleInputChange('difficulty_level', parseInt(e.target.value))}
                     className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
                   >
-                    <option value="easy">Easy</option>
-                    <option value="medium">Medium</option>
-                    <option value="hard">Hard</option>
+                    <option value="">Select Difficulty</option>
+                    {difficultyLevels.map((d: any) => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -1389,15 +1392,37 @@ const submitForApproval = async () => {
           </div>
           
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+            {/* Template download — Word (Google Docs compatible) or CSV (Google Sheets) */}
+            <div className="flex items-stretch gap-1">
+              <button
+                type="button"
+                onClick={() => generateExamWordTemplate(formData.title || 'Examination').catch(console.error)}
+                className="flex items-center justify-center gap-1.5 px-3 py-2 border border-green-400 text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 rounded-l-lg hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors text-sm font-medium"
+                title="Download Word (.docx) template — works with Google Docs and Microsoft Word"
+              >
+                <FileDown className="w-4 h-4" />
+                <span className="hidden sm:inline">Word</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => generateExamCsvTemplate(formData.title || 'Examination')}
+                className="flex items-center justify-center gap-1.5 px-3 py-2 border border-green-400 border-l-0 text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 rounded-r-lg hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors text-sm font-medium"
+                title="Download CSV template — works with Google Sheets and Excel"
+              >
+                <span className="hidden sm:inline">CSV</span>
+                <span className="sm:hidden text-xs">CSV</span>
+              </button>
+            </div>
+
             <button onClick={onClose} className="px-4 py-2.5 sm:py-2 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-sm font-medium">
               Cancel
             </button>
-            
+
             <button onClick={saveAsDraft} disabled={savingDraft || !currentTeacherId} className="flex items-center justify-center space-x-2 px-4 py-2.5 sm:py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium">
               <Save className="w-4 h-4" />
               <span>{savingDraft ? 'Saving...' : 'Save Exam'}</span>
             </button>
-            
+
             <button onClick={submitForApproval} disabled={loading || !currentTeacherId} className="flex items-center justify-center space-x-2 px-4 py-2.5 sm:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium">
               <CheckCircle className="w-4 h-4" />
               <span>{loading ? 'Submitting...' : 'Submit for Review'}</span>

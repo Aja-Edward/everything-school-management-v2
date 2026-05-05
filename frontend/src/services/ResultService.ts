@@ -58,6 +58,28 @@ import api from './api';
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
 export type ResultStatus = 'DRAFT' | 'APPROVED' | 'PUBLISHED';
+
+export interface AssessmentComponentInfo {
+  id: number;
+  name: string;
+  code: string;
+  component_type: 'CA' | 'EXAM' | 'PRACTICAL' | 'PROJECT' | 'ORAL' | 'OTHER';
+  max_score: string;
+  contributes_to_ca: boolean;
+  display_order: number;
+  is_active: boolean;
+  education_level: number;
+  education_level_name?: string;
+  education_level_type?: string;
+}
+
+export interface BulkComponentScoreEntry {
+  student: string;
+  subject: number;
+  exam_session: string;
+  grading_system?: number;
+  scores: Array<{ component_id: number; score: number }>;
+}
 export type EducationLevelType =
   | 'NURSERY'
   | 'PRIMARY'
@@ -566,6 +588,29 @@ class ResultService {
   private sessionReportEndpoint(level: EducationLevelType, id?: string): string {
     const base = `${this.levelBase(level)}/session-reports/`;
     return id ? `${base}${id}/` : base;
+  }
+
+  // ── ASSESSMENT COMPONENTS ────────────────────────────────────────────────────
+
+  /** Fetch tenant-configured assessment components (CA, Test, Exam, etc.) */
+  async getAssessmentComponents(
+    params?: Record<string, unknown>
+  ): Promise<AssessmentComponentInfo[]> {
+    const res = await api.get(`${this.base}/assessment-components/`, params);
+    if (Array.isArray(res)) return res;
+    return (res as any)?.results ?? [];
+  }
+
+  /**
+   * Record scores for ONE component across multiple students (partial save).
+   * Creates a new result if it doesn't exist; otherwise updates existing.
+   * Missing components in the payload are left unchanged.
+   */
+  async bulkRecordComponentScores(
+    level: EducationLevelType,
+    entries: BulkComponentScoreEntry[]
+  ): Promise<unknown> {
+    return api.post(`${this.resultEndpoint(level)}bulk_create/`, { results: entries });
   }
 
   // ── EXAM SESSIONS ───────────────────────────────────────────────────────────

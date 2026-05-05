@@ -123,55 +123,328 @@ class ExamDocumentParser:
         try:
             doc = Document(BytesIO(self.file_content))
 
-            # Validate document has content
             if not doc.element.body:
                 raise ValueError("Word document is empty or has no body content")
 
-            # Extract content preserving structure
-            content_parts = []
-
+            # Collect all elements (paragraphs + tables) in document order
+            elements = []
             for element in doc.element.body:
                 try:
                     if element.tag.endswith('p'):
-                        # Paragraph
                         para = Paragraph(element, doc)
-                        if para.text.strip():
-                            # Preserve formatting
-                            html = self._paragraph_to_html(para)
-                            if html:  # Only add if conversion succeeded
-                                content_parts.append(html)
-
+                        text = para.text.strip()
+                        if text:
+                            elements.append({'type': 'paragraph', 'text': text})
                     elif element.tag.endswith('tbl'):
-                        # Table
                         table = Table(element, doc)
-                        if table.rows and len(table.rows) > 0:  # Validate table has rows
-                            table_html = self._word_table_to_html(table)
-                            if table_html:  # Only add if conversion succeeded
-                                content_parts.append(f"\n[TABLE]\n{table_html}\n[/TABLE]\n")
+                        if table.rows:
+                            rows = [[c.text.strip() for c in row.cells] for row in table.rows]
+                            elements.append({'type': 'table', 'rows': rows})
                 except Exception as e:
-                    # Log element parsing error but continue with other elements
-                    self.warnings.append(f"Error parsing document element: {str(e)}")
+                    self.warnings.append(f"Error reading element: {str(e)}")
                     continue
 
-            # Validate we extracted some content
-            if not content_parts:
-                raise ValueError("Word document contains no readable text content")
+            if not elements:
+                raise ValueError("Word document contains no readable content")
 
-            full_text = "\n".join(content_parts)
+            # Extract metadata and parse sections
+            title, instructions, duration = self._extract_word_metadata(elements)
+            sections = self._parse_word_sections(elements)
 
-            # Validate full text is not empty
-            if not full_text.strip():
-                raise ValueError("Word document contains no readable text after extraction")
+            if not sections:
+                # Fallback: join all paragraph text and use generic text parser
+                plain_text = '\n'.join(e['text'] for e in elements if e['type'] == 'paragraph')
+                if not plain_text.strip():
+                    raise ValueError("Word document contains no readable text content")
+                return self._parse_text_content(plain_text)
 
-            # Parse structured content
-            return self._parse_text_content(full_text)
+            total_marks = self._calculate_total_marks(sections)
+            confidence = self._determine_confidence(sections)
 
-        except ValueError as e:
-            # Re-raise validation errors
+            return {
+                'title': title,
+                'instructions': instructions,
+                'totalMarks': total_marks,
+                'durationMinutes': duration,
+                'sections': sections,
+                'metadata': {
+                    'originalFileName': self.file_name,
+                    'parsedAt': None,
+                    'confidence': confidence,
+                    'warnings': self.warnings
+                }
+            }
+
+        except ValueError:
             raise
         except Exception as e:
             self.warnings.append(f"Error parsing Word document: {str(e)}")
             raise ValueError(f"Failed to parse Word document: {str(e)}")
+
+    def _extract_word_metadata(self, elements: List[Dict]) -> tuple:
+        """Extract title, instructions and duration from header key:value paragraphs."""
+        title = "Imported Exam"
+        instructions = ""
+        duration = None
+
+        # Find first section header so we only look at header content
+        section_start = len(elements)
+        for i, elem in enumerate(elements):
+            if elem['type'] == 'paragraph':
+                if re.match(r'^section\s+[a-zA-Z]\s*(?:[:\-–—]|$)', elem['text'], re.IGNORECASE):
+                    section_start = i
+                    break
+
+        skip_keywords = {'exam question template', 'fill in all sections', 'how to use',
+                         'tip:', 'note:', '1.', '2.', '3.', '4.', '5.'}
+
+        for elem in elements[:section_start]:
+            if elem['type'] != 'paragraph':
+                continue
+            text = elem['text']
+            lower = text.lower()
+
+            if any(lower.startswith(kw) for kw in skip_keywords):
+                continue
+
+            if re.match(r'^title\s*:', text, re.IGNORECASE):
+                val = text.split(':', 1)[-1].strip()
+                if val:
+                    title = val
+            elif re.match(r'^duration\s*:', text, re.IGNORECASE):
+                m = re.search(r'(\d+)', text)
+                if m:
+                    duration = int(m.group(1))
+            elif re.match(r'^instructions?\s*:', text, re.IGNORECASE):
+                val = text.split(':', 1)[-1].strip()
+                if val:
+                    instructions = val
+
+        # Fallback title: first line containing exam-related keywords
+        if title == "Imported Exam":
+            for elem in elements[:section_start]:
+                if elem['type'] == 'paragraph':
+                    t = elem['text']
+                    if any(kw in t.lower() for kw in ['exam', 'examination', 'test', 'assessment']):
+                        if len(t) > 5 and ':' not in t[:15]:
+                            title = t
+                            break
+
+        return title, instructions, duration
+
+    def _parse_word_sections(self, elements: List[Dict]) -> List[Dict]:
+        """Group document elements into sections, parsing each section's questions."""
+        sections = []
+        # Matches "SECTION A:", "SECTION A -", "SECTION A –", "SECTION A" (alone)
+        header_re = re.compile(
+            r'^section\s+([a-zA-Z])\s*(?:[:\-–—]\s*(.*))?$',
+            re.IGNORECASE
+        )
+
+        current_letter = None
+        current_type = 'custom'
+        current_name = None
+        current_elems: List[Dict] = []
+
+        for elem in elements:
+            if elem['type'] == 'paragraph':
+                m = header_re.match(elem['text'])
+                if m:
+                    # Save previous section
+                    if current_letter and current_elems:
+                        parsed = self._parse_word_section_elements(current_name, current_type, current_elems)
+                        if parsed:
+                            sections.append(parsed)
+                    # Start new section
+                    current_letter = m.group(1).upper()
+                    subtitle = (m.group(2) or '').strip().lower()
+                    current_name = f'Section {current_letter}'
+                    current_type = self._detect_section_type_from_subtitle(subtitle)
+                    current_elems = []
+                    continue
+
+            if current_letter is not None:
+                current_elems.append(elem)
+
+        # Flush last section
+        if current_letter and current_elems:
+            parsed = self._parse_word_section_elements(current_name, current_type, current_elems)
+            if parsed:
+                sections.append(parsed)
+
+        return sections
+
+    def _detect_section_type_from_subtitle(self, subtitle: str) -> str:
+        if any(kw in subtitle for kw in ['objective', 'multiple choice', 'mcq', 'choose']):
+            return 'objective'
+        if any(kw in subtitle for kw in ['theory', 'essay', 'short answer', 'long answer']):
+            return 'theory'
+        if any(kw in subtitle for kw in ['practical', 'experiment', 'lab']):
+            return 'practical'
+        return 'custom'
+
+    def _parse_word_section_elements(self, name: str, section_type: str, elements: List[Dict]) -> Optional[Dict]:
+        """Parse questions from a section's elements (tables and/or paragraphs)."""
+        questions: List[Dict] = []
+        instructions = ''
+        plain_lines: List[str] = []
+
+        instr_re = re.compile(
+            r'^(?:section\s+[a-zA-Z]\s+)?instructions?\s*(?:\(optional\))?\s*:',
+            re.IGNORECASE
+        )
+
+        for elem in elements:
+            if elem['type'] == 'table':
+                table_qs = self._parse_question_table(elem['rows'])
+                if table_qs:
+                    questions.extend(table_qs)
+            elif elem['type'] == 'paragraph':
+                text = elem['text']
+                if instr_re.match(text):
+                    instructions = text.split(':', 1)[-1].strip()
+                else:
+                    plain_lines.append(text)
+
+        # If no table questions, parse plain text
+        if not questions and plain_lines:
+            plain_text = '\n'.join(plain_lines)
+            if section_type == 'practical':
+                questions = self._parse_practical_text(plain_text)
+            else:
+                questions = self._extract_questions(plain_text, section_type)
+
+        if not questions:
+            return None
+
+        return {
+            'type': section_type,
+            'name': name,
+            'instructions': instructions,
+            'questions': questions
+        }
+
+    def _parse_question_table(self, rows: List[List[str]]) -> List[Dict]:
+        """Parse a Word table where each row is a question.
+
+        Expects a header row with columns like:
+        #, Question, Option A, Option B, Option C, Option D, Correct, Marks
+        """
+        if not rows or len(rows) < 2:
+            return []
+
+        header = [h.lower().strip() for h in rows[0]]
+
+        # Must have a Question column to be treated as a question table
+        if not any('question' in h for h in header):
+            return []
+
+        def find_col(*patterns: str) -> int:
+            # Exact match first
+            for pat in patterns:
+                for i, h in enumerate(header):
+                    if h == pat:
+                        return i
+            # Contains match
+            for pat in patterns:
+                for i, h in enumerate(header):
+                    if pat in h:
+                        return i
+            return -1
+
+        q_col     = find_col('question')
+        a_col     = find_col('option a', 'opta', 'opt a')
+        b_col     = find_col('option b', 'optb', 'opt b')
+        c_col     = find_col('option c', 'optc', 'opt c')
+        d_col     = find_col('option d', 'optd', 'opt d')
+        e_col     = find_col('option e', 'opte', 'opt e')
+        correct_col = find_col('correct', 'answer', 'key')
+        marks_col   = find_col('marks', 'mark', 'score', 'points')
+
+        questions = []
+        for row in rows[1:]:
+            if q_col < 0 or q_col >= len(row):
+                continue
+            question_text = row[q_col].strip()
+            if not question_text:
+                continue
+
+            options: Dict[str, str] = {}
+            for col, key in [
+                (a_col, 'optionA'), (b_col, 'optionB'),
+                (c_col, 'optionC'), (d_col, 'optionD'), (e_col, 'optionE')
+            ]:
+                if col >= 0 and col < len(row) and row[col].strip():
+                    options[key] = row[col].strip()
+
+            correct = ''
+            if correct_col >= 0 and correct_col < len(row):
+                raw = row[correct_col].strip().upper()
+                if raw in ('A', 'B', 'C', 'D', 'E'):
+                    correct = raw
+                elif raw and raw not in ('CORRECT', 'ANSWER', 'KEY'):
+                    self.warnings.append(
+                        f"Unrecognized correct answer '{raw}' for: {question_text[:50]}"
+                    )
+
+            marks = 1
+            if marks_col >= 0 and marks_col < len(row) and row[marks_col].strip():
+                try:
+                    marks = max(1, int(row[marks_col].strip()))
+                except (ValueError, TypeError):
+                    marks = 1
+
+            if len(options) >= 2:
+                questions.append({
+                    'question': self._clean_html(question_text),
+                    'type': 'objective',
+                    'options': options,
+                    'correctAnswer': correct,
+                    'marks': marks
+                })
+            else:
+                questions.append({
+                    'question': self._clean_html(question_text),
+                    'type': 'theory',
+                    'marks': marks
+                })
+
+        return questions
+
+    def _parse_practical_text(self, text: str) -> List[Dict]:
+        """Parse practical questions in the 'Practical N / Task: / Marks:' format."""
+        questions: List[Dict] = []
+
+        # Split on "Practical N" headers; block[0] is pre-header text (notes/instructions) — skip it
+        blocks = re.split(r'(?im)^\s*practical\s+\d+\s*$', text)
+        practical_blocks = blocks[1:] if len(blocks) > 1 else blocks
+
+        for block in practical_blocks:
+            block = block.strip()
+            if not block:
+                continue
+
+            task_m = re.search(
+                r'(?i)task\s*:\s*(.+?)(?=\n\s*(?:materials?|time\s+allowed|expected|marks?)\s*:|$)',
+                block, re.DOTALL
+            )
+            marks_m = re.search(r'(?i)marks?\s*:\s*(\d+)', block)
+
+            task = task_m.group(1).strip() if task_m else block
+            marks = int(marks_m.group(1)) if marks_m else 1
+
+            if task:
+                questions.append({
+                    'question': self._clean_html(task),
+                    'type': 'practical',
+                    'marks': marks
+                })
+
+        # Fallback to generic extraction
+        if not questions and text.strip():
+            questions = self._extract_questions(text, 'practical')
+
+        return questions
 
     def _parse_csv(self) -> Dict[str, Any]:
         """Parse CSV document

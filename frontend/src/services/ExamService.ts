@@ -60,7 +60,31 @@ export interface Exam {
   objective_instructions?: string;
   theory_instructions?: string;
   practical_instructions?: string;
+  // Per-exam print settings
+  print_settings?: PrintSettings;
 }
+
+export interface PrintSettings {
+  font_family: 'times_new_roman' | 'arial' | 'georgia' | 'calibri';
+  font_size: number;          // 10–14
+  line_height: number;        // 1.0 | 1.5 | 2.0
+  option_layout: 'auto' | 'inline' | 'stacked';
+  column_layout: 1 | 2;
+  margin: 'normal' | 'narrow' | 'wide';
+  show_marks: boolean;
+  show_instructions: boolean;
+}
+
+export const DEFAULT_PRINT_SETTINGS: PrintSettings = {
+  font_family: 'times_new_roman',
+  font_size: 12,
+  line_height: 1.5,
+  option_layout: 'auto',
+  column_layout: 1,
+  margin: 'normal',
+  show_marks: true,
+  show_instructions: true,
+};
 
 export interface ExamCreateData {
   title: string;
@@ -72,8 +96,8 @@ export interface ExamCreateData {
   stream?: number;
   teacher?: number;
   exam_schedule?: number;
-  exam_type: string;
-  difficulty_level: string;
+  exam_type: string | number;       // accepts PK (number) or legacy string code
+  difficulty_level: string | number; // accepts PK (number) or legacy string code
   exam_date: string;
   start_time: string;
   end_time: string;
@@ -85,7 +109,7 @@ export interface ExamCreateData {
   instructions?: string;
   materials_allowed?: string;
   materials_provided?: string;
-  status: string;
+  status: string | number;   // accepts PK (number) or legacy string code
   is_practical: boolean;
   requires_computer: boolean;
   is_online: boolean;
@@ -97,6 +121,7 @@ export interface ExamCreateData {
   objective_instructions?: string;
   theory_instructions?: string;
   practical_instructions?: string;
+  print_settings?: PrintSettings;
 }
 
 export interface ExamUpdateData {
@@ -109,8 +134,8 @@ export interface ExamUpdateData {
   stream?: number;
   teacher?: number;
   exam_schedule?: number;
-  exam_type?: string;
-  difficulty_level?: string;
+  exam_type?: string | number;
+  difficulty_level?: string | number;
   exam_date?: string;
   start_time?: string;
   end_time?: string;
@@ -130,10 +155,11 @@ export interface ExamUpdateData {
   instructions?: string;
   materials_allowed?: string;
   materials_provided?: string;
-  status?: string;
+  status?: string | number;
   is_practical?: boolean;
   requires_computer?: boolean;
   is_online?: boolean;
+  print_settings?: PrintSettings;
 }
 
 export interface ExamFilters {
@@ -567,8 +593,32 @@ export class ExamService {
     }
   }
 
+  /** Fetch ExamType records from the backend (returns tenant-specific PKs). */
+  static async fetchExamTypes(): Promise<{ id: number; name: string; code: string }[]> {
+    try {
+      const res = await api.get(`${this.baseUrl}/exam-types/`);
+      return Array.isArray(res) ? res : (res as any)?.results ?? [];
+    } catch { return []; }
+  }
+
+  /** Fetch DifficultyLevel records from the backend. */
+  static async fetchDifficultyLevels(): Promise<{ id: number; name: string; code: string }[]> {
+    try {
+      const res = await api.get(`${this.baseUrl}/difficulty-levels/`);
+      return Array.isArray(res) ? res : (res as any)?.results ?? [];
+    } catch { return []; }
+  }
+
+  /** Fetch ExamStatus records from the backend. */
+  static async fetchExamStatuses(): Promise<{ id: number; name: string; code: string; is_initial: boolean }[]> {
+    try {
+      const res = await api.get(`${this.baseUrl}/exam-statuses/`);
+      return Array.isArray(res) ? res : (res as any)?.results ?? [];
+    } catch { return []; }
+  }
+
   /**
-   * Get exam types for dropdown
+   * Get exam types for dropdown (static fallback labels — use fetchExamTypes() for PKs)
    */
   static getExamTypes() {
     return [

@@ -6,6 +6,7 @@ import ResultService from '@/services/ResultService';
 import type { EducationLevelType, SubjectResultParams } from '@/services/ResultService';
 import ResultCreateTab from '@/components/dashboards/teacher/ResultCreateTab';
 import useResultActionsManager from '@/components/dashboards/teacher/ResultActionsManager';
+import ComponentScoreRecordingModal from '@/components/dashboards/teacher/ComponentScoreRecordingModal';
 import { toast } from 'react-toastify';
 import {
   TeacherAssignment,
@@ -92,6 +93,7 @@ const TeacherResults: React.FC = () => {
   const [showFilters, setShowFilters]               = useState(false);
   const [activeTab, setActiveTab]                   = useState<'results' | 'record'>('results');
   const [viewMode, setViewMode]                     = useState<ViewMode>('table');
+  const [showComponentModal, setShowComponentModal] = useState(false);
   const [isMobile, setIsMobile]                     = useState(false);
 
   useEffect(() => {
@@ -504,10 +506,18 @@ const TeacherResults: React.FC = () => {
                 className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-50" title="Refresh">
                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               </button>
+              <button
+                onClick={() => setShowComponentModal(true)}
+                className="px-3 md:px-4 py-2 bg-white border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 flex items-center gap-1.5 text-sm font-medium transition-colors"
+                title="Record one component at a time (CA, Test, Exam…)"
+              >
+                <GraduationCap className="w-4 h-4" />
+                <span className="hidden sm:inline">Record by Component</span>
+              </button>
               <button onClick={() => setActiveTab('record')}
                 className="px-3 md:px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-lg flex items-center gap-1.5 text-sm font-medium">
                 <Plus className="w-4 h-4" />
-                <span className="hidden sm:inline">Record</span>
+                <span className="hidden sm:inline">Record All</span>
               </button>
             </div>
           </div>
@@ -757,6 +767,20 @@ const TeacherResults: React.FC = () => {
 
         <ResultModalsComponent />
       </div>
+
+      {/* Component-by-component score recording modal */}
+      <ComponentScoreRecordingModal
+        open={showComponentModal}
+        onClose={() => { setShowComponentModal(false); void loadTeacherData(); }}
+        assignments={(teacherAssignments as unknown as ExtendedAssignment[]).map(a => ({
+          subject_id:      a.subject_id,
+          subject_name:    a.subject_name,
+          subject_code:    a.subject_code,
+          classroom_id:    a.classroom_id ?? null,
+          classroom_name:  a.classroom_name,
+          education_level: a.education_level as string | undefined,
+        }))}
+      />
     </TeacherDashboardLayout>
   );
 };

@@ -387,7 +387,8 @@ function processSection(section: ParsedSection, examData: any): void {
 
   switch (section.type) {
     case 'objective':
-      examData.objective_questions = validQuestions.map((q) => ({
+      examData.objective_questions = validQuestions.map((q, i) => ({
+        id: Date.now() + i,
         question: q.question,
         optionA: q.options?.optionA ?? '',
         optionB: q.options?.optionB ?? '',
@@ -401,13 +402,15 @@ function processSection(section: ParsedSection, examData: any): void {
       break;
 
     case 'theory':
-      examData.theory_questions = validQuestions.map((q) => ({
+      examData.theory_questions = validQuestions.map((q, i) => ({
+        id: Date.now() + i,
         question: q.question,
         expectedPoints: q.expectedPoints ?? '',
         marks: normalizeMarks(q.marks),
         subQuestions: (q.subQuestions ?? [])
           .filter((sq) => sq?.question)
-          .map((sq) => ({
+          .map((sq, si) => ({
+            id: Date.now() + i * 1000 + si,
             question: sq.question,
             expectedPoints: sq.expectedPoints ?? '',
             marks: normalizeMarks(sq.marks),
@@ -417,7 +420,8 @@ function processSection(section: ParsedSection, examData: any): void {
       break;
 
     case 'practical':
-      examData.practical_questions = validQuestions.map((q) => ({
+      examData.practical_questions = validQuestions.map((q, i) => ({
+        id: Date.now() + i,
         task: q.question,
         expectedOutcome: q.expectedPoints ?? '',
         marks: normalizeMarks(q.marks),
@@ -430,7 +434,8 @@ function processSection(section: ParsedSection, examData: any): void {
         examData.custom_sections.push({
           name: section.name || 'Custom Section',
           instructions: section.instructions ?? '',
-          questions: validQuestions.map((q) => ({
+          questions: validQuestions.map((q, i) => ({
+            id: Date.now() + i,
             question: q.question,
             marks: normalizeMarks(q.marks),
           })),

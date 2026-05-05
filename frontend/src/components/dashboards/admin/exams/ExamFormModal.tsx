@@ -1,2137 +1,772 @@
-// // // components/ExamFormModal.tsx
-// // import React, { useState, useEffect } from "react";
-// // import { ObjectiveQuestion, TheoryQuestion, PracticalQuestion, CustomSection } from "@/types/types";
-// // import RichTextEditor from "./RichTextEditor";
-// // import { ExamCreateData, Exam } from '@/services/ExamService';
-// // import QuestionSectionObjectives from "./QuestionSectionObjectives";
-// // import QuestionSectionTheory from "./QuestionSectionTheory";
-// // import QuestionSectionPractical from "./QuestionSectionPractical";
-// // import QuestionSectionCustom from "./QuestionSectionCustom"
-
-// // interface ExamFormModalProps {
-// //   open: boolean;
-// //   exam?: Exam | null;
-// //   onClose: () => void;
-// //   onSubmit: (examData: ExamCreateData) => void;
-// // }
-
-// // const getInitialState = (exam?: Exam | null): ExamCreateData => ({
-// //   title: exam?.title || "",
-// //   description: exam?.description || "",
-// //   subject: exam?.subject || 0,
-// //   grade_level: exam?.grade_level || 0,
-// //   exam_type: exam?.exam_type || "",
-// //   difficulty_level: exam?.difficulty_level || "",
-// //   exam_date: exam?.exam_date || "",
-// //   start_time: exam?.start_time || "",
-// //   end_time: exam?.end_time || "",
-// //   duration_minutes: exam?.duration_minutes || 0,
-// //   total_marks: exam?.total_marks || 0,
-// //   pass_marks: exam?.pass_marks || 0,
-// //   venue: exam?.venue || "",
-// //   max_students: exam?.max_students || 0,
-// //   instructions: exam?.instructions || "",
-// //   materials_allowed: exam?.materials_allowed || "",
-// //   materials_provided: exam?.materials_provided || "",
-// //   status: exam?.status || "draft",
-// //   is_practical: exam?.is_practical || false,
-// //   requires_computer: exam?.requires_computer || false,
-// //   is_online: exam?.is_online || false,
-// //   objective_questions: exam?.objective_questions || [],
-// //   theory_questions: exam?.theory_questions || [],
-// //   practical_questions: exam?.practical_questions || [],
-// //   custom_sections: exam?.custom_sections || [],
-// //   objective_instructions: exam?.objective_instructions || "",
-// //   theory_instructions: exam?.theory_instructions || "",
-// //   practical_instructions: exam?.practical_instructions || "",
-// // });
-
-// // const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSubmit }) => {
-// //   const [form, setForm] = useState<ExamCreateData>(getInitialState(exam));
-// //   const [activeTab, setActiveTab] = useState<"general" | "objectives" | "theory" | "practical" | "custom">("general");
-
-// //   useEffect(() => {
-// //     if (open) {
-// //       setForm(getInitialState(exam));
-// //       setActiveTab("general"); // Reset to general tab when opening
-// //     }
-// //   }, [open, exam]);
-
-// //   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-// //     const { name, value, type } = e.target;
-    
-// //     // Handle number inputs
-// //     if (type === 'number') {
-// //       setForm({ ...form, [name]: value === '' ? 0 : Number(value) });
-// //     } else {
-// //       setForm({ ...form, [name]: value });
-// //     }
-// //   };
-
-// //   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-// //     setForm({ ...form, [e.target.name]: e.target.checked });
-// //   };
-
-// //   const handleObjectivesChange = (questions: ObjectiveQuestion[]) =>
-// //     setForm((prev) => ({ ...prev, objective_questions: questions }));
-
-// //   const handleTheoryChange = (questions: TheoryQuestion[]) =>
-// //     setForm((prev) => ({ ...prev, theory_questions: questions }));
-
-// //   const handlePracticalChange = (questions: PracticalQuestion[]) =>
-// //     setForm((prev) => ({ ...prev, practical_questions: questions }));
-
-// //   const handleCustomChange = (sections: CustomSection[]) =>
-// //     setForm((prev) => ({ ...prev, custom_sections: sections }));
-
-// //   const handleSubmit = (e: React.FormEvent) => {
-// //     e.preventDefault();
-// //     onSubmit(form);
-// //   };
-
-// //   if (!open) return null;
-
-// //   return (
-// //     <div className="modal-overlay" style={{ 
-// //       position: 'fixed', 
-// //       top: 0, 
-// //       left: 0, 
-// //       right: 0, 
-// //       bottom: 0, 
-// //       backgroundColor: 'rgba(0,0,0,0.5)', 
-// //       display: 'flex', 
-// //       alignItems: 'center', 
-// //       justifyContent: 'center',
-// //       zIndex: 1000
-// //     }}>
-// //       <div className="modal-content" style={{ 
-// //         backgroundColor: 'white', 
-// //         borderRadius: 8, 
-// //         maxHeight: "90vh", 
-// //         overflowY: "auto", 
-// //         width: "90vw", 
-// //         maxWidth: 1200,
-// //         padding: 24
-// //       }}>
-// //         <div className="modal-header" style={{ 
-// //           display: 'flex', 
-// //           justifyContent: 'space-between', 
-// //           alignItems: 'center', 
-// //           marginBottom: 24,
-// //           borderBottom: '2px solid #e5e7eb',
-// //           paddingBottom: 16
-// //         }}>
-// //           <h2 style={{ fontSize: 24, fontWeight: 'bold', margin: 0 }}>
-// //             {exam ? "Edit" : "Create"} Exam
-// //           </h2>
-// //           <button 
-// //             className="close-btn" 
-// //             onClick={onClose}
-// //             style={{ 
-// //               fontSize: 32, 
-// //               border: 'none', 
-// //               background: 'none', 
-// //               cursor: 'pointer',
-// //               color: '#6b7280',
-// //               padding: 0,
-// //               lineHeight: 1
-// //             }}
-// //           >
-// //             ×
-// //           </button>
-// //         </div>
-
-// //         <div className="tab-navigation" style={{ 
-// //           display: "flex", 
-// //           gap: 8, 
-// //           borderBottom: "2px solid #e5e7eb", 
-// //           marginBottom: 24 
-// //         }}>
-// //           {[
-// //             { key: "general", label: "General Info" },
-// //             { key: "objectives", label: "Objectives" },
-// //             { key: "theory", label: "Theory" },
-// //             { key: "practical", label: "Practical" },
-// //             { key: "custom", label: "Custom Sections" }
-// //           ].map(tab => (
-// //             <button
-// //               key={tab.key}
-// //               type="button"
-// //               className={activeTab === tab.key ? "tab-btn active" : "tab-btn"}
-// //               onClick={() => setActiveTab(tab.key as any)}
-// //               style={{
-// //                 padding: '12px 20px',
-// //                 border: 'none',
-// //                 background: activeTab === tab.key ? '#3b82f6' : 'transparent',
-// //                 color: activeTab === tab.key ? 'white' : '#6b7280',
-// //                 cursor: 'pointer',
-// //                 borderRadius: '4px 4px 0 0',
-// //                 fontWeight: activeTab === tab.key ? 'bold' : 'normal',
-// //                 transition: 'all 0.2s'
-// //               }}
-// //             >
-// //               {tab.label}
-// //             </button>
-// //           ))}
-// //         </div>
-
-// //         <form onSubmit={handleSubmit}>
-// //           {activeTab === "general" && (
-// //             <div className="tab-content">
-// //               <h3 style={{ marginBottom: 16, fontSize: 18, fontWeight: 'bold' }}>Exam Information</h3>
-
-// //               <div className="form-group" style={{ marginBottom: 16 }}>
-// //                 <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Exam Title *</label>
-// //                 <input
-// //                   name="title"
-// //                   value={form.title}
-// //                   onChange={handleChange}
-// //                   placeholder="Exam Title"
-// //                   required
-// //                   className="form-input"
-// //                   style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-// //                 />
-// //               </div>
-
-// //               <div className="form-group" style={{ marginBottom: 16 }}>
-// //                 <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Description</label>
-// //                 <RichTextEditor
-// //                   value={form.description || ""}
-// //                   onChange={(val) => setForm({ ...form, description: val })}
-// //                   placeholder="Exam description..."
-// //                 />
-// //               </div>
-
-// //               <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-// //                 <div className="form-group">
-// //                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Subject *</label>
-// //                   <input
-// //                     name="subject"
-// //                     type="number"
-// //                     value={form.subject}
-// //                     onChange={handleChange}
-// //                     placeholder="Subject ID"
-// //                     required
-// //                     className="form-input"
-// //                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-// //                   />
-// //                 </div>
-
-// //                 <div className="form-group">
-// //                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Grade Level *</label>
-// //                   <input
-// //                     name="grade_level"
-// //                     type="number"
-// //                     value={form.grade_level}
-// //                     onChange={handleChange}
-// //                     placeholder="Grade Level"
-// //                     required
-// //                     className="form-input"
-// //                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-// //                   />
-// //                 </div>
-// //               </div>
-
-// //               <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-// //                 <div className="form-group">
-// //                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Exam Type</label>
-// //                   <input
-// //                     name="exam_type"
-// //                     value={form.exam_type || ""}
-// //                     onChange={handleChange}
-// //                     placeholder="e.g., Midterm, Final, Quiz"
-// //                     className="form-input"
-// //                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-// //                   />
-// //                 </div>
-
-// //                 <div className="form-group">
-// //                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Difficulty Level</label>
-// //                   <select
-// //                     name="difficulty_level"
-// //                     value={form.difficulty_level || ""}
-// //                     onChange={handleChange}
-// //                     className="form-input"
-// //                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-// //                   >
-// //                     <option value="">Select...</option>
-// //                     <option value="easy">Easy</option>
-// //                     <option value="medium">Medium</option>
-// //                     <option value="hard">Hard</option>
-// //                   </select>
-// //                 </div>
-// //               </div>
-
-// //               <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 16 }}>
-// //                 <div className="form-group">
-// //                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Exam Date</label>
-// //                   <input
-// //                     name="exam_date"
-// //                     type="date"
-// //                     value={form.exam_date || ""}
-// //                     onChange={handleChange}
-// //                     className="form-input"
-// //                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-// //                   />
-// //                 </div>
-
-// //                 <div className="form-group">
-// //                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Start Time</label>
-// //                   <input
-// //                     name="start_time"
-// //                     type="time"
-// //                     value={form.start_time || ""}
-// //                     onChange={handleChange}
-// //                     className="form-input"
-// //                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-// //                   />
-// //                 </div>
-
-// //                 <div className="form-group">
-// //                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>End Time</label>
-// //                   <input
-// //                     name="end_time"
-// //                     type="time"
-// //                     value={form.end_time || ""}
-// //                     onChange={handleChange}
-// //                     className="form-input"
-// //                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-// //                   />
-// //                 </div>
-// //               </div>
-
-// //               <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 16 }}>
-// //                 <div className="form-group">
-// //                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Duration (minutes)</label>
-// //                   <input
-// //                     name="duration_minutes"
-// //                     type="number"
-// //                     value={form.duration_minutes || 0}
-// //                     onChange={handleChange}
-// //                     className="form-input"
-// //                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-// //                   />
-// //                 </div>
-
-// //                 <div className="form-group">
-// //                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Total Marks *</label>
-// //                   <input
-// //                     name="total_marks"
-// //                     type="number"
-// //                     value={form.total_marks || 0}
-// //                     onChange={handleChange}
-// //                     required
-// //                     className="form-input"
-// //                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-// //                   />
-// //                 </div>
-
-// //                 <div className="form-group">
-// //                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Pass Marks</label>
-// //                   <input
-// //                     name="pass_marks"
-// //                     type="number"
-// //                     value={form.pass_marks || 0}
-// //                     onChange={handleChange}
-// //                     className="form-input"
-// //                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-// //                   />
-// //                 </div>
-// //               </div>
-
-// //               <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-// //                 <div className="form-group">
-// //                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Venue</label>
-// //                   <input
-// //                     name="venue"
-// //                     value={form.venue || ""}
-// //                     onChange={handleChange}
-// //                     placeholder="Exam venue"
-// //                     className="form-input"
-// //                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-// //                   />
-// //                 </div>
-
-// //                 <div className="form-group">
-// //                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Max Students</label>
-// //                   <input
-// //                     name="max_students"
-// //                     type="number"
-// //                     value={form.max_students || 0}
-// //                     onChange={handleChange}
-// //                     className="form-input"
-// //                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-// //                   />
-// //                 </div>
-// //               </div>
-
-// //               <div className="form-group" style={{ marginBottom: 16 }}>
-// //                 <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Instructions</label>
-// //                 <RichTextEditor
-// //                   value={form.instructions || ""}
-// //                   onChange={(val) => setForm({ ...form, instructions: val })}
-// //                   placeholder="General exam instructions..."
-// //                 />
-// //               </div>
-
-// //               <div className="form-group" style={{ marginBottom: 16 }}>
-// //                 <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Materials Allowed</label>
-// //                 <RichTextEditor
-// //                   value={form.materials_allowed || ""}
-// //                   onChange={(val) => setForm({ ...form, materials_allowed: val })}
-// //                   placeholder="Allowed materials..."
-// //                 />
-// //               </div>
-
-// //               <div className="form-group" style={{ marginBottom: 16 }}>
-// //                 <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Materials Provided</label>
-// //                 <RichTextEditor
-// //                   value={form.materials_provided || ""}
-// //                   onChange={(val) => setForm({ ...form, materials_provided: val })}
-// //                   placeholder="Materials provided..."
-// //                 />
-// //               </div>
-
-// //               <div className="form-group" style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-// //                 <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-// //                   <input
-// //                     name="is_practical"
-// //                     type="checkbox"
-// //                     checked={form.is_practical || false}
-// //                     onChange={handleCheckboxChange}
-// //                   />
-// //                   Is Practical
-// //                 </label>
-// //                 <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-// //                   <input
-// //                     name="requires_computer"
-// //                     type="checkbox"
-// //                     checked={form.requires_computer || false}
-// //                     onChange={handleCheckboxChange}
-// //                   />
-// //                   Requires Computer
-// //                 </label>
-// //                 <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-// //                   <input
-// //                     name="is_online"
-// //                     type="checkbox"
-// //                     checked={form.is_online || false}
-// //                     onChange={handleCheckboxChange}
-// //                   />
-// //                   Is Online
-// //                 </label>
-// //               </div>
-// //             </div>
-// //           )}
-
-// //           {activeTab === "objectives" && (
-// //             <div className="tab-content">
-// //               <div className="form-group" style={{ marginBottom: 16 }}>
-// //                 <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Objective Instructions</label>
-// //                 <RichTextEditor
-// //                   value={form.objective_instructions || ""}
-// //                   onChange={(val) => setForm({ ...form, objective_instructions: val })}
-// //                   placeholder="Instructions for objective section..."
-// //                 />
-// //               </div>
-// //               <QuestionSectionObjectives
-// //                 value={form.objective_questions ?? []}
-// //                 onChange={handleObjectivesChange}
-// //               />
-// //             </div>
-// //           )}
-
-// //           {activeTab === "theory" && (
-// //             <div className="tab-content">
-// //               <div className="form-group" style={{ marginBottom: 16 }}>
-// //                 <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Theory Instructions</label>
-// //                 <RichTextEditor
-// //                   value={form.theory_instructions || ""}
-// //                   onChange={(val) => setForm({ ...form, theory_instructions: val })}
-// //                   placeholder="Instructions for theory section..."
-// //                 />
-// //               </div>
-// //               <QuestionSectionTheory
-// //                 value={form.theory_questions ?? []}
-// //                 onChange={handleTheoryChange}
-// //               />
-// //             </div>
-// //           )}
-
-// //           {activeTab === "practical" && (
-// //             <div className="tab-content">
-// //               <div className="form-group" style={{ marginBottom: 16 }}>
-// //                 <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Practical Instructions</label>
-// //                 <RichTextEditor
-// //                   value={form.practical_instructions || ""}
-// //                   onChange={(val) => setForm({ ...form, practical_instructions: val })}
-// //                   placeholder="Instructions for practical section..."
-// //                 />
-// //               </div>
-// //               <QuestionSectionPractical
-// //                 value={form.practical_questions ?? []}
-// //                 onChange={handlePracticalChange}
-// //               />
-// //             </div>
-// //           )}
-
-// //           {activeTab === "custom" && (
-// //             <div className="tab-content">
-// //               <QuestionSectionCustom
-// //                 value={form.custom_sections ?? []}
-// //                 onChange={handleCustomChange}
-// //               />
-// //             </div>
-// //           )}
-
-// //           <div className="modal-footer" style={{ 
-// //             display: "flex", 
-// //             gap: 12, 
-// //             justifyContent: "flex-end", 
-// //             marginTop: 24, 
-// //             borderTop: "2px solid #e5e7eb", 
-// //             paddingTop: 16 
-// //           }}>
-// //             <button 
-// //               type="button" 
-// //               onClick={onClose} 
-// //               className="btn btn-secondary"
-// //               style={{
-// //                 padding: '10px 20px',
-// //                 border: '1px solid #d1d5db',
-// //                 background: 'white',
-// //                 borderRadius: 4,
-// //                 cursor: 'pointer',
-// //                 fontWeight: 500
-// //               }}
-// //             >
-// //               Cancel
-// //             </button>
-// //             <button 
-// //               type="submit" 
-// //               className="btn btn-primary"
-// //               style={{
-// //                 padding: '10px 20px',
-// //                 border: 'none',
-// //                 background: '#3b82f6',
-// //                 color: 'white',
-// //                 borderRadius: 4,
-// //                 cursor: 'pointer',
-// //                 fontWeight: 500
-// //               }}
-// //             >
-// //               {exam ? "Save Changes" : "Create Exam"}
-// //             </button>
-// //           </div>
-// //         </form>
-// //       </div>
-// //     </div>
-// //   );
-// // };
-
-// // export default ExamFormModal;
-
-// // components/ExamFormModal.tsx
-// // components/ExamFormModal.tsx - Key improvements for prepopulation
-// import React, { useState, useEffect } from "react";
-// import { ObjectiveQuestion, TheoryQuestion, PracticalQuestion, CustomSection } from "@/types/types";
-// import RichTextEditor from "./RichTextEditor";
-// import { ExamCreateData, Exam } from '@/services/ExamService';
-// import QuestionSectionObjectives from "./QuestionSectionObjectives";
-// import QuestionSectionTheory from "./QuestionSectionTheory";
-// import QuestionSectionPractical from "./QuestionSectionPractical";
-// import QuestionSectionCustom from "./QuestionSectionCustom";
-// import api from '@/services/api';
-
-// interface ExamFormModalProps {
-//   open: boolean;
-//   exam?: Exam | null;
-//   onClose: () => void;
-//   onSubmit: (examData: ExamCreateData) => void;
-// }
-
-// // Helper function to safely extract array from API response
-// const safeArrayFromResponse = (data: any): any[] => {
-//   if (Array.isArray(data)) return data;
-//   if (data && Array.isArray(data.results)) return data.results;
-//   if (data && typeof data === 'object') {
-//     const arrayProps = ['data', 'items', 'list'];
-//     for (const prop of arrayProps) {
-//       if (Array.isArray(data[prop])) return data[prop];
-//     }
-//   }
-//   return [];
-// };
-
-
-// const getInitialState = (exam?: Exam | null, subjects?: any[], gradeLevels?: any[]): ExamCreateData => {
-//   let subjectId = 0;
-//   let gradeLevelId = 0;
-
-//   // Try to extract IDs from the exam object
-//   if (exam) {
-//     // First try direct ID access
-//     subjectId = exam?.subject?.id || exam?.subject || 0;
-//     gradeLevelId = exam?.grade_level?.id || exam?.grade_level || 0;
-
-//     // If IDs are still 0 or null, try to look them up by name
-//     if ((!subjectId || subjectId === 0) && exam.subject_name && subjects && subjects.length > 0) {
-//       const foundSubject = subjects.find(s => s.name === exam.subject_name || s.code === exam.subject_code);
-//       if (foundSubject) {
-//         subjectId = foundSubject.id;
-//         console.log('✅ Found subject ID by name:', subjectId, foundSubject.name);
-//       } else {
-//         console.log('⚠️ Could not find subject:', exam.subject_name);
-//       }
-//     }
-
-//     if ((!gradeLevelId || gradeLevelId === 0) && exam.grade_level_name && gradeLevels && gradeLevels.length > 0) {
-//       const foundGrade = gradeLevels.find(g => g.name === exam.grade_level_name);
-//       if (foundGrade) {
-//         gradeLevelId = foundGrade.id;
-//         console.log('✅ Found grade level ID by name:', gradeLevelId, foundGrade.name);
-//       } else {
-//         console.log('⚠️ Could not find grade level:', exam.grade_level_name);
-//       }
-//     }
-//   }
-  
-//    const difficultyLevel = exam?.difficulty_level 
-//     ? String(exam.difficulty_level).toLowerCase().trim()
-//     : "";
-  
-//   console.log('📊 Difficulty level:', difficultyLevel || '(empty)');
-  
-//   // Handle max_students - preserve the value even if 0
-//   const maxStudents = exam?.max_students !== undefined && exam?.max_students !== null
-//     ? Number(exam.max_students)
-//     : 0;
-  
-//   console.log('👥 Max students:', maxStudents);
-  
-//   console.log('🔄 Initializing form with exam:', exam);
-//   console.log('📊 Extracted IDs:', { subjectId, gradeLevelId });
-//   console.log('📋 Other fields:', { difficultyLevel, maxStudents });
-  
-//   return {
-//     title: exam?.title || "",
-//     description: exam?.description || "",
-//     subject: subjectId,
-//     grade_level: gradeLevelId,
-//     exam_type: exam?.exam_type || "",
-//     difficulty_level: difficultyLevel,
-//     exam_date: exam?.exam_date || "",
-//     start_time: exam?.start_time || "",
-//     end_time: exam?.end_time || "",
-//     duration_minutes: exam?.duration_minutes || 0,
-//     total_marks: exam?.total_marks || 0,
-//     pass_marks: exam?.pass_marks || 0,
-//     venue: exam?.venue || "",
-//     max_students: maxStudents,
-//     instructions: exam?.instructions || "",
-//     materials_allowed: exam?.materials_allowed || "",
-//     materials_provided: exam?.materials_provided || "",
-//     status: exam?.status || "draft",
-//     is_practical: exam?.is_practical || false,
-//     requires_computer: exam?.requires_computer || false,
-//     is_online: exam?.is_online || false,
-//     objective_questions: exam?.objective_questions || [],
-//     theory_questions: exam?.theory_questions || [],
-//     practical_questions: exam?.practical_questions || [],
-//     custom_sections: exam?.custom_sections || [],
-//     objective_instructions: exam?.objective_instructions || "",
-//     theory_instructions: exam?.theory_instructions || "",
-//     practical_instructions: exam?.practical_instructions || "",
-//   };
-// };
-// // const getInitialState = (exam?: Exam | null, subjects?: any[], gradeLevels?: any[]): ExamCreateData => {
-// //   let subjectId = 0;
-// //   let gradeLevelId = 0;
-
-// //   // Try to extract IDs from the exam object
-// //   if (exam) {
-// //     // First try direct ID access
-// //     subjectId = exam?.subject?.id || exam?.subject || 0;
-// //     gradeLevelId = exam?.grade_level?.id || exam?.grade_level || 0;
-
-// //     // If IDs are still 0 or null, try to look them up by name
-// //     if ((!subjectId || subjectId === 0) && exam.subject_name && subjects && subjects.length > 0) {
-// //       const foundSubject = subjects.find(s => s.name === exam.subject_name || s.code === exam.subject_code);
-// //       if (foundSubject) {
-// //         subjectId = foundSubject.id;
-// //         console.log('✅ Found subject ID by name:', subjectId, foundSubject.name);
-// //       } else {
-// //         console.log('⚠️ Could not find subject:', exam.subject_name);
-// //       }
-// //     }
-
-// //     if ((!gradeLevelId || gradeLevelId === 0) && exam.grade_level_name && gradeLevels && gradeLevels.length > 0) {
-// //       const foundGrade = gradeLevels.find(g => g.name === exam.grade_level_name);
-// //       if (foundGrade) {
-// //         gradeLevelId = foundGrade.id;
-// //         console.log('✅ Found grade level ID by name:', gradeLevelId, foundGrade.name);
-// //       } else {
-// //         console.log('⚠️ Could not find grade level:', exam.grade_level_name);
-// //       }
-// //     }
-// //   }
-// //   // Normalize difficulty level to match dropdown options
-// //   const difficultyLevel = exam?.difficulty_level 
-// //     ? String(exam.difficulty_level).toLowerCase() 
-// //     : "";
-  
-// //   // Handle max_students - ensure it's a number or 0
-// //   const maxStudents = exam?.max_students != null 
-// //     ? Number(exam.max_students) 
-// //     : 0;
-  
-// //   console.log('🔄 Initializing form with exam:', exam);
-// //   console.log('📊 Extracted IDs:', { subjectId, gradeLevelId });
-// //   console.log('📋 Other fields:', { difficultyLevel, maxStudents });
-    
-// //   return {
-// //     title: exam?.title ?? "",
-// //     description: exam?.description ?? "",
-// //     subject: subjectId,
-// //     grade_level: gradeLevelId,
-// //     exam_type: exam?.exam_type ?? "",
-// //     difficulty_level: exam?.difficulty_level ?? "",
-// //     exam_date: exam?.exam_date ?? "",
-// //     start_time: exam?.start_time ?? "",
-// //     end_time: exam?.end_time ?? "",
-// //     duration_minutes: exam?.duration_minutes ?? 0,
-// //     total_marks: exam?.total_marks ?? 0,
-// //     pass_marks: exam?.pass_marks ?? 0,
-// //     venue: exam?.venue ?? "",
-// //     max_students: exam?.max_students ?? 0,
-// //     instructions: exam?.instructions ?? "",
-// //     materials_allowed: exam?.materials_allowed ?? "",
-// //     materials_provided: exam?.materials_provided ?? "",
-// //     status: exam?.status ?? "draft",
-// //     is_practical: exam?.is_practical ?? false,
-// //     requires_computer: exam?.requires_computer ?? false,
-// //     is_online: exam?.is_online ?? false,
-// //     objective_questions: exam?.objective_questions ?? [],
-// //     theory_questions: exam?.theory_questions ?? [],
-// //     practical_questions: exam?.practical_questions ?? [],
-// //     custom_sections: exam?.custom_sections ?? [],
-// //     objective_instructions: exam?.objective_instructions ?? "",
-// //     theory_instructions: exam?.theory_instructions ?? "",
-// //     practical_instructions: exam?.practical_instructions ?? "",
-// //   };
-// // };
-
-// const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSubmit }) => {
-//   // Backend data states - declare FIRST
-//   const [gradeLevels, setGradeLevels] = useState<any[]>([]);
-//   const [subjects, setSubjects] = useState<any[]>([]);
-//   const [filteredSubjects, setFilteredSubjects] = useState<any[]>([]);
-//   const [backendDataLoading, setBackendDataLoading] = useState(true);
-  
-//   // Form state - initialize with empty defaults
-//   const [form, setForm] = useState<ExamCreateData>(() => getInitialState(null, [], []));
-//   const [activeTab, setActiveTab] = useState<"general" | "objectives" | "theory" | "practical" | "custom">("general");
-
-//   // Load backend data
-//   useEffect(() => {
-//     const loadBackendData = async () => {
-//       if (!open) return;
-      
-//       try {
-//         setBackendDataLoading(true);
-
-//         let gradeLevels: any[] = [];
-//         let subjects: any[] = [];
-
-//         try {
-//           const gradeLevelsData = await api.get('/api/classrooms/grades/');
-//           gradeLevels = safeArrayFromResponse(gradeLevelsData);
-//           console.log('📚 Loaded grade levels:', gradeLevels);
-//         } catch (err) {
-//           console.error('Failed to load grade levels:', err);
-//         }
-
-//         try {
-//           const subjectsData = await api.get('/api/subjects/');
-//           subjects = safeArrayFromResponse(subjectsData);
-//           console.log('📖 Loaded subjects:', subjects);
-//         } catch (err) {
-//           console.error('Failed to load subjects:', err);
-//         }
-
-//         setGradeLevels(gradeLevels);
-//         setSubjects(subjects);
-//         setFilteredSubjects(subjects);
-//       } catch (err) {
-//         console.error('Error loading backend data:', err);
-//       } finally {
-//         setBackendDataLoading(false);
-//       }
-//     };
-
-//     loadBackendData();
-//   }, [open]);
-
-//   // Initialize form when backend data is loaded
-//   useEffect(() => {
-//     if (open && !backendDataLoading && subjects.length > 0 && gradeLevels.length > 0) {
-//       console.log('📝 Resetting form with exam:', exam);
-//       console.log('📚 Available subjects:', subjects.length);
-//       console.log('📊 Available grade levels:', gradeLevels.length);
-      
-//       const initialState = getInitialState(exam, subjects, gradeLevels);
-//       console.log('✅ Initial state:', initialState);
-//       setForm(initialState);
-//       setActiveTab("general");
-      
-//       // Filter subjects for the loaded exam
-//       if (exam && initialState.grade_level) {
-//         const selectedGradeLevel = gradeLevels.find(gl => gl?.id === initialState.grade_level);
-//         if (selectedGradeLevel) {
-//           const filtered = subjects.filter(subject => {
-//             const subjectEducationLevels = subject?.education_levels || [];
-//             const gradeEducationLevel = selectedGradeLevel?.education_level;
-//             return subjectEducationLevels.includes(gradeEducationLevel);
-//           });
-//           console.log('🔍 Filtered subjects for editing:', filtered.length);
-//           setFilteredSubjects(filtered);
-//         }
-//       }
-//     }
-//   }, [open, exam, backendDataLoading, subjects, gradeLevels]);
-
-//   // Filter subjects based on selected grade level (for user changes)
-//   useEffect(() => {
-//     if (form.grade_level && subjects.length > 0 && gradeLevels.length > 0) {
-//       const selectedGradeLevel = gradeLevels.find(gl => gl?.id === form.grade_level);
-//       if (selectedGradeLevel) {
-//         const filtered = subjects.filter(subject => {
-//           const subjectEducationLevels = subject?.education_levels || [];
-//           const gradeEducationLevel = selectedGradeLevel?.education_level;
-//           return subjectEducationLevels.includes(gradeEducationLevel);
-//         });
-//         console.log('🔄 Updated filtered subjects:', filtered.length);
-//         setFilteredSubjects(filtered);
-//       } else {
-//         setFilteredSubjects(subjects);
-//       }
-//     }
-//   }, [form.grade_level, subjects, gradeLevels]);
-
-//   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-//     const { name, value, type } = e.target;
-    
-//     if (type === 'number') {
-//       setForm({ ...form, [name]: value === '' ? 0 : Number(value) });
-//     } else {
-//       setForm({ ...form, [name]: value });
-//     }
-//   };
-
-//   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-//     setForm({ ...form, [e.target.name]: e.target.checked });
-//   };
-
-//   const handleGradeLevelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-//     const gradeLevelId = parseInt(e.target.value) || 0;
-    
-//     // When editing, preserve subject if it's valid for new grade level
-//     // When creating new, reset subject
-//     if (exam) {
-//       setForm(prev => ({
-//         ...prev,
-//         grade_level: gradeLevelId,
-//         // Keep subject if editing, will be filtered by useEffect
-//       }));
-//     } else {
-//       setForm(prev => ({
-//         ...prev,
-//         grade_level: gradeLevelId,
-//         subject: 0, // Reset subject when grade changes for new exam
-//       }));
-//     }
-//   };
-
-//   const handleObjectivesChange = (questions: ObjectiveQuestion[]) =>
-//     setForm((prev) => ({ ...prev, objective_questions: questions }));
-
-//   const handleTheoryChange = (questions: TheoryQuestion[]) =>
-//     setForm((prev) => ({ ...prev, theory_questions: questions }));
-
-//   const handlePracticalChange = (questions: PracticalQuestion[]) =>
-//     setForm((prev) => ({ ...prev, practical_questions: questions }));
-
-//   const handleCustomChange = (sections: CustomSection[]) =>
-//     setForm((prev) => ({ ...prev, custom_sections: sections }));
-
-//   const handleSubmit = (e: React.FormEvent) => {
-//     e.preventDefault();
-    
-//     // Validate required fields
-//     if (!form.subject || form.subject === 0) {
-//       alert('Please select a subject');
-//       return;
-//     }
-    
-//     if (!form.grade_level || form.grade_level === 0) {
-//       alert('Please select a grade level');
-//       return;
-//     }
-    
-//     console.log('📤 Submitting form:', form);
-//     onSubmit(form);
-//   };
-
-//   if (!open) return null;
-
-//   // Show loading state while fetching backend data
-//   if (backendDataLoading) {
-//     return (
-//       <div className="modal-overlay" style={{ 
-//         position: 'fixed', 
-//         top: 0, 
-//         left: 0, 
-//         right: 0, 
-//         bottom: 0, 
-//         backgroundColor: 'rgba(0,0,0,0.5)', 
-//         display: 'flex', 
-//         alignItems: 'center', 
-//         justifyContent: 'center',
-//         zIndex: 1000
-//       }}>
-//         <div className="bg-white rounded-lg p-8 text-center">
-//           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-//           <p className="text-gray-600">Loading form data...</p>
-//         </div>
-//       </div>
-//     );
-//   }
-
-//   return (
-//     <div className="modal-overlay" style={{ 
-//       position: 'fixed', 
-//       top: 0, 
-//       left: 0, 
-//       right: 0, 
-//       bottom: 0, 
-//       backgroundColor: 'rgba(0,0,0,0.5)', 
-//       display: 'flex', 
-//       alignItems: 'center', 
-//       justifyContent: 'center',
-//       zIndex: 1000
-//     }}>
-//       <div className="modal-content" style={{ 
-//         backgroundColor: 'white', 
-//         borderRadius: 8, 
-//         maxHeight: "90vh", 
-//         overflowY: "auto", 
-//         width: "90vw", 
-//         maxWidth: 1200,
-//         padding: 24
-//       }}>
-//         <div className="modal-header" style={{ 
-//           display: 'flex', 
-//           justifyContent: 'space-between', 
-//           alignItems: 'center', 
-//           marginBottom: 24,
-//           borderBottom: '2px solid #e5e7eb',
-//           paddingBottom: 16
-//         }}>
-//           <h2 style={{ fontSize: 24, fontWeight: 'bold', margin: 0 }}>
-//             {exam ? "Edit" : "Create"} Exam
-//             {exam && <span style={{ fontSize: 14, color: '#6b7280', marginLeft: 8 }}>ID: {exam.id}</span>}
-//           </h2>
-//           <button 
-//             className="close-btn" 
-//             onClick={onClose}
-//             style={{ 
-//               fontSize: 32, 
-//               border: 'none', 
-//               background: 'none', 
-//               cursor: 'pointer',
-//               color: '#6b7280',
-//               padding: 0,
-//               lineHeight: 1
-//             }}
-//           >
-//             ×
-//           </button>
-//         </div>
-
-//         <div className="tab-navigation" style={{ 
-//           display: "flex", 
-//           gap: 8, 
-//           borderBottom: "2px solid #e5e7eb", 
-//           marginBottom: 24,
-//           flexWrap: 'wrap'
-//         }}>
-//           {[
-//             { key: "general", label: "General Info" },
-//             { key: "objectives", label: `Objectives (${form.objective_questions?.length || 0})` },
-//             { key: "theory", label: `Theory (${form.theory_questions?.length || 0})` },
-//             { key: "practical", label: `Practical (${form.practical_questions?.length || 0})` },
-//             { key: "custom", label: `Custom (${form.custom_sections?.length || 0})` }
-//           ].map(tab => (
-//             <button
-//               key={tab.key}
-//               type="button"
-//               className={activeTab === tab.key ? "tab-btn active" : "tab-btn"}
-//               onClick={() => setActiveTab(tab.key as any)}
-//               style={{
-//                 padding: '12px 20px',
-//                 border: 'none',
-//                 background: activeTab === tab.key ? '#3b82f6' : 'transparent',
-//                 color: activeTab === tab.key ? 'white' : '#6b7280',
-//                 cursor: 'pointer',
-//                 borderRadius: '4px 4px 0 0',
-//                 fontWeight: activeTab === tab.key ? 'bold' : 'normal',
-//                 transition: 'all 0.2s'
-//               }}
-//             >
-//               {tab.label}
-//             </button>
-//           ))}
-//         </div>
-
-//         <form onSubmit={handleSubmit}>
-//           {activeTab === "general" && (
-//             <div className="tab-content">
-//               <h3 style={{ marginBottom: 16, fontSize: 18, fontWeight: 'bold' }}>Exam Information</h3>
-
-//               <div className="form-group" style={{ marginBottom: 16 }}>
-//                 <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Exam Title *</label>
-//                 <input
-//                   name="title"
-//                   value={form.title}
-//                   onChange={handleChange}
-//                   placeholder="Exam Title"
-//                   required
-//                   className="form-input"
-//                   style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-//                 />
-//               </div>
-
-//               <div className="form-group" style={{ marginBottom: 16 }}>
-//                 <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Description</label>
-//                 <RichTextEditor
-//                   value={form.description || ""}
-//                   onChange={(val) => setForm({ ...form, description: val })}
-//                   placeholder="Exam description..."
-//                 />
-//               </div>
-
-//               <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-//                 <div className="form-group">
-//                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>
-//                     Grade Level * 
-//                     {exam && form.grade_level > 0 && <span style={{ fontSize: 12, color: '#10b981', marginLeft: 8 }}>
-//                       ✓ Loaded: ID {form.grade_level}
-//                     </span>}
-//                   </label>
-//                   <select
-//                     name="grade_level"
-//                     value={form.grade_level}
-//                     onChange={handleGradeLevelChange}
-//                     required
-//                     className="form-input"
-//                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-//                   >
-//                     <option value={0}>Select Grade Level</option>
-//                     {Array.isArray(gradeLevels) && gradeLevels.map(gradeLevel => (
-//                       <option key={gradeLevel.id} value={gradeLevel.id}>
-//                         {gradeLevel.name}
-//                       </option>
-//                     ))}
-//                   </select>
-//                 </div>
-
-//                 <div className="form-group">
-//                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>
-//                     Subject *
-//                     {exam && form.subject > 0 && <span style={{ fontSize: 12, color: '#10b981', marginLeft: 8 }}>
-//                       ✓ Loaded: ID {form.subject}
-//                     </span>}
-//                   </label>
-//                   <select
-//                     name="subject"
-//                     value={form.subject}
-//                     onChange={handleChange}
-//                     required
-//                     disabled={!form.grade_level}
-//                     className="form-input"
-//                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-//                   >
-//                     <option value={0}>Select Subject</option>
-//                     {Array.isArray(filteredSubjects) && filteredSubjects.map(subject => (
-//                       <option key={subject.id} value={subject.id}>
-//                         {subject.name}
-//                       </option>
-//                     ))}
-//                   </select>
-//                   {!form.grade_level && (
-//                     <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>Please select a grade level first</p>
-//                   )}
-//                   {form.grade_level && filteredSubjects.length === 0 && (
-//                     <p style={{ fontSize: 12, color: '#ef4444', marginTop: 4 }}>No subjects available for this grade level</p>
-//                   )}
-//                 </div>
-//               </div>
-
-//               <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-//                 <div className="form-group">
-//                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Exam Type</label>
-//                   <input
-//                     name="exam_type"
-//                     value={form.exam_type || ""}
-//                     onChange={handleChange}
-//                     placeholder="e.g., Midterm, Final, Quiz"
-//                     className="form-input"
-//                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-//                   />
-//                 </div>
-
-//                 <div className="form-group">
-//                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Difficulty Level</label>
-//                   <select
-//                     name="difficulty_level"
-//                     value={form.difficulty_level || ""}
-//                     onChange={handleChange}
-//                     className="form-input"
-//                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-//                   >
-//                     <option value="">Select...</option>
-//                     <option value="easy">Easy</option>
-//                     <option value="medium">Medium</option>
-//                     <option value="hard">Hard</option>
-//                   </select>
-//                 </div>
-//               </div>
-
-//               <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 16 }}>
-//                 <div className="form-group">
-//                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Exam Date</label>
-//                   <input
-//                     name="exam_date"
-//                     type="date"
-//                     value={form.exam_date || ""}
-//                     onChange={handleChange}
-//                     className="form-input"
-//                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-//                   />
-//                 </div>
-
-//                 <div className="form-group">
-//                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Start Time</label>
-//                   <input
-//                     name="start_time"
-//                     type="time"
-//                     value={form.start_time || ""}
-//                     onChange={handleChange}
-//                     className="form-input"
-//                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-//                   />
-//                 </div>
-
-//                 <div className="form-group">
-//                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>End Time</label>
-//                   <input
-//                     name="end_time"
-//                     type="time"
-//                     value={form.end_time || ""}
-//                     onChange={handleChange}
-//                     className="form-input"
-//                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-//                   />
-//                 </div>
-//               </div>
-
-//               <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 16 }}>
-//                 <div className="form-group">
-//                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Duration (minutes)</label>
-//                   <input
-//                     name="duration_minutes"
-//                     type="number"
-//                     value={form.duration_minutes || 0}
-//                     onChange={handleChange}
-//                     className="form-input"
-//                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-//                   />
-//                 </div>
-
-//                 <div className="form-group">
-//                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Total Marks *</label>
-//                   <input
-//                     name="total_marks"
-//                     type="number"
-//                     value={form.total_marks || 0}
-//                     onChange={handleChange}
-//                     required
-//                     className="form-input"
-//                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-//                   />
-//                 </div>
-
-//                 <div className="form-group">
-//                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Pass Marks</label>
-//                   <input
-//                     name="pass_marks"
-//                     type="number"
-//                     value={form.pass_marks || 0}
-//                     onChange={handleChange}
-//                     className="form-input"
-//                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-//                   />
-//                 </div>
-//               </div>
-
-//               <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-//                 <div className="form-group">
-//                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Venue</label>
-//                   <input
-//                     name="venue"
-//                     value={form.venue || ""}
-//                     onChange={handleChange}
-//                     placeholder="Exam venue"
-//                     className="form-input"
-//                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-//                   />
-//                 </div>
-
-//                 <div className="form-group">
-//                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Max Students</label>
-//                   <input
-//                     name="max_students"
-//                     type="number"
-//                     value={form.max_students || 0}
-//                     onChange={handleChange}
-//                     className="form-input"
-//                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-//                   />
-//                 </div>
-//               </div>
-
-//               <div className="form-group" style={{ marginBottom: 16 }}>
-//                 <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Instructions</label>
-//                 <RichTextEditor
-//                   value={form.instructions || ""}
-//                   onChange={(val) => setForm({ ...form, instructions: val })}
-//                   placeholder="General exam instructions..."
-//                 />
-//               </div>
-
-//               <div className="form-group" style={{ marginBottom: 16 }}>
-//                 <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Materials Allowed</label>
-//                 <RichTextEditor
-//                   value={form.materials_allowed || ""}
-//                   onChange={(val) => setForm({ ...form, materials_allowed: val })}
-//                   placeholder="Allowed materials..."
-//                 />
-//               </div>
-
-//               <div className="form-group" style={{ marginBottom: 16 }}>
-//                 <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Materials Provided</label>
-//                 <RichTextEditor
-//                   value={form.materials_provided || ""}
-//                   onChange={(val) => setForm({ ...form, materials_provided: val })}
-//                   placeholder="Materials provided..."
-//                 />
-//               </div>
-
-//               <div className="form-group" style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-//                 <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-//                   <input
-//                     name="is_practical"
-//                     type="checkbox"
-//                     checked={form.is_practical || false}
-//                     onChange={handleCheckboxChange}
-//                   />
-//                   Is Practical
-//                 </label>
-//                 <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-//                   <input
-//                     name="requires_computer"
-//                     type="checkbox"
-//                     checked={form.requires_computer || false}
-//                     onChange={handleCheckboxChange}
-//                   />
-//                   Requires Computer
-//                 </label>
-//                 <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-//                   <input
-//                     name="is_online"
-//                     type="checkbox"
-//                     checked={form.is_online || false}
-//                     onChange={handleCheckboxChange}
-//                   />
-//                   Is Online
-//                 </label>
-//               </div>
-//             </div>
-//           )}
-
-//           {activeTab === "objectives" && (
-//             <div className="tab-content">
-//               <div className="form-group" style={{ marginBottom: 16 }}>
-//                 <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Objective Instructions</label>
-//                 <RichTextEditor
-//                   value={form.objective_instructions || ""}
-//                   onChange={(val) => setForm({ ...form, objective_instructions: val })}
-//                   placeholder="Instructions for objective section..."
-//                 />
-//               </div>
-//               <QuestionSectionObjectives
-//                 value={form.objective_questions ?? []}
-//                 onChange={handleObjectivesChange}
-//               />
-//             </div>
-//           )}
-
-//           {activeTab === "theory" && (
-//             <div className="tab-content">
-//               <div className="form-group" style={{ marginBottom: 16 }}>
-//                 <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Theory Instructions</label>
-//                 <RichTextEditor
-//                   value={form.theory_instructions || ""}
-//                   onChange={(val) => setForm({ ...form, theory_instructions: val })}
-//                   placeholder="Instructions for theory section..."
-//                 />
-//               </div>
-//               <QuestionSectionTheory
-//                 value={form.theory_questions ?? []}
-//                 onChange={handleTheoryChange}
-//               />
-//             </div>
-//           )}
-
-//           {activeTab === "practical" && (
-//             <div className="tab-content">
-//               <div className="form-group" style={{ marginBottom: 16 }}>
-//                 <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Practical Instructions</label>
-//                 <RichTextEditor
-//                   value={form.practical_instructions || ""}
-//                   onChange={(val) => setForm({ ...form, practical_instructions: val })}
-//                   placeholder="Instructions for practical section..."
-//                 />
-//               </div>
-//               <QuestionSectionPractical
-//                 value={form.practical_questions ?? []}
-//                 onChange={handlePracticalChange}
-//               />
-//             </div>
-//           )}
-
-//           {activeTab === "custom" && (
-//             <div className="tab-content">
-//               <QuestionSectionCustom
-//                 value={form.custom_sections ?? []}
-//                 onChange={handleCustomChange}
-//               />
-//             </div>
-//           )}
-
-//           <div className="modal-footer" style={{ 
-//             display: "flex",
-//             gap: 12, 
-//             justifyContent: "flex-end", 
-//             marginTop: 24, 
-//             borderTop: "2px solid #e5e7eb", 
-//             paddingTop: 16 
-//           }}>
-//             <button 
-//               type="button" 
-//               onClick={onClose} 
-//               className="btn btn-secondary"
-//               style={{
-//                 padding: '10px 20px',
-//                 border: '1px solid #d1d5db',
-//                 background: 'white',
-//                 borderRadius: 4,
-//                 cursor: 'pointer',
-//                 fontWeight: 500
-//               }}
-//             >
-//               Cancel
-//             </button>
-//             <button 
-//               type="submit" 
-//               className="btn btn-primary"
-//               style={{
-//                 padding: '10px 20px',
-//                 border: 'none',
-//                 background: '#3b82f6',
-//                 color: 'white',
-//                 borderRadius: 4,
-//                 cursor: 'pointer',
-//                 fontWeight: 500
-//               }}
-//             >
-//               {exam ? "Save Changes" : "Create Exam"}
-//             </button>
-//           </div>
-//         </form>
-//       </div>
-//     </div>
-//   );
-// };
-
-// export default ExamFormModal;
-
-import React, { useState, useEffect } from "react";
-import { ObjectiveQuestion, TheoryQuestion, PracticalQuestion, CustomSection } from "@/types/types";
-import { RichTextEditor } from "@/components/shared/ExamEditor";
-import { ExamCreateData, Exam } from '@/services/ExamService';
-import QuestionSectionObjectives from "./QuestionSectionObjectives";
-import QuestionSectionTheory from "./QuestionSectionTheory";
-import QuestionSectionPractical from "./QuestionSectionPractical";
-import QuestionSectionCustom from "./QuestionSectionCustom";
-import api from '@/services/api';
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  X, ChevronRight, AlertCircle, CheckCircle2,
+  FileText, List, BookOpen, FlaskConical, LayoutGrid, Settings2,
+} from 'lucide-react';
+import {
+  Exam, ExamCreateData, ExamService,
+  PrintSettings, DEFAULT_PRINT_SETTINGS,
+} from '@/services/ExamService';
+import {
+  ObjectiveQuestion, TheoryQuestion, PracticalQuestion, CustomSection,
+} from '@/types/types';
+import QuestionSectionObjectives from './QuestionSectionObjectives';
+import QuestionSectionTheory from './QuestionSectionTheory';
+import QuestionSectionPractical from './QuestionSectionPractical';
+import QuestionSectionCustom from './QuestionSectionCustom';
+import ClassroomService from '@/services/ClassroomService';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ExamFormModalProps {
   open: boolean;
   exam?: Exam | null;
   onClose: () => void;
-  onSubmit: (examData: ExamCreateData) => void;
+  onSubmit: (data: ExamCreateData) => void;
 }
 
-const safeArrayFromResponse = (data: any): any[] => {
-  if (Array.isArray(data)) return data;
-  if (data && Array.isArray(data.results)) return data.results;
-  if (data && typeof data === 'object') {
-    const arrayProps = ['data', 'items', 'list'];
-    for (const prop of arrayProps) {
-      if (Array.isArray(data[prop])) return data[prop];
-    }
-  }
-  return [];
+type Tab = 'details' | 'mcq' | 'theory' | 'practical' | 'custom' | 'print';
+
+const TABS: { key: Tab; label: string; icon: React.ReactNode; section: string }[] = [
+  { key: 'details',   label: 'Details',       icon: <FileText size={15} />,     section: '' },
+  { key: 'mcq',       label: 'Section A – MCQ',   icon: <List size={15} />,     section: 'A' },
+  { key: 'theory',    label: 'Section B – Theory', icon: <BookOpen size={15} />, section: 'B' },
+  { key: 'practical', label: 'Section C – Practical', icon: <FlaskConical size={15} />, section: 'C' },
+  { key: 'custom',    label: 'Section D – Custom', icon: <LayoutGrid size={15} />, section: 'D' },
+  { key: 'print',     label: 'Print Settings',  icon: <Settings2 size={15} />, section: '' },
+];
+
+// ─── Print settings panel ─────────────────────────────────────────────────────
+
+const PrintSettingsPanel: React.FC<{
+  value: PrintSettings;
+  onChange: (v: PrintSettings) => void;
+}> = ({ value, onChange }) => {
+  const set = <K extends keyof PrintSettings>(k: K, v: PrintSettings[K]) =>
+    onChange({ ...value, [k]: v });
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-1">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Font Family</label>
+        <select
+          value={value.font_family}
+          onChange={e => set('font_family', e.target.value as PrintSettings['font_family'])}
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+        >
+          <option value="times_new_roman">Times New Roman</option>
+          <option value="arial">Arial</option>
+          <option value="georgia">Georgia</option>
+          <option value="calibri">Calibri</option>
+        </select>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Font Size — {value.font_size}pt
+        </label>
+        <input
+          type="range" min={10} max={14} step={1}
+          value={value.font_size}
+          onChange={e => set('font_size', Number(e.target.value))}
+          className="w-full"
+        />
+        <div className="flex justify-between text-xs text-gray-400 mt-1">
+          <span>10pt</span><span>12pt</span><span>14pt</span>
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Line Spacing</label>
+        <div className="flex gap-2">
+          {([1.0, 1.5, 2.0] as const).map(v => (
+            <button
+              key={v} type="button"
+              onClick={() => set('line_height', v)}
+              className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                value.line_height === v
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              {v === 1.0 ? 'Single' : v === 1.5 ? '1.5×' : 'Double'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">MCQ Option Layout</label>
+        <div className="flex gap-2">
+          {(['auto', 'inline', 'stacked'] as const).map(v => (
+            <button
+              key={v} type="button"
+              onClick={() => set('option_layout', v)}
+              className={`flex-1 py-2 rounded-lg border text-sm font-medium capitalize transition-colors ${
+                value.option_layout === v
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              {v === 'auto' ? 'Auto (Smart)' : v}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-gray-400 mt-1">
+          Auto: options flow inline after short questions; stack after long ones.
+        </p>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Column Layout</label>
+        <div className="flex gap-2">
+          {([1, 2] as const).map(v => (
+            <button
+              key={v} type="button"
+              onClick={() => set('column_layout', v)}
+              className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                value.column_layout === v
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              {v === 1 ? '1 Column' : '2 Columns'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Page Margins</label>
+        <div className="flex gap-2">
+          {(['narrow', 'normal', 'wide'] as const).map(v => (
+            <button
+              key={v} type="button"
+              onClick={() => set('margin', v)}
+              className={`flex-1 py-2 rounded-lg border text-sm font-medium capitalize transition-colors ${
+                value.margin === v
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              {v}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-gray-400 mt-1">Normal = 1 inch all sides (default).</p>
+      </div>
+
+      <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+        <span className="text-sm font-medium text-gray-700">Show marks per question</span>
+        <button
+          type="button"
+          onClick={() => set('show_marks', !value.show_marks)}
+          className={`relative w-11 h-6 rounded-full transition-colors ${
+            value.show_marks ? 'bg-blue-600' : 'bg-gray-300'
+          }`}
+        >
+          <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+            value.show_marks ? 'translate-x-5' : ''
+          }`} />
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+        <span className="text-sm font-medium text-gray-700">Show section instructions</span>
+        <button
+          type="button"
+          onClick={() => set('show_instructions', !value.show_instructions)}
+          className={`relative w-11 h-6 rounded-full transition-colors ${
+            value.show_instructions ? 'bg-blue-600' : 'bg-gray-300'
+          }`}
+        >
+          <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+            value.show_instructions ? 'translate-x-5' : ''
+          }`} />
+        </button>
+      </div>
+    </div>
+  );
 };
 
-const getInitialState = (exam?: Exam | null, subjects?: any[], gradeLevels?: any[]): ExamCreateData => {
-  let subjectId = 0;
-  let gradeLevelId = 0;
+// ─── Form input helper ────────────────────────────────────────────────────────
 
-  if (exam) {
-    subjectId = exam?.subject?.id || exam?.subject || 0;
-    gradeLevelId = exam?.grade_level?.id || exam?.grade_level || 0;
+const Field: React.FC<{
+  label: string; required?: boolean; hint?: string; children: React.ReactNode;
+}> = ({ label, required, hint, children }) => (
+  <div>
+    <label className="block text-sm font-medium text-gray-700 mb-1">
+      {label}{required && <span className="text-red-500 ml-0.5">*</span>}
+    </label>
+    {children}
+    {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
+  </div>
+);
 
-    if ((!subjectId || subjectId === 0) && exam.subject_name && subjects && subjects.length > 0) {
-      const foundSubject = subjects.find(s => s.name === exam.subject_name || s.code === exam.subject_code);
-      if (foundSubject) {
-        subjectId = foundSubject.id;
-        console.log('✅ Found subject ID by name:', subjectId, foundSubject.name);
-      }
-    }
-
-    if ((!gradeLevelId || gradeLevelId === 0) && exam.grade_level_name && gradeLevels && gradeLevels.length > 0) {
-      const foundGrade = gradeLevels.find(g => g.name === exam.grade_level_name);
-      if (foundGrade) {
-        gradeLevelId = foundGrade.id;
-        console.log('✅ Found grade level ID by name:', gradeLevelId, foundGrade.name);
-      }
-    }
-  }
-  
-  // Handle difficulty_level - keep as empty string if not set (will be removed before submission)
-  const difficultyLevel = exam?.difficulty_level 
-    ? String(exam.difficulty_level).toLowerCase().trim()
-    : "";
-  
-  // Handle max_students - keep as 0 if not set (will be removed before submission)
-  const maxStudents = exam?.max_students !== undefined && exam?.max_students !== null
-    ? Number(exam.max_students)
-    : 0;
-  
-  console.log('📊 Difficulty level:', difficultyLevel || '(empty)');
-  console.log('👥 Max students:', maxStudents);
-  
-  return {
-    title: exam?.title || "",
-    description: exam?.description || "",
-    subject: subjectId,
-    grade_level: gradeLevelId,
-    exam_type: exam?.exam_type || "",
-    difficulty_level: difficultyLevel,
-    exam_date: exam?.exam_date || "",
-    start_time: exam?.start_time || "",
-    end_time: exam?.end_time || "",
-    duration_minutes: exam?.duration_minutes || 0,
-    total_marks: exam?.total_marks || 0,
-    pass_marks: exam?.pass_marks || 0,
-    venue: exam?.venue || "",
-    max_students: maxStudents,
-    instructions: exam?.instructions || "",
-    materials_allowed: exam?.materials_allowed || "",
-    materials_provided: exam?.materials_provided || "",
-    status: exam?.status || "draft",
-    is_practical: exam?.is_practical || false,
-    requires_computer: exam?.requires_computer || false,
-    is_online: exam?.is_online || false,
-    objective_questions: exam?.objective_questions || [],
-    theory_questions: exam?.theory_questions || [],
-    practical_questions: exam?.practical_questions || [],
-    custom_sections: exam?.custom_sections || [],
-    objective_instructions: exam?.objective_instructions || "",
-    theory_instructions: exam?.theory_instructions || "",
-    practical_instructions: exam?.practical_instructions || "",
-  };
-};
+// ─── Main component ───────────────────────────────────────────────────────────
 
 const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSubmit }) => {
+  const isEdit = !!exam?.id;
+
+  // ── Basic form state ───────────────────────────────────────────────────────
+  const [title,             setTitle]             = useState('');
+  const [description,       setDescription]       = useState('');
+  const [subject,           setSubject]           = useState<number>(0);
+  const [gradeLevel,        setGradeLevel]        = useState<number>(0);
+  const [examType,          setExamType]          = useState('quiz');
+  const [difficulty,        setDifficulty]        = useState('medium');
+  const [examDate,          setExamDate]          = useState('');
+  const [startTime,         setStartTime]         = useState('');
+  const [endTime,           setEndTime]           = useState('');
+  const [totalMarks,        setTotalMarks]        = useState(100);
+  const [passMarks,         setPassMarks]         = useState<number | ''>('');
+  const [venue,             setVenue]             = useState('');
+  const [instructions,      setInstructions]      = useState('');
+  const [materialsAllowed,  setMaterialsAllowed]  = useState('');
+  const [status,            setStatus]            = useState('draft');
+  const [isPractical,       setIsPractical]       = useState(false);
+  const [requiresComputer,  setRequiresComputer]  = useState(false);
+  const [isOnline,          setIsOnline]          = useState(false);
+
+  // Section instructions
+  const [objInstructions,  setObjInstructions]  = useState('Answer ALL questions. Each question carries equal marks.');
+  const [theoInstructions, setTheoInstructions] = useState('Answer any FIVE questions. All questions carry equal marks.');
+  const [practInstructions,setPractInstructions]= useState('Complete ALL practical tasks as instructed.');
+
+  // Questions
+  const [objectiveQs,  setObjectiveQs]  = useState<ObjectiveQuestion[]>([]);
+  const [theoryQs,     setTheoryQs]     = useState<TheoryQuestion[]>([]);
+  const [practicalQs,  setPracticalQs]  = useState<PracticalQuestion[]>([]);
+  const [customSecs,   setCustomSecs]   = useState<CustomSection[]>([]);
+
+  // Print settings
+  const [printSettings, setPrintSettings] = useState<PrintSettings>({ ...DEFAULT_PRINT_SETTINGS });
+
+  // Reference data
+  const [subjects,    setSubjects]    = useState<any[]>([]);
   const [gradeLevels, setGradeLevels] = useState<any[]>([]);
-  const [subjects, setSubjects] = useState<any[]>([]);
-  const [filteredSubjects, setFilteredSubjects] = useState<any[]>([]);
-  const [backendDataLoading, setBackendDataLoading] = useState(true);
-  const [form, setForm] = useState<ExamCreateData>(() => getInitialState(null, [], []));
-  const [activeTab, setActiveTab] = useState<"general" | "objectives" | "theory" | "practical" | "custom">("general");
 
+  // UI state
+  const [activeTab,  setActiveTab]  = useState<Tab>('details');
+  const [errors,     setErrors]     = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+
+  // ── Load reference data ────────────────────────────────────────────────────
   useEffect(() => {
-    const loadBackendData = async () => {
-      if (!open) return;
-      
-      try {
-        setBackendDataLoading(true);
-
-        let gradeLevels: any[] = [];
-        let subjects: any[] = [];
-
-        try {
-          const gradeLevelsData = await api.get('/api/classrooms/grades/');
-          gradeLevels = safeArrayFromResponse(gradeLevelsData);
-          console.log('📚 Loaded grade levels:', gradeLevels);
-        } catch (err) {
-          console.error('Failed to load grade levels:', err);
-        }
-
-        try {
-          const subjectsData = await api.get('/api/subjects/');
-          subjects = safeArrayFromResponse(subjectsData);
-          console.log('📖 Loaded subjects:', subjects);
-        } catch (err) {
-          console.error('Failed to load subjects:', err);
-        }
-
-        setGradeLevels(gradeLevels);
-        setSubjects(subjects);
-        setFilteredSubjects(subjects);
-      } catch (err) {
-        console.error('Error loading backend data:', err);
-      } finally {
-        setBackendDataLoading(false);
-      }
-    };
-
-    loadBackendData();
+    if (!open) return;
+    ClassroomService.getGradeLevels()
+      .then(r => setGradeLevels(Array.isArray(r) ? r : (r as any).results ?? []))
+      .catch(() => {});
   }, [open]);
 
   useEffect(() => {
-    if (open && !backendDataLoading && subjects.length > 0 && gradeLevels.length > 0) {
-      console.log('📝 Resetting form with exam:', exam);
-      
-      const initialState = getInitialState(exam, subjects, gradeLevels);
-      console.log('✅ Initial state:', initialState);
-      setForm(initialState);
-      setActiveTab("general");
-      
-      if (exam && initialState.grade_level) {
-        const selectedGradeLevel = gradeLevels.find(gl => gl?.id === initialState.grade_level);
-        if (selectedGradeLevel) {
-          const filtered = subjects.filter(subject => {
-            const subjectEducationLevels = subject?.education_levels || [];
-            const gradeEducationLevel = selectedGradeLevel?.education_level;
-            return subjectEducationLevels.includes(gradeEducationLevel);
-          });
-          console.log('🔍 Filtered subjects for editing:', filtered.length);
-          setFilteredSubjects(filtered);
-        }
-      }
-    }
-  }, [open, exam, backendDataLoading, subjects, gradeLevels]);
+    if (!open || !gradeLevel) return;
+    ClassroomService.getSubjectsForGrade({ grade_id: gradeLevel })
+      .then((r: any) => setSubjects(Array.isArray(r) ? r : r?.results ?? []))
+      .catch(() => {});
+  }, [open, gradeLevel]);
 
+  // ── Populate form from exam (edit mode) ────────────────────────────────────
   useEffect(() => {
-    if (form.grade_level && subjects.length > 0 && gradeLevels.length > 0) {
-      const selectedGradeLevel = gradeLevels.find(gl => gl?.id === form.grade_level);
-      if (selectedGradeLevel) {
-        const filtered = subjects.filter(subject => {
-          const subjectEducationLevels = subject?.education_levels || [];
-          const gradeEducationLevel = selectedGradeLevel?.education_level;
-          return subjectEducationLevels.includes(gradeEducationLevel);
-        });
-        console.log('🔄 Updated filtered subjects:', filtered.length);
-        setFilteredSubjects(filtered);
-      } else {
-        setFilteredSubjects(subjects);
-      }
-    }
-  }, [form.grade_level, subjects, gradeLevels]);
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value, type } = e.target;
-    
-    if (type === 'number') {
-      setForm({ ...form, [name]: value === '' ? 0 : Number(value) });
-    } else {
-      setForm({ ...form, [name]: value });
-    }
-  };
-
-  const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setForm({ ...form, [e.target.name]: e.target.checked });
-  };
-
-  const handleGradeLevelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const gradeLevelId = parseInt(e.target.value) || 0;
-    
+    if (!open) return;
     if (exam) {
-      setForm(prev => ({
-        ...prev,
-        grade_level: gradeLevelId,
-      }));
+      setTitle(exam.title || '');
+      setDescription(exam.description || '');
+      setSubject(typeof exam.subject === 'number' ? exam.subject : exam.subject?.id ?? 0);
+      setGradeLevel(typeof exam.grade_level === 'number' ? exam.grade_level : exam.grade_level?.id ?? 0);
+      setExamType(exam.exam_type || 'quiz');
+      setDifficulty(exam.difficulty_level || 'medium');
+      setExamDate(exam.exam_date || '');
+      setStartTime(exam.start_time || '');
+      setEndTime(exam.end_time || '');
+      setTotalMarks(exam.total_marks || 100);
+      setPassMarks(exam.pass_marks ?? '');
+      setVenue(exam.venue || '');
+      setInstructions(exam.instructions || '');
+      setMaterialsAllowed(exam.materials_allowed || '');
+      setStatus(exam.status || 'draft');
+      setIsPractical(exam.is_practical || false);
+      setRequiresComputer(exam.requires_computer || false);
+      setIsOnline(exam.is_online || false);
+      setObjInstructions(exam.objective_instructions || objInstructions);
+      setTheoInstructions(exam.theory_instructions || theoInstructions);
+      setPractInstructions(exam.practical_instructions || practInstructions);
+      setObjectiveQs(exam.objective_questions || []);
+      setTheoryQs(exam.theory_questions || []);
+      setPracticalQs(exam.practical_questions || []);
+      setCustomSecs(exam.custom_sections || []);
+      setPrintSettings({ ...DEFAULT_PRINT_SETTINGS, ...(exam as any).print_settings });
     } else {
-      setForm(prev => ({
-        ...prev,
-        grade_level: gradeLevelId,
-        subject: 0,
-      }));
+      // Reset for create
+      setTitle(''); setDescription(''); setSubject(0); setGradeLevel(0);
+      setExamType('quiz'); setDifficulty('medium'); setExamDate('');
+      setStartTime(''); setEndTime(''); setTotalMarks(100); setPassMarks('');
+      setVenue(''); setInstructions(''); setMaterialsAllowed('');
+      setStatus('draft'); setIsPractical(false); setRequiresComputer(false); setIsOnline(false);
+      setObjectiveQs([]); setTheoryQs([]); setPracticalQs([]); setCustomSecs([]);
+      setPrintSettings({ ...DEFAULT_PRINT_SETTINGS });
     }
+    setActiveTab('details');
+    setErrors({});
+  }, [open, exam]);
+
+  // ── Marks totals ───────────────────────────────────────────────────────────
+  const marksBreakdown = useMemo(() => {
+    const mcq  = objectiveQs.reduce((s, q) => s + (Number(q.marks) || 0), 0);
+    const theo = theoryQs.reduce((s, q) => s + (Number(q.marks) || 0), 0);
+    const prac = practicalQs.reduce((s, q) => s + (Number(q.marks) || 0), 0);
+    const cust = customSecs.reduce((s, sec) =>
+      s + ((sec as any).questions || []).reduce((ss: number, q: any) => ss + (Number(q.marks) || 0), 0), 0);
+    return { mcq, theo, prac, cust, total: mcq + theo + prac + cust };
+  }, [objectiveQs, theoryQs, practicalQs, customSecs]);
+
+  const marksOk   = marksBreakdown.total === totalMarks;
+  const marksOver = marksBreakdown.total > totalMarks;
+
+  // ── Validation ─────────────────────────────────────────────────────────────
+  const validate = (): boolean => {
+    const e: Record<string, string> = {};
+    if (!title.trim())    e.title      = 'Title is required';
+    if (!subject)         e.subject    = 'Subject is required';
+    if (!gradeLevel)      e.gradeLevel = 'Grade level is required';
+    if (!examDate)        e.examDate   = 'Exam date is required';
+    if (!startTime)       e.startTime  = 'Start time is required';
+    if (!endTime)         e.endTime    = 'End time is required';
+    if (totalMarks < 1)   e.totalMarks = 'Total marks must be at least 1';
+    if (marksOver)        e.marks      = `Questions add up to ${marksBreakdown.total}, but total marks is ${totalMarks}`;
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
-  const handleObjectivesChange = (questions: ObjectiveQuestion[]) =>
-    setForm((prev) => ({ ...prev, objective_questions: questions }));
-
-  const handleTheoryChange = (questions: TheoryQuestion[]) =>
-    setForm((prev) => ({ ...prev, theory_questions: questions }));
-
-  const handlePracticalChange = (questions: PracticalQuestion[]) =>
-    setForm((prev) => ({ ...prev, practical_questions: questions }));
-
-  const handleCustomChange = (sections: CustomSection[]) =>
-    setForm((prev) => ({ ...prev, custom_sections: sections }));
-
-  const handleSubmit = (e: React.FormEvent) => {
+  // ── Submit ─────────────────────────────────────────────────────────────────
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!form.subject || form.subject === 0) {
-      alert('Please select a subject');
+    if (!validate()) {
+      setActiveTab('details');
       return;
     }
-    
-    if (!form.grade_level || form.grade_level === 0) {
-      alert('Please select a grade level');
-      return;
+    setSubmitting(true);
+    try {
+      const data: ExamCreateData = {
+        title: title.trim(),
+        description: description.trim(),
+        subject,
+        grade_level: gradeLevel,
+        exam_type: examType,
+        difficulty_level: difficulty,
+        exam_date: examDate,
+        start_time: startTime,
+        end_time: endTime,
+        total_marks: totalMarks,
+        pass_marks: passMarks === '' ? undefined : Number(passMarks),
+        venue: venue.trim(),
+        instructions: instructions.trim(),
+        materials_allowed: materialsAllowed.trim(),
+        status,
+        is_practical: isPractical,
+        requires_computer: requiresComputer,
+        is_online: isOnline,
+        objective_questions: objectiveQs,
+        theory_questions: theoryQs,
+        practical_questions: practicalQs,
+        custom_sections: customSecs,
+        objective_instructions: objInstructions,
+        theory_instructions: theoInstructions,
+        practical_instructions: practInstructions,
+        print_settings: printSettings,
+      };
+      onSubmit(data);
+    } finally {
+      setSubmitting(false);
     }
-    
-    // Clean up the data before submission
-    const cleanedData = { ...form };
-    
-    // Remove difficulty_level if it's empty string (backend doesn't accept empty string)
-    if (!cleanedData.difficulty_level || cleanedData.difficulty_level.trim() === '') {
-      delete (cleanedData as any).difficulty_level;
-    }
-    
-    // Remove max_students if it's 0 or null (backend requires positive number or nothing)
-    if (!cleanedData.max_students || cleanedData.max_students <= 0) {
-      delete (cleanedData as any).max_students;
-    }
-    
-    console.log('📤 Submitting cleaned form:', cleanedData);
-    onSubmit(cleanedData);
   };
 
   if (!open) return null;
 
-  if (backendDataLoading) {
-    return (
-      <div className="modal-overlay" style={{ 
-        position: 'fixed', 
-        top: 0, 
-        left: 0, 
-        right: 0, 
-        bottom: 0, 
-        backgroundColor: 'rgba(0,0,0,0.5)', 
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'center',
-        zIndex: 1000
-      }}>
-        <div className="bg-white rounded-lg p-8 text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading form data...</p>
-        </div>
-      </div>
-    );
-  }
+  // ── Tab badge helper ───────────────────────────────────────────────────────
+  const tabBadge = (tab: Tab) => {
+    const counts: Record<Tab, number> = {
+      mcq: objectiveQs.length, theory: theoryQs.length,
+      practical: practicalQs.length, custom: customSecs.length,
+      details: 0, print: 0,
+    };
+    return counts[tab] > 0 ? counts[tab] : null;
+  };
 
   return (
-    <div className="modal-overlay" style={{ 
-      position: 'fixed', 
-      top: 0, 
-      left: 0, 
-      right: 0, 
-      bottom: 0, 
-      backgroundColor: 'rgba(0,0,0,0.5)', 
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center',
-      zIndex: 1000
-    }}>
-      <div className="modal-content" style={{ 
-        backgroundColor: 'white', 
-        borderRadius: 8, 
-        maxHeight: "90vh", 
-        overflowY: "auto", 
-        width: "90vw", 
-        maxWidth: 1200,
-        padding: 24
-      }}>
-        <div className="modal-header" style={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center', 
-          marginBottom: 24,
-          borderBottom: '2px solid #e5e7eb',
-          paddingBottom: 16
-        }}>
-          <h2 style={{ fontSize: 24, fontWeight: 'bold', margin: 0 }}>
-            {exam ? "Edit" : "Create"} Exam
-            {exam && <span style={{ fontSize: 14, color: '#6b7280', marginLeft: 8 }}>ID: {exam.id}</span>}
-          </h2>
-          <button 
-            className="close-btn" 
-            onClick={onClose}
-            style={{ 
-              fontSize: 32, 
-              border: 'none', 
-              background: 'none', 
-              cursor: 'pointer',
-              color: '#6b7280',
-              padding: 0,
-              lineHeight: 1
-            }}
-          >
-            ×
-          </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-6xl max-h-[95vh] flex flex-col overflow-hidden">
+
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+              {isEdit ? 'Edit Exam' : 'Create New Exam'}
+            </h2>
+            {isEdit && (
+              <p className="text-sm text-gray-500 mt-0.5">{exam?.title}</p>
+            )}
+          </div>
+
+          {/* Marks tracker */}
+          <div className="flex items-center gap-4">
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${
+              marksOk   ? 'bg-green-50 text-green-700 border border-green-200' :
+              marksOver ? 'bg-red-50 text-red-700 border border-red-200' :
+                          'bg-amber-50 text-amber-700 border border-amber-200'
+            }`}>
+              {marksOk   ? <CheckCircle2 size={14} /> :
+               marksOver ? <AlertCircle size={14} /> :
+                           <AlertCircle size={14} />}
+              {marksBreakdown.total} / {totalMarks} marks
+            </div>
+            <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors">
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
-        <div className="tab-navigation" style={{ 
-          display: "flex", 
-          gap: 8, 
-          borderBottom: "2px solid #e5e7eb", 
-          marginBottom: 24,
-          flexWrap: 'wrap'
-        }}>
-          {[
-            { key: "general", label: "General Info" },
-            { key: "objectives", label: `Objectives (${form.objective_questions?.length || 0})` },
-            { key: "theory", label: `Theory (${form.theory_questions?.length || 0})` },
-            { key: "practical", label: `Practical (${form.practical_questions?.length || 0})` },
-            { key: "custom", label: `Custom (${form.custom_sections?.length || 0})` }
-          ].map(tab => (
+        {/* ── Tab bar ── */}
+        <div className="flex border-b border-gray-200 dark:border-gray-700 overflow-x-auto flex-shrink-0 bg-gray-50 dark:bg-gray-800">
+          {TABS.map(tab => (
             <button
               key={tab.key}
               type="button"
-              className={activeTab === tab.key ? "tab-btn active" : "tab-btn"}
-              onClick={() => setActiveTab(tab.key as any)}
-              style={{
-                padding: '12px 20px',
-                border: 'none',
-                background: activeTab === tab.key ? '#3b82f6' : 'transparent',
-                color: activeTab === tab.key ? 'white' : '#6b7280',
-                cursor: 'pointer',
-                borderRadius: '4px 4px 0 0',
-                fontWeight: activeTab === tab.key ? 'bold' : 'normal',
-                transition: 'all 0.2s'
-              }}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors relative ${
+                activeTab === tab.key
+                  ? 'border-blue-600 text-blue-600 bg-white dark:bg-gray-900'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
             >
+              {tab.icon}
               {tab.label}
+              {tabBadge(tab.key) !== null && (
+                <span className="ml-1 px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">
+                  {tabBadge(tab.key)}
+                </span>
+              )}
             </button>
           ))}
         </div>
 
-        <form onSubmit={handleSubmit}>
-          {activeTab === "general" && (
-            <div className="tab-content">
-              <h3 style={{ marginBottom: 16, fontSize: 18, fontWeight: 'bold' }}>Exam Information</h3>
+        {/* ── Body ── */}
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
+          <div className="p-6">
 
-              <div className="form-group" style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Exam Title *</label>
-                <input
-                  name="title"
-                  value={form.title}
-                  onChange={handleChange}
-                  placeholder="Exam Title"
-                  required
-                  className="form-input"
-                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-                />
+            {/* Validation errors */}
+            {Object.keys(errors).length > 0 && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm font-medium text-red-700 mb-1 flex items-center gap-1.5">
+                  <AlertCircle size={14} /> Please fix the following:
+                </p>
+                <ul className="list-disc list-inside text-sm text-red-600 space-y-0.5">
+                  {Object.values(errors).map((e, i) => <li key={i}>{e}</li>)}
+                </ul>
               </div>
+            )}
 
-              <div className="form-group" style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Description</label>
-                <RichTextEditor
-                  value={form.description || ""}
-                  onChange={(val) => setForm({ ...form, description: val })}
-                  placeholder="Exam description..."
-                />
-              </div>
+            {/* ─── DETAILS TAB ─── */}
+            {activeTab === 'details' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="md:col-span-2">
+                  <Field label="Exam Title" required>
+                    <input
+                      type="text" value={title} onChange={e => setTitle(e.target.value)}
+                      placeholder="e.g. First Term Mathematics Examination"
+                      className={`w-full border rounded-lg px-3 py-2 text-sm ${errors.title ? 'border-red-400' : 'border-gray-300'}`}
+                    />
+                  </Field>
+                </div>
 
-              <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-                <div className="form-group">
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>
-                    Grade Level * 
-                    {exam && form.grade_level > 0 && <span style={{ fontSize: 12, color: '#10b981', marginLeft: 8 }}>
-                      ✓ Loaded: ID {form.grade_level}
-                    </span>}
-                  </label>
+                <Field label="Grade Level" required>
                   <select
-                    name="grade_level"
-                    value={form.grade_level}
-                    onChange={handleGradeLevelChange}
-                    required
-                    className="form-input"
-                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
+                    value={gradeLevel} onChange={e => setGradeLevel(Number(e.target.value))}
+                    className={`w-full border rounded-lg px-3 py-2 text-sm ${errors.gradeLevel ? 'border-red-400' : 'border-gray-300'}`}
                   >
-                    <option value={0}>Select Grade Level</option>
-                    {Array.isArray(gradeLevels) && gradeLevels.map(gradeLevel => (
-                      <option key={gradeLevel.id} value={gradeLevel.id}>
-                        {gradeLevel.name}
-                      </option>
+                    <option value={0}>Select grade level…</option>
+                    {gradeLevels.map((g: any) => (
+                      <option key={g.id} value={g.id}>{g.name}</option>
                     ))}
                   </select>
-                </div>
+                </Field>
 
-                <div className="form-group">
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>
-                    Subject *
-                    {exam && form.subject > 0 && <span style={{ fontSize: 12, color: '#10b981', marginLeft: 8 }}>
-                      ✓ Loaded: ID {form.subject}
-                    </span>}
-                  </label>
+                <Field label="Subject" required>
                   <select
-                    name="subject"
-                    value={form.subject}
-                    onChange={handleChange}
-                    required
-                    disabled={!form.grade_level}
-                    className="form-input"
-                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
+                    value={subject} onChange={e => setSubject(Number(e.target.value))}
+                    className={`w-full border rounded-lg px-3 py-2 text-sm ${errors.subject ? 'border-red-400' : 'border-gray-300'}`}
+                    disabled={!gradeLevel}
                   >
-                    <option value={0}>Select Subject</option>
-                    {Array.isArray(filteredSubjects) && filteredSubjects.map(subject => (
-                      <option key={subject.id} value={subject.id}>
-                        {subject.name}
-                      </option>
+                    <option value={0}>{gradeLevel ? 'Select subject…' : 'Select grade first…'}</option>
+                    {subjects.map((s: any) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
                     ))}
                   </select>
-                  {!form.grade_level && (
-                    <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>Please select a grade level first</p>
-                  )}
-                  {form.grade_level && filteredSubjects.length === 0 && (
-                    <p style={{ fontSize: 12, color: '#ef4444', marginTop: 4 }}>No subjects available for this grade level</p>
-                  )}
-                </div>
-              </div>
+                </Field>
 
-              <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-                <div className="form-group">
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Exam Type</label>
-                  <input
-                    name="exam_type"
-                    value={form.exam_type || ""}
-                    onChange={handleChange}
-                    placeholder="e.g., Midterm, Final, Quiz"
-                    className="form-input"
-                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>
-                    Difficulty Level (Optional)
-                  </label>
+                <Field label="Exam Type">
                   <select
-                    name="difficulty_level"
-                    value={form.difficulty_level || ""}
-                    onChange={handleChange}
-                    className="form-input"
-                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
+                    value={examType} onChange={e => setExamType(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                   >
-                    <option value="">Not specified</option>
-                    <option value="easy">Easy</option>
-                    <option value="medium">Medium</option>
-                    <option value="hard">Hard</option>
+                    {ExamService.getExamTypes().map(t => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
                   </select>
-                  <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
-                    Leave empty if not applicable
-                  </p>
+                </Field>
+
+                <Field label="Difficulty Level">
+                  <select
+                    value={difficulty} onChange={e => setDifficulty(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  >
+                    {ExamService.getDifficultyLevels().map(d => (
+                      <option key={d.value} value={d.value}>{d.label}</option>
+                    ))}
+                  </select>
+                </Field>
+
+                <Field label="Exam Date" required>
+                  <input
+                    type="date" value={examDate} onChange={e => setExamDate(e.target.value)}
+                    className={`w-full border rounded-lg px-3 py-2 text-sm ${errors.examDate ? 'border-red-400' : 'border-gray-300'}`}
+                  />
+                </Field>
+
+                <Field label="Status">
+                  <select
+                    value={status} onChange={e => setStatus(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="draft">Draft</option>
+                    <option value="scheduled">Scheduled</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                </Field>
+
+                <Field label="Start Time" required>
+                  <input
+                    type="time" value={startTime} onChange={e => setStartTime(e.target.value)}
+                    className={`w-full border rounded-lg px-3 py-2 text-sm ${errors.startTime ? 'border-red-400' : 'border-gray-300'}`}
+                  />
+                </Field>
+
+                <Field label="End Time" required>
+                  <input
+                    type="time" value={endTime} onChange={e => setEndTime(e.target.value)}
+                    className={`w-full border rounded-lg px-3 py-2 text-sm ${errors.endTime ? 'border-red-400' : 'border-gray-300'}`}
+                  />
+                </Field>
+
+                <Field label="Total Marks" required>
+                  <input
+                    type="number" min={1} value={totalMarks}
+                    onChange={e => setTotalMarks(Number(e.target.value))}
+                    className={`w-full border rounded-lg px-3 py-2 text-sm ${errors.totalMarks ? 'border-red-400' : 'border-gray-300'}`}
+                  />
+                </Field>
+
+                <Field label="Pass Marks" hint="Leave blank to use default percentage">
+                  <input
+                    type="number" min={0} value={passMarks}
+                    onChange={e => setPassMarks(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="e.g. 50"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </Field>
+
+                <Field label="Venue">
+                  <input
+                    type="text" value={venue} onChange={e => setVenue(e.target.value)}
+                    placeholder="e.g. Exam Hall 1"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </Field>
+
+                <div className="md:col-span-2">
+                  <Field label="General Instructions">
+                    <textarea
+                      value={instructions} onChange={e => setInstructions(e.target.value)}
+                      rows={3}
+                      placeholder="General instructions for the entire exam…"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none"
+                    />
+                  </Field>
                 </div>
+
+                <div className="md:col-span-2">
+                  <Field label="Materials Allowed">
+                    <input
+                      type="text" value={materialsAllowed} onChange={e => setMaterialsAllowed(e.target.value)}
+                      placeholder="e.g. Calculator, ruler, graph paper"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </Field>
+                </div>
+
+                <div className="md:col-span-2">
+                  <Field label="Description">
+                    <textarea
+                      value={description} onChange={e => setDescription(e.target.value)}
+                      rows={2}
+                      placeholder="Optional description or notes about this exam…"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none"
+                    />
+                  </Field>
+                </div>
+
+                {/* Flags */}
+                <div className="md:col-span-2 flex flex-wrap gap-4">
+                  {[
+                    { label: 'Practical Exam', value: isPractical, set: setIsPractical },
+                    { label: 'Requires Computer', value: requiresComputer, set: setRequiresComputer },
+                    { label: 'Online Exam', value: isOnline, set: setIsOnline },
+                  ].map(({ label, value, set }) => (
+                    <label key={label} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox" checked={value} onChange={e => set(e.target.checked)}
+                        className="rounded border-gray-300 text-blue-600"
+                      />
+                      <span className="text-sm text-gray-700">{label}</span>
+                    </label>
+                  ))}
+                </div>
+
+                {/* Marks breakdown summary */}
+                {marksBreakdown.total > 0 && (
+                  <div className="md:col-span-2 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                    <p className="text-sm font-semibold text-gray-700 mb-2">Marks Breakdown</p>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {[
+                        { label: 'MCQ', value: marksBreakdown.mcq },
+                        { label: 'Theory', value: marksBreakdown.theo },
+                        { label: 'Practical', value: marksBreakdown.prac },
+                        { label: 'Custom', value: marksBreakdown.cust },
+                      ].map(r => (
+                        <div key={r.label} className="text-center p-2 bg-white rounded-lg border">
+                          <p className="text-lg font-bold text-gray-900">{r.value}</p>
+                          <p className="text-xs text-gray-500">{r.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className={`mt-2 text-sm font-medium ${marksOk ? 'text-green-600' : marksOver ? 'text-red-600' : 'text-amber-600'}`}>
+                      Total: {marksBreakdown.total} / {totalMarks} marks
+                      {marksOk && ' ✓ Balanced'}
+                      {marksOver && ` — ${marksBreakdown.total - totalMarks} marks over limit`}
+                      {!marksOk && !marksOver && ` — ${totalMarks - marksBreakdown.total} marks remaining`}
+                    </div>
+                  </div>
+                )}
               </div>
+            )}
 
-              <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 16 }}>
-                <div className="form-group">
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Exam Date</label>
-                  <input
-                    name="exam_date"
-                    type="date"
-                    value={form.exam_date || ""}
-                    onChange={handleChange}
-                    className="form-input"
-                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-                  />
+            {/* ─── MCQ TAB ─── */}
+            {activeTab === 'mcq' && (
+              <div>
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <Field label="Section A Instructions">
+                    <textarea
+                      value={objInstructions} onChange={e => setObjInstructions(e.target.value)}
+                      rows={2} className="w-full border border-blue-200 rounded-lg px-3 py-2 text-sm resize-none bg-white"
+                    />
+                  </Field>
                 </div>
-
-                <div className="form-group">
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Start Time</label>
-                  <input
-                    name="start_time"
-                    type="time"
-                    value={form.start_time || ""}
-                    onChange={handleChange}
-                    className="form-input"
-                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>End Time</label>
-                  <input
-                    name="end_time"
-                    type="time"
-                    value={form.end_time || ""}
-                    onChange={handleChange}
-                    className="form-input"
-                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-                  />
-                </div>
+                <QuestionSectionObjectives value={objectiveQs} onChange={setObjectiveQs} />
               </div>
+            )}
 
-              <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 16 }}>
-                <div className="form-group">
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Duration (minutes)</label>
-                  <input
-                    name="duration_minutes"
-                    type="number"
-                    value={form.duration_minutes || 0}
-                    onChange={handleChange}
-                    className="form-input"
-                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-                  />
+            {/* ─── THEORY TAB ─── */}
+            {activeTab === 'theory' && (
+              <div>
+                <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <Field label="Section B Instructions">
+                    <textarea
+                      value={theoInstructions} onChange={e => setTheoInstructions(e.target.value)}
+                      rows={2} className="w-full border border-green-200 rounded-lg px-3 py-2 text-sm resize-none bg-white"
+                    />
+                  </Field>
                 </div>
+                <QuestionSectionTheory value={theoryQs} onChange={setTheoryQs} />
+              </div>
+            )}
 
-                <div className="form-group">
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Total Marks *</label>
-                  <input
-                    name="total_marks"
-                    type="number"
-                    value={form.total_marks || 0}
-                    onChange={handleChange}
-                    required
-                    className="form-input"
-                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-                  />
+            {/* ─── PRACTICAL TAB ─── */}
+            {activeTab === 'practical' && (
+              <div>
+                <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                  <Field label="Section C Instructions">
+                    <textarea
+                      value={practInstructions} onChange={e => setPractInstructions(e.target.value)}
+                      rows={2} className="w-full border border-orange-200 rounded-lg px-3 py-2 text-sm resize-none bg-white"
+                    />
+                  </Field>
                 </div>
+                <QuestionSectionPractical value={practicalQs} onChange={setPracticalQs} />
+              </div>
+            )}
 
-                <div className="form-group">
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Pass Marks</label>
-                  <input
-                    name="pass_marks"
-                    type="number"
-                    value={form.pass_marks || 0}
-                    onChange={handleChange}
-                    className="form-input"
-                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-                  />
+            {/* ─── CUSTOM TAB ─── */}
+            {activeTab === 'custom' && (
+              <QuestionSectionCustom value={customSecs} onChange={setCustomSecs} />
+            )}
+
+            {/* ─── PRINT SETTINGS TAB ─── */}
+            {activeTab === 'print' && (
+              <div>
+                <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-700">
+                  These settings control how the exam looks when printed. They are saved with this exam.
                 </div>
+                <PrintSettingsPanel value={printSettings} onChange={setPrintSettings} />
               </div>
+            )}
+          </div>
 
-              <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-                <div className="form-group">
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Venue</label>
-                  <input
-                    name="venue"
-                    value={form.venue || ""}
-                    onChange={handleChange}
-                    placeholder="Exam venue"
-                    className="form-input"
-                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>
-                    Max Students (Optional)
-                  </label>
-                  <input
-                    name="max_students"
-                    type="number"
-                    min="1"
-                    value={form.max_students || ""}
-                    onChange={handleChange}
-                    placeholder="Leave empty if unlimited"
-                    className="form-input"
-                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 4 }}
-                  />
-                  <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
-                    Must be a positive number or leave empty
-                  </p>
-                </div>
-              </div>
-
-              <div className="form-group" style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Instructions</label>
-                <RichTextEditor
-                  value={form.instructions || ""}
-                  onChange={(val) => setForm({ ...form, instructions: val })}
-                  placeholder="General exam instructions..."
-                />
-              </div>
-
-              <div className="form-group" style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Materials Allowed</label>
-                <RichTextEditor
-                  value={form.materials_allowed || ""}
-                  onChange={(val) => setForm({ ...form, materials_allowed: val })}
-                  placeholder="Allowed materials..."
-                />
-              </div>
-
-              <div className="form-group" style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Materials Provided</label>
-                <RichTextEditor
-                  value={form.materials_provided || ""}
-                  onChange={(val) => setForm({ ...form, materials_provided: val })}
-                  placeholder="Materials provided..."
-                />
-              </div>
-
-              <div className="form-group" style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input
-                    name="is_practical"
-                    type="checkbox"
-                    checked={form.is_practical || false}
-                    onChange={handleCheckboxChange}
-                  />
-                  Is Practical
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input
-                    name="requires_computer"
-                    type="checkbox"
-                    checked={form.requires_computer || false}
-                    onChange={handleCheckboxChange}
-                  />
-                  Requires Computer
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input
-                    name="is_online"
-                    type="checkbox"
-                    checked={form.is_online || false}
-                    onChange={handleCheckboxChange}
-                  />
-                  Is Online
-                </label>
-              </div>
+          {/* ── Footer ── */}
+          <div className="sticky bottom-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between gap-3 flex-shrink-0">
+            <div className="flex items-center gap-2 text-sm">
+              {TABS.filter(t => tabBadge(t.key) !== null).map(t => (
+                <span key={t.key} className="flex items-center gap-1 text-gray-500">
+                  {t.section}: <strong>{tabBadge(t.key)}</strong>
+                </span>
+              ))}
             </div>
-          )}
 
-          {activeTab === "objectives" && (
-            <div className="tab-content">
-              <div className="form-group" style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Objective Instructions</label>
-                <RichTextEditor
-                  value={form.objective_instructions || ""}
-                  onChange={(val) => setForm({ ...form, objective_instructions: val })}
-                  placeholder="Instructions for objective section..."
-                />
-              </div>
-              <QuestionSectionObjectives
-                value={form.objective_questions ?? []}
-                onChange={handleObjectivesChange}
-              />
+            <div className="flex gap-3">
+              {activeTab !== 'details' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const idx = TABS.findIndex(t => t.key === activeTab);
+                    if (idx > 0) setActiveTab(TABS[idx - 1].key);
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-sm transition-colors"
+                >
+                  Back
+                </button>
+              )}
+
+              {activeTab !== 'print' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const idx = TABS.findIndex(t => t.key === activeTab);
+                    if (idx < TABS.length - 1) setActiveTab(TABS[idx + 1].key);
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 text-sm transition-colors"
+                >
+                  Next <ChevronRight size={14} />
+                </button>
+              ) : null}
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="px-6 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 text-sm font-medium transition-colors"
+              >
+                {submitting ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Exam'}
+              </button>
             </div>
-          )}
-
-          {activeTab === "theory" && (
-            <div className="tab-content">
-              <div className="form-group" style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Theory Instructions</label>
-                <RichTextEditor
-                  value={form.theory_instructions || ""}
-                  onChange={(val) => setForm({ ...form, theory_instructions: val })}
-                  placeholder="Instructions for theory section..."
-                />
-              </div>
-              <QuestionSectionTheory
-                value={form.theory_questions ?? []}
-                onChange={handleTheoryChange}
-              />
-            </div>
-          )}
-
-          {activeTab === "practical" && (
-            <div className="tab-content">
-              <div className="form-group" style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Practical Instructions</label>
-                <RichTextEditor
-                  value={form.practical_instructions || ""}
-                  onChange={(val) => setForm({ ...form, practical_instructions: val })}
-                  placeholder="Instructions for practical section..."
-                />
-              </div>
-              <QuestionSectionPractical
-                value={form.practical_questions ?? []}
-                onChange={handlePracticalChange}
-              />
-            </div>
-          )}
-
-          {activeTab === "custom" && (
-            <div className="tab-content">
-              <QuestionSectionCustom
-                value={form.custom_sections ?? []}
-                onChange={handleCustomChange}
-              />
-            </div>
-          )}
-
-          <div className="modal-footer" style={{ 
-            display: "flex",
-            gap: 12, 
-            justifyContent: "flex-end", 
-            marginTop: 24, 
-            borderTop: "2px solid #e5e7eb", 
-            paddingTop: 16 
-          }}>
-            <button 
-              type="button" 
-              onClick={onClose} 
-              className="btn btn-secondary"
-              style={{
-                padding: '10px 20px',
-                border: '1px solid #d1d5db',
-                background: 'white',
-                borderRadius: 4,
-                cursor: 'pointer',
-                fontWeight: 500
-              }}
-            >
-              Cancel
-            </button>
-            <button 
-              type="submit" 
-              className="btn btn-primary"
-              style={{
-                padding: '10px 20px',
-                border: 'none',
-                background: '#3b82f6',
-                color: 'white',
-                borderRadius: 4,
-                cursor: 'pointer',
-                fontWeight: 500
-              }}
-            >
-              {exam ? "Save Changes" : "Create Exam"}
-            </button>
           </div>
         </form>
       </div>

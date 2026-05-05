@@ -19,7 +19,7 @@
  * @see examDataNormalizer.ts for data normalization before PDF generation
  */
 
-import { Exam } from "../services/ExamService";
+import { Exam, PrintSettings, DEFAULT_PRINT_SETTINGS } from "../services/ExamService";
 import { normalizeForPdfGeneration } from "./examDataNormalizer";
 
 // ===========================
@@ -90,21 +90,105 @@ function renderRichContent(content: any): string {
 }
 
 // ===========================
+// PRINT SETTINGS HELPERS
+// ===========================
+
+const FONT_MAP: Record<string, string> = {
+  times_new_roman: "'Times New Roman', Times, serif",
+  arial:           "Arial, Helvetica, sans-serif",
+  georgia:         "Georgia, 'Times New Roman', serif",
+  calibri:         "Calibri, 'Segoe UI', Arial, sans-serif",
+};
+
+const MARGIN_MAP: Record<string, string> = {
+  narrow: '0.5in',
+  normal: '1in',
+  wide:   '1.5in',
+};
+
+/**
+ * Build dynamic CSS from print settings.
+ * Injects into the <style> block alongside the base styles.
+ */
+function buildPrintCss(ps: PrintSettings): string {
+  const font    = FONT_MAP[ps.font_family] ?? FONT_MAP.times_new_roman;
+  const margin  = MARGIN_MAP[ps.margin]    ?? '1in';
+  const columns = ps.column_layout === 2
+    ? 'column-count: 2; column-gap: 1.5em;'
+    : '';
+
+  // Smart option layout CSS
+  const optionsCss = ps.option_layout === 'stacked' ? `
+    /* Stacked: options always below question */
+    .question-row { display: block; }
+    .options-wrap { display: block; margin-top: 6px; margin-left: 20px; }
+    .option-item  { display: block; margin: 3px 0; }
+  ` : ps.option_layout === 'inline' ? `
+    /* Inline: options always flow beside question */
+    .question-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4em; }
+    .question-num { flex: 0 0 auto; font-weight: bold; }
+    .question-body { flex: 0 1 auto; }
+    .options-wrap { flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 1.2em; margin-left: 0.8em; }
+    .option-item  { white-space: nowrap; }
+  ` : `
+    /* Auto (smart): flex-wrap does the work — short question → inline; long → stacked */
+    .question-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4em; }
+    .question-num { flex: 0 0 auto; font-weight: bold; }
+    .question-body { flex: 1 1 55%; min-width: 160px; }
+    .options-wrap { flex: 1 1 35%; min-width: 240px; display: flex; flex-wrap: wrap; gap: 1.2em; align-items: baseline; }
+    .option-item  { white-space: nowrap; }
+  `;
+
+  return `
+    @page { margin: ${margin}; }
+    body {
+      font-family: ${font};
+      font-size: ${ps.font_size}pt;
+      line-height: ${ps.line_height};
+    }
+    .questions-grid { ${columns} }
+    ${optionsCss}
+  `;
+}
+
+/**
+ * Render MCQ options respecting the option_layout setting.
+ */
+function renderOptions(q: any, showMarks: boolean, marksLabel: string): string {
+  const opts = [
+    { label: 'A', val: q.optionA || q.option_a },
+    { label: 'B', val: q.optionB || q.option_b },
+    { label: 'C', val: q.optionC || q.option_c },
+    { label: 'D', val: q.optionD || q.option_d },
+  ].filter(o => o.val);
+
+  const marksTag = showMarks && q.marks
+    ? `<span style="color:#555;font-size:0.85em;margin-left:0.5em;">[${q.marks}]</span>`
+    : '';
+
+  return `<div class="options-wrap">
+    ${opts.map(o => `<span class="option-item"><strong>${o.label})</strong>&nbsp;${renderRichContent(o.val)}</span>`).join('')}
+    ${marksTag}
+  </div>`;
+}
+
+// ===========================
 // MAIN PDF GENERATION FUNCTION
 // ===========================
 
 /**
- * Generate complete HTML document for exam printing
+ * Generate complete HTML document for exam printing.
  *
- * @param exam - Exam data (will be normalized internally)
- * @param copyType - "student" (questions only) or "teacher" (with answers)
- * @param settings - School settings for branding
- * @returns Complete HTML document string
+ * @param exam        - Exam data (will be normalized internally)
+ * @param copyType    - "student" (questions only) or "teacher" (with answers)
+ * @param settings    - School settings for branding
+ * @param printSettings - Per-exam print/formatting preferences
  */
 export function generateExamHtml(
   exam: Exam,
   copyType: "student" | "teacher" = "student",
-  settings?: any
+  settings?: any,
+  printSettings?: Partial<PrintSettings>
 ): string {
   console.log('📄 Generating exam HTML...', {
     copyType,
@@ -114,12 +198,12 @@ export function generateExamHtml(
     hasCustom: !!exam.custom_sections?.length
   });
 
-  // CRITICAL: Normalize exam data for PDF generation
-  // This ensures:
-  // - Plain text is converted to HTML
-  // - Images from both Admin (inline) and Teacher (separate fields) work
-  // - Tables in all formats are converted to HTML
-  // - Content is optimized for PDF output
+  const ps: PrintSettings = {
+    ...DEFAULT_PRINT_SETTINGS,
+    ...(exam as any).print_settings,
+    ...printSettings,
+  };
+
   const normalized = normalizeForPdfGeneration(exam);
 
   if (!normalized) {
@@ -127,26 +211,19 @@ export function generateExamHtml(
     return '<html><body><h1>Error: Failed to generate exam</h1></body></html>';
   }
 
-  // Use dynamic school information from settings
-  const schoolName = safeString(settings?.school_name || 'School Name');
-  const schoolAddress = safeString(settings?.address || 'School Address');
-  const academicSession = safeString(settings?.academicYear || 'Academic Year');
-  const currentTerm = safeString(settings?.currentTerm || 'Current Term');
-
-  // Get grade level name (handle both flat and nested structures)
+  const schoolName     = safeString(settings?.school_name || 'School Name');
+  const schoolAddress  = safeString(settings?.address || 'School Address');
+  const academicSession= safeString(settings?.academicYear || 'Academic Year');
+  const currentTerm    = safeString(settings?.currentTerm || 'Current Term');
   const gradeLevelName = safeString(normalized.grade_level_name || normalized.grade_level?.name || 'Class');
+  const subjectName    = safeString(normalized.subject_name || normalized.subject?.name || 'Subject');
+  const examDate       = normalized.exam_date ? new Date(normalized.exam_date).toLocaleDateString() : 'TBA';
 
-  // Get subject name (handle both flat and nested structures)
-  const subjectName = safeString(normalized.subject_name || normalized.subject?.name || 'Subject');
-
-  // Format date
-  const examDate = normalized.exam_date ? new Date(normalized.exam_date).toLocaleDateString() : 'TBA';
-
-  if (copyType === "teacher") {
+  if (copyType === 'teacher') {
     return generateTeacherCopy(normalized, schoolName, schoolAddress, academicSession, currentTerm, gradeLevelName, subjectName, examDate);
   }
 
-  return generateStudentCopy(normalized, schoolName, schoolAddress, academicSession, currentTerm, gradeLevelName, subjectName, examDate);
+  return generateStudentCopy(normalized, schoolName, schoolAddress, academicSession, currentTerm, gradeLevelName, subjectName, examDate, ps);
 }
 
 // ===========================
@@ -161,8 +238,11 @@ function generateStudentCopy(
   currentTerm: string,
   gradeLevelName: string,
   subjectName: string,
-  examDate: string
+  examDate: string,
+  ps: PrintSettings = DEFAULT_PRINT_SETTINGS
 ): string {
+  const dynamicCss = buildPrintCss(ps);
+
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -171,14 +251,14 @@ function generateStudentCopy(
   <style>
     /* ===== BASE STYLES ===== */
     body {
-      font-family: 'Times New Roman', Times, serif;
       margin: 0;
-      padding: 15mm;
-      line-height: 1.5;
-      font-size: 14px;
+      padding: 0;
       position: relative;
       color: #000;
     }
+
+    /* ===== DYNAMIC PRINT SETTINGS ===== */
+    ${dynamicCss}
 
     /* ===== WATERMARK ===== */
     body::before {
@@ -410,21 +490,22 @@ function generateStudentCopy(
   ${exam.objective_questions?.length ? `
   <div class="section">
     <h3>SECTION A: OBJECTIVE QUESTIONS</h3>
-    ${exam.objective_instructions ? `<div class="section-instruction">${renderRichContent(exam.objective_instructions)}</div>` : ''}
+    ${ps.show_instructions && exam.objective_instructions ? `<div class="section-instruction">${renderRichContent(exam.objective_instructions)}</div>` : ''}
+    <div class="questions-grid">
     ${exam.objective_questions.map((q: any, index: number) => `
     <div class="question">
-      <strong>${index + 1}.</strong>
-      <span class="question-content">${renderRichContent(q.question || q.question_text)}</span>
-      ${q.image ? `<div class="question-content">${renderRichContent(q.image)}</div>` : ''}
-      ${q.table ? `<div class="question-content">${renderRichContent(q.table)}</div>` : ''}
-      <div class="options">
-        ${q.optionA || q.option_a ? `<div><span class="label">A)</span> ${renderRichContent(q.optionA || q.option_a)}</div>` : ''}
-        ${q.optionB || q.option_b ? `<div><span class="label">B)</span> ${renderRichContent(q.optionB || q.option_b)}</div>` : ''}
-        ${q.optionC || q.option_c ? `<div><span class="label">C)</span> ${renderRichContent(q.optionC || q.option_c)}</div>` : ''}
-        ${q.optionD || q.option_d ? `<div><span class="label">D)</span> ${renderRichContent(q.optionD || q.option_d)}</div>` : ''}
+      <div class="question-row">
+        <span class="question-num">${index + 1}.</span>
+        <span class="question-body">
+          <span class="question-content">${renderRichContent(q.question || q.question_text)}</span>
+          ${q.image ? `<div class="question-content">${renderRichContent(q.image)}</div>` : ''}
+          ${q.table ? `<div class="question-content">${renderRichContent(q.table)}</div>` : ''}
+        </span>
+        ${renderOptions(q, ps.show_marks, '[marks]')}
       </div>
     </div>
     `).join('')}
+    </div>
   </div>
   ` : ''}
 
@@ -432,7 +513,7 @@ function generateStudentCopy(
   ${exam.theory_questions?.length ? `
   <div class="section">
     <h3>SECTION B: THEORY QUESTIONS</h3>
-    ${exam.theory_instructions ? `<div class="section-instruction">${renderRichContent(exam.theory_instructions)}</div>` : ''}
+    ${ps.show_instructions && exam.theory_instructions ? `<div class="section-instruction">${renderRichContent(exam.theory_instructions)}</div>` : ''}
     ${exam.theory_questions.map((q: any, index: number) => `
     <div class="question">
       <strong>${index + 1}.</strong>

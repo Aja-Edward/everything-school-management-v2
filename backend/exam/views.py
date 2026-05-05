@@ -210,6 +210,64 @@ class SectionEducationLevelMixin:
 
 
 # ==============================================================================
+# REFERENCE DATA VIEWSETS (ExamType, DifficultyLevel, ExamStatus)
+# ==============================================================================
+
+
+class ExamTypeViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
+    """Returns tenant-specific exam types for form dropdowns."""
+    queryset = ExamType.objects.all()
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['is_active']
+    pagination_class = None
+
+    def get_serializer_class(self):
+        from rest_framework import serializers
+        class S(serializers.ModelSerializer):
+            class Meta:
+                model = ExamType
+                fields = ['id', 'name', 'code', 'default_weight', 'display_order', 'is_active']
+        return S
+
+    def get_queryset(self):
+        return super().get_queryset().filter(is_active=True).order_by('display_order', 'name')
+
+
+class DifficultyLevelViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
+    """Returns tenant-specific difficulty levels for form dropdowns."""
+    queryset = DifficultyLevel.objects.all()
+    pagination_class = None
+
+    def get_serializer_class(self):
+        from rest_framework import serializers
+        class S(serializers.ModelSerializer):
+            class Meta:
+                model = DifficultyLevel
+                fields = ['id', 'name', 'code', 'color_code', 'display_order', 'is_active']
+        return S
+
+    def get_queryset(self):
+        return super().get_queryset().filter(is_active=True).order_by('display_order', 'name')
+
+
+class ExamStatusViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
+    """Returns tenant-specific exam statuses for form dropdowns."""
+    queryset = ExamStatus.objects.all()
+    pagination_class = None
+
+    def get_serializer_class(self):
+        from rest_framework import serializers
+        class S(serializers.ModelSerializer):
+            class Meta:
+                model = ExamStatus
+                fields = ['id', 'name', 'code', 'is_initial', 'is_final', 'allows_editing', 'color_code', 'display_order', 'is_active']
+        return S
+
+    def get_queryset(self):
+        return super().get_queryset().filter(is_active=True).order_by('display_order', 'name')
+
+
+# ==============================================================================
 # EXAM VIEWSET
 # ==============================================================================
 
@@ -329,7 +387,25 @@ class ExamViewSet(
         return queryset.none()
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        # Auto-assign the tenant's default/active exam schedule if none supplied.
+        # This prevents the Exam.clean() "No exam schedule available" error when
+        # teachers create exams without selecting a schedule in the form.
+        extra = {}
+        if not serializer.validated_data.get('exam_schedule'):
+            schedule = (
+                ExamSchedule.objects.filter(
+                    tenant=self.request.tenant, is_default=True, is_active=True
+                ).first()
+                or ExamSchedule.objects.filter(
+                    tenant=self.request.tenant, is_active=True
+                ).first()
+                or ExamSchedule.objects.filter(
+                    tenant=self.request.tenant
+                ).first()
+            )
+            if schedule:
+                extra['exam_schedule'] = schedule
+        serializer.save(**extra)
 
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)

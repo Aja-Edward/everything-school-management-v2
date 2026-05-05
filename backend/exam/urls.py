@@ -9,6 +9,9 @@ from .views import (
     QuestionBankViewSet,
     ExamTemplateViewSet,
     ExamReviewViewSet,
+    ExamTypeViewSet,
+    DifficultyLevelViewSet,
+    ExamStatusViewSet,
 )
 from .document_views import (
     parse_exam_document,
@@ -24,7 +27,10 @@ router.register(r"results", ResultViewSet, basename="result")
 router.register(r"statistics", ExamStatisticsViewSet, basename="exam-statistics")
 router.register(r"question-bank", QuestionBankViewSet, basename="question-bank")
 router.register(r"exam-templates", ExamTemplateViewSet, basename="exam-template")
-router.register(r"exam-reviews", ExamReviewViewSet, basename="exam-review")
+router.register(r"exam-reviews",      ExamReviewViewSet,      basename="exam-review")
+router.register(r"exam-types",        ExamTypeViewSet,        basename="exam-type")
+router.register(r"difficulty-levels", DifficultyLevelViewSet, basename="difficulty-level")
+router.register(r"exam-statuses",     ExamStatusViewSet,      basename="exam-status")
 
 # Custom URL patterns for specific exam endpoints
 custom_patterns = [

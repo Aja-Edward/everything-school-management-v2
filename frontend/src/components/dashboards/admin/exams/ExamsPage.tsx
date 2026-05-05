@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { Search, Plus, X, Filter, Edit2, Printer, CheckCircle, Trash2, Calendar, BookOpen, GraduationCap, FileText, ChevronDown, Upload } from "lucide-react";
+import { Search, Plus, X, Filter, Edit2, Printer, CheckCircle, Trash2, Calendar, BookOpen, GraduationCap, FileText, ChevronDown, Upload, FileDown } from "lucide-react";
+import { generateExamWordTemplate, generateExamCsvTemplate } from "@/utils/examTemplateGenerator";
 import { Exam, ExamCreateData, ExamUpdateData, ExamFilters, ExamService } from "@/services/ExamService";
 import ExamFormModal from "./ExamFormModal";
 import PrintPreviewModal from "./PrintPreviewModal";
@@ -26,7 +27,7 @@ const ExamsPage: React.FC<ExamsPageProps> = ({
   const [exams, setExams] = useState<Exam[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [_submitting, setSubmitting] = useState(false);
 
   // Modal and selected objects
   const [showExamModal, setShowExamModal] = useState(false);
@@ -299,6 +300,25 @@ const handleEditExam = useCallback((exam: Exam) => {
               </div>
             </div>
             <div className="flex gap-3">
+              {/* Template download — Word or CSV */}
+              <div className="flex items-stretch">
+                <button
+                  onClick={() => generateExamWordTemplate('Examination').catch(console.error)}
+                  className="flex items-center gap-1.5 px-3 py-2 border border-green-500 text-green-700 bg-green-50 hover:bg-green-100 rounded-l-xl transition-colors text-sm font-medium"
+                  title="Download Word template (.docx) — Google Docs compatible"
+                >
+                  <FileDown className="w-4 h-4" />
+                  <span>Word</span>
+                </button>
+                <button
+                  onClick={() => generateExamCsvTemplate('Examination')}
+                  className="flex items-center gap-1.5 px-3 py-2 border border-green-500 border-l-0 text-green-700 bg-green-50 hover:bg-green-100 rounded-r-xl transition-colors text-sm font-medium"
+                  title="Download CSV template — Google Sheets / Excel"
+                >
+                  <span>CSV</span>
+                </button>
+              </div>
+
               <button
                 onClick={() => setShowUploadModal(true)}
                 className="flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all duration-200 shadow-lg hover:shadow-xl font-medium"
@@ -728,6 +748,12 @@ const handleEditExam = useCallback((exam: Exam) => {
         open={showPrintPreview}
         exam={selectedExamForPrint}
         onClose={() => setShowPrintPreview(false)}
+        onSaveSettings={async (examId, ps) => {
+          await ExamService.updateExam(examId, { print_settings: ps } as any);
+          setExams(prev => prev.map(e =>
+            e.id === examId ? { ...e, print_settings: ps } as any : e
+          ));
+        }}
       />
 
       <ApprovalModal

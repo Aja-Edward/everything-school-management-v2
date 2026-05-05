@@ -9,7 +9,7 @@ import { Upload, Loader2, AlertCircle } from 'lucide-react';
 
 // Cloudinary configuration
 const CLOUDINARY_CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || 'djbz7wunu';
-const CLOUDINARY_UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || 'exam_images';
+const CLOUDINARY_UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || 'profile_upload';
 
 export interface ImageUploadResult {
   url: string;
@@ -28,35 +28,36 @@ export interface ImageUploaderProps {
   showPreview?: boolean;
 }
 
-/**
- * Upload an image file to Cloudinary
- */
-export const uploadImageToCloudinary = async (file: File): Promise<ImageUploadResult> => {
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+const CLOUDINARY_API = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`;
 
-  const response = await fetch(
-    `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
-    {
-      method: 'POST',
-      body: formData,
-    }
-  );
-
+async function cloudinaryUpload(body: FormData): Promise<ImageUploadResult> {
+  const response = await fetch(CLOUDINARY_API, { method: 'POST', body });
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error?.message || 'Failed to upload image');
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error?.message || 'Cloudinary upload failed');
   }
-
   const data = await response.json();
+  return { url: data.secure_url, publicId: data.public_id, width: data.width, height: data.height };
+}
 
-  return {
-    url: data.secure_url,
-    publicId: data.public_id,
-    width: data.width,
-    height: data.height,
-  };
+/** Upload a File object (from the file picker) */
+export const uploadImageToCloudinary = async (file: File): Promise<ImageUploadResult> => {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+  return cloudinaryUpload(fd);
+};
+
+/**
+ * Upload an image by URL — Cloudinary fetches it server-side so CORS is never
+ * an issue regardless of the source domain (Pixabay, Wikipedia, etc.).
+ * The result is a Cloudinary-hosted URL that supports crop and background removal.
+ */
+export const uploadImageUrlToCloudinary = async (imageUrl: string): Promise<ImageUploadResult> => {
+  const fd = new FormData();
+  fd.append('file', imageUrl);          // Cloudinary accepts a URL string as 'file'
+  fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+  return cloudinaryUpload(fd);
 };
 
 /**

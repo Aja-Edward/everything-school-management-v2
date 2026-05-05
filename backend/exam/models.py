@@ -427,6 +427,17 @@ class Exam(TenantMixin, models.Model):
     requires_computer = models.BooleanField(default=False)
     is_online = models.BooleanField(default=False)
 
+    # Per-exam print/formatting preferences saved by the admin/teacher
+    print_settings = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Per-exam print formatting: font_family, font_size, line_height, "
+            "option_layout (auto|inline|stacked), column_layout (1|2), "
+            "margin (normal|narrow|wide), show_marks, show_instructions."
+        ),
+    )
+
     # Approval workflow
     approved_by = models.ForeignKey(
         Teacher,

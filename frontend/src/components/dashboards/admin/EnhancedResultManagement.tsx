@@ -22,7 +22,7 @@ import {
 import { useGlobalTheme } from '@/contexts/GlobalThemeContext';
 import StudentService, { Student } from '@/services/StudentService';
 import ResultService from '@/services/ResultService';
-import { StandardResult } from '@/types/types'
+import { StandardResult } from '@/types/types';
 import EnhancedResultRecording from './EnhancedResultRecording';
 import EditResultForm from './EditResultForm';
 import { toast } from 'react-toastify';
@@ -81,18 +81,20 @@ const EnhancedResultManagement: React.FC<EnhancedResultRecordingProps> = ({ onRe
     try {
       setLoading(true);
       setError(null);
-      
-      // Load students
-      const studentsResponse = await StudentService.getStudents();
-      const studentsData = studentsResponse?.results || studentsResponse || [];
-      
-      // Load all results using the getAllResults method
-      const resultsData = await ResultService.getAllResults();
-      
-      console.log('Loaded students:', studentsData);
-      console.log('Loaded results:', resultsData);
-      
-      setStudents(studentsData);
+
+      // getStudents() returns Student[] directly (not paginated)
+      const studentsData = await StudentService.getStudents();
+
+      // Fetch subject results from all 4 education levels in parallel
+      const levels = ['SENIOR_SECONDARY', 'JUNIOR_SECONDARY', 'PRIMARY', 'NURSERY'] as const;
+      const settled = await Promise.allSettled(
+        levels.map(level => ResultService.getSubjectResults(level, { page_size: 200 } as any))
+      );
+      const resultsData = settled.flatMap(r =>
+        r.status === 'fulfilled' ? (r.value as unknown as StandardResult[]) : []
+      );
+
+      setStudents(Array.isArray(studentsData) ? studentsData : []);
       setResults(resultsData);
       
     } catch (error) {
@@ -176,9 +178,9 @@ const EnhancedResultManagement: React.FC<EnhancedResultRecordingProps> = ({ onRe
 
   // Handle edit result
   const handleEditResult = (result: StandardResult, student: Student) => {
-     console.log('Editing result:', result);
-    console.log('For student:', student);
-    setEditingResult({ result, student });
+    // Derive educationLevel from the result object (set during load) or fall back
+    const level = (result as any).education_level ?? 'SENIOR_SECONDARY';
+    setEditingResult({ result, student, educationLevel: level });
   };
 
   // Handle view student results
@@ -383,7 +385,6 @@ const EnhancedResultManagement: React.FC<EnhancedResultRecordingProps> = ({ onRe
             </div>
           )}
         </div>
-      </div>
 
       {/* Content */}
       <div className="px-6 py-8 max-w-7xl mx-auto">
@@ -643,7 +644,7 @@ const EnhancedResultManagement: React.FC<EnhancedResultRecordingProps> = ({ onRe
               <div className="p-6">
                 <EditResultForm
                   result={editingResult.result}
-                  student={editingResult.student}
+                  educationLevel={editingResult.educationLevel ?? 'SENIOR_SECONDARY'}
                   onClose={() => setEditingResult(null)}
                   onSuccess={() => {
                     setEditingResult(null);

@@ -1,481 +1,294 @@
-// import React, { useState, useEffect, useMemo } from "react";
-// import { Exam } from "@/services/ExamService";
-// import { generateExamHtml } from "@/utils/examHtmlGenerator";
-// import { useSettings } from '@/contexts/SettingsContext';
-// import { normalizeExamDataForDisplay } from '@/utils/examDataNormalizer';
-
-// interface Question {
-//   question_text?: string;
-//   question?: string;
-//   image?: string;
-//   imageUrl?: string;
-//   image_url?: string;
-//   table?: string | object;
-//   subQuestions?: Question[];
-//   subSubQuestions?: Question[];
-// }
-
-// interface Props {
-//   open: boolean;
-//   exam?: Exam | null;
-//   onClose: () => void;
-// }
-
-// const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose }) => {
-//   const [copyType, setCopyType] = useState<"student" | "teacher">("student");
-//   const { settings } = useSettings();
-//   const [normalizedExam, setNormalizedExam] = useState<any>(null);
-
-//   // ALL HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL RETURNS
-  
-//   // Normalize exam data when modal opens
-//   useEffect(() => {
-//     if (open && exam) {
-//       console.log('🔄 Normalizing exam for display...');
-//       const normalized = normalizeExamDataForDisplay(exam);
-//       setNormalizedExam(normalized);
-//       console.log('✅ Normalized exam set:', normalized);
-//     } else {
-//       setNormalizedExam(null);
-//     }
-//   }, [open, exam]);
-
-//   // Debug original exam data - ONLY ONCE when modal opens
-//   useEffect(() => {
-//     if (!open || !exam) return;
-    
-//     console.group("🔍 ORIGINAL EXAM DATA");
-//     console.log("Full exam object:", exam);
-    
-//     // Check objective questions
-//     if (exam.objective_questions && exam.objective_questions.length > 0) {
-//       console.group("📊 OBJECTIVE QUESTIONS (Original)");
-//       console.log(`Total: ${exam.objective_questions.length}`);
-      
-//       exam.objective_questions.forEach((q: any, idx: number) => {
-//         console.log(`\nQuestion ${idx + 1}:`, {
-//           text: q.question_text?.substring(0, 50) + "...",
-//           hasImage: !!q.image,
-//           imageType: typeof q.image,
-//           imageValue: q.image,
-//           hasImageUrl: !!q.imageUrl,
-//           hasTable: !!q.table,
-//           tableType: typeof q.table,
-//         });
-//       });
-//       console.groupEnd();
-//     }
-    
-//     // Check theory questions
-//     if (exam.theory_questions && exam.theory_questions.length > 0) {
-//       console.group("📝 THEORY QUESTIONS (Original)");
-//       console.log(`Total: ${exam.theory_questions.length}`);
-      
-//       exam.theory_questions.forEach((q: any, idx: number) => {
-//         console.log(`\nQuestion ${idx + 1}:`, {
-//           text: q.question_text?.substring(0, 50) + "...",
-//           hasImage: !!q.image,
-//           imageType: typeof q.image,
-//           hasTable: !!q.table,
-//           tableType: typeof q.table,
-//         });
-//       });
-//       console.groupEnd();
-//     }
-    
-//     console.groupEnd();
-//   }, [open, exam]);
-  
-//   // Debug normalized exam data - ONLY ONCE when normalization completes
-//   useEffect(() => {
-//     if (!open || !normalizedExam) return;
-    
-//     console.group("🖼️ NORMALIZED EXAM - IMAGE & TABLE DEBUG");
-    
-//     let imageCount = 0;
-//     let tableCount = 0;
-    
-//     // Check objective questions
-//     if (normalizedExam.objective_questions) {
-//       console.group("📊 Objective Questions (Normalized)");
-//       normalizedExam.objective_questions.forEach((q: Question, idx: number) => {
-//         if (q.image || q.table) {
-//           console.log(`Objective ${idx + 1}:`, {
-//             hasImage: !!q.image,
-//             imageValue: q.image,
-//             imageType: typeof q.image,
-//             startsWithHttp: typeof q.image === 'string' && q.image.startsWith('http'),
-//             first100Chars: q.image ? (typeof q.image === 'string' ? q.image.substring(0, 100) : 'not string') : null,
-//             hasTable: !!q.table,
-//             tableIsHTML: typeof q.table === 'string' && q.table.includes('<table'),
-//           });
-//           if (q.image) imageCount++;
-//           if (q.table) tableCount++;
-//         }
-//       });
-//       console.groupEnd();
-//     }
-    
-//     // Check theory questions
-//     if (normalizedExam.theory_questions) {
-//       console.group("📝 Theory Questions (Normalized)");
-//       normalizedExam.theory_questions.forEach((q: Question, idx: number) => {
-//         if (q.image || q.table) {
-//           console.log(`Theory ${idx + 1}:`, {
-//             hasImage: !!q.image,
-//             imageValue: q.image,
-//             imageType: typeof q.image,
-//             startsWithHttp: typeof q.image === 'string' && q.image.startsWith('http'),
-//             first100Chars: q.image ? (typeof q.image === 'string' ? q.image.substring(0, 100) : 'not string') : null,
-//             hasTable: !!q.table,
-//             tableIsHTML: typeof q.table === 'string' && q.table.includes('<table'),
-//           });
-//           if (q.image) imageCount++;
-//           if (q.table) tableCount++;
-//         }
-        
-//         // Check sub-questions
-//         if (q.subQuestions) {
-//           q.subQuestions.forEach((sq: Question, sqIdx: number) => {
-//             if (sq.image || sq.table) {
-//               console.log(`  Sub ${idx + 1}.${sqIdx + 1}:`, {
-//                 hasImage: !!sq.image,
-//                 hasTable: !!sq.table,
-//               });
-//               if (sq.image) imageCount++;
-//               if (sq.table) tableCount++;
-//             }
-//           });
-//         }
-//       });
-//       console.groupEnd();
-//     }
-    
-//     // Check practical questions
-//     if (normalizedExam.practical_questions) {
-//       console.group("🔬 Practical Questions (Normalized)");
-//       (normalizedExam.practical_questions as Question[]).forEach((q: Question, idx: number) => {
-//         if (q.image || q.table) {
-//           console.log(`Practical ${idx + 1}:`, {
-//             hasImage: !!q.image,
-//             hasTable: !!q.table,
-//           });
-//           if (q.image) imageCount++;
-//           if (q.table) tableCount++;
-//         }
-//       });
-//       console.groupEnd();
-//     }
-    
-//     console.log(`📊 SUMMARY: ${imageCount} images, ${tableCount} tables`);
-//     console.groupEnd();
-//   }, [open, normalizedExam]);
-
-//   // Generate HTML - memoized to prevent unnecessary recalculation
-//   const html = useMemo(() => {
-//     if (!normalizedExam) return '';
-//     return generateExamHtml(normalizedExam, copyType, settings);
-//   }, [normalizedExam, copyType, settings]);
-
-//   // Debug generated HTML - ONLY when html changes
-//   useEffect(() => {
-//     if (!open || !html) return;
-    
-//     console.group("📄 GENERATED HTML DEBUG");
-//     console.log("HTML length:", html.length);
-//     console.log("Contains <img> tags:", html.includes('<img'));
-//     console.log("Contains <table> tags:", html.includes('<table'));
-//     console.log("Number of <img> tags:", (html.match(/<img/g) || []).length);
-//     console.log("Number of <table> tags:", (html.match(/<table/g) || []).length);
-//     console.groupEnd();
-//   }, [open, html]);
-  
-//   // Early return AFTER all hooks
-//   if (!open || !exam) return null;
-  
-//   const handlePrint = () => {
-//     const printWin = window.open("");
-//     if (printWin) {
-//       printWin.document.write(html);
-//       printWin.document.close();
-//       printWin.focus();
-//       printWin.print();
-//     }
-//   };
-  
-//   return (
-//     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-//       <div className="bg-white rounded-lg shadow-lg max-h-[90vh] overflow-y-auto w-full max-w-4xl">
-       
-//         {/* Modal Header */}
-//         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center gap-4">
-//           <div className="flex-1">
-//             <h2 className="text-2xl font-bold text-gray-900">Print Preview</h2>
-//             <p className="text-sm text-gray-600 mt-1">{exam.title}</p>
-//           </div>
-//           <button
-//             onClick={onClose}
-//             className="text-gray-400 hover:text-gray-600 text-3xl font-light flex-shrink-0"
-//             aria-label="Close modal"
-//           >
-//             ×
-//           </button>
-//         </div>
-        
-//         {/* Copy Type Selector */}
-//         <div className="sticky top-16 bg-gray-50 border-b border-gray-200 px-6 py-4 z-10">
-//           <div className="flex gap-4 items-center">
-//             <span className="font-medium text-gray-700">View as:</span>
-//             <div className="flex gap-3">
-//               <button
-//                 onClick={() => setCopyType("student")}
-//                 className={`px-4 py-2 rounded-lg font-medium transition ${
-//                   copyType === "student"
-//                     ? "bg-blue-600 text-white"
-//                     : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
-//                 }`}
-//               >
-//                 Student Copy
-//               </button>
-//               <button
-//                 onClick={() => setCopyType("teacher")}
-//                 className={`px-4 py-2 rounded-lg font-medium transition ${
-//                   copyType === "teacher"
-//                     ? "bg-green-600 text-white"
-//                     : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
-//                 }`}
-//               >
-//                 Teacher's Copy
-//               </button>
-//             </div>
-//           </div>
-//         </div>
-        
-//         {/* Debug Info Panel */}
-//         <div className="mx-6 mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded text-xs">
-//           <details>
-//             <summary className="cursor-pointer font-semibold text-yellow-800">
-//               🐛 Debug Info (Click to expand)
-//             </summary>
-//             <div className="mt-2 space-y-2 text-yellow-900">
-//               <div>Objective Questions: {exam.objective_questions?.length || 0}</div>
-//               <div>Theory Questions: {exam.theory_questions?.length || 0}</div>
-//               <div>Practical Questions: {exam.practical_questions?.length || 0}</div>
-//               <div>
-//                 Questions with images (original): {
-//                   ((exam.objective_questions as any)?.filter((q: any) => q.image || q.imageUrl)?.length || 0) +
-//                   ((exam.theory_questions as any)?.filter((q: any) => q.image || q.imageUrl)?.length || 0) +
-//                   ((exam.practical_questions as any)?.filter((q: any) => q.image || q.imageUrl)?.length || 0)
-//                 }
-//               </div>
-//               <div>
-//                 Questions with tables (original): {
-//                   ((exam.objective_questions as any)?.filter((q: any) => q.table)?.length || 0) +
-//                   ((exam.theory_questions as any)?.filter((q: any) => q.table)?.length || 0) +
-//                   ((exam.practical_questions as any)?.filter((q: any) => q.table)?.length || 0)
-//                 }
-//               </div>
-//               {normalizedExam && (
-//                 <>
-//                   <div className="font-semibold mt-2 pt-2 border-t border-yellow-300">
-//                     After Normalization:
-//                   </div>
-//                   <div>
-//                     Questions with images (normalized): {
-//                       (normalizedExam.objective_questions?.filter((q: Question) => q.image)?.length || 0) +
-//                       (normalizedExam.theory_questions?.filter((q: Question) => q.image)?.length || 0) +
-//                       (normalizedExam.practical_questions?.filter((q: Question) => q.image)?.length || 0)
-//                     }
-//                   </div>
-//                   <div>
-//                     Questions with tables (normalized): {
-//                       (normalizedExam.objective_questions?.filter((q: Question) => q.table)?.length || 0) +
-//                       (normalizedExam.theory_questions?.filter((q: Question) => q.table)?.length || 0) +
-//                       (normalizedExam.practical_questions?.filter((q: Question) => q.table)?.length || 0)
-//                     }
-//                   </div>
-//                 </>
-//               )}
-//             </div>
-//           </details>
-//         </div>
-        
-//         {/* Preview Content */}
-//         <div className="p-6">
-//           <div
-//             className="prose prose-sm max-w-none bg-white p-8 border border-gray-200 rounded shadow-sm"
-//             dangerouslySetInnerHTML={{ __html: html }}
-//           />
-//         </div>
-        
-//         {/* Modal Footer */}
-//         <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex justify-end gap-3">
-//           <button
-//             onClick={onClose}
-//             className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition font-medium"
-//           >
-//             Close
-//           </button>
-//           <button
-//             onClick={handlePrint}
-//             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium flex items-center gap-2"
-//           >
-//             🖨️ Print {copyType === "teacher" ? "Teacher's Copy" : "Student Copy"}
-//           </button>
-//         </div>
-//       </div>
-//     </div>
-//   );
-// };
-
-// export default PrintPreviewModal;
-
-import React, { useState, useEffect, useMemo } from "react";
-import { X, Printer, FileText, Eye } from "lucide-react";
-import { Exam } from "@/services/ExamService";
-import { generateExamHtml } from "@/utils/examHtmlGenerator";
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Printer, Settings2 } from 'lucide-react';
+import { Exam, PrintSettings, DEFAULT_PRINT_SETTINGS } from '@/services/ExamService';
+import { generateExamHtml } from '@/utils/examHtmlGenerator';
 import { useSettings } from '@/contexts/SettingsContext';
 import { normalizeExamDataForDisplay } from '@/utils/examDataNormalizer';
-
-interface Question {
-  question_text?: string;
-  question?: string;
-  image?: string;
-  imageUrl?: string;
-  image_url?: string;
-  table?: string | object;
-  subQuestions?: Question[];
-  subSubQuestions?: Question[];
-}
 
 interface Props {
   open: boolean;
   exam?: Exam | null;
   onClose: () => void;
+  /** Called when user saves updated print settings back to the exam */
+  onSaveSettings?: (examId: number, ps: PrintSettings) => Promise<void>;
 }
 
-const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose }) => {
-  const [copyType, setCopyType] = useState<"student" | "teacher">("student");
+const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSettings }) => {
   const { settings } = useSettings();
-  const [normalizedExam, setNormalizedExam] = useState<any>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // Normalize exam data when modal opens
+  const [copyType,     setCopyType]     = useState<'student' | 'teacher'>('student');
+  const [printSettings, setPrintSettings] = useState<PrintSettings>({ ...DEFAULT_PRINT_SETTINGS });
+  const [showPanel,    setShowPanel]    = useState(false);
+  const [saving,       setSaving]       = useState(false);
+  const [html,         setHtml]         = useState('');
+
+  // Load print settings from exam when modal opens
   useEffect(() => {
-    if (open && exam) {
-      const normalized = normalizeExamDataForDisplay(exam);
-      setNormalizedExam(normalized);
-    } else {
-      setNormalizedExam(null);
-    }
+    if (!open || !exam) return;
+    setPrintSettings({ ...DEFAULT_PRINT_SETTINGS, ...(exam as any).print_settings });
+    setCopyType('student');
   }, [open, exam]);
 
-  // Generate HTML - memoized to prevent unnecessary recalculation
-  const html = useMemo(() => {
-    if (!normalizedExam) return '';
-    return generateExamHtml(normalizedExam, copyType, settings);
-  }, [normalizedExam, copyType, settings]);
-  
-  // Early return AFTER all hooks
-  if (!open || !exam) return null;
-  
+  // Re-generate HTML whenever exam, copyType or printSettings change
+  useEffect(() => {
+    if (!open || !exam) { setHtml(''); return; }
+    const normalized = normalizeExamDataForDisplay(exam) ?? exam;
+    const generated  = generateExamHtml(normalized as Exam, copyType, settings, printSettings);
+    setHtml(generated);
+  }, [open, exam, copyType, printSettings, settings]);
+
+  // Inject HTML into iframe
+  useEffect(() => {
+    if (!iframeRef.current || !html) return;
+    const doc = iframeRef.current.contentDocument;
+    if (!doc) return;
+    // Use srcdoc-equivalent via blob URL to avoid deprecated doc.write
+    const blob = new Blob([html], { type: 'text/html' });
+    const url  = URL.createObjectURL(blob);
+    iframeRef.current.src = url;
+    return () => URL.revokeObjectURL(url);
+  }, [html]);
+
   const handlePrint = () => {
-    const printWin = window.open("");
-    if (printWin) {
-      printWin.document.write(html);
-      printWin.document.close();
-      printWin.focus();
-      printWin.print();
+    iframeRef.current?.contentWindow?.print();
+  };
+
+  const handleSaveSettings = async () => {
+    if (!exam?.id || !onSaveSettings) return;
+    setSaving(true);
+    try {
+      await onSaveSettings(exam.id, printSettings);
+    } finally {
+      setSaving(false);
     }
   };
-  
+
+  if (!open || !exam) return null;
+
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white w-full h-full sm:h-[95vh] sm:rounded-2xl shadow-2xl flex flex-col sm:max-w-6xl overflow-hidden">
-       
-        {/* Modal Header */}
-        <div className="bg-gradient-to-r from-slate-50 to-blue-50 border-b border-slate-200 px-4 sm:px-6 py-4 sm:py-5 flex-shrink-0">
-          <div className="flex items-start sm:items-center justify-between gap-3">
-            <div className="flex items-start gap-3 flex-1 min-w-0">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg flex-shrink-0">
-                <Eye className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h2 className="text-xl sm:text-2xl font-bold text-slate-900 truncate">Print Preview</h2>
-                <p className="text-sm text-slate-600 mt-0.5 truncate">{exam.title}</p>
-              </div>
-            </div>
-            <button
-              onClick={onClose}
-              className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors flex-shrink-0"
-              aria-label="Close modal"
-            >
-              <X className="w-5 h-5 sm:w-6 sm:h-6" />
-            </button>
-          </div>
-        </div>
-        
-        {/* Copy Type Selector */}
-        <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 sm:py-4 flex-shrink-0">
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center">
-            <span className="font-semibold text-slate-700 text-sm sm:text-base flex items-center gap-2">
-              <FileText className="w-4 h-4" />
-              View as:
-            </span>
-            <div className="flex gap-2 sm:gap-3">
-              <button
-                onClick={() => setCopyType("student")}
-                className={`flex-1 sm:flex-none px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl font-medium transition-all ${
-                  copyType === "student"
-                    ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                Student Copy
-              </button>
-              <button
-                onClick={() => setCopyType("teacher")}
-                className={`flex-1 sm:flex-none px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl font-medium transition-all ${
-                  copyType === "teacher"
-                    ? "bg-gradient-to-r from-emerald-600 to-green-600 text-white shadow-lg"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                Teacher's Copy
-              </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-7xl h-[95vh] flex flex-col overflow-hidden">
+
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <h2 className="text-base font-bold text-gray-900 dark:text-white truncate max-w-xs">
+              {exam.title}
+            </h2>
+            {/* Copy type toggle */}
+            <div className="flex bg-gray-100 rounded-lg p-0.5 gap-0.5">
+              {(['student', 'teacher'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setCopyType(t)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-colors ${
+                    copyType === t
+                      ? 'bg-white text-gray-900 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {t === 'student' ? '👨‍🎓 Student Copy' : '👨‍🏫 Teacher Copy'}
+                </button>
+              ))}
             </div>
           </div>
-        </div>
-        
-        {/* Preview Content - Scrollable */}
-        <div className="flex-1 overflow-y-auto bg-slate-50">
-          <div className="p-4 sm:p-8 max-w-5xl mx-auto">
-            <div
-              className="prose prose-sm sm:prose-base max-w-none bg-white p-6 sm:p-10 md:p-16 border border-slate-200 rounded-xl sm:rounded-2xl shadow-sm"
-              style={{
-                minHeight: '297mm', // A4 height
-                lineHeight: '1.6',
-              }}
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
-          </div>
-        </div>
-        
-        {/* Modal Footer - Sticky */}
-        <div className="bg-white border-t border-slate-200 px-4 sm:px-6 py-3 sm:py-4 flex-shrink-0">
-          <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3">
+
+          <div className="flex items-center gap-2">
             <button
-              onClick={onClose}
-              className="w-full sm:w-auto px-4 sm:px-6 py-2.5 sm:py-3 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all font-medium"
+              onClick={() => setShowPanel(p => !p)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+                showPanel
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+              }`}
             >
-              Close
+              <Settings2 size={13} />
+              Format
             </button>
+            {onSaveSettings && (
+              <button
+                onClick={handleSaveSettings}
+                disabled={saving}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                {saving ? 'Saving…' : 'Save Format'}
+              </button>
+            )}
             <button
               onClick={handlePrint}
-              className="w-full sm:w-auto px-4 sm:px-6 py-2.5 sm:py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all font-medium flex items-center justify-center gap-2 shadow-lg"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 transition-colors"
             >
-              <Printer className="w-4 h-4 sm:w-5 sm:h-5" />
-              <span>Print {copyType === "teacher" ? "Teacher's" : "Student"} Copy</span>
+              <Printer size={13} /> Print
             </button>
+            <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors">
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-1 overflow-hidden">
+          {/* ── Format panel ── */}
+          {showPanel && (
+            <div className="w-72 border-r border-gray-200 overflow-y-auto flex-shrink-0 bg-gray-50 dark:bg-gray-800 p-4 space-y-4">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+                <Settings2 size={14} /> Format Settings
+              </h3>
+
+              {/* Font family */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Font</label>
+                <select
+                  value={printSettings.font_family}
+                  onChange={e => setPrintSettings(p => ({ ...p, font_family: e.target.value as any }))}
+                  className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-white"
+                >
+                  <option value="times_new_roman">Times New Roman</option>
+                  <option value="arial">Arial</option>
+                  <option value="georgia">Georgia</option>
+                  <option value="calibri">Calibri</option>
+                </select>
+              </div>
+
+              {/* Font size */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Font Size — {printSettings.font_size}pt
+                </label>
+                <input
+                  type="range" min={10} max={14} step={1}
+                  value={printSettings.font_size}
+                  onChange={e => setPrintSettings(p => ({ ...p, font_size: Number(e.target.value) }))}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-gray-400 mt-0.5">
+                  <span>10</span><span>12</span><span>14</span>
+                </div>
+              </div>
+
+              {/* Line spacing */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Line Spacing</label>
+                <div className="grid grid-cols-3 gap-1">
+                  {([1.0, 1.5, 2.0] as const).map(v => (
+                    <button
+                      key={v}
+                      onClick={() => setPrintSettings(p => ({ ...p, line_height: v }))}
+                      className={`py-1.5 rounded border text-xs font-medium transition-colors ${
+                        printSettings.line_height === v
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {v === 1.0 ? 'Single' : v === 1.5 ? '1.5×' : 'Double'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Option layout */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">MCQ Options</label>
+                <div className="space-y-1">
+                  {([
+                    { v: 'auto',    label: 'Auto (smart inline)' },
+                    { v: 'inline',  label: 'Always inline' },
+                    { v: 'stacked', label: 'Always stacked' },
+                  ] as const).map(({ v, label }) => (
+                    <button
+                      key={v}
+                      onClick={() => setPrintSettings(p => ({ ...p, option_layout: v }))}
+                      className={`w-full py-1.5 px-2 rounded border text-xs font-medium text-left transition-colors ${
+                        printSettings.option_layout === v
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {printSettings.option_layout === 'auto' && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    Short questions: options inline. Long questions: options below.
+                  </p>
+                )}
+              </div>
+
+              {/* Column layout */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Columns</label>
+                <div className="grid grid-cols-2 gap-1">
+                  {([1, 2] as const).map(v => (
+                    <button
+                      key={v}
+                      onClick={() => setPrintSettings(p => ({ ...p, column_layout: v }))}
+                      className={`py-1.5 rounded border text-xs font-medium transition-colors ${
+                        printSettings.column_layout === v
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {v === 1 ? '1 Column' : '2 Columns'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Margins */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Margins</label>
+                <div className="grid grid-cols-3 gap-1">
+                  {(['narrow', 'normal', 'wide'] as const).map(v => (
+                    <button
+                      key={v}
+                      onClick={() => setPrintSettings(p => ({ ...p, margin: v }))}
+                      className={`py-1.5 rounded border text-xs font-medium capitalize transition-colors ${
+                        printSettings.margin === v
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Normal = 1 inch all sides</p>
+              </div>
+
+              {/* Toggles */}
+              {[
+                { label: 'Show marks per question', key: 'show_marks' as const },
+                { label: 'Show section instructions', key: 'show_instructions' as const },
+              ].map(({ label, key }) => (
+                <div key={key} className="flex items-center justify-between">
+                  <span className="text-xs text-gray-600">{label}</span>
+                  <button
+                    onClick={() => setPrintSettings(p => ({ ...p, [key]: !p[key] }))}
+                    className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${
+                      printSettings[key] ? 'bg-blue-600' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                      printSettings[key] ? 'translate-x-4' : ''
+                    }`} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Preview iframe ── */}
+          <div className="flex-1 bg-gray-200 overflow-auto p-4">
+            <div className="bg-white shadow-lg mx-auto" style={{ minHeight: '297mm' }}>
+              <iframe
+                ref={iframeRef}
+                title="Exam Preview"
+                className="w-full border-0"
+                style={{ height: 'calc(95vh - 120px)', minHeight: '600px' }}
+                sandbox="allow-same-origin allow-scripts"
+              />
+            </div>
           </div>
         </div>
       </div>
