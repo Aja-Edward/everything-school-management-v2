@@ -4,6 +4,7 @@ from django.core.validators import FileExtensionValidator
 from django.utils import timezone
 import uuid
 from tenants.models import Tenant
+from django.core.exceptions import ValidationError
 
 User = get_user_model()
 
@@ -539,6 +540,14 @@ class TenantLandingPage(models.Model):
         return f"Landing Page — {self.tenant.name}"
 
 
+def validate_maps_embed_url(value):
+    if value and not value.strip().startswith("https://www.google.com/maps/embed"):
+        raise ValidationError(
+            "Please use a Google Maps embed URL. "
+            "It must start with https://www.google.com/maps/embed"
+        )
+
+
 class LandingSection(models.Model):
     """
     A content section (About / Admissions / Contact / Custom) on the landing page.
@@ -571,7 +580,12 @@ class LandingSection(models.Model):
     contact_phone = models.TextField(blank=True, null=True, help_text="One phone number per line — supports multiple numbers")
     contact_email = models.EmailField(blank=True, null=True)
     contact_hours = models.CharField(max_length=200, blank=True, null=True)
-    contact_map_embed = models.TextField(blank=True, null=True, help_text="Google Maps embed URL")
+    contact_map_embed = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Google Maps embed URL (must start with https://www.google.com/maps/embed)",
+        validators=[validate_maps_embed_url],
+    )
 
     # Admissions-specific structured fields
     admissions_deadline = models.DateField(blank=True, null=True)

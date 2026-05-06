@@ -541,6 +541,22 @@ class NavigationLinkSerializer(serializers.ModelSerializer):
 
 
 class LandingSectionSerializer(serializers.ModelSerializer):
+
+    def validate_contact_map_embed(self, value):
+        if not value:
+            return value
+        value = value.strip()
+        # Already correct format
+        if value.startswith("https://www.google.com/maps/embed"):
+            return value
+        # Common mistake: user pasted the full share/place URL
+        # Reject it with a helpful message instead of silently breaking
+        raise serializers.ValidationError(
+            "Invalid map URL. Please use the embed URL from Google Maps: "
+            'Maps → Share → Embed a map → copy the src="..." value. '
+            "It should start with https://www.google.com/maps/embed"
+        )
+
     class Meta:
         model = LandingSection
         fields = [
@@ -555,7 +571,7 @@ class LandingSectionSerializer(serializers.ModelSerializer):
             "admissions_contact_phone",
             "created_at", "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["landing_page", "id", "created_at", "updated_at"]
 
 
 class LandingCarouselImageSerializer(serializers.ModelSerializer):
