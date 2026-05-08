@@ -128,6 +128,14 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
     return a?.education_level as EducationLevelType | undefined;
   }, [assignments, selectedSubjectId, selectedClassroomId]);
 
+  const teacherEducationLevels = useMemo(() => {
+  const levels = new Set<string>();
+  assignments.forEach(a => {
+    if (a.education_level) levels.add(a.education_level);
+  });
+  return levels;
+}, [assignments]);
+
   /** The active assessment component being recorded */
   const activeComponent = useMemo(
     () => assessmentComponents.find(c => c.id === selectedComponentId),
@@ -159,27 +167,26 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
 
   // ── Load assessment components when education level is known ───────────────
   useEffect(() => {
-    if (!educationLevel) return;
-    setLoadingComponents(true);
-    ResultService.getAssessmentComponents({ is_active: true, page_size: 50 })
-      .then(all => {
-        // Filter client-side by education_level_type matching
-        const filtered = all.filter(c =>
-          !c.education_level_type || c.education_level_type === educationLevel
-        );
-        // If backend returns education_level_type, use it; otherwise show all active
-        const components = filtered.length > 0
-          ? filtered
-          : all.filter(c => c.is_active !== false);
-        const sorted = components.sort((a, b) => a.display_order - b.display_order);
-        setAssessmentComponents(sorted);
-        if (sorted.length > 0 && !selectedComponentId) {
-          setSelectedComponentId(sorted[0].id);
-        }
-      })
-      .catch(() => setAssessmentComponents([]))
-      .finally(() => setLoadingComponents(false));
-  }, [educationLevel]);
+  // Need at least the selected classroom's level to know which components apply
+  if (!educationLevel) return;
+  setLoadingComponents(true);
+  ResultService.getAssessmentComponents({ is_active: true, page_size: 50 })
+    .then(all => {
+      const filtered = all.filter(c => {
+        // If the component has no education_level_type restriction, show it for everyone
+        if (!c.education_level_type) return c.is_active !== false;
+        // Only show if the teacher actually teaches at this education level
+        return teacherEducationLevels.has(c.education_level_type);
+      });
+      const sorted = filtered.sort((a, b) => a.display_order - b.display_order);
+      setAssessmentComponents(sorted);
+      if (sorted.length > 0 && !selectedComponentId) {
+        setSelectedComponentId(sorted[0].id);
+      }
+    })
+    .catch(() => setAssessmentComponents([]))
+    .finally(() => setLoadingComponents(false));
+}, [educationLevel, teacherEducationLevels]);
 
   // ── Load students + existing scores when all selectors are set ─────────────
   const loadStudentsAndScores = useCallback(async () => {

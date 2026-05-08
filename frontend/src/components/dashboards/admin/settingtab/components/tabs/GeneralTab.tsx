@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Loader2, Building2, Globe, Calendar, Check, X } from 'lucide-react';
+import { Save, Loader2, Building2, Globe, Check, X } from 'lucide-react';
 import SettingsService from '@/services/SettingsService';
 import i18n from "i18next";
 import { API_BASE_URL } from '@/services/api';

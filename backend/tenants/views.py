@@ -1163,7 +1163,12 @@ class TenantSettingsViewSet(viewsets.ModelViewSet):
             )
             if serializer.is_valid():
                 serializer.save()
+                school_name = request.data.get("school_name", "").strip()
+                if school_name:
+                    tenant.name = school_name
+                    tenant.save(update_fields=["name"])
                 cache.delete(f"tenant_settings_{tenant.id}")
+                settings_obj.refresh_from_db()
                 return Response(TenantSettingsSerializer(settings_obj).data)
 
             logger.error(f"TenantSettings PATCH validation errors: {serializer.errors}")

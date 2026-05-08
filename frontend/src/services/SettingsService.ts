@@ -118,6 +118,8 @@ class SettingsService {
       if (settings.motto !== undefined) backendSettings.school_motto = settings.motto;
       if (settings.school_code !== undefined) backendSettings.school_code = settings.school_code;
       if (settings.address !== undefined) backendSettings.address = settings.address;
+      if (settings.school_name !== undefined) backendSettings.school_name = settings.school_name;
+      if (settings.site_name !== undefined) backendSettings.site_name = settings.site_name;
       if (settings.phone !== undefined) backendSettings.phone = settings.phone;
       if (settings.email !== undefined) backendSettings.email = settings.email;
       
@@ -353,7 +355,7 @@ class SettingsService {
     
     return {
       // These come from tenant relationship - read-only from frontend perspective
-      site_name: response.school_name ?? response.school_name ?? 'Nuventa Cloud',
+      site_name: response.site_name ?? response.school_name ?? 'Nuventa Cloud',
       school_name: response.school_name ?? 'Nuventa Cloud',
       // Actual editable fields
       school_code: response.school_code ?? '',

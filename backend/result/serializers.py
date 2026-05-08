@@ -945,6 +945,12 @@ class SeniorSecondaryResultCreateUpdateSerializer(serializers.ModelSerializer):
     status excluded — use approve/publish action endpoints.
     """
 
+    grading_system = serializers.PrimaryKeyRelatedField(
+        queryset=GradingSystem.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+
     class Meta:
         model = SeniorSecondaryResult
         fields = [
@@ -958,6 +964,29 @@ class SeniorSecondaryResultCreateUpdateSerializer(serializers.ModelSerializer):
             "head_teacher_remark",
         ]
 
+    def validate(self, attrs):
+        if not attrs.get("grading_system"):
+            request = self.context.get("request")
+            tenant = getattr(request, "tenant", None) if request else None
+            if tenant:
+                grading = (
+                    GradingSystem.objects.filter(
+                        tenant=tenant,
+                        is_active=True,
+                    )
+                    .order_by("id")
+                    .first()
+                )
+                if grading:
+                    attrs["grading_system"] = grading
+        if not attrs.get("grading_system"):
+            raise serializers.ValidationError(
+                {
+                    "grading_system": "No active Grading System found for Senior Secondary."
+                }
+            )
+        return attrs
+
     def create(self, validated_data):
         request = self.context.get("request")
         if request and request.user:
@@ -970,7 +999,6 @@ class SeniorSecondaryResultCreateUpdateSerializer(serializers.ModelSerializer):
             validated_data["last_edited_by"] = request.user
             validated_data["last_edited_at"] = timezone.now()
         return super().update(instance, validated_data)
-
 
 # ============================================================
 # SENIOR SECONDARY — TERM REPORT
@@ -1177,6 +1205,12 @@ class JuniorSecondaryResultSerializer(serializers.ModelSerializer):
 class JuniorSecondaryResultCreateUpdateSerializer(serializers.ModelSerializer):
     """FK fields only — scores via /component-scores/. status excluded."""
 
+    grading_system = serializers.PrimaryKeyRelatedField(
+        queryset=GradingSystem.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+
     class Meta:
         model = JuniorSecondaryResult
         fields = [
@@ -1186,6 +1220,29 @@ class JuniorSecondaryResultCreateUpdateSerializer(serializers.ModelSerializer):
             "grading_system",
             "teacher_remark",
         ]
+
+    def validate(self, attrs):
+        if not attrs.get("grading_system"):
+            request = self.context.get("request")
+            tenant = getattr(request, "tenant", None) if request else None
+            if tenant:
+                grading = (
+                    GradingSystem.objects.filter(
+                        tenant=tenant,
+                        is_active=True,
+                    )
+                    .order_by("id")
+                    .first()
+                )
+                if grading:
+                    attrs["grading_system"] = grading
+        if not attrs.get("grading_system"):
+            raise serializers.ValidationError(
+                {
+                    "grading_system": "No active Grading System found for Junior Secondary."
+                }
+            )
+        return attrs
 
     def create(self, validated_data):
         request = self.context.get("request")
@@ -1199,7 +1256,6 @@ class JuniorSecondaryResultCreateUpdateSerializer(serializers.ModelSerializer):
             validated_data["last_edited_by"] = request.user
             validated_data["last_edited_at"] = timezone.now()
         return super().update(instance, validated_data)
-
 
 # ============================================================
 # JUNIOR SECONDARY — TERM REPORT
@@ -1390,6 +1446,12 @@ class PrimaryResultSerializer(serializers.ModelSerializer):
 class PrimaryResultCreateUpdateSerializer(serializers.ModelSerializer):
     """FK fields only — scores via /component-scores/. status excluded."""
 
+    grading_system = serializers.PrimaryKeyRelatedField(
+        queryset=GradingSystem.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+
     class Meta:
         model = PrimaryResult
         fields = [
@@ -1399,6 +1461,27 @@ class PrimaryResultCreateUpdateSerializer(serializers.ModelSerializer):
             "grading_system",
             "teacher_remark",
         ]
+
+    def validate(self, attrs):
+        if not attrs.get("grading_system"):
+            request = self.context.get("request")
+            tenant = getattr(request, "tenant", None) if request else None
+            if tenant:
+                grading = (
+                    GradingSystem.objects.filter(
+                        tenant=tenant,
+                        is_active=True,
+                    )
+                    .order_by("id")
+                    .first()
+                )
+                if grading:
+                    attrs["grading_system"] = grading
+        if not attrs.get("grading_system"):
+            raise serializers.ValidationError(
+                {"grading_system": "No active Grading System found for Primary."}
+            )
+        return attrs
 
     def create(self, validated_data):
         request = self.context.get("request")
@@ -1412,7 +1495,6 @@ class PrimaryResultCreateUpdateSerializer(serializers.ModelSerializer):
             validated_data["last_edited_by"] = request.user
             validated_data["last_edited_at"] = timezone.now()
         return super().update(instance, validated_data)
-
 
 # ============================================================
 # PRIMARY — TERM REPORT
@@ -1662,6 +1744,12 @@ class NurseryResultSerializer(serializers.ModelSerializer):
 class NurseryResultCreateUpdateSerializer(serializers.ModelSerializer):
     """status excluded — use approve/publish action endpoints."""
 
+    grading_system = serializers.PrimaryKeyRelatedField(
+        queryset=GradingSystem.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+
     class Meta:
         model = NurseryResult
         fields = [
@@ -1674,12 +1762,30 @@ class NurseryResultCreateUpdateSerializer(serializers.ModelSerializer):
             "academic_comment",
         ]
 
-    def validate(self, data):
-        if data.get("mark_obtained", 0) > data.get("max_marks_obtainable", 0):
+    def validate(self, attrs):
+        if attrs.get("mark_obtained", 0) > attrs.get("max_marks_obtainable", 0):
             raise serializers.ValidationError(
                 "Mark obtained cannot exceed max marks obtainable"
             )
-        return data
+        if not attrs.get("grading_system"):
+            request = self.context.get("request")
+            tenant = getattr(request, "tenant", None) if request else None
+            if tenant:
+                grading = (
+                    GradingSystem.objects.filter(
+                        tenant=tenant,
+                        is_active=True,
+                    )
+                    .order_by("id")
+                    .first()
+                )
+                if grading:
+                    attrs["grading_system"] = grading
+        if not attrs.get("grading_system"):
+            raise serializers.ValidationError(
+                {"grading_system": "No active Grading System found for Nursery."}
+            )
+        return attrs
 
     def create(self, validated_data):
         request = self.context.get("request")

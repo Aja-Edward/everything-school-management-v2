@@ -854,7 +854,10 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                 )
 
             assignment = ClassroomTeacherAssignment.objects.create(
-                classroom=classroom, teacher=teacher, subject=subject
+                tenant=request.tenant,
+                classroom=classroom,
+                teacher=teacher,
+                subject=subject,
             )
 
             level_type = classroom.section.class_grade.education_level.level_type
@@ -1020,7 +1023,7 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                 )
 
             enrollment = StudentEnrollment.objects.create(
-                student=student, classroom=classroom
+                tenant=request.tenant, student=student, classroom=classroom
             )
 
             serializer = StudentEnrollmentSerializer(enrollment)
@@ -1102,6 +1105,7 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
 
             # Enroll in target — reactivate if record exists
             enrollment, created = StudentEnrollment.objects.get_or_create(
+                tenant=request.tenant,
                 student=student,
                 classroom=target_classroom,
                 defaults={"is_active": True},

@@ -467,9 +467,7 @@ class GradeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
 # ── Assessment Component ───────────────────────────────────────────────────────
 
 
-class AssessmentComponentViewSet(
-    TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet
-):
+class AssessmentComponentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     queryset = AssessmentComponent.objects.all().order_by("display_order", "name")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
