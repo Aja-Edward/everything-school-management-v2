@@ -1158,6 +1158,9 @@ class TenantSettingsViewSet(viewsets.ModelViewSet):
         logger.info(f"TenantSettings.current: tenant={tenant.slug}, created={created}")
 
         if request.method == 'PATCH':
+            logger.warning(
+                f"PATCH school_name={request.data.get('school_name')} tenant={tenant} tenant.name={tenant.name}"
+            )
             serializer = TenantSettingsSerializer(
                 settings_obj, data=request.data, partial=True
             )
