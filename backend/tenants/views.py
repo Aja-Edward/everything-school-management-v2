@@ -1172,6 +1172,7 @@ class TenantSettingsViewSet(viewsets.ModelViewSet):
                     tenant.save(update_fields=["name"])
                 cache.delete(f"tenant_settings_{tenant.id}")
                 settings_obj.refresh_from_db()
+                settings_obj.tenant.refresh_from_db()
                 return Response(TenantSettingsSerializer(settings_obj).data)
 
             logger.error(f"TenantSettings PATCH validation errors: {serializer.errors}")
