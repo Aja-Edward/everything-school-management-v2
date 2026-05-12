@@ -30,7 +30,6 @@ compute_from_term_reports().
 
 import logging
 import re
-import tempfile
 from datetime import datetime
 
 from dateutil.relativedelta import relativedelta
@@ -244,29 +243,122 @@ class ReportGenerator:
         try:
             if getattr(report, "next_term_begins", None):
                 return report.next_term_begins.strftime(_DATE_FORMAT)
+            # Use term.next_term_begins directly (set by admin in Academic tab)
+            term = getattr(report.exam_session, "term", None)
+            if term and getattr(term, "next_term_begins", None):
+                return term.next_term_begins.strftime(_DATE_FORMAT)
             if getattr(report.exam_session, "next_term_begins", None):
                 return report.exam_session.next_term_begins.strftime(_DATE_FORMAT)
-            try:
-                from academics.models import Term
-
-                current_term = report.exam_session.term
-                current_session = report.exam_session.academic_session
-                if current_term and current_term.name in _TERM_ORDER:
-                    idx = _TERM_ORDER.index(current_term.name)
-                    if idx < len(_TERM_ORDER) - 1:
-                        next_term = Term.objects.filter(
-                            academic_session=current_session,
-                            term_type__code=_TERM_ORDER[idx + 1].lower(),
-                            is_active=True,
-                        ).first()
-                        if next_term and getattr(next_term, "start_date", None):
-                            return next_term.start_date.strftime(_DATE_FORMAT)
-            except Exception as e:
-                logger.debug(f"Next-term DB lookup failed: {e}")
             return "To Be Announced"
         except Exception as e:
             logger.error(f"Error in get_next_term_begins: {e}")
             return "To Be Announced"
+
+    def get_attendance(self, student, exam_session):
+        """
+        Return (times_opened, times_present).
+
+        times_opened  = weeks_per_term × 5, read from TenantSettings.
+                        Falls back to counting distinct attendance dates in the
+                        term date range if the setting is missing.
+        times_present = count of PRESENT attendance records for this student
+                        within the term date range.
+        """
+        try:
+            from attendance.models import Attendance
+            from tenants.models import TenantSettings
+
+            # ── times_opened: weeks_per_term × 5 days ────────────────────────
+            times_opened = 0
+            try:
+                tenant = getattr(student, "tenant", None)
+                if tenant:
+                    ts = TenantSettings.objects.get(tenant=tenant)
+                else:
+                    ts = TenantSettings.objects.first()
+                if ts and ts.weeks_per_term:
+                    times_opened = ts.weeks_per_term * 5
+            except Exception:
+                pass
+
+            # ── date range for times_present ─────────────────────────────────
+            term = getattr(exam_session, "term", None)
+            if term and term.start_date and term.end_date:
+                start, end = term.start_date, term.end_date
+            elif exam_session.start_date and exam_session.end_date:
+                start, end = exam_session.start_date, exam_session.end_date
+            else:
+                return times_opened, 0
+
+            # Fallback for times_opened when setting is absent
+            if not times_opened:
+                times_opened = (
+                    Attendance.objects.filter(date__range=(start, end))
+                    .values("date").distinct().count()
+                )
+
+            times_present = Attendance.objects.filter(
+                student=student,
+                date__range=(start, end),
+                status="P",
+            ).count()
+            return times_opened, times_present
+        except Exception as e:
+            logger.debug(f"get_attendance: {e}")
+            return 0, 0
+
+    def get_student_picture(self, student):
+        """Return the student's profile picture URL, or None if not set."""
+        try:
+            pic = getattr(student, "profile_picture", None)
+            if pic:
+                return str(pic)
+            # Fallback: user profile
+            pic = getattr(student.user, "profile_picture", None)
+            if pic:
+                return str(pic)
+            profile = getattr(student.user, "profile", None)
+            if profile:
+                pic = getattr(profile, "profile_picture", None)
+                if pic:
+                    return str(pic)
+        except Exception as e:
+            logger.debug(f"get_student_picture: {e}")
+        return None
+
+    def get_student_section(self, student):
+        """Return the student's classroom section name (e.g. 'Diamond'), or ''."""
+        try:
+            from classroom.models import StudentEnrollment
+            enrollment = (
+                StudentEnrollment.objects.filter(student=student, is_active=True)
+                .select_related("classroom__section")
+                .first()
+            )
+            if enrollment and enrollment.classroom and enrollment.classroom.section:
+                return enrollment.classroom.section.name or ""
+        except Exception as e:
+            logger.debug(f"get_student_section: {e}")
+        return ""
+
+    def build_grade_scale(self, subject_results):
+        """Return admin-configured grade scale from the grading system on subject results."""
+        try:
+            for sr in subject_results:
+                gs = getattr(sr, "grading_system", None)
+                if gs:
+                    return [
+                        {
+                            "grade": g.grade,
+                            "min": int(g.min_score),
+                            "max": int(g.max_score),
+                            "remark": getattr(g, "remark", ""),
+                        }
+                        for g in gs.grades.all().order_by("-min_score")
+                    ]
+        except Exception as e:
+            logger.debug(f"build_grade_scale: {e}")
+        return []
 
     def format_grade_suffix(self, position):
         if not position:
@@ -288,17 +380,12 @@ class ReportGenerator:
                 status=503,
             )
         try:
-            with tempfile.NamedTemporaryFile(delete=True, suffix=".pdf") as tmp:
-                base_url = (
-                    self.request.build_absolute_uri("/")
-                    if self.request
-                    else getattr(settings, "WEASYPRINT_BASEURL", "")
-                )
-                WeasyHTML(string=html_string, base_url=base_url).write_pdf(
-                    target=tmp.name
-                )
-                tmp.seek(0)
-                pdf = tmp.read()
+            base_url = (
+                self.request.build_absolute_uri("/")
+                if self.request
+                else getattr(settings, "WEASYPRINT_BASEURL", "")
+            )
+            pdf = WeasyHTML(string=html_string, base_url=base_url).write_pdf()
             response = HttpResponse(pdf, content_type="application/pdf")
             response["Content-Disposition"] = f'attachment; filename="{filename}"'
             return response
@@ -399,12 +486,16 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                 .order_by("subject__name")
             )
 
+            # Refresh metrics if stale (total/average/grade all zero)
+            if not float(report.average_score or 0):
+                report.calculate_metrics()
+                report.refresh_from_db()
+
             subjects_data = []
             for result in subject_results:
                 component_breakdown = _build_component_breakdown(result)
                 ca_components = [c for c in component_breakdown if c["is_ca"]]
                 exam_components = [c for c in component_breakdown if not c["is_ca"]]
-
                 subjects_data.append(
                     {
                         "name": result.subject.name,
@@ -422,6 +513,10 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                     }
                 )
 
+            times_opened, times_present = self.get_attendance(
+                report.student, report.exam_session
+            )
+
             context = {
                 "report_type": "TERM_REPORT",
                 "school": self.get_school_info(student=report.student),
@@ -430,9 +525,11 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                     "admission_number": report.student.registration_number or "",
                     "class": _student_class_name(report.student),
                     "stream": report.stream.name if report.stream else "",
+                    "section": self.get_student_section(report.student),
                     "age": self.calculate_student_age(
                         getattr(report.student, "date_of_birth", None)
                     ),
+                    "picture": self.get_student_picture(report.student),
                 },
                 "term": {
                     "name": (
@@ -452,10 +549,11 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                     "position": self.format_grade_suffix(report.class_position),
                     "total_students": report.total_students or 0,
                 },
+                "grade_scale": self.build_grade_scale(subject_results),
                 "grade_summary": self._grade_summary(subject_results),
                 "attendance": {
-                    "times_opened": report.times_opened or 0,
-                    "times_present": report.times_present or 0,
+                    "times_opened": times_opened or report.times_opened or 0,
+                    "times_present": times_present or report.times_present or 0,
                 },
                 "next_term_begins": self.get_next_term_begins(report),
                 "remarks": {
@@ -593,16 +691,20 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
             subject_results = (
                 report.subject_results.all()
                 .select_related("subject", "grading_system")
-                .prefetch_related("component_scores__component")
+                .prefetch_related("component_scores__component", "grading_system__grades")
                 .order_by("subject__name")
             )
+
+            # Refresh metrics if stale
+            if not float(report.average_score or 0):
+                report.calculate_metrics()
+                report.refresh_from_db()
 
             subjects_data = []
             for result in subject_results:
                 component_breakdown = _build_component_breakdown(result)
                 ca_components = [c for c in component_breakdown if c["is_ca"]]
                 exam_components = [c for c in component_breakdown if not c["is_ca"]]
-
                 subjects_data.append(
                     {
                         "name": result.subject.name,
@@ -620,6 +722,10 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
                     }
                 )
 
+            times_opened, times_present = self.get_attendance(
+                report.student, report.exam_session
+            )
+
             context = {
                 "report_type": "TERM_REPORT",
                 "school": self.get_school_info(student=report.student),
@@ -627,12 +733,14 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
                     "name": report.student.full_name,
                     "admission_number": report.student.registration_number or "",
                     "class": _student_class_name(report.student),
+                    "section": self.get_student_section(report.student),
                     "age": self.calculate_student_age(
                         getattr(report.student, "date_of_birth", None)
                     ),
                     "class_age": self.get_class_average_age(
                         report.student, report.exam_session
                     ),
+                    "picture": self.get_student_picture(report.student),
                 },
                 "term": {
                     "name": (
@@ -652,9 +760,10 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
                     "position": self.format_grade_suffix(report.class_position),
                     "total_students": report.total_students or 0,
                 },
+                "grade_scale": self.build_grade_scale(subject_results),
                 "attendance": {
-                    "times_opened": report.times_opened or 0,
-                    "times_present": report.times_present or 0,
+                    "times_opened": times_opened or report.times_opened or 0,
+                    "times_present": times_present or report.times_present or 0,
                 },
                 "next_term_begins": self.get_next_term_begins(report),
                 "remarks": {
@@ -762,16 +871,20 @@ class PrimaryReportGenerator(ReportGenerator):
             subject_results = (
                 report.subject_results.all()
                 .select_related("subject", "grading_system")
-                .prefetch_related("component_scores__component")
+                .prefetch_related("component_scores__component", "grading_system__grades")
                 .order_by("subject__name")
             )
+
+            # Refresh metrics if stale
+            if not float(report.average_score or 0):
+                report.calculate_metrics()
+                report.refresh_from_db()
 
             subjects_data = []
             for result in subject_results:
                 component_breakdown = _build_component_breakdown(result)
                 ca_components = [c for c in component_breakdown if c["is_ca"]]
                 exam_components = [c for c in component_breakdown if not c["is_ca"]]
-
                 subjects_data.append(
                     {
                         "name": result.subject.name,
@@ -795,6 +908,10 @@ class PrimaryReportGenerator(ReportGenerator):
             if not total_students:
                 total_students = report.total_students or 0
 
+            times_opened, times_present = self.get_attendance(
+                report.student, report.exam_session
+            )
+
             context = {
                 "report_type": "TERM_REPORT",
                 "school": self.get_school_info(student=report.student),
@@ -802,12 +919,14 @@ class PrimaryReportGenerator(ReportGenerator):
                     "name": report.student.full_name,
                     "admission_number": report.student.registration_number or "",
                     "class": _student_class_name(report.student),
+                    "section": self.get_student_section(report.student),
                     "age": self.calculate_student_age(
                         getattr(report.student, "date_of_birth", None)
                     ),
                     "class_age": self.get_class_average_age(
                         report.student, report.exam_session
                     ),
+                    "picture": self.get_student_picture(report.student),
                 },
                 "term": {
                     "name": (
@@ -827,9 +946,10 @@ class PrimaryReportGenerator(ReportGenerator):
                     "position": self.format_grade_suffix(report.class_position),
                     "total_students": total_students,
                 },
+                "grade_scale": self.build_grade_scale(subject_results),
                 "attendance": {
-                    "times_opened": report.times_opened or 0,
-                    "times_present": report.times_present or 0,
+                    "times_opened": times_opened or report.times_opened or 0,
+                    "times_present": times_present or report.times_present or 0,
                 },
                 "next_term_begins": self.get_next_term_begins(report),
                 "remarks": {
@@ -969,12 +1089,14 @@ class NurseryReportGenerator(ReportGenerator):
                     "name": report.student.full_name,
                     "admission_number": report.student.registration_number or "",
                     "class": _student_class_name(report.student),
+                    "section": self.get_student_section(report.student),
                     "age": self.calculate_student_age(
                         getattr(report.student, "date_of_birth", None)
                     ),
                     "class_age": self.get_class_average_age(
                         report.student, report.exam_session
                     ),
+                    "picture": self.get_student_picture(report.student),
                 },
                 "term": {
                     "name": (

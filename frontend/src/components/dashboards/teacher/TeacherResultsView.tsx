@@ -90,6 +90,8 @@ const TeacherResults: React.FC = () => {
   const [filterSubject, setFilterSubject]           = useState('all');
   const [filterStatus, setFilterStatus]             = useState('all');
   const [filterLevel, setFilterLevel]               = useState<EducationLevel | 'all'>('all');
+  const [filterTerm, setFilterTerm]                 = useState<'FIRST' | 'SECOND' | 'THIRD' | 'SESSION'>('FIRST');
+  const [filterSession, setFilterSession]           = useState<string>('');
   const [showFilters, setShowFilters]               = useState(false);
   const [activeTab, setActiveTab]                   = useState<'results' | 'record'>('results');
   const [viewMode, setViewMode]                     = useState<ViewMode>('table');
@@ -208,7 +210,9 @@ const TeacherResults: React.FC = () => {
 
       const settled = await Promise.allSettled(fetchPromises);
 
-      // ── Filter to this teacher's classrooms ────────────────────────────────
+      // ── Collect results for this teacher's subjects ────────────────────────
+      // The backend _apply_role_filter already restricts results to this teacher's
+      // assigned subjects and students, so no further classroom filtering is needed.
       const raw: any[] = [];
       settled.forEach((res) => {
         if (res.status !== 'fulfilled') return;
@@ -220,18 +224,20 @@ const TeacherResults: React.FC = () => {
         data.forEach((result: any) => {
           if (!result.student?.id) return;
 
-          const resultName = (
-            result.student?.student_class_display ||
-            result.student?.student_class ||
-            result.classroom_name || ''
-          ).trim();
-
-          const resultId = Number(result.classroom_id || result.student?.classroom_id || 0);
-
-          // Include if no classroom filter, or if classroom matches by ID or name
+          // If no classroom filter exists for this subject, include everything
           if (idSet.size === 0 && nameSet.size === 0) { raw.push(result); return; }
-          if (idSet.size > 0 && resultId > 0 && idSet.has(resultId)) { raw.push(result); return; }
-          if (resultName && nameSet.has(resultName)) { raw.push(result); return; }
+
+          // Match by classroom ID from the student's active enrollment
+          const resultClassroomId = Number(result.student?.classroom_id || 0);
+          if (resultClassroomId > 0 && idSet.has(resultClassroomId)) { raw.push(result); return; }
+
+          // Match by classroom name from the student's active enrollment
+          const resultClassroomName = (result.student?.classroom_name || '').trim();
+          if (resultClassroomName && nameSet.has(resultClassroomName)) { raw.push(result); return; }
+
+          // Fallback: classroom data unavailable in response — include the result.
+          // The backend has already verified this teacher can see it.
+          if (!resultClassroomId && !resultClassroomName) { raw.push(result); return; }
         });
       });
 
@@ -244,42 +250,52 @@ const TeacherResults: React.FC = () => {
 
         let ca_score = 0, exam_score = 0, total_score = 0;
 
+        // component_scores is the source of truth — flat score fields no longer exist.
+        const comps: any[] = Array.isArray(r.component_scores) ? r.component_scores : [];
+        const examComp = comps.find((c: any) => c.component_type === 'EXAM')
+                      ?? comps.find((c: any) => !c.contributes_to_ca);
+        const caComps  = comps.filter((c: any) => c.component_type !== 'EXAM');
+
         if (educationLevel === 'NURSERY') {
           total_score = safeNum(r.mark_obtained);
           exam_score  = total_score;
         } else {
-          const caTotal = r.ca_total !== undefined
-            ? safeNum(r.ca_total)
-            : safeNum(r.first_test_score) + safeNum(r.second_test_score) + safeNum(r.third_test_score) +
-              safeNum(r.continuous_assessment_score) + safeNum(r.take_home_test_score) +
-              safeNum(r.appearance_score) + safeNum(r.practical_score) +
-              safeNum(r.project_score) + safeNum(r.note_copying_score);
-          ca_score    = r.total_ca_score !== undefined ? safeNum(r.total_ca_score) : caTotal;
-          exam_score  = safeNum(r.exam_score ?? r.exam);
+          ca_score = caComps.length > 0
+            ? caComps.reduce((s: number, c: any) => s + (parseFloat(c.score) || 0), 0)
+            : safeNum(r.ca_total);
+          exam_score  = examComp ? (parseFloat(examComp.score) || 0) : 0;
           total_score = safeNum(r.total_score) || (ca_score + exam_score);
         }
 
-        const examSession       = typeof r.exam_session === 'object' ? r.exam_session : null;
-        const termDisplay       = examSession?.term_display ?? examSession?.term ?? r.term_display ?? 'N/A';
-        const examSessionName   = examSession?.name ?? r.exam_session_name ?? 'N/A';
+        const examSession     = typeof r.exam_session === 'object' ? r.exam_session : null;
+        // Use term_name (human-readable) not term (FK integer)
+        const termDisplay     = examSession?.term_name
+                             ?? examSession?.term_display
+                             ?? (typeof examSession?.term === 'string' ? examSession.term : null)
+                             ?? r.term_name ?? r.term_display ?? 'N/A';
+        const examSessionName = examSession?.name ?? r.exam_session_name ?? 'N/A';
 
-        let academicSessionName = 'N/A';
-        if (examSession?.academic_session_name)           academicSessionName = String(examSession.academic_session_name);
-        else if (typeof examSession?.academic_session === 'string') academicSessionName = examSession.academic_session;
-        else if (examSession?.academic_session?.name)     academicSessionName = String(examSession.academic_session.name);
-        else if (r.academic_session_name)                 academicSessionName = String(r.academic_session_name);
-        else if (r.academic_session)
-          academicSessionName = typeof r.academic_session === 'string'
-            ? r.academic_session : (r.academic_session?.name ?? 'N/A');
+        // Academic session may be nested inside exam_session or at top level
+        const nestedSession  = examSession?.academic_session;
+        const rawSession     = nestedSession && typeof nestedSession === 'object'
+          ? nestedSession
+          : (r.academic_session && typeof r.academic_session === 'object' ? r.academic_session : null);
 
-        const rawSession = r.academic_session && typeof r.academic_session === 'object' ? r.academic_session : null;
+        let academicSessionName = rawSession?.name ?? 'N/A';
+        if (academicSessionName === 'N/A') {
+          if (examSession?.academic_session_name)             academicSessionName = String(examSession.academic_session_name);
+          else if (typeof nestedSession === 'string')         academicSessionName = nestedSession;
+          else if (r.academic_session_name)                   academicSessionName = String(r.academic_session_name);
+          else if (typeof r.academic_session === 'string')    academicSessionName = r.academic_session;
+        }
 
         return {
-          id: safeNum(r.id),
+          id: (r.id ?? 0) as number,           // preserve raw (int or UUID-as-string treated as 0)
           student: {
             id: safeNum(studentId),
             full_name: r.student?.full_name ?? r.student_name ?? 'Unknown Student',
-            registration_number: r.student?.username ?? r.registration_number ?? '',
+            // admission_number is the serializer field (source="registration_number")
+            registration_number: r.student?.admission_number ?? r.student?.username ?? r.registration_number ?? '',
             profile_picture: r.student?.profile_picture ?? null,
             education_level: educationLevel,
           },
@@ -304,15 +320,6 @@ const TeacherResults: React.FC = () => {
             created_at: rawSession?.created_at ?? '',
             updated_at: rawSession?.updated_at ?? '',
           } as AcademicSession,
-          first_test_score:            safeNum(r.first_test_score),
-          second_test_score:           safeNum(r.second_test_score),
-          third_test_score:            safeNum(r.third_test_score),
-          continuous_assessment_score: safeNum(r.continuous_assessment_score),
-          take_home_test_score:        safeNum(r.take_home_test_score),
-          appearance_score:            safeNum(r.appearance_score),
-          practical_score:             safeNum(r.practical_score),
-          project_score:               safeNum(r.project_score),
-          note_copying_score:          safeNum(r.note_copying_score),
           ca_score,
           ca_total: ca_score,
           exam_score,
@@ -321,8 +328,10 @@ const TeacherResults: React.FC = () => {
           grade: r.grade ?? r.letter_grade,
           status: (typeof r.status === 'string' ? r.status.toUpperCase() : 'DRAFT') as ResultStatus,
           remarks: r.remarks ?? '',
+          teacher_remark: r.teacher_remark ?? '',
           created_at: r.created_at ?? '',
           updated_at: r.updated_at ?? '',
+          component_scores: r.component_scores ?? [],
         };
       });
 
@@ -369,19 +378,52 @@ const TeacherResults: React.FC = () => {
     [teacherAssignments]
   );
 
+  // Normalise any term string to FIRST / SECOND / THIRD / OTHER
+  const getTermKey = (termStr: string): 'FIRST' | 'SECOND' | 'THIRD' | 'OTHER' => {
+    const t = (termStr || '').toString().toUpperCase();
+    if (t.includes('FIRST')  || t === '1') return 'FIRST';
+    if (t.includes('SECOND') || t === '2') return 'SECOND';
+    if (t.includes('THIRD')  || t === '3') return 'THIRD';
+    return 'OTHER';
+  };
+
+  // Unique exam sessions from loaded results (for Session tab dropdown)
+  const uniqueExamSessions = useMemo(() => {
+    const seen = new Set<string>();
+    const sessions: { id: string; name: string; term: string }[] = [];
+    results.forEach(r => {
+      const id = String(r.exam_session?.id ?? '');
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        sessions.push({
+          id,
+          name: r.exam_session?.name || id,
+          term: r.exam_session?.term || '',
+        });
+      }
+    });
+    return sessions.sort((a, b) => a.name.localeCompare(b.name));
+  }, [results]);
+
   const filteredResults = useMemo(() => {
-    const term = searchTerm.toLowerCase();
+    const q = searchTerm.toLowerCase();
     return results.filter((r) => {
+      // Term tab filter
+      if (filterTerm !== 'SESSION') {
+        if (getTermKey(r.exam_session?.term || '') !== filterTerm) return false;
+      } else if (filterSession) {
+        if (String(r.exam_session?.id ?? '') !== filterSession) return false;
+      }
       const matchSearch =
-        (r.student?.full_name || '').toLowerCase().includes(term) ||
-        (r.student?.registration_number || '').toLowerCase().includes(term) ||
-        (r.subject?.name || '').toLowerCase().includes(term);
+        (r.student?.full_name || '').toLowerCase().includes(q) ||
+        (r.student?.registration_number || '').toLowerCase().includes(q) ||
+        (r.subject?.name || '').toLowerCase().includes(q);
       const matchSubject = filterSubject === 'all' || String(r.subject?.id ?? '') === filterSubject;
       const matchStatus  = filterStatus  === 'all' || (r.status || '').toLowerCase() === filterStatus.toLowerCase();
       const matchLevel   = filterLevel   === 'all' || r.education_level === filterLevel;
       return matchSearch && matchSubject && matchStatus && matchLevel;
     });
-  }, [results, searchTerm, filterSubject, filterStatus, filterLevel]);
+  }, [results, filterTerm, filterSession, searchTerm, filterSubject, filterStatus, filterLevel]);
 
   const stats = useMemo(() => {
     const total     = results.length;
@@ -524,6 +566,47 @@ const TeacherResults: React.FC = () => {
         </div>
 
         <div className="max-w-7xl mx-auto px-3 md:px-6 py-3 md:py-4 space-y-3 md:space-y-4">
+
+          {/* ── Term Tabs ── */}
+          <div className="flex gap-1 bg-white rounded-xl border border-gray-100 shadow-sm p-1 w-fit overflow-x-auto">
+            {(['FIRST', 'SECOND', 'THIRD'] as const).map((t, i) => {
+              const label = ['1st Term', '2nd Term', '3rd Term'][i];
+              const count = results.filter(r => getTermKey(r.exam_session?.term || '') === t).length;
+              return (
+                <button key={t} onClick={() => { setFilterTerm(t); setFilterSession(''); }}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+                    filterTerm === t ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                  }`}>
+                  {label}
+                  {count > 0 && (
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${filterTerm === t ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+            <button onClick={() => { setFilterTerm('SESSION'); setFilterSession(''); }}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+                filterTerm === 'SESSION' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+              }`}>
+              By Session
+            </button>
+          </div>
+
+          {/* Session selector */}
+          {filterTerm === 'SESSION' && (
+            <div className="bg-white rounded-lg border border-gray-100 shadow-sm p-3">
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Select Exam Session</label>
+              <select value={filterSession} onChange={e => setFilterSession(e.target.value)}
+                className="w-full max-w-sm px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                <option value="">— All sessions —</option>
+                {uniqueExamSessions.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}{s.term ? ` · ${s.term}` : ''}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* ── Stats ── */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-3">

@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Save, X, Users, BookOpen, Calculator, FileText } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import { toast } from 'react-toastify';
 import resultSettingsService from '@/services/ResultSettingsService';
+import ResultService from '@/services/ResultService';
+import type { EducationLevelType } from '@/services/ResultService';
 import StudentService from '@/services/StudentService';
 import SubjectService from '@/services/SubjectService';
 
@@ -26,18 +28,6 @@ interface ExamSession {
   term: string;
 }
 
-interface AssessmentType {
-  id: string;
-  name: string;
-  code: string;
-  description: string;
-  education_level: 'NURSERY' | 'PRIMARY' | 'JUNIOR_SECONDARY' | 'SENIOR_SECONDARY' | 'ALL';
-  education_level_display: string;
-  max_score: number;
-  weight_percentage: number;
-  is_active: boolean;
-  created_at: string;
-}
 
 
 interface EnhancedResultRecordingProps {
@@ -58,10 +48,12 @@ const EnhancedResultRecording: React.FC<EnhancedResultRecordingProps> = ({
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [filteredSubjects, setFilteredSubjects] = useState<Subject[]>([]);
   const [examSessions, setExamSessions] = useState<ExamSession[]>([]);
-  const [scoringConfigs, setScoringConfigs] = useState<any[]>([]);
-  const [assessmentTypes, setAssessmentTypes] = useState<AssessmentType[]>([]);
-  
-  // Form state - now dynamic based on assessment types
+  // Assessment components for the selected student's education level
+  const [levelComponents, setLevelComponents] = useState<any[]>([]);
+  // component_id → entered score string
+  const [componentScores, setComponentScores] = useState<Record<number, string>>({});
+
+  // Form state
   const [formData, setFormData] = useState<{
     student: string;
     subject: string;
@@ -69,7 +61,7 @@ const EnhancedResultRecording: React.FC<EnhancedResultRecordingProps> = ({
     education_level: string;
     teacher_remark: string;
     status: string;
-    [key: string]: any; // Dynamic score fields
+    [key: string]: any;
   }>({
     student: '',
     subject: '',
@@ -87,19 +79,10 @@ const EnhancedResultRecording: React.FC<EnhancedResultRecordingProps> = ({
     try {
       setLoading(true);
       
-      // Fetch all data in parallel
-      const [
-        studentsData,
-        subjectsData,
-        examSessionsData,
-        assessmentTypesData,
-        scoringConfigsData
-      ] = await Promise.all([
-        StudentService.getStudents({ page_size: 1000 }), // Get all students
-        SubjectService.getSubjects({ is_active: true }), // Get active subjects
+      const [studentsData, subjectsData, examSessionsData] = await Promise.all([
+        StudentService.getStudents({ page_size: 1000 }),
+        SubjectService.getSubjects({ is_active: true }),
         resultSettingsService.getExamSessions(),
-        resultSettingsService.getAssessmentTypes(),
-        resultSettingsService.getScoringConfigurations()
       ]);
 
       // Transform students data to match our interface with proper error handling
@@ -126,29 +109,12 @@ const EnhancedResultRecording: React.FC<EnhancedResultRecordingProps> = ({
         })));
       }
 
-      // Handle exam sessions data with proper error handling
       const safeExamSessions = Array.isArray(examSessionsData) ? examSessionsData : [];
-      
-      // Handle assessment types data with proper error handling
-      const safeAssessmentTypes = Array.isArray(assessmentTypesData) ? assessmentTypesData : [];
-      
-      // Handle scoring configs data with proper error handling
-      const safeScoringConfigs = Array.isArray(scoringConfigsData) ? scoringConfigsData : [];
 
       setStudents(transformedStudents);
       setSubjects(transformedSubjects);
-      setFilteredSubjects(transformedSubjects); // Initially show all subjects
+      setFilteredSubjects(transformedSubjects);
       setExamSessions(safeExamSessions);
-      setAssessmentTypes(safeAssessmentTypes);
-      setScoringConfigs(safeScoringConfigs);
-      
-      console.log('Data loaded successfully:', {
-        students: transformedStudents.length,
-        subjects: transformedSubjects.length,
-        examSessions: safeExamSessions.length,
-        assessmentTypes: safeAssessmentTypes.length,
-        scoringConfigs: safeScoringConfigs.length
-      });
       
     } catch (error) {
       console.error('Error loading data:', error);
@@ -157,230 +123,93 @@ const EnhancedResultRecording: React.FC<EnhancedResultRecordingProps> = ({
       setStudents([]);
       setSubjects([]);
       setExamSessions([]);
-      setAssessmentTypes([]);
-      setScoringConfigs([]);
-      
       toast.error('Failed to load data. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  const getScoringConfig = (educationLevel: string, resultType: string = 'TERMLY') => {
-    return scoringConfigs.find(config => 
-      config.education_level === educationLevel && 
-      config.result_type === resultType
-    );
-  };
-
-  const getActiveScoringConfig = (educationLevel: string) => {
-    // First try to find a default configuration
-    let config = scoringConfigs.find(c => 
-      c.education_level === educationLevel && 
-      c.is_default && 
-      c.is_active
-    );
-    
-    // If no default, get the first active configuration
-    if (!config) {
-      config = scoringConfigs.find(c => 
-        c.education_level === educationLevel && 
-        c.is_active
-      );
-    }
-    
-    return config;
-  };
-
-  const getAssessmentTypesForLevel = (educationLevel: string): AssessmentType[] => {
-    return assessmentTypes.filter(type => 
-      type.education_level === educationLevel || type.education_level === 'ALL'
-    );
-  };
-
-  const getFieldNameFromAssessmentType = (assessmentType: AssessmentType): string => {
-    // Convert assessment type code to a field name
-    const code = assessmentType.code.toLowerCase();
-    if (code.includes('test1') || code.includes('ca')) return 'first_test_score';
-    if (code.includes('test2')) return 'second_test_score';
-    if (code.includes('test3')) return 'third_test_score';
-    if (code.includes('exam')) return 'exam_score';
-    if (code.includes('ca')) return 'continuous_assessment_score';
-    if (code.includes('tht')) return 'take_home_test_score';
-    if (code.includes('app')) return 'appearance_score';
-    if (code.includes('pra')) return 'practical_score';
-    if (code.includes('pro')) return 'project_score';
-    if (code.includes('nc')) return 'note_copying_score';
-    if (code.includes('total')) return 'total_score';
-    
-    // Fallback: create a field name from the code
-    return `${code}_score`;
-  };
-
-  const filterSubjectsByEducationLevel = (educationLevel: string): Subject[] => {
-    // Filter subjects based on education level using the actual education_levels field
-    return subjects.filter(subject => {
-      // Check if the subject's education_levels array contains the requested education level
-      return subject.education_levels && subject.education_levels.includes(educationLevel);
-    });
-  };
-
-  const validateScoreLimits = (score: number, maxScore: number, fieldName: string) => {
-    if (score > maxScore) {
-      toast.error(`${fieldName} cannot exceed ${maxScore}`);
-      return false;
-    }
-    return true;
-  };
+  const filterSubjectsByEducationLevel = (educationLevel: string): Subject[] =>
+    subjects.filter(s => s.education_levels?.includes(educationLevel));
 
   const handleSubmit = async () => {
+    if (!formData.student || !formData.subject || !formData.exam_session) {
+      toast.error('Please fill in student, subject, and exam session');
+      return;
+    }
+    if (levelComponents.length === 0) {
+      toast.error('No assessment components found for this education level');
+      return;
+    }
+
+    // Validate each entered score against its component max_score
+    for (const comp of levelComponents) {
+      const raw = componentScores[comp.id];
+      if (raw === undefined || raw === '') continue;
+      const n = parseFloat(raw);
+      if (isNaN(n) || n < 0) {
+        toast.error(`"${comp.name}" score must be a non-negative number`);
+        return;
+      }
+      if (n > parseFloat(comp.max_score)) {
+        toast.error(`"${comp.name}" score cannot exceed ${comp.max_score}`);
+        return;
+      }
+    }
+
+    const scores = levelComponents
+      .filter(c => componentScores[c.id] !== undefined && componentScores[c.id] !== '')
+      .map(c => ({ component_id: c.id, score: parseFloat(componentScores[c.id]) }));
+
+    if (scores.length === 0) {
+      toast.error('Enter at least one score');
+      return;
+    }
+
     try {
       setSaving(true);
-      
-      const student = students.find(s => s.id === formData.student);
-      if (!student) {
-        toast.error('Please select a student');
-        return;
-      }
-
-      // Get the active scoring configuration for this education level
-      const config = getActiveScoringConfig(student.education_level);
-      if (!config) {
-        toast.error(`No active scoring configuration found for ${student.education_level.replace('_', ' ')}`);
-        return;
-      }
-
-      // Get assessment types for this education level
-      const levelAssessmentTypes = getAssessmentTypesForLevel(student.education_level);
-      
-      // Validate score limits based on assessment types
-      for (const assessmentType of levelAssessmentTypes) {
-        const fieldName = getFieldNameFromAssessmentType(assessmentType);
-        const score = formData[fieldName] || 0;
-        if (!validateScoreLimits(score, assessmentType.max_score, assessmentType.name)) {
-          return;
-        }
-      }
-      
-      // Prepare result data based on education level
-      let resultData: any = {
-        student: formData.student,
-        subject: formData.subject,
+      const level = formData.education_level as EducationLevelType;
+      await ResultService.bulkRecordComponentScores(level, [{
+        student:      formData.student,
+        subject:      Number(formData.subject),
         exam_session: formData.exam_session,
-        grading_system: 2, // Default grading system ID
-        teacher_remark: formData.teacher_remark,
-        status: formData.status
-      };
-      
-      // Add scores based on assessment types
-      for (const assessmentType of levelAssessmentTypes) {
-        const fieldName = getFieldNameFromAssessmentType(assessmentType);
-        resultData[fieldName] = formData[fieldName] || 0;
-      }
-      
-      // Call appropriate API
-      try {
-        if (student.education_level === 'SENIOR_SECONDARY') {
-          await resultSettingsService.createSeniorSecondaryResult(resultData);
-        } else if (student.education_level === 'JUNIOR_SECONDARY') {
-          await resultSettingsService.createJuniorSecondaryResult(resultData);
-        } else if (student.education_level === 'PRIMARY') {
-          await resultSettingsService.createPrimaryResult(resultData);
-        } else if (student.education_level === 'NURSERY') {
-          await resultSettingsService.createNurseryResult(resultData);
-        }
-        
-        toast.success('Result recorded successfully');
-      } catch (error: any) {
-        console.error('Error creating result:', error);
-        
-        // Handle unique constraint violation
-        if (error.response?.status === 400 && error.response?.data?.non_field_errors) {
-          const errorMessage = error.response.data.non_field_errors[0];
-          if (errorMessage.includes('unique')) {
-            toast.error('A result already exists for this student, subject, and exam session. Please edit the existing result instead.');
-            // Mark error as specifically handled to prevent outer catch from showing generic message
-            error.specificErrorHandled = true;
-            return;
-          }
-        }
-        
-        // Handle other errors
-        const errorMessage = error.response?.data?.message || error.message || 'Failed to create result';
-        toast.error(errorMessage);
-        error.specificErrorHandled = true;
-        throw error;
-      }
+        scores,
+      }]);
+      toast.success('Result recorded successfully');
       setShowForm(false);
       resetForm();
-       if (onResultAdded) {
-        onResultAdded();
-      }
-      if (onClose) {
-        onClose();
-      } else {
-        setShowForm(false);
-        resetForm();
-      }
+      onResultAdded?.();
+      onClose?.();
     } catch (error: any) {
-      console.error('Error saving result:', error);
-      
-      // Only show generic error if no specific error was already shown
-      if (!error.specificErrorHandled) {
-        // Handle unique constraint violation
-        if (error.response?.status === 400 && error.response?.data?.non_field_errors) {
-          const errorMessage = error.response.data.non_field_errors[0];
-          if (errorMessage.includes('unique')) {
-            toast.error('A result already exists for this student, subject, and exam session. Please edit the existing result instead.');
-            return;
-          }
-        }
-        
-        // Handle other errors
-        const errorMessage = error.response?.data?.message || error.message || 'Failed to save result';
-        toast.error(errorMessage);
-      }
+      const msg = error?.response?.data?.error || error?.message || 'Failed to save result';
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
   };
 
   const resetForm = () => {
-    setFormData({
-      student: '',
-      subject: '',
-      exam_session: '',
-      education_level: '',
-      teacher_remark: '',
-      status: 'DRAFT'
-    });
-    setFilteredSubjects(subjects); // Reset to show all subjects
+    setFormData({ student: '', subject: '', exam_session: '', education_level: '', teacher_remark: '', status: 'DRAFT' });
+    setComponentScores({});
+    setLevelComponents([]);
+    setFilteredSubjects(subjects);
   };
 
-  const handleStudentSelect = (student: Student) => {
-    const levelAssessmentTypes = getAssessmentTypesForLevel(student.education_level);
-    
-    // Filter subjects for this student's education level
-    const levelSubjects = filterSubjectsByEducationLevel(student.education_level);
-    setFilteredSubjects(levelSubjects);
-    
-    // Initialize form data with the student and education level
-    const newFormData: any = {
-      student: student.id,
-      education_level: student.education_level,
-      subject: '',
-      exam_session: '',
-      teacher_remark: '',
-      status: 'DRAFT'
-    };
-    
-    // Initialize score fields for this education level
-    for (const assessmentType of levelAssessmentTypes) {
-      const fieldName = getFieldNameFromAssessmentType(assessmentType);
-      newFormData[fieldName] = 0;
+  const handleStudentSelect = async (student: Student) => {
+    setFilteredSubjects(filterSubjectsByEducationLevel(student.education_level));
+    setFormData({ student: student.id, education_level: student.education_level, subject: '', exam_session: '', teacher_remark: '', status: 'DRAFT' });
+    setComponentScores({});
+    // Load components for this education level
+    try {
+      const all = await ResultService.getAssessmentComponents({ is_active: true, page_size: 50 });
+      const filtered = (all as any[]).filter(
+        (c: any) => !c.education_level_detail?.level_type ||
+                    c.education_level_detail?.level_type === student.education_level
+      ).sort((a: any, b: any) => (a.display_order ?? 0) - (b.display_order ?? 0));
+      setLevelComponents(filtered);
+    } catch {
+      setLevelComponents([]);
     }
-    
-    setFormData(newFormData);
     setShowForm(true);
   };
 
@@ -604,240 +433,47 @@ const EnhancedResultRecording: React.FC<EnhancedResultRecordingProps> = ({
                   </div>
                 </div>
 
-                {/* Dynamic Score Entry Based on Scoring Configuration */}
-                {formData.education_level && (() => {
-                  const config = getActiveScoringConfig(formData.education_level);
-                  
-                  return (
-                    <div className="bg-green-50 rounded-xl p-6">
-                      <h4 className="text-lg font-semibold text-green-900 mb-4">
-                        Score Entry - {formData.education_level.replace('_', ' ')}
-                      </h4>
-                      
-                      {config && (
-                        <div className="mb-4 p-3 bg-blue-100 rounded-lg">
-                          <p className="text-sm text-blue-800">
-                            <strong>Using Configuration:</strong> {config.name} 
-                            {config.is_default && <span className="ml-2 bg-blue-200 px-2 py-1 rounded text-xs">Default</span>}
-                          </p>
-                        </div>
-                      )}
-                      
-                      {!config && (
-                        <div className="mb-4 p-3 bg-red-100 rounded-lg">
-                          <p className="text-sm text-red-800">
-                            <strong>Warning:</strong> No active scoring configuration found for {formData.education_level.replace('_', ' ')}. 
-                            Please create one in the Exams & Results Settings.
-                          </p>
-                        </div>
-                      )}
-                      
-                      {config && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                          {/* Senior Secondary Fields */}
-                          {formData.education_level === 'SENIOR_SECONDARY' && (
-                            <>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  {config.result_type === 'SESSION' ? '1st Term Score' : '1st Test Score'} (Max: {config.first_test_max_score})
-                                </label>
-                                <input
-                                  type="number"
-                                  value={formData.first_test_score || 0}
-                                  onChange={(e) => setFormData({ 
-                                    ...formData, 
-                                    first_test_score: parseFloat(e.target.value) || 0 
-                                  })}
-                                  max={config.first_test_max_score}
-                                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  {config.result_type === 'SESSION' ? '2nd Term Score' : '2nd Test Score'} (Max: {config.second_test_max_score})
-                                </label>
-                                <input
-                                  type="number"
-                                  value={formData.second_test_score || 0}
-                                  onChange={(e) => setFormData({ 
-                                    ...formData, 
-                                    second_test_score: parseFloat(e.target.value) || 0 
-                                  })}
-                                  max={config.second_test_max_score}
-                                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  {config.result_type === 'SESSION' ? '3rd Term Score' : '3rd Test Score'} (Max: {config.third_test_max_score})
-                                </label>
-                                <input
-                                  type="number"
-                                  value={formData.third_test_score || 0}
-                                  onChange={(e) => setFormData({ 
-                                    ...formData, 
-                                    third_test_score: parseFloat(e.target.value) || 0 
-                                  })}
-                                  max={config.third_test_max_score}
-                                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                                />
-                              </div>
-                              {config.result_type === 'TERMLY' && (
-                                <div>
-                                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Exam Score (Max: {config.exam_max_score})
-                                  </label>
-                                  <input
-                                    type="number"
-                                    value={formData.exam_score || 0}
-                                    onChange={(e) => setFormData({ 
-                                      ...formData, 
-                                      exam_score: parseFloat(e.target.value) || 0 
-                                    })}
-                                    max={config.exam_max_score}
-                                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                                  />
-                                </div>
+                {/* Score Entry — driven by AssessmentComponent records, fully tenant-agnostic */}
+                {formData.education_level && (
+                  <div className="bg-green-50 rounded-xl p-6">
+                    <h4 className="text-lg font-semibold text-green-900 mb-4">
+                      Assessment Scores — {formData.education_level.replace(/_/g, ' ')}
+                    </h4>
+
+                    {levelComponents.length === 0 ? (
+                      <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+                        No active assessment components found for this education level.
+                        Configure them in <strong>Exams &amp; Results → Assessment Components</strong>.
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {levelComponents.map((comp: any) => (
+                          <div key={comp.id}>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              {comp.name}
+                              <span className="ml-1 text-gray-400 font-normal">(max {comp.max_score})</span>
+                              {comp.contributes_to_ca && (
+                                <span className="ml-2 text-xs text-indigo-600 font-medium">CA</span>
                               )}
-                            </>
-                          )}
-                          
-                          {/* Primary and Junior Secondary Fields */}
-                          {(formData.education_level === 'PRIMARY' || formData.education_level === 'JUNIOR_SECONDARY') && (
-                            <>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  CA Score (Max: {config.continuous_assessment_max_score})
-                                </label>
-                                <input
-                                  type="number"
-                                  value={formData.continuous_assessment_score || 0}
-                                  onChange={(e) => setFormData({ 
-                                    ...formData, 
-                                    continuous_assessment_score: parseFloat(e.target.value) || 0 
-                                  })}
-                                  max={config.continuous_assessment_max_score}
-                                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  Take Home Test (Max: {config.take_home_test_max_score})
-                                </label>
-                                <input
-                                  type="number"
-                                  value={formData.take_home_test_score || 0}
-                                  onChange={(e) => setFormData({ 
-                                    ...formData, 
-                                    take_home_test_score: parseFloat(e.target.value) || 0 
-                                  })}
-                                  max={config.take_home_test_max_score}
-                                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  Appearance (Max: {config.appearance_max_score})
-                                </label>
-                                <input
-                                  type="number"
-                                  value={formData.appearance_score || 0}
-                                  onChange={(e) => setFormData({ 
-                                    ...formData, 
-                                    appearance_score: parseFloat(e.target.value) || 0 
-                                  })}
-                                  max={config.appearance_max_score}
-                                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  Practical (Max: {config.practical_max_score})
-                                </label>
-                                <input
-                                  type="number"
-                                  value={formData.practical_score || 0}
-                                  onChange={(e) => setFormData({ 
-                                    ...formData, 
-                                    practical_score: parseFloat(e.target.value) || 0 
-                                  })}
-                                  max={config.practical_max_score}
-                                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  Project (Max: {config.project_max_score})
-                                </label>
-                                <input
-                                  type="number"
-                                  value={formData.project_score || 0}
-                                  onChange={(e) => setFormData({ 
-                                    ...formData, 
-                                    project_score: parseFloat(e.target.value) || 0 
-                                  })}
-                                  max={config.project_max_score}
-                                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  Note Copying (Max: {config.note_copying_max_score})
-                                </label>
-                                <input
-                                  type="number"
-                                  value={formData.note_copying_score || 0}
-                                  onChange={(e) => setFormData({ 
-                                    ...formData, 
-                                    note_copying_score: parseFloat(e.target.value) || 0 
-                                  })}
-                                  max={config.note_copying_max_score}
-                                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                                />
-                              </div>
-                              {config.result_type === 'TERMLY' && (
-                                <div>
-                                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Exam Score (Max: {config.exam_max_score})
-                                  </label>
-                                  <input
-                                    type="number"
-                                    value={formData.exam_score || 0}
-                                    onChange={(e) => setFormData({ 
-                                      ...formData, 
-                                      exam_score: parseFloat(e.target.value) || 0 
-                                    })}
-                                    max={config.exam_max_score}
-                                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                                  />
-                                </div>
-                              )}
-                            </>
-                          )}
-                          
-                          {/* Nursery Fields */}
-                          {formData.education_level === 'NURSERY' && (
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Total Score (Max: {config.total_max_score})
-                              </label>
-                              <input
-                                type="number"
-                                value={formData.total_score || 0}
-                                onChange={(e) => setFormData({ 
-                                  ...formData, 
-                                  total_score: parseFloat(e.target.value) || 0 
-                                })}
-                                max={config.total_max_score}
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                              />
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              max={parseFloat(comp.max_score)}
+                              step="0.5"
+                              value={componentScores[comp.id] ?? ''}
+                              onChange={e =>
+                                setComponentScores(prev => ({ ...prev, [comp.id]: e.target.value }))
+                              }
+                              placeholder={`0–${comp.max_score}`}
+                              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Teacher Remarks */}
                 <div className="bg-purple-50 rounded-xl p-6">

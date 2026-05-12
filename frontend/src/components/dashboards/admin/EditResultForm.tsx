@@ -86,10 +86,7 @@ const EditResultForm: React.FC<EditResultFormProps> = ({
       try {
         setLoading(true);
         if (!isNursery) {
-          const comps = await resultSettingsService.getAssessmentComponents({
-            education_level: educationLevelId(educationLevel),
-            is_active: true,
-          });
+          const comps = await ResultService.getAssessmentComponentsByEducationLevel(educationLevel);
           const sorted = [...comps].sort((a, b) => a.display_order - b.display_order);
           setComponents(sorted);
 

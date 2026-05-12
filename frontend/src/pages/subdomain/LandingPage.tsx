@@ -368,9 +368,9 @@ const SubdomainLandingPage: React.FC = () => {
         <div className={`lg:hidden px-6 py-4 text-center text-xs text-gray-400 transition-all duration-500 delay-300 ${mounted ? 'opacity-100' : 'opacity-0'}`}>
           &copy; {new Date().getFullYear()} {schoolName} &middot; Powered by Nuventa Cloud
         </div>
-        <Link to="/supabase-login" className="text-sm text-blue-600 hover:text-blue-800 transition-colors">
+        {/* <Link to="/supabase-login" className="text-sm flex justify-center align-center text-white rounded-lg bg-blue-500 p-2 hover:text-blue-800 transition-colors">
           Go to Admin Login
-        </Link>
+        </Link> */}
       </div>
     </div>
   );

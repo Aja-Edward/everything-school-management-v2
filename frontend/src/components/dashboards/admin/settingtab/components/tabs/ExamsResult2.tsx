@@ -31,7 +31,7 @@ import {
   AssessmentTypeCreateUpdate,
   GradeCreateUpdate,
   ExamSessionCreateUpdate,
-  
+  ExamType,
 } from '@/services/ResultSettingsService';
 import resultSettingsService from '@/services/ResultSettingsService';
 import { AcademicSession } from '@/types/types';
@@ -49,6 +49,7 @@ const ExamsResultTab: React.FC<ExamsResultTabProps> = () => {
   const [grades, setGrades] = useState<GradeRange[]>([]);
   const [assessmentTypes, setAssessmentTypes] = useState<AssessmentType[]>([]);
   const [examSessions, setExamSessions] = useState<ExamSession[]>([]);
+  const [examTypes, setExamTypes] = useState<ExamType[]>([]);
   const [academicSessions, setAcademicSessions] = useState<AcademicSession[]>([]);
   const [scoringConfigurations, setScoringConfigurations] = useState<ScoringConfiguration[]>([]);
   
@@ -117,8 +118,7 @@ const ExamsResultTab: React.FC<ExamsResultTabProps> = () => {
     is_active: true
   });
 
-//   Grade form state
-const [gradeForm, setGradeForm] = useState<GradeCreateUpdate & { id?: string }>({
+  const [gradeForm, setGradeForm] = useState<GradeCreateUpdate & { id?: string }>({
   grading_system: '',
   grade: '',
   remark: '',
@@ -145,26 +145,27 @@ const [gradeForm, setGradeForm] = useState<GradeCreateUpdate & { id?: string }>(
         gradesData,
         assessmentTypesData,
         examSessionsData,
+        examTypesData,
         scoringConfigsData,
-         academicSessionsData
+        academicSessionsData,
       ] = await Promise.all([
         resultSettingsService.getGradingSystems(),
         resultSettingsService.getGrades(),
         resultSettingsService.getAssessmentTypes(),
         resultSettingsService.getExamSessions(),
+        resultSettingsService.getExamTypes({ is_active: true }),
         resultSettingsService.getScoringConfigurations(),
-        resultSettingsService.getAcademicSessions()
+        resultSettingsService.getAcademicSessions(),
       ]);
 
-      
       setGradingSystems(gradingSystemsData);
       setGrades(gradesData);
       setAssessmentTypes(assessmentTypesData);
       setExamSessions(examSessionsData);
+      setExamTypes(examTypesData);
       setScoringConfigurations(scoringConfigsData);
-       setAcademicSessions(academicSessionsData);
+      setAcademicSessions(academicSessionsData);
       
-      console.log('loadData - State updated, scoringConfigurations should now have:', scoringConfigsData?.length, 'items');
     } catch (error) {
       console.error('Error loading data:', error);
       toast.error('Failed to load data');
@@ -186,7 +187,6 @@ const [gradeForm, setGradeForm] = useState<GradeCreateUpdate & { id?: string }>(
    
   const handleManageGrades = (system: GradingSystem) => {
   setSelectedGradingSystem(system);
-  console.log("This is System", system)
   setShowGradesManagementModal(true);
 };
 
@@ -309,106 +309,76 @@ const handleDeleteGrade = async (id: string) => {
   const handleCreateScoringConfig = async () => {
     
     try {
-      console.log('=== handleCreateScoringConfig START ===');
       setSaving(true);
-      
-      // Check if data is loaded
+
       if (loading) {
-        console.log('Loading check failed');
         toast.error('Please wait for data to load before creating a configuration');
         setSaving(false);
         return;
       }
-      console.log('Loading check passed');
-      
-      // Validate weight percentages before sending (only for TERMLY)
+
       if (scoringConfigForm.result_type === 'TERMLY' && !validateWeightPercentages()) {
-        console.log('Weight validation failed');
         toast.error('CA weight percentage and exam weight percentage must sum to 100%');
         setSaving(false);
         return;
       }
-      console.log('Weight validation passed');
 
-      if (scoringConfigForm.result_type === 'TERMLY' && 
-        scoringConfigForm.education_level !== 'NURSERY' && 
+      if (scoringConfigForm.result_type === 'TERMLY' &&
+        scoringConfigForm.education_level !== 'NURSERY' &&
         !validateTotalScore()) {
-      console.log('Total score validation failed');
-      const caTotal = scoringConfigForm.education_level === 'SENIOR_SECONDARY' 
-        ? calculateTotalCA() 
-        : calculateTotalCAPrimaryJunior();
-      const examScore = Number(scoringConfigForm.exam_max_score) || 0;
-      const expectedTotal = caTotal + examScore;
-      toast.error(`Total max score must equal ${expectedTotal} (CA: ${caTotal} + Exam: ${examScore})`);
-      setSaving(false);
-      return;
-    }
-    console.log('Total score validation passed');
-     
-     // Validate default configuration
-     if (!validateDefaultConfiguration()) {
-       console.log('Default configuration validation failed');
-       toast.error('Only one default configuration is allowed per education level. Please set the existing default configuration to non-default first, or set this configuration as non-default.');
-       setSaving(false);
-       return;
-     }
-     console.log('Default configuration validation passed');
-     
-            // Prepare form data based on education level and result type
-       let formData: any = JSON.parse(JSON.stringify(scoringConfigForm));
-      
-      console.log('Original formData:', formData);
+        const caTotal = scoringConfigForm.education_level === 'SENIOR_SECONDARY'
+          ? calculateTotalCA()
+          : calculateTotalCAPrimaryJunior();
+        const examScore = Number(scoringConfigForm.exam_max_score) || 0;
+        const expectedTotal = caTotal + examScore;
+        toast.error(`Total max score must equal ${expectedTotal} (CA: ${caTotal} + Exam: ${examScore})`);
+        setSaving(false);
+        return;
+      }
+
+      if (!validateDefaultConfiguration()) {
+        toast.error('Only one default configuration is allowed per education level. Please set the existing default configuration to non-default first, or set this configuration as non-default.');
+        setSaving(false);
+        return;
+      }
+
+      let formData: any = JSON.parse(JSON.stringify(scoringConfigForm));
       const level = scoringConfigForm.education_level?.toUpperCase();
 
-              // Remove fields that don't apply based on education level
-       if (level === 'SENIOR_SECONDARY') {
-         // For Senior Secondary, remove Junior Secondary/Primary fields
-         delete formData.continuous_assessment_max_score;
-         delete formData.take_home_test_max_score;
-         delete formData.appearance_max_score;
-         delete formData.practical_max_score;
-         delete formData.project_max_score;
-         delete formData.note_copying_max_score;
-         console.log('After removing Junior/Primary fields for Senior Secondary:', formData);
-       } else if (level === 'NURSERY') {
-         // For Nursery, remove all other fields except total_max_score
-         delete formData.first_test_max_score;
-         delete formData.second_test_max_score;
-         delete formData.third_test_max_score;
-         delete formData.continuous_assessment_max_score;
-         delete formData.take_home_test_max_score;
-         delete formData.appearance_max_score;
-         delete formData.practical_max_score;
-         delete formData.project_max_score;
-         delete formData.note_copying_max_score;
-         delete formData.exam_max_score;
-         delete formData.ca_weight_percentage;
-         delete formData.exam_weight_percentage;
-         console.log('After removing all fields except total_max_score for Nursery:', formData);
-       } else {
-         // For Junior Secondary and Primary, remove Senior Secondary fields
-         delete formData.first_test_max_score;
-         delete formData.second_test_max_score;
-         delete formData.third_test_max_score;
-         console.log('After removing Senior Secondary fields for Junior/Primary:', formData);
-       }
-      
-      if (scoringConfigForm.result_type === 'SESSION') {
-        // Remove fields that don't apply to SESSION result type
+      if (level === 'SENIOR_SECONDARY') {
+        delete formData.continuous_assessment_max_score;
+        delete formData.take_home_test_max_score;
+        delete formData.appearance_max_score;
+        delete formData.practical_max_score;
+        delete formData.project_max_score;
+        delete formData.note_copying_max_score;
+      } else if (level === 'NURSERY') {
+        delete formData.first_test_max_score;
+        delete formData.second_test_max_score;
+        delete formData.third_test_max_score;
+        delete formData.continuous_assessment_max_score;
+        delete formData.take_home_test_max_score;
+        delete formData.appearance_max_score;
+        delete formData.practical_max_score;
+        delete formData.project_max_score;
+        delete formData.note_copying_max_score;
         delete formData.exam_max_score;
         delete formData.ca_weight_percentage;
         delete formData.exam_weight_percentage;
-        // delete formData.total_max_score;
-        console.log('After removing SESSION fields:', formData);
+      } else {
+        delete formData.first_test_max_score;
+        delete formData.second_test_max_score;
+        delete formData.third_test_max_score;
       }
-      
-      console.log('Final formData being sent:', formData);
-     console.log('About to call resultSettingsService.createScoringConfiguration...');
 
-     console.log("Payload actually sent:", formData);
-     const response = await resultSettingsService.createScoringConfiguration(formData);
-     console.log('API Response:', response);
-     toast.success('Scoring configuration created successfully');
+      if (scoringConfigForm.result_type === 'SESSION') {
+        delete formData.exam_max_score;
+        delete formData.ca_weight_percentage;
+        delete formData.exam_weight_percentage;
+      }
+
+      await resultSettingsService.createScoringConfiguration(formData);
+      toast.success('Scoring configuration created successfully');
      setShowScoringConfigForm(false);
      setScoringConfigForm({
        name: '',
@@ -431,9 +401,7 @@ const handleDeleteGrade = async (id: string) => {
        is_active: true,
        is_default: false
      });
-     console.log('About to reload data...');
      await loadData();
-     console.log('Data reloaded successfully');
    } catch (error: any) {
      console.error('Error creating scoring configuration:', error);
      
@@ -494,59 +462,45 @@ const handleDeleteGrade = async (id: string) => {
        return;
      }
      
-                        // Prepare form data based on education level and result type
       let formData: any = JSON.parse(JSON.stringify(scoringConfigForm));
-      
-      console.log('Original formData (update):', formData);
       const level = scoringConfigForm.education_level?.toUpperCase();
-              // Remove fields that don't apply based on education level
-       if (level === 'SENIOR_SECONDARY') {
+
+      if (level === 'SENIOR_SECONDARY') {
         formData.first_test_max_score ??= 10;
         formData.second_test_max_score ??= 10;
         formData.third_test_max_score ??= 10;
         formData.exam_max_score ??= 70;
         formData.total_max_score ??= 100;
-         // For Senior Secondary, remove Junior Secondary/Primary fields
-         delete formData.continuous_assessment_max_score;
-         delete formData.take_home_test_max_score;
-         delete formData.appearance_max_score;
-         delete formData.practical_max_score;
-         delete formData.project_max_score;
-         delete formData.note_copying_max_score;
-         console.log('After removing Junior/Primary fields for Senior Secondary (update):', formData);
-       } else if (level === 'NURSERY') {
-         // For Nursery, remove all other fields except total_max_score
-         delete formData.first_test_max_score;
-         delete formData.second_test_max_score;
-         delete formData.third_test_max_score;
-         delete formData.continuous_assessment_max_score;
-         delete formData.take_home_test_max_score;
-         delete formData.appearance_max_score;
-         delete formData.practical_max_score;
-         delete formData.project_max_score;
-         delete formData.note_copying_max_score;
-         delete formData.exam_max_score;
-         delete formData.ca_weight_percentage;
-         delete formData.exam_weight_percentage;
-         console.log('After removing all fields except total_max_score for Nursery (update):', formData);
-       } else {
-         // For Junior Secondary and Primary, remove Senior Secondary fields
-         delete formData.first_test_max_score;
-         delete formData.second_test_max_score;
-         delete formData.third_test_max_score;
-         console.log('After removing Senior Secondary fields for Junior/Primary (update):', formData);
-       }
-      
-      if (scoringConfigForm.result_type === 'SESSION') {
-        // Remove fields that don't apply to SESSION result type
+        delete formData.continuous_assessment_max_score;
+        delete formData.take_home_test_max_score;
+        delete formData.appearance_max_score;
+        delete formData.practical_max_score;
+        delete formData.project_max_score;
+        delete formData.note_copying_max_score;
+      } else if (level === 'NURSERY') {
+        delete formData.first_test_max_score;
+        delete formData.second_test_max_score;
+        delete formData.third_test_max_score;
+        delete formData.continuous_assessment_max_score;
+        delete formData.take_home_test_max_score;
+        delete formData.appearance_max_score;
+        delete formData.practical_max_score;
+        delete formData.project_max_score;
+        delete formData.note_copying_max_score;
         delete formData.exam_max_score;
         delete formData.ca_weight_percentage;
         delete formData.exam_weight_percentage;
-        // delete formData.total_max_score;
-        console.log('After removing SESSION fields (update):', formData);
+      } else {
+        delete formData.first_test_max_score;
+        delete formData.second_test_max_score;
+        delete formData.third_test_max_score;
       }
-      
-      console.log('Final formData being sent (update):', formData);
+
+      if (scoringConfigForm.result_type === 'SESSION') {
+        delete formData.exam_max_score;
+        delete formData.ca_weight_percentage;
+        delete formData.exam_weight_percentage;
+      }
      await resultSettingsService.updateScoringConfiguration(id, formData);
      toast.success('Scoring configuration updated successfully');
      setShowScoringConfigForm(false);
@@ -576,14 +530,11 @@ const handleDeleteGrade = async (id: string) => {
   const handleDeleteScoringConfig = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this scoring configuration?')) {
       try {
-        console.log('Attempting to delete scoring configuration with ID:', id);
         await resultSettingsService.deleteScoringConfiguration(id);
-        console.log('Scoring configuration deleted successfully');
         toast.success('Scoring configuration deleted successfully');
         loadData();
       } catch (error: any) {
         console.error('Error deleting scoring configuration:', error);
-        console.error('Error details:', error.response?.data);
         toast.error('Failed to delete scoring configuration');
       }
     }
@@ -610,31 +561,16 @@ const handleDeleteGrade = async (id: string) => {
     const caWeight = Number(scoringConfigForm.ca_weight_percentage) || 0;
     const examWeight = Number(scoringConfigForm.exam_weight_percentage) || 0;
     const total = caWeight + examWeight;
-    const isValid = total === 100;
-    console.log('validateWeightPercentages:', {
-      ca_weight: scoringConfigForm.ca_weight_percentage,
-      exam_weight: scoringConfigForm.exam_weight_percentage,
-      total,
-      isValid
-    });
-    return isValid;
+    return total === 100;
   };
 
   const validateDefaultConfiguration = () => {
-    console.log('validateDefaultConfiguration:', {
-      is_default: scoringConfigForm.is_default,
-      education_level: scoringConfigForm.education_level,
-      configs_length: scoringConfigurations?.length,
-      existing_configs: scoringConfigurations?.filter(c => c.education_level === scoringConfigForm.education_level)
-    });
-    
     if (scoringConfigForm.is_default && scoringConfigurations && scoringConfigurations.length > 0) {
       const existingDefault = scoringConfigurations.find(
-        config => config.education_level === scoringConfigForm.education_level && 
-                  config.is_default && 
+        config => config.education_level === scoringConfigForm.education_level &&
+                  config.is_default &&
                   config.id !== scoringConfigForm.id
       );
-      console.log('Existing default found:', existingDefault);
       return !existingDefault;
     }
     return true;
@@ -829,106 +765,8 @@ const handleDeleteGrade = async (id: string) => {
     });
   };
 
-  // // Exam Session Create/Update handlers
-  // const handleCreateExamSession = async () => {
-  //   try {
-  //     setSaving(true);
-  //     // Validate that academic session is selected
-  //   if (!examSessionForm.academic_session) {
-  //     toast.error('Please select an academic session');
-  //     setSaving(false);
-  //     return;
-  //   }
-    
-  //   // Validate exam type
-  //   if (!examSessionForm.exam_type) {
-  //     toast.error('Please select an exam type');
-  //     setSaving(false);
-  //     return;
-  //   }
-  //   // Validate term
-  //   if (!examSessionForm.term) {
-  //     toast.error('Please select a term');
-  //     setSaving(false);
-  //     return;
-  //   }
-
-  //   // Convert academic_session to string and prepare payload
-  //   const payload = {
-  //     ...examSessionForm,
-  //     academic_session: String(examSessionForm.academic_session)
-  //   };
-    
-  //   console.log('Creating exam session with payload:', payload);
-  //     await resultSettingsService.createExamSession(payload);
-  //     toast.success('Exam session created successfully');
-  //     setShowExamSessionForm(false);
-  //     resetExamSessionForm();
-  //     loadData();
-  //   } catch (error: any) {
-  //     console.error('Error creating exam session:', error);
-  //     if (error.response?.data) {
-  //       const errorData = error.response.data;
-  //       if (errorData.non_field_errors) {
-  //         toast.error(errorData.non_field_errors[0]);
-  //       } else if (typeof errorData === 'object') {
-  //         const errorMessages = Object.values(errorData).flat();
-  //         toast.error(errorMessages[0] as string);
-  //       } else {
-  //         toast.error('Failed to create exam session');
-  //       }
-  //     } else {
-  //       toast.error('Failed to create exam session');
-  //     }
-  //   } finally {
-  //     setSaving(false);
-  //   }
-  // };
-
-  // const handleUpdateExamSession = async (id: string) => {
-  //   try {
-  //     setSaving(true);
-
-  //     // Validate that academic session is selected
-  //   if (!examSessionForm.academic_session) {
-  //     toast.error('Please select an academic session');
-  //     setSaving(false);
-  //     return;
-  //   }
-    
-  //   // Convert academic_session to string and prepare payload
-  //   const payload = {
-  //     ...examSessionForm,
-  //     academic_session: String(examSessionForm.academic_session)
-  //   };
-    
-  //   console.log('Updating exam session with payload:', payload);
-  //     await resultSettingsService.updateExamSession(id, payload);
-  //     toast.success('Exam session updated successfully');
-  //     setShowExamSessionForm(false);
-  //     resetExamSessionForm();
-  //     loadData();
-  //   } catch (error: any) {
-  //     console.error('Error updating exam session:', error);
-  //     if (error.response?.data) {
-  //       const errorData = error.response.data;
-  //       if (errorData.non_field_errors) {
-  //         toast.error(errorData.non_field_errors[0]);
-  //       } else if (typeof errorData === 'object') {
-  //         const errorMessages = Object.values(errorData).flat();
-  //         toast.error(errorMessages[0] as string);
-  //       } else {
-  //         toast.error('Failed to update exam session');
-  //       }
-  //     } else {
-  //       toast.error('Failed to update exam session');
-  //     }
-  //   } finally {
-  //     setSaving(false);
-  //   }
-  // };
-// ✅ Exam Session Create/Update handlers
-const handleCreateExamSession = async () => {
+  // Exam Session Create/Update handlers
+  const handleCreateExamSession = async () => {
   try {
     setSaving(true);
 
@@ -949,13 +787,10 @@ const handleCreateExamSession = async () => {
       return;
     }
 
-    // ✅ Convert academic_session to integer before sending
     const payload = {
       ...examSessionForm,
       academic_session: Number(examSessionForm.academic_session),
     };
-
-    console.log("Creating exam session with payload:", payload);
     await resultSettingsService.createExamSession(payload);
 
     toast.success("Exam session created successfully");
@@ -992,13 +827,10 @@ const handleUpdateExamSession = async (id: string) => {
       return;
     }
 
-    // ✅ Convert academic_session to integer before sending
     const payload = {
       ...examSessionForm,
       academic_session: Number(examSessionForm.academic_session),
     };
-
-    console.log("Updating exam session with payload:", payload);
     await resultSettingsService.updateExamSession(id, payload);
 
     toast.success("Exam session updated successfully");
@@ -1470,7 +1302,6 @@ const handleUpdateExamSession = async (id: string) => {
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              console.log('Manage grades clicked for system:', system);
                               handleManageGrades(system);
                             }}
                             title="Manage Grades"
@@ -1766,10 +1597,10 @@ const handleUpdateExamSession = async (id: string) => {
                             </p>
                             <div className="flex items-center space-x-3">
                               <span className="bg-indigo-100 text-indigo-800 text-xs font-medium px-3 py-1 rounded-full">
-                                {session.exam_type}
+                                {session.exam_type_name || (typeof session.exam_type === 'object' ? (session.exam_type as ExamType).name : String(session.exam_type))}
                               </span>
                               <span className="bg-blue-100 text-blue-800 text-xs font-medium px-3 py-1 rounded-full">
-                                {session.term}
+                                {session.term_name ?? String(session.term)}
                               </span>
                             </div>
                           </div>
@@ -1780,8 +1611,12 @@ const handleUpdateExamSession = async (id: string) => {
                               setExamSessionForm({
                                 id: session.id,
                                 name: session.name,
-                                exam_type: session.exam_type,
-                                term: session.term,
+                                exam_type: typeof session.exam_type === 'object'
+                                  ? (session.exam_type as ExamType).id
+                                  : session.exam_type,
+                                term: typeof session.term === 'object'
+                                  ? (session.term as any).id
+                                  : session.term,
                                 academic_session: typeof  session.academic_session === 'object'
                                 ? session.academic_session.id
                                 : session.academic_session || '',
@@ -2349,16 +2184,9 @@ const handleUpdateExamSession = async (id: string) => {
                       <button
                         className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-medium flex items-center space-x-2"
                         onClick={() => {
-                          console.log('Button clicked!', {
-                            hasId: !!scoringConfigForm.id,
-                            id: scoringConfigForm.id,
-                            formData: scoringConfigForm
-                          });
                           if (scoringConfigForm.id) {
-                            console.log('Calling handleUpdateScoringConfig with id:', scoringConfigForm.id);
                             handleUpdateScoringConfig(scoringConfigForm.id);
                           } else {
-                            console.log('Calling handleCreateScoringConfig');
                             handleCreateScoringConfig();
                           }
                         }}
@@ -2725,20 +2553,19 @@ const handleUpdateExamSession = async (id: string) => {
                 <label className="block text-sm font-medium text-gray-700 mb-2">Exam Type</label>
                     <select
                         value={examSessionForm.exam_type}
-                        onChange={(e) => setExamSessionForm({...examSessionForm, exam_type: e.target.value})}
+                        onChange={(e) => setExamSessionForm({...examSessionForm, exam_type: Number(e.target.value) || e.target.value})}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     >
-                            <option value="">Select Exam Type</option>
-                            <option value="FIRST_CA">First Continuous Assessment</option>
-                            <option value="SECOND_CA">Second Continuous Assessment</option>
-                            <option value="THIRD_CA">Third Continuous Assessment</option>
-                            <option value="MID_TERM">Mid-term Examination</option>
-                            <option value="FINAL_EXAM">Final Examination</option>
-                            <option value="MOCK_EXAM">Mock Examination</option>
-                            <option value="PRACTICAL">Practical Examination</option>
-                            <option value="PROJECT">Project Assessment</option>
-                            <option value="OTHER">Other</option>
-                        </select>
+                        <option value="">Select Exam Type</option>
+                        {examTypes.map(et => (
+                          <option key={et.id} value={et.id}>{et.name}</option>
+                        ))}
+                    </select>
+                    {examTypes.length === 0 && (
+                      <p className="text-xs text-amber-600 mt-1">
+                        No exam types configured yet. Add exam types in the Exam Types section.
+                      </p>
+                    )}
                 </div>
 
                 <div>
@@ -2986,7 +2813,12 @@ const handleUpdateExamSession = async (id: string) => {
                         )}
                       </div>
                     </div>
-                    <p className="text-gray-700 font-medium mb-1">{grade.remark}</p>
+                    {grade.remark && (
+                      <p className="text-gray-700 font-medium mb-1">
+                        <span className="text-xs text-gray-400 font-normal mr-1">Remark:</span>
+                        {grade.remark}
+                      </p>
+                    )}
                     {grade.description && (
                       <p className="text-gray-600 text-sm">{grade.description}</p>
                     )}
@@ -3087,15 +2919,18 @@ const handleUpdateExamSession = async (id: string) => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Remark <span className="text-red-500">*</span>
+                Default Teacher Remark <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 value={gradeForm.remark}
                 onChange={(e) => setGradeForm({...gradeForm, remark: e.target.value})}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                placeholder="e.g., Excellent, Very Good"
+                placeholder="e.g., Excellent, Very Good, Distinction"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                Automatically applied as teacher remark when a student achieves this grade.
+              </p>
             </div>
           </div>
 

@@ -25,21 +25,14 @@ const useResultActionsManager = (onDataRefresh: () => void): ResultActionsManage
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('edit');
 
   const handleEditResult = (result: StudentResult) => {
-    console.log('Edit button clicked for result:', result);
-    
-    // Transform the result data to match what the form expects
     const transformedResult = {
       ...result,
-      // Flatten nested objects if needed
       student_id: result.student.id,
       subject_id: result.subject.id,
       exam_session_id: result.exam_session.id,
-      // Ensure education_level is explicitly included
-      education_level: result.education_level || result.student?.education_level || 'UNKNOWN',
-      // Add any other transformations needed
+      // student.education_level is the most reliable source
+      education_level: result.student?.education_level || result.education_level || '',
     };
-    
-    console.log('Transformed result for edit:', transformedResult);
     setSelectedResult(transformedResult);
     setModalMode('edit');
     setShowEditModal(true);

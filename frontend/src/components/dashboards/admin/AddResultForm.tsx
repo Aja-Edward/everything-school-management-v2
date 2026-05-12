@@ -196,7 +196,7 @@ const AddResultForm: React.FC<AddResultFormProps> = ({
       setLoadingComponents(true);
       const [subRes, compRes] = await Promise.all([
         api.get('/api/subjects/', { params: { education_level: level, is_active: true } }),
-        resultSettingsService.getAssessmentComponents({ education_level: level, is_active: true }),
+        ResultService.getAssessmentComponentsByEducationLevel(level),
       ]);
       setSubjects(extractArray<SubjectOption>(subRes));
       const sorted = [...compRes].sort((a, b) => a.display_order - b.display_order);

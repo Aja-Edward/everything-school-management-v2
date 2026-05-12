@@ -69,8 +69,13 @@ export interface AssessmentComponentInfo {
   display_order: number;
   is_active: boolean;
   education_level: number;
-  education_level_name?: string;
-  education_level_type?: string;
+  /** Nested EducationLevelMinimalSerializer — always present on read responses */
+  education_level_detail?: {
+    id: number;
+    name: string;
+    code: string;
+    level_type: string; // e.g. 'SENIOR_SECONDARY'
+  };
 }
 
 export interface BulkComponentScoreEntry {
@@ -78,6 +83,7 @@ export interface BulkComponentScoreEntry {
   subject: number;
   exam_session: string;
   grading_system?: number;
+  teacher_remark?: string;
   scores: Array<{ component_id: number; score: number }>;
 }
 export type EducationLevelType =
@@ -601,6 +607,23 @@ class ResultService {
     return (res as any)?.results ?? [];
   }
 
+  /** Fetch assessment components by education level (string or ID). Handles tenant-specific configs. */
+  async getAssessmentComponentsByEducationLevel(
+    educationLevel: string | number
+  ): Promise<AssessmentComponentInfo[]> {
+    try {
+      const res = await api.get(
+        `${this.base}/assessment-components/by_education_level/`,
+        { education_level: educationLevel }
+      );
+      if (Array.isArray(res)) return res;
+      return (res as any)?.results ?? [];
+    } catch (e) {
+      console.warn('Failed to fetch assessment components by education level:', e);
+      return [];
+    }
+  }
+
   /**
    * Record scores for ONE component across multiple students (partial save).
    * Creates a new result if it doesn't exist; otherwise updates existing.
@@ -610,7 +633,7 @@ class ResultService {
     level: EducationLevelType,
     entries: BulkComponentScoreEntry[]
   ): Promise<unknown> {
-    return api.post(`${this.resultEndpoint(level)}bulk_create/`, { results: entries });
+    return api.post(`${this.resultEndpoint(level)}bulk-record-scores/`, { results: entries });
   }
 
   // ── EXAM SESSIONS ───────────────────────────────────────────────────────────
@@ -769,6 +792,48 @@ class ResultService {
     return api.delete(this.resultEndpoint(level, resultId));
   }
 
+  /**
+   * Delete a subject result by ID.
+   * educationLevel may be the API-path string (e.g. 'SENIOR_SECONDARY').
+   */
+  async deleteStudentResult(resultId: string, educationLevel: string): Promise<void> {
+    const levelMap: Record<string, EducationLevelType> = {
+      NURSERY: 'NURSERY', PRIMARY: 'PRIMARY',
+      JUNIOR_SECONDARY: 'JUNIOR_SECONDARY', SENIOR_SECONDARY: 'SENIOR_SECONDARY',
+    };
+    const level = levelMap[educationLevel.toUpperCase()] ?? 'SENIOR_SECONDARY';
+    return this.deleteSubjectResult(level, resultId);
+  }
+
+  /**
+   * Find a result ID by student + subject + exam_session + education_level.
+   * Returns null when no result is found.
+   */
+  async findResultIdByComposite(params: {
+    student: string;
+    subject: string;
+    exam_session: string;
+    education_level: string;
+  }): Promise<string | null> {
+    const levelMap: Record<string, EducationLevelType> = {
+      NURSERY: 'NURSERY', PRIMARY: 'PRIMARY',
+      JUNIOR_SECONDARY: 'JUNIOR_SECONDARY', SENIOR_SECONDARY: 'SENIOR_SECONDARY',
+    };
+    const level = levelMap[params.education_level.toUpperCase()] ?? 'SENIOR_SECONDARY';
+    try {
+      const results = await this.getSubjectResults(level, {
+        student: params.student,
+        subject: params.subject,
+        exam_session: params.exam_session,
+        page_size: 1,
+      } as any);
+      const first = (results as any[])[0];
+      return first?.id ? String(first.id) : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Delete a term report and all its subject results (admin only). */
   async deleteTermReport(level: EducationLevelType, reportId: string): Promise<void> {
     return api.delete(this.termReportEndpoint(level, reportId));
@@ -852,15 +917,11 @@ class ResultService {
     reportId: string,
     level: EducationLevelType
   ): Promise<Blob> {
-    const url = new URL(`${API_BASE_URL}/results/report-generation/download-term-report/`);
-    url.searchParams.set('report_id', reportId);
-    url.searchParams.set('education_level', level);
-
-    const res = await fetch(url.toString(), {
-      method: 'GET',
-      credentials: 'include',
-      headers: buildHeaders(),
-    });
+    const params = new URLSearchParams({ report_id: reportId, education_level: level });
+    const res = await fetch(
+      `${API_BASE_URL}/results/report-generation/download-term-report/?${params}`,
+      { method: 'GET', credentials: 'include', headers: buildHeaders() }
+    );
 
     if (!res.ok) {
       if (res.status === 404) throw new Error('Report not found.');
@@ -883,15 +944,11 @@ class ResultService {
     reportId: string,
     level: EducationLevelType
   ): Promise<Blob> {
-    const url = new URL(`${API_BASE_URL}/results/report-generation/download-session-report/`);
-    url.searchParams.set('report_id', reportId);
-    url.searchParams.set('education_level', level);
-
-    const res = await fetch(url.toString(), {
-      method: 'GET',
-      credentials: 'include',
-      headers: buildHeaders(),
-    });
+    const params = new URLSearchParams({ report_id: reportId, education_level: level });
+    const res = await fetch(
+      `${API_BASE_URL}/results/report-generation/download-session-report/?${params}`,
+      { method: 'GET', credentials: 'include', headers: buildHeaders() }
+    );
 
     if (!res.ok) await throwFromResponse(res);
     const blob = await res.blob();

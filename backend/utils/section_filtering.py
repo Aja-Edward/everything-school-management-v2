@@ -653,13 +653,15 @@ class SectionFilterMixin:
                     )
                     return filtered
 
-                # Try education_level field directly
+                # Try education_level field directly.
+                # allowed_education_levels contains EducationLevel.name strings (e.g. 'Senior Secondary'),
+                # NOT integer PKs, so we must use __name__in not __in (which expects PKs).
                 elif hasattr(queryset.model, "education_level"):
                     filtered = queryset.filter(
-                        education_level__in=allowed_education_levels
+                        education_level__name__in=allowed_education_levels
                     )
                     logger.info(
-                        f"✅ Filtered {model_name} (via education_level): {filtered.count()}"
+                        f"✅ Filtered {model_name} (via education_level__name): {filtered.count()}"
                     )
                     return filtered
 

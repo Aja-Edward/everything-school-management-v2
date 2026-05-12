@@ -90,9 +90,7 @@ class StudentMinimalSerializer(serializers.ModelSerializer):
     )
     student_class = serializers.PrimaryKeyRelatedField(read_only=True)
     education_level = serializers.CharField(read_only=True)
-    education_level_display = serializers.CharField(
-        source="education_level_display", read_only=True
-    )
+    education_level_display = serializers.CharField(read_only=True)
     classroom_id = serializers.SerializerMethodField()
     classroom_name = serializers.SerializerMethodField()
 
@@ -176,12 +174,14 @@ class GradeCreateUpdateSerializer(serializers.ModelSerializer):
             "max_score",
             "grade_point",
             "description",
+            "remark",
             "is_passing",
         ]
         extra_kwargs = {
             "grade_point": {"required": False, "allow_null": True},
             "description": {"required": False, "allow_blank": True},
-            "is_passing": {"required": False},
+            "remark":      {"required": False, "allow_blank": True},
+            "is_passing":  {"required": False},
         }
 
     def validate(self, data):

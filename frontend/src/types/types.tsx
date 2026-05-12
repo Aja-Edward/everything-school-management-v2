@@ -30,7 +30,7 @@ export interface ApiResponse<T> {
 export interface TermReportSubjectResult {
   id: string;
   subject: Subject;
-  total_ca_score: number;
+  component_scores?: ComponentScoreItem[];
   ca_total: number;
   exam_score: number;
   total_score: number;
@@ -2413,25 +2413,18 @@ export interface BaseStandardResult {
   academic_session?: AcademicSession;
   exam_session?: ExamSessionInfo | ExamSession;
 
+  // Scores are stored as component_scores; these are server-computed aggregates.
+  component_scores?: ComponentScoreItem[];
+  ca_total?: number;
+  exam_score: number;
   total_score: number;
   percentage: number;
   grade: string;
   grade_point?: number;
   is_passed: boolean;
 
-  exam_score: number;
-
-  /**
-   * @deprecated Use subject_position instead.
-   * This field is maintained for backward compatibility only.
-   */
+  /** @deprecated Use subject_position instead. */
   position?: number;
-
-  /**
-   * Primary field for subject position in class.
-   * This is the single source of truth for position data.
-   * Use validatePosition() from resultHelpers to ensure validity.
-   */
   subject_position?: number;
 
   class_average?: number;
@@ -2461,13 +2454,8 @@ export interface NurseryStandardResult extends BaseStandardResult {
   education_level: 'NURSERY';
   breakdown: NurseryResultBreakdown;
 }
+/** Aggregated CA breakdown — individual component scores are in component_scores[]. */
 export interface PrimaryResultBreakdown {
-  continuous_assessment_score: number;
-  take_home_test_score: number;
-  practical_score: number;
-  project_score: number;
-  appearance_score?: number;
-  note_copying_score: number;
   ca_total: number;
   ca_percentage: number;
   exam_percentage: number;
@@ -2475,24 +2463,11 @@ export interface PrimaryResultBreakdown {
 
 export interface PrimaryStandardResult extends BaseStandardResult {
   education_level: 'PRIMARY';
-
-  continuous_assessment_score: number;
-  take_home_test_score: number;
-  practical_score: number;
-  project_score: number;
-  appearance_score?: number;
-  note_copying_score: number;
-
   breakdown: PrimaryResultBreakdown;
 }
 
+/** Aggregated CA breakdown — individual component scores are in component_scores[]. */
 export interface JuniorSecondaryStandardResultBreakdown {
-  continuous_assessment_score: number;
-  take_home_test_score: number;
-  practical_score: number;
-  project_score: number;
-  appearance_score?: number;
-  note_copying_score: number;
   ca_total: number;
   ca_percentage: number;
   exam_percentage: number;
@@ -2500,20 +2475,13 @@ export interface JuniorSecondaryStandardResultBreakdown {
 
 export interface JuniorSecondaryStandardResult extends BaseStandardResult {
   education_level: 'JUNIOR_SECONDARY';
-  continuous_assessment_score: number;
-  take_home_test_score: number;
-  practical_score: number;
-  project_score: number;
-  appearance_score?: number;
-  note_copying_score: number;
-  breakdown: JuniorSecondaryStandardResultBreakdown
+  breakdown: JuniorSecondaryStandardResultBreakdown;
 }
 
+/** Aggregated score breakdown — individual component scores are in component_scores[]. */
 export interface SeniorSecondaryStandardResultBreakdown {
-   first_test_score: number,
-      second_test_score: number,
-      third_test_score: number,
-      exam_score: number,
+  ca_total: number;
+  exam_score: number;
 }
 
 export interface SeniorSecondarySessionStandardResultBreakdown {
@@ -2526,17 +2494,13 @@ export interface SeniorSecondarySessionStandardResultBreakdown {
 
 export interface SeniorSecondaryStandardResult extends BaseStandardResult {
   education_level: 'SENIOR_SECONDARY';
-  breakdown: SeniorSecondaryStandardResultBreakdown
+  breakdown: SeniorSecondaryStandardResultBreakdown;
   stream?: {
     id: string;
     name: string;
     code?: string;
     education_level: string;
-    
   };
-  first_test_score?: number;
-  second_test_score?: number;
-  third_test_score?: number;
 }
 
 export interface SeniorSecondarySessionStandardResult extends BaseStandardResult {
@@ -2610,12 +2574,7 @@ export interface PrimaryResultData {
   subject: SubjectInfo;
   exam_session: ExamSessionInfo;
   grading_system: GradingSystemInfo;
-  continuous_assessment_score: number;
-  take_home_test_score: number;
-  practical_score: number;
-  project_score: number;
-  appearance_score?: number;  // Make this optional
-  note_copying_score: number;
+  component_scores?: ComponentScoreItem[];
   exam_score: number;
   ca_total: number;
   total_score: number;
@@ -2643,12 +2602,7 @@ export interface JuniorSecondaryResultData {
   subject: SubjectInfo;
   exam_session: ExamSessionInfo;
   grading_system: GradingSystemInfo;
-  continuous_assessment_score: number;
-  take_home_test_score: number;
-  practical_score: number;
-  appearance_score?: number;  // Make this optional
-  project_score: number;
-  note_copying_score: number;
+  component_scores?: ComponentScoreItem[];
   exam_score: number;
   ca_total: number;
   total_score: number;
@@ -2677,11 +2631,9 @@ export interface SeniorSecondaryResultData {
   exam_session: ExamSessionInfo;
   grading_system: GradingSystemInfo;
   stream?: StreamInfo;
-  first_test_score: number;
-  second_test_score: number;
-  third_test_score: number;
+  component_scores?: ComponentScoreItem[];
   exam_score: number;
-  total_ca_score: number;
+  ca_total: number;
   total_score: number;
   percentage: number;
   grade: string;
@@ -2695,13 +2647,12 @@ export interface SeniorSecondaryResultData {
   status: ResultStatus;
   created_at: string;
   updated_at: string;
-    term_display: string,
-    term: string,
-    academic_session_name: string,
-    name: string,
-    exam_session_name: string,
-    session_name: string,
-  
+  term_display?: string;
+  term?: string;
+  academic_session_name?: string;
+  name?: string;
+  exam_session_name?: string;
+  session_name?: string;
 }
 
 export interface SeniorSecondarySessionResultData {
@@ -2787,16 +2738,14 @@ export interface SeniorSecondaryResult {
   exam_session: ExamSession;
   grading_system: GradingSystem;
   stream?: Stream;
-  term_report?: string; // UUID reference
-  
-  // Test scores (30 marks CA)
-  first_test_score: number;  // 10 marks
-  second_test_score: number; // 10 marks
-  third_test_score: number;  // 10 marks
-  exam_score: number;        // 70 marks
-  
-  // Calculated scores
-  total_ca_score: number;    // 30 marks
+  term_report?: string;
+
+  // Individual component scores — replaces flat test/exam fields
+  component_scores?: ComponentScoreItem[];
+
+  // Server-computed aggregates
+  ca_total: number;
+  exam_score: number;
   total_score: number;       // 100 marks
   percentage: number;
   
@@ -2959,21 +2908,14 @@ export interface JuniorSecondaryResult {
   exam_session: ExamSession;
   grading_system: GradingSystem;
   term_report?: string;
-  
-  // CA Components (40 marks)
-  continuous_assessment_score: number;  // 15
-  take_home_test_score: number;        // 5
-  practical_score: number;             // 5
-  appearance_score: number;            // 5
-  project_score: number;               // 5
-  note_copying_score: number;          // 5
-  
-  // Exam
-  exam_score: number;  // 60 marks
-  
-  // Calculated
-  ca_total: number;           // 40 marks
-  total_score: number;        // 100 marks
+
+  // Individual component scores — replaces flat CA/exam fields
+  component_scores?: ComponentScoreItem[];
+
+  // Server-computed aggregates
+  exam_score: number;
+  ca_total: number;
+  total_score: number;
   ca_percentage: number;
   exam_percentage: number;
   total_percentage: number;
@@ -3058,17 +3000,12 @@ export interface PrimaryResult {
   exam_session: ExamSession;
   grading_system: GradingSystem;
   term_report?: string;
-  
-  // CA Components (40 marks) - Same as Junior Secondary
-  continuous_assessment_score: number;  // 15
-  take_home_test_score: number;        // 5
-  practical_score: number;             // 5
-  appearance_score: number;            // 5
-  project_score: number;               // 5
-  note_copying_score: number;          // 5
-  
-  exam_score: number;  // 60 marks
-  
+
+  // Individual component scores — replaces flat CA/exam fields
+  component_scores?: ComponentScoreItem[];
+
+  // Server-computed aggregates
+  exam_score: number;
   ca_total: number;
   total_score: number;
   ca_percentage: number;
@@ -3236,12 +3173,25 @@ export interface ResultComment {
 }
 
 
+export interface ComponentScoreItem {
+  id: number;
+  component: number;
+  component_name: string;
+  component_code: string;
+  component_type: string;
+  max_score: string;
+  contributes_to_ca: boolean;
+  display_order: number;
+  score: string;
+}
+
 export interface StudentResult {
   id: number;
   student: {
     id: number;
     full_name: string;
     registration_number: string;
+    username?: string;
     profile_picture?: string;
     education_level: EducationLevel;
   };
@@ -3258,29 +3208,20 @@ export interface StudentResult {
   };
   academic_session: AcademicSession;
   
-   // Computed
+  // Server-computed aggregates
   ca_score: number;
   ca_total: number;
   exam_score: number;
   total_score: number;
- grade?: 'A' | 'B' | 'C' | 'D' | 'F' | string;
+  grade?: 'A' | 'B' | 'C' | 'D' | 'F' | string;
   remarks: string;
   teacher_remark?: string;
   status?: ResultStatus;
   created_at: string;
   updated_at: string;
   education_level: EducationLevel;
-  // Senior Secondary specific fields
-  first_test_score?: number;
-  second_test_score?: number;
-  third_test_score?: number;
-  // Primary/Junior Secondary specific fields
-  continuous_assessment_score?: number;
-  take_home_test_score?: number;
-  practical_score?: number;
-  appearance_score?: number;
-  project_score?: number;
-  note_copying_score?: number;
+  // Individual component scores (source of truth for breakdowns)
+  component_scores?: ComponentScoreItem[];
 }
 
 export interface ParentProfile extends BaseEntity {

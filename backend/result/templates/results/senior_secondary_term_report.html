@@ -102,6 +102,16 @@ body {
     font-size: 8pt;
 }
 
+.student-photo {
+    width: 70px;
+    height: 90px;
+    object-fit: cover;
+    border: 2px solid #1e40af;
+    border-radius: 4px;
+    display: block;
+    margin-left: auto;
+}
+
 .header-text {
     text-align: center;
 }
@@ -486,7 +496,11 @@ tbody tr:nth-child(even) {
                 <p class="motto">{{ school.motto }}</p>
             {% endif %}
         </div>
-        <div></div>
+        <div>
+            {% if student.picture %}
+                <img src="{{ student.picture }}" class="student-photo" alt="Student Photo">
+            {% endif %}
+        </div>
     </div>
 
     <div class="report-title">Senior Secondary School Termly Report</div>
@@ -505,6 +519,10 @@ tbody tr:nth-child(even) {
             <span class="info-value">{{ student.admission_number|default:"—" }}</span>
             <span class="info-label">CLASS:</span>
             <span class="info-value">{{ student.class }}</span>
+            {% if student.section %}
+            <span class="info-label">SECTION:</span>
+            <span class="info-value">{{ student.section }}</span>
+            {% endif %}
             {% if student.stream %}
             <span class="info-label">STREAM:</span>
             <span class="info-value">{{ student.stream }}</span>
@@ -591,12 +609,18 @@ tbody tr:nth-child(even) {
     <span class="grade-key-title">Grading Scale:</span>
     <table style="width:auto; display:inline-table; margin-left:8px;">
         <tr>
+        {% if grade_scale %}
+            {% for g in grade_scale %}
+            <td><strong>{{ g.grade }}</strong> {{ g.min }}–{{ g.max }}{% if g.remark %} ({{ g.remark }}){% endif %}</td>
+            {% endfor %}
+        {% else %}
             <td><strong>A</strong> 80–100</td>
             <td><strong>B</strong> 70–79</td>
             <td><strong>C</strong> 60–69</td>
             <td><strong>D</strong> 50–59</td>
             <td><strong>E</strong> 40–49</td>
             <td><strong>F</strong> 0–39</td>
+        {% endif %}
         </tr>
     </table>
 </div>

@@ -85,8 +85,8 @@ _ADMIN_ROLES: frozenset[str] = frozenset(
         "HEADMASTER",
         "PROPRIETRESS",
         "PRINCIPAL",
-        "admin",
-        "superadmin",
+        "ADMIN",
+        "SUPERADMIN",
     }
 )
 
@@ -101,8 +101,9 @@ def _default_grade(percentage: float) -> str:
 
 
 def _user_role(user) -> str:
-    """Safe accessor for user.role — returns empty string if absent."""
-    return getattr(user, "role", "") or ""
+    """Safe accessor for user.role — always returns uppercase."""
+
+    return (getattr(user, "role", "") or "").upper()
 
 
 def _is_admin(user) -> bool:
@@ -165,6 +166,10 @@ class Grade(TenantMixin, models.Model):
         max_digits=3, decimal_places=2, null=True, blank=True
     )
     description = models.CharField(max_length=100, blank=True)
+    remark = models.CharField(
+        max_length=200, blank=True,
+        help_text="Default teacher remark auto-applied when a student achieves this grade.",
+    )
     is_passing = models.BooleanField(default=True)
 
     class Meta:
@@ -795,7 +800,7 @@ class BaseResult(models.Model):
             return True
         if self.status != "DRAFT":
             return False
-        return _user_role(user) == "TEACHER"
+        return _user_role(user).upper() == "TEACHER"
 
     def can_delete(self, user) -> bool:
         return self.can_edit(user)
@@ -832,7 +837,6 @@ class BaseResult(models.Model):
         with transaction.atomic():
             return queryset.filter(status="APPROVED").update(
                 status="PUBLISHED",
-                is_published=True,
                 published_by=user,
                 published_date=now,
                 updated_at=now,
@@ -933,7 +937,11 @@ class BaseResult(models.Model):
         }
 
         # Fetch grading systems in one query.
-        results = list(queryset.select_related("grading_system__grades"))
+        results = list(
+            queryset.select_related("grading_system").prefetch_related(
+                "grading_system__grades"
+            )
+        )
         updates = []
         for result in results:
             totals = agg_map.get(result.pk, (Decimal(0), Decimal(0)))
@@ -985,13 +993,19 @@ class BaseResult(models.Model):
         high_val = stats["highest"] or Decimal(0)
         low_val = stats["lowest"] or Decimal(0)
 
-        # Annotate RANK in a single SQL query.
-        ranked = queryset.annotate(
-            rank=Window(
-                expression=Rank(),
-                order_by=F("percentage").desc(),
+        # Use a fresh filter by PK for the window function —
+        # PostgreSQL does not allow FOR UPDATE with window functions.
+        pks = list(queryset.values_list("pk", flat=True))
+        ranked = (
+            cls.objects.filter(pk__in=pks)
+            .annotate(
+                rank=Window(
+                    expression=Rank(),
+                    order_by=F("percentage").desc(),
+                )
             )
-        ).values("pk", "rank")
+            .values("pk", "rank")
+        )
 
         rank_map = {row["pk"]: row["rank"] for row in ranked}
 
@@ -1066,7 +1080,7 @@ class BaseTermReport(models.Model):
         """
         if self.status != "DRAFT":
             return False
-        if _user_role(user) != "TEACHER":
+        if _user_role(user).upper() != "TEACHER":
             return False
 
         from teacher.models import Teacher
@@ -1104,7 +1118,7 @@ class BaseTermReport(models.Model):
             return True
         if self.status != "DRAFT":
             return False
-        return _user_role(user) == "TEACHER"
+        return _user_role(user).upper() == "TEACHER"
 
     def can_delete(self, user) -> bool:
         return self.can_edit(user)
@@ -1175,30 +1189,34 @@ class BaseTermReport(models.Model):
     # ── Position recalculation (SQL RANK) ─────────────────────────────────
 
     @classmethod
-    def bulk_recalculate_positions(cls, exam_session, student_class, education_level):
+    def bulk_recalculate_positions(cls, exam_session, student_class, **_):
         """
         Rank APPROVED/PUBLISHED term reports for a class using SQL RANK().
         One annotate query + one bulk_update.
         """
+        base_filter = dict(
+            exam_session=exam_session,
+            student__student_class=student_class,
+            status__in=("APPROVED", "PUBLISHED"),
+        )
         with transaction.atomic():
-            qs = cls.objects.filter(
-                exam_session=exam_session,
-                student__student_class=student_class,
-                student__education_level=education_level,
-                status__in=("APPROVED", "PUBLISHED"),
-            ).select_for_update()
-
+            qs = cls.objects.filter(**base_filter).select_for_update()
             total = qs.count()
             if not total:
                 return
 
-            ranked = qs.annotate(
-                rank=Window(
-                    expression=Rank(),
-                    order_by=F("average_score").desc(),
+            # Use a separate queryset for the window function —
+            # PostgreSQL does not allow FOR UPDATE with window functions.
+            ranked = (
+                cls.objects.filter(**base_filter)
+                .annotate(
+                    rank=Window(
+                        expression=Rank(),
+                        order_by=F("average_score").desc(),
+                    )
                 )
-            ).values("pk", "rank")
-
+                .values("pk", "rank")
+            )
             rank_map = {row["pk"]: row["rank"] for row in ranked}
             reports = list(qs.only("pk", "class_position", "total_students"))
             for r in reports:
@@ -1493,7 +1511,7 @@ class BaseSessionReport(BaseTermReport, models.Model):
             qs = cls.objects.filter(
                 academic_session=academic_session,
                 student__student_class=student_class,
-                student__education_level=education_level,
+                student__student_class__education_level__level_type=education_level,
                 status__in=("APPROVED", "PUBLISHED"),
             ).select_for_update()
 
@@ -1681,7 +1699,7 @@ class SeniorSecondaryResult(TenantMixin, BaseResult, models.Model):
                 exam_session=exam_session,
                 subject=subject,
                 student__student_class=student_class,
-                student__education_level=education_level,
+                student__student_class__education_level__level_type=education_level,
                 status__in=("APPROVED", "PUBLISHED"),
             ).select_for_update()
             cls.bulk_recalculate_positions(qs)
@@ -1885,7 +1903,7 @@ class JuniorSecondaryResult(TenantMixin, BaseResult, models.Model):
                 exam_session=exam_session,
                 subject=subject,
                 student__student_class=student_class,
-                student__education_level=education_level,
+                student__student_class__education_level__level_type=education_level,
                 status__in=("APPROVED", "PUBLISHED"),
             ).select_for_update()
             cls.bulk_recalculate_positions(qs)
@@ -2079,7 +2097,7 @@ class PrimaryResult(TenantMixin, BaseResult, models.Model):
                 exam_session=exam_session,
                 subject=subject,
                 student__student_class=student_class,
-                student__education_level=education_level,
+                student__student_class__education_level__level_type=education_level,
                 status__in=("APPROVED", "PUBLISHED"),
             ).select_for_update()
             cls.bulk_recalculate_positions(qs)
@@ -2274,27 +2292,31 @@ class NurseryTermReport(TenantMixin, BaseTermReport, models.Model):
         )
 
     @classmethod
-    def bulk_recalculate_positions(cls, exam_session, student_class, education_level):
+    def bulk_recalculate_positions(cls, exam_session, student_class, **_):
         """SQL RANK() — no Python sort."""
+        base_filter = dict(
+            exam_session=exam_session,
+            student__student_class=student_class,
+            status__in=("APPROVED", "PUBLISHED"),
+        )
         with transaction.atomic():
-            qs = cls.objects.filter(
-                exam_session=exam_session,
-                student__student_class=student_class,
-                student__education_level=education_level,
-                status__in=("APPROVED", "PUBLISHED"),
-            ).select_for_update()
-
+            qs = cls.objects.filter(**base_filter).select_for_update()
             total = qs.count()
             if not total:
                 return
 
-            ranked = qs.annotate(
-                rank=Window(
-                    expression=Rank(),
-                    order_by=F("overall_percentage").desc(),
+            # Use a separate queryset for the window function —
+            # PostgreSQL does not allow FOR UPDATE with window functions.
+            ranked = (
+                cls.objects.filter(**base_filter)
+                .annotate(
+                    rank=Window(
+                        expression=Rank(),
+                        order_by=F("overall_percentage").desc(),
+                    )
                 )
-            ).values("pk", "rank")
-
+                .values("pk", "rank")
+            )
             rank_map = {row["pk"]: row["rank"] for row in ranked}
             reports = list(qs.only("pk", "class_position", "total_students_in_class"))
             for r in reports:
@@ -2451,7 +2473,7 @@ class NurseryResult(TenantMixin, BaseResult, models.Model):
                 exam_session=exam_session,
                 subject=subject,
                 student__student_class=student_class,
-                student__education_level=education_level,
+                student__student_class__education_level__level_type=education_level,
                 status__in=("APPROVED", "PUBLISHED"),
             ).select_for_update()
             cls.bulk_recalculate_positions(qs)
