@@ -4,6 +4,8 @@ __pycache__/
 
 # Virtual environment
 venv/
+env/
+.venv/
 
 # Environment variables
 .env.*
@@ -28,6 +30,10 @@ venv/
 # IDE folders
 .vscode/
 .idea/
+
+.pytest_cache/
+
+build/
 
 # System files
 .DS_Store
