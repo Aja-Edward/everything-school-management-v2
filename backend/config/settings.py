@@ -19,8 +19,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 env_file = BASE_DIR / f".env.{ENV}"
 if env_file.exists():
     load_dotenv(dotenv_path=env_file)
-else:
-    raise RuntimeError(f"Missing environment file: .env.{ENV}")
 
 if ENV == "prod":
     # Production: Use PROD_DATABASE_URL for Supabase
