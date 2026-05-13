@@ -480,19 +480,19 @@ tbody tr:nth-child(even) {
 
                     {# ── Non-CA (exam) components each get their own rowspan header ── #}
                     {% for c in first.exam_components %}
-                        <th rowspan="2">{{ c.name|upper }}<br>({{ c.max|floatformat:0 }})</th>
+                        <th rowspan="2">{{ c.short_name }}<br>({{ c.max|floatformat:0 }})</th>
                     {% endfor %}
 
-                    <th rowspan="2">CA TOTAL</th>
-                    <th rowspan="2">TOTAL (100)</th>
-                    <th rowspan="2">POSITION</th>
-                    <th rowspan="2">GRADE</th>
+                    <th rowspan="2">CA</th>
+                    <th rowspan="2">TOTAL</th>
+                    <th rowspan="2">POS</th>
+                    <th rowspan="2">GRD</th>
                     <th rowspan="2">REMARK</th>
                 </tr>
                 <tr>
                     {# ── Individual CA sub-headers ── #}
                     {% for c in first.ca_components %}
-                        <th>{{ c.name|upper }}<br>({{ c.max|floatformat:0 }})</th>
+                        <th>{{ c.short_name }}<br>({{ c.max|floatformat:0 }})</th>
                     {% endfor %}
                 </tr>
             </thead>

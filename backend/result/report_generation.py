@@ -39,6 +39,7 @@ from django.template.loader import render_to_string
 
 from .models import (
     ExamSession,
+    JuniorSecondaryResult,
     JuniorSecondarySessionReport,
     JuniorSecondaryTermReport,
     NurserySessionReport,
@@ -46,6 +47,7 @@ from .models import (
     PrimaryResult,
     PrimarySessionReport,
     PrimaryTermReport,
+    SeniorSecondaryResult,
     SeniorSecondarySessionReport,
     SeniorSecondaryTermReport,
 )
@@ -84,18 +86,38 @@ _DATE_FORMAT = "%B %d, %Y"
 # ============================================================
 
 
+def _abbreviate_component(name: str, code: str = '', max_len: int = 3) -> str:
+    """
+    Return a max_len-character abbreviation for a component name.
+
+    Rules (in priority order):
+      1. If code is already ≤ max_len chars, use it (uppercased).
+      2. Multi-word name (split on _ / space / -): use initials, truncated to max_len.
+      3. Single word: use first max_len chars.
+    """
+    if code and len(code) <= max_len:
+        return code.upper()
+    parts = re.split(r'[_\s\-]+', name.strip())
+    if len(parts) > 1:
+        abbrev = ''.join(p[0] for p in parts if p)
+    else:
+        abbrev = name
+    return abbrev[:max_len].upper()
+
+
 def _build_component_breakdown(result):
     """
     Return a list of component score dicts for one result row.
 
     Each entry:
         {
-            "name":     "First Test",
-            "code":     "first_test",
-            "score":    8.5,
-            "max":      10.0,
-            "is_ca":    True,
-            "type":     "CA",
+            "name":       "First Test",
+            "short_name": "FT",          ← max-3-char abbreviation for table headers
+            "code":       "first_test",
+            "score":      8.5,
+            "max":        10.0,
+            "is_ca":      True,
+            "type":       "CA",
         }
 
     Sorted by component.display_order so the report template sees
@@ -109,12 +131,16 @@ def _build_component_breakdown(result):
     )
     return [
         {
-            "name": cs.component.name,
-            "code": cs.component.code,
-            "score": float(cs.score),
-            "max": float(cs.component.max_score),
-            "is_ca": cs.component.contributes_to_ca,
-            "type": cs.component.component_type,
+            "name":       cs.component.name,
+            "short_name": _abbreviate_component(cs.component.name, cs.component.code),
+            "code":       cs.component.code,
+            "score":      float(cs.score),
+            "max":        float(cs.component.max_score),
+            # Use component_type as the authoritative CA/Exam flag so that
+            # an EXAM component misconfigured with contributes_to_ca=True
+            # is still treated as an exam (not counted in CA Total).
+            "is_ca":      cs.component.component_type != "EXAM",
+            "type":       cs.component.component_type,
         }
         for cs in scores
     ]
@@ -341,6 +367,64 @@ class ReportGenerator:
             logger.debug(f"get_student_section: {e}")
         return ""
 
+    def count_students_in_class(self, student):
+        """Count all active students in the same class, regardless of result status."""
+        try:
+            from students.models import Student
+            count = Student.objects.filter(
+                student_class=student.student_class,
+                tenant=student.tenant,
+            ).count()
+            return count or 0
+        except Exception as e:
+            logger.debug(f"count_students_in_class: {e}")
+        return 0
+
+    def compute_class_position(self, report, ResultModel, term_report_model):
+        """
+        Compute class position on-the-fly by ranking this student's average
+        against peers in the same class/session.  Used when class_position is
+        not yet stored (e.g. report is still DRAFT).
+        """
+        try:
+            if report.class_position:
+                return self.format_grade_suffix(report.class_position)
+            avg = float(report.average_score or 0)
+            if not avg:
+                return ""
+            better = term_report_model.objects.filter(
+                exam_session=report.exam_session,
+                student__student_class=report.student.student_class,
+                average_score__gt=avg,
+            ).count()
+            return self.format_grade_suffix(better + 1)
+        except Exception as e:
+            logger.debug(f"compute_class_position: {e}")
+            return self.format_grade_suffix(report.class_position)
+
+    def compute_subject_position(self, result, ResultModel):
+        """
+        Compute subject position on-the-fly by ranking this student's percentage
+        against peers in the same class/subject/session.  Used when subject_position
+        is not yet stored.
+        """
+        try:
+            if result.subject_position:
+                return self.format_grade_suffix(result.subject_position)
+            pct = float(result.percentage or 0)
+            if not pct:
+                return ""
+            better = ResultModel.objects.filter(
+                exam_session=result.exam_session,
+                subject=result.subject,
+                student__student_class=result.student.student_class,
+                percentage__gt=pct,
+            ).count()
+            return self.format_grade_suffix(better + 1)
+        except Exception as e:
+            logger.debug(f"compute_subject_position: {e}")
+            return self.format_grade_suffix(result.subject_position)
+
     def build_grade_scale(self, subject_results):
         """Return admin-configured grade scale from the grading system on subject results."""
         try:
@@ -503,11 +587,11 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                         "components": component_breakdown,
                         "ca_components": ca_components,
                         "exam_components": exam_components,
-                        "ca_total": float(result.ca_total or 0),
-                        "total": float(result.total_score or 0),
+                        "ca_total": sum(c["score"] for c in ca_components),
+                        "total": sum(c["score"] for c in component_breakdown),
                         "percentage": float(result.percentage or 0),
                         "grade": result.grade or "",
-                        "position": self.format_grade_suffix(result.subject_position),
+                        "position": self.compute_subject_position(result, SeniorSecondaryResult),
                         "remark": result.teacher_remark or "",
                         "is_passed": result.is_passed,
                     }
@@ -515,6 +599,11 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
 
             times_opened, times_present = self.get_attendance(
                 report.student, report.exam_session
+            )
+
+            total_students = self.count_students_in_class(report.student) or report.total_students or 0
+            class_position = self.compute_class_position(
+                report, SeniorSecondaryResult, SeniorSecondaryTermReport
             )
 
             context = {
@@ -546,8 +635,8 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                     "total_score": float(report.total_score or 0),
                     "average": float(report.average_score or 0),
                     "grade": report.overall_grade or "",
-                    "position": self.format_grade_suffix(report.class_position),
-                    "total_students": report.total_students or 0,
+                    "position": class_position,
+                    "total_students": total_students,
                 },
                 "grade_scale": self.build_grade_scale(subject_results),
                 "grade_summary": self._grade_summary(subject_results),
@@ -712,11 +801,11 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
                         "components": component_breakdown,
                         "ca_components": ca_components,
                         "exam_components": exam_components,
-                        "ca_total": float(result.ca_total or 0),
-                        "total": float(result.total_score or 0),
+                        "ca_total": sum(c["score"] for c in ca_components),
+                        "total": sum(c["score"] for c in component_breakdown),
                         "percentage": float(result.percentage or 0),
                         "grade": result.grade or "",
-                        "position": self.format_grade_suffix(result.subject_position),
+                        "position": self.compute_subject_position(result, JuniorSecondaryResult),
                         "remark": result.teacher_remark or "",
                         "is_passed": result.is_passed,
                     }
@@ -724,6 +813,11 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
 
             times_opened, times_present = self.get_attendance(
                 report.student, report.exam_session
+            )
+
+            total_students = self.count_students_in_class(report.student) or report.total_students or 0
+            class_position = self.compute_class_position(
+                report, JuniorSecondaryResult, JuniorSecondaryTermReport
             )
 
             context = {
@@ -757,8 +851,8 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
                     "total_score": float(report.total_score or 0),
                     "average": float(report.average_score or 0),
                     "grade": report.overall_grade or "",
-                    "position": self.format_grade_suffix(report.class_position),
-                    "total_students": report.total_students or 0,
+                    "position": class_position,
+                    "total_students": total_students,
                 },
                 "grade_scale": self.build_grade_scale(subject_results),
                 "attendance": {
@@ -826,12 +920,16 @@ class PrimaryReportGenerator(ReportGenerator):
     EDUCATION_LEVEL = "PRIMARY"
 
     def _total_students_in_class(self, student, exam_session):
+        # Primary: count all active students in the class (regardless of result status)
+        total = self.count_students_in_class(student)
+        if total:
+            return total
+        # Fallback: count from approved results
         try:
             return (
                 PrimaryResult.objects.filter(
                     exam_session=exam_session,
                     student__student_class=student.student_class,
-                    student__education_level=student.education_level,
                     status__in=("APPROVED", "PUBLISHED"),
                 )
                 .values("student")
@@ -892,11 +990,11 @@ class PrimaryReportGenerator(ReportGenerator):
                         "components": component_breakdown,
                         "ca_components": ca_components,
                         "exam_components": exam_components,
-                        "ca_total": float(result.ca_total or 0),
-                        "total": float(result.total_score or 0),
+                        "ca_total": sum(c["score"] for c in ca_components),
+                        "total": sum(c["score"] for c in component_breakdown),
                         "percentage": float(result.percentage or 0),
                         "grade": result.grade or "",
-                        "position": self.format_grade_suffix(result.subject_position),
+                        "position": self.compute_subject_position(result, PrimaryResult),
                         "remark": result.teacher_remark or "",
                         "is_passed": result.is_passed,
                     }
@@ -905,11 +1003,13 @@ class PrimaryReportGenerator(ReportGenerator):
             total_students = self._total_students_in_class(
                 report.student, report.exam_session
             )
-            if not total_students:
-                total_students = report.total_students or 0
 
             times_opened, times_present = self.get_attendance(
                 report.student, report.exam_session
+            )
+
+            class_position = self.compute_class_position(
+                report, PrimaryResult, PrimaryTermReport
             )
 
             context = {
@@ -943,7 +1043,7 @@ class PrimaryReportGenerator(ReportGenerator):
                     "total_score": float(report.total_score or 0),
                     "average": float(report.average_score or 0),
                     "grade": report.overall_grade or "",
-                    "position": self.format_grade_suffix(report.class_position),
+                    "position": class_position,
                     "total_students": total_students,
                 },
                 "grade_scale": self.build_grade_scale(subject_results),
