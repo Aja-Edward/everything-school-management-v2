@@ -240,7 +240,7 @@ SESSION_COOKIE_NAME = "sessionid"
 SESSION_COOKIE_AGE = 1209600  # 2 weeks
 SESSION_SAVE_EVERY_REQUEST = False  # Only save when modified
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_SAMESITE = "None"
 SESSION_COOKIE_SECURE = not DEBUG  # True in production
 # ============================================
 # CSRF & COOKIE SETTINGS FOR AUTHENTICATION
@@ -248,7 +248,7 @@ SESSION_COOKIE_SECURE = not DEBUG  # True in production
 
 # CSRF cookie settings for cross-subdomain support
 CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read CSRF token (needed for API calls)
-CSRF_COOKIE_SAMESITE = "Lax"  # Allow CSRF cookie on same-site requests
+CSRF_COOKIE_SAMESITE = "None"  # Allow CSRF cookie on same-site requests
 CSRF_USE_SESSIONS = False  # Use cookie-based CSRF, not session-based
 
 # In development, allow cookies across subdomains
@@ -282,6 +282,8 @@ CSRF_TRUSTED_ORIGINS = _parse_origins(
 CORS_ALLOWED_ORIGINS = _parse_origins(
     "CORS_ALLOWED_ORIGINS",
     "http://localhost:3000,http://localhost:5173,http://localhost:5174",
+    "https://www.kebiinternationalacademy.com",
+    "https://kebiinternationalacademy.com",
 )
 
 
