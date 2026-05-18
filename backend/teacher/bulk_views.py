@@ -254,6 +254,33 @@ def download_upload_template(request):
 
     fmt = request.GET.get("format", "csv").lower()
 
+    # Build a dynamic level hint from the tenant's configured EducationLevels
+    tenant = _get_tenant(request)
+    level_example = "Primary"
+    level_hint = (
+        "Optional. Leave blank to allow all levels. "
+        "Enter one or more level names separated by commas (e.g. 'Primary, Senior Secondary'). "
+        "Use 'All' to assign to every level. "
+        "Level names must match your school's configured education levels."
+    )
+    if tenant:
+        try:
+            from academics.models import EducationLevel
+            active_levels = list(
+                EducationLevel.objects.filter(tenant=tenant, is_active=True)
+                .order_by("display_order")
+                .values_list("name", flat=True)
+            )
+            if active_levels:
+                level_example = active_levels[0]
+                level_hint = (
+                    f"Optional. Leave blank for all levels. "
+                    f"Use one or more of: {', '.join(active_levels)}. "
+                    f"Separate multiple with commas. Use 'All' for all levels."
+                )
+        except Exception:
+            pass
+
     COLUMNS = [
         ("Employee ID*", True, "EMP001", "School-assigned employee ID (must be unique)"),
         ("First Name*", True, "Adeola", "Teacher's first name"),
@@ -261,7 +288,7 @@ def download_upload_template(request):
         ("Email*", True, "adeola.johnson@school.com", "Unique email address"),
         ("Phone Number*", True, "08012345678", "Contact phone number"),
         ("Staff Type*", True, "Teaching", "Teaching or Non-Teaching — select from dropdown"),
-        ("Level*", True, "Primary", "Nursery / Primary / Junior Secondary / Senior Secondary — select from dropdown"),
+        ("Level", False, level_example, level_hint),
         ("Qualification*", True, "B.A. Education", "Educational qualification (e.g., B.A., M.Sc.)"),
         ("Specialization*", True, "Mathematics", "Subject specialization"),
         ("Date of Birth", False, "1990-05-15", "Format: YYYY-MM-DD (optional)"),
@@ -278,8 +305,6 @@ def download_upload_template(request):
 
     headers = [col[0] for col in COLUMNS]
     example = [col[2] for col in COLUMNS]
-
-    tenant = _get_tenant(request)  # already available in the view
 
     if fmt == "excel":
         return _template_excel(headers, example, COLUMNS, tenant=tenant)
@@ -324,7 +349,20 @@ def _template_excel(headers, example, column_defs, tenant=None):
         return f"_Ref!${last}$1:${last}${len(items)}"
 
     staff_type_src = _write_ref_col(ref_ws, 1, ["Teaching", "Non-Teaching"])
-    level_src = _write_ref_col(ref_ws, 2, ["Nursery", "Primary", "Junior Secondary", "Senior Secondary"])
+    # Level values are pulled from the tenant's configured EducationLevels (free-form text)
+    level_options = ["All"]
+    if tenant:
+        try:
+            from academics.models import EducationLevel
+            db_levels = list(
+                EducationLevel.objects.filter(tenant=tenant, is_active=True)
+                .order_by("display_order")
+                .values_list("name", flat=True)
+            )
+            level_options = db_levels + ["All"]
+        except Exception:
+            pass
+    level_src = _write_ref_col(ref_ws, 2, level_options)
 
     # ---- Styles ----
     REQUIRED_COLOR = "FFF2CC"
@@ -354,7 +392,7 @@ def _template_excel(headers, example, column_defs, tenant=None):
         "• Employee ID must be unique per school",
         "• Email must be unique and valid",
         "• Staff Type must be either 'Teaching' or 'Non-Teaching' — use the dropdown",
-        "• Level must be one of: Nursery, Primary, Junior Secondary, Senior Secondary — use the dropdown",
+        "• Level is optional — leave blank, enter 'All', or comma-separate multiple (e.g. 'Primary, Senior Secondary')",
         "• Qualification and Specialization are required",
         "• Hire Date format: YYYY-MM-DD",
     ]
@@ -402,7 +440,7 @@ def _template_excel(headers, example, column_defs, tenant=None):
     # Map header name → validation source
     DROPDOWN_MAP = {
         "staff type*": staff_type_src,
-        "level*": level_src,
+        "level": level_src,
     }
 
     DATA_ROWS = f"{start_row + 2}:{start_row + 1001}"  # up to 1000 data rows
@@ -528,19 +566,19 @@ def export_credentials(request, upload_id):
 def _cred_rows(imported):
     """Yield rows for teacher credential tables."""
     for entry in imported:
-        user = entry.get("user", {})
         yield [
             entry.get("employee_id", "—"),
             entry.get("full_name", ""),
-            user.get("email", ""),
+            entry.get("email", ""),
             entry.get("username", ""),
             entry.get("password", ""),
+            entry.get("level", ""),
         ]
 
 
 CRED_HEADERS = [
     "Employee ID", "Full Name", "Email",
-    "Username", "Password (initial)",
+    "Username", "Password (initial)", "Level(s)",
 ]
 
 
@@ -595,8 +633,8 @@ def _export_excel(imported, record):
                 cell.fill = PASS_FILL
                 cell.font = Font(name="Courier New", size=10)
 
-    # Column widths
-    for i, w in enumerate([18, 28, 30, 22, 22], 1):
+    # Column widths: Employee ID, Full Name, Email, Username, Password, Level(s)
+    for i, w in enumerate([16, 26, 32, 22, 22, 24], 1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
     ws.freeze_panes = "A2"
@@ -695,42 +733,49 @@ def _export_pdf(imported, record):
     )
     elements.append(Spacer(1, 6 * mm))
 
-    # Table
-    NAVY  = colors.HexColor("#1F4E79")
-    AMBER = colors.HexColor("#FFF2CC")
+    # Table — 6 columns, widths fitted for A4 landscape (267 mm usable)
+    # Employee ID | Full Name | Email | Username | Password | Level(s)
+    NAVY   = colors.HexColor("#1F4E79")
+    AMBER  = colors.HexColor("#FFF2CC")
     STRIPE = colors.HexColor("#F2F2F2")
 
     table_data = [CRED_HEADERS]
     for row in _cred_rows(imported):
-        table_data.append(row)
+        table_data.append(list(row))
 
-    col_widths = [30*mm, 50*mm, 35*mm, 40*mm, 38*mm, 50*mm, 30*mm]
+    col_widths = [28*mm, 48*mm, 55*mm, 42*mm, 40*mm, 42*mm]  # total = 255 mm
     tbl = Table(table_data, colWidths=col_widths, repeatRows=1)
     tbl.setStyle(TableStyle([
         # Header
-        ("BACKGROUND",   (0, 0), (-1, 0), NAVY),
-        ("TEXTCOLOR",    (0, 0), (-1, 0), colors.white),
-        ("FONTNAME",     (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE",     (0, 0), (-1, 0), 9),
-        ("ALIGN",        (0, 0), (-1, 0), "CENTER"),
-        ("BOTTOMPADDING",(0, 0), (-1, 0), 8),
-        ("TOPPADDING",   (0, 0), (-1, 0), 8),
+        ("BACKGROUND",    (0, 0), (-1, 0), NAVY),
+        ("TEXTCOLOR",     (0, 0), (-1, 0), colors.white),
+        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE",      (0, 0), (-1, 0), 9),
+        ("ALIGN",         (0, 0), (-1, 0), "CENTER"),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
+        ("TOPPADDING",    (0, 0), (-1, 0), 8),
         # Body
-        ("FONTNAME",     (0, 1), (-1, -1), "Helvetica"),
-        ("FONTSIZE",     (0, 1), (-1, -1), 8),
-        ("TOPPADDING",   (0, 1), (-1, -1), 5),
-        ("BOTTOMPADDING",(0, 1), (-1, -1), 5),
+        ("FONTNAME",      (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE",      (0, 1), (-1, -1), 8),
+        ("TOPPADDING",    (0, 1), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 5),
         ("ROWBACKGROUNDS",(0, 1), (-1, -1), [colors.white, STRIPE]),
-        # Password column highlight
-        ("BACKGROUND",   (4, 1), (4, -1), AMBER),
-        ("FONTNAME",     (4, 1), (4, -1), "Courier"),
+        # Password column (index 4) highlight
+        ("BACKGROUND",    (4, 1), (4, -1), AMBER),
+        ("FONTNAME",      (4, 1), (4, -1), "Courier"),
         # Grid
-        ("GRID",         (0, 0), (-1, -1), 0.4, colors.HexColor("#CCCCCC")),
-        ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
+        ("GRID",          (0, 0), (-1, -1), 0.4, colors.HexColor("#CCCCCC")),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("WORDWRAP",      (0, 0), (-1, -1), True),
     ]))
     elements.append(tbl)
 
-    doc.build(elements)
+    try:
+        doc.build(elements)
+    except Exception as exc:
+        logger.error("PDF build failed: %s — falling back to CSV", exc)
+        return _export_csv(imported, record)
+
     buf.seek(0)
     fname = f"credentials_{record.id}_{datetime.now().strftime('%Y%m%d')}.pdf"
     response = HttpResponse(buf.read(), content_type="application/pdf")

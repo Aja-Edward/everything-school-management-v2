@@ -64,24 +64,10 @@ def _validate_row(row_num, row, tenant_id):
             "Use 'Teaching' or 'Non-Teaching'."
         )
 
-    # ---- Level validation ----
-    level_raw = row.get("level", "").strip().lower()
-    level_map = {
-        "nursery": "nursery",
-        "primary": "primary",
-        "junior secondary": "junior_secondary",
-        "junior_secondary": "junior_secondary",
-        "secondary": "junior_secondary",
-        "senior secondary": "senior_secondary",
-        "senior_secondary": "senior_secondary",
-        "ss": "senior_secondary",
-    }
-    level = level_map.get(level_raw)
-    if not level:
-        errors.append(
-            f"Row {row_num}: Invalid level '{row.get('level', '')}'. "
-            "Use: Nursery, Primary, Junior Secondary, or Senior Secondary."
-        )
+    # ---- Level (optional, no hardcoded restriction) ----
+    # Accept blank, "All", or any comma-separated level names/codes.
+    # Actual EducationLevel matching happens in _create_teacher_from_cleaned
+    # against the tenant's configured levels.
 
     # ---- Hire Date validation ----
     from datetime import datetime
@@ -137,11 +123,13 @@ def _validate_row(row_num, row, tenant_id):
         return errors, None
 
     # ---- Build cleaned dict ----
+    # level_raw is kept as-is for the creation step to resolve against the
+    # tenant's EducationLevel records. Blank or "all" means no restriction.
     cleaned = {
         "row_num": row_num,
         "employee_id": employee_id,
         "staff_type": staff_type,
-        "level": level,
+        "level_raw": row.get("level", "").strip(),  # free-form, resolved later
         "first_name": row["first_name"].strip(),
         "last_name": row["last_name"].strip(),
         "middle_name": row.get("middle_name", "").strip() or "",
@@ -159,6 +147,44 @@ def _validate_row(row_num, row, tenant_id):
     return [], cleaned
 
 
+def _resolve_education_levels(tenant, level_raw):
+    """
+    Resolve a free-form level string against the tenant's EducationLevel records.
+
+    Accepts:
+      - blank / None          → empty list (no restriction)
+      - "all"                 → all active EducationLevel objects for this tenant
+      - comma-separated names → matched case-insensitively against name, code, or level_type
+        e.g. "Primary, Senior Secondary", "primary,ss", "JSS, SSS"
+
+    Returns a QuerySet (or list) of EducationLevel objects.
+    """
+    from academics.models import EducationLevel
+
+    if not level_raw:
+        return []
+
+    if level_raw.strip().lower() == "all":
+        return list(EducationLevel.objects.filter(tenant=tenant, is_active=True))
+
+    parts = [p.strip() for p in level_raw.replace(";", ",").split(",") if p.strip()]
+    matched = []
+    for part in parts:
+        q = EducationLevel.objects.filter(tenant=tenant, is_active=True)
+        # Try exact match on name, code, or level_type (case-insensitive)
+        match = (
+            q.filter(name__iexact=part).first()
+            or q.filter(code__iexact=part).first()
+            or q.filter(level_type__iexact=part).first()
+            # Partial match as fallback (e.g. "secondary" matches "Senior Secondary")
+            or q.filter(name__icontains=part).first()
+            or q.filter(level_type__icontains=part).first()
+        )
+        if match:
+            matched.append(match)
+    return matched
+
+
 def _create_teacher_from_cleaned(tenant, cleaned):
     """
     Atomically create a CustomUser + Teacher.
@@ -174,6 +200,9 @@ def _create_teacher_from_cleaned(tenant, cleaned):
         employee_id=cleaned["employee_id"],
         tenant=tenant,
     )
+
+    level_raw = cleaned.get("level_raw", "")
+    education_levels = _resolve_education_levels(tenant, level_raw)
 
     # Create CustomUser
     user = CustomUser.objects.create_user(
@@ -193,7 +222,7 @@ def _create_teacher_from_cleaned(tenant, cleaned):
         user=user,
         employee_id=cleaned["employee_id"],
         staff_type=cleaned["staff_type"],
-        level=cleaned["level"],
+        level=level_raw,          # free-form display value (backward compat)
         phone_number=cleaned["phone_number"],
         address=cleaned["address"],
         date_of_birth=cleaned["date_of_birth"],
@@ -203,6 +232,10 @@ def _create_teacher_from_cleaned(tenant, cleaned):
         photo=cleaned["photo_url"],
         is_active=cleaned["is_active"],
     )
+
+    # Assign education levels (M2M — must happen after .create())
+    if education_levels:
+        teacher.education_levels.set(education_levels)
 
     return teacher, password, username
 
@@ -420,9 +453,11 @@ def process_bulk_teacher_upload(
                     "row": i,
                     "teacher_id": teacher.id,
                     "full_name": f"{cleaned['first_name']} {cleaned['last_name']}",
+                    "email": cleaned["email"],
                     "username": username,
                     "password": password,
                     "employee_id": cleaned["employee_id"],
+                    "level": cleaned.get("level_raw", ""),
                 })
             except Exception as exc:
                 logger.exception(f"Row {i} failed during DB write: {exc}")

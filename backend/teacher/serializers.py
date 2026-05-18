@@ -197,6 +197,14 @@ class TeacherSerializer(serializers.ModelSerializer):
     years_experience = serializers.SerializerMethodField()
     assigned_subjects = serializers.SerializerMethodField()
 
+    education_levels_detail = serializers.SerializerMethodField()
+
+    def get_education_levels_detail(self, obj):
+        return [
+            {"id": el.id, "name": el.name, "code": el.code, "level_type": el.level_type}
+            for el in obj.education_levels.all()
+        ]
+
     class Meta:
         model = Teacher
         fields = [
@@ -205,6 +213,8 @@ class TeacherSerializer(serializers.ModelSerializer):
             "employee_id",
             "staff_type",
             "level",
+            "education_levels",
+            "education_levels_detail",
             "phone_number",
             "address",
             "date_of_birth",

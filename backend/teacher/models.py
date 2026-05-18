@@ -13,12 +13,6 @@ class Teacher(TenantMixin, models.Model):
         ("teaching", "Teaching"),
         ("non-teaching", "Non-Teaching"),
     ]
-    LEVEL_CHOICES = [
-        ("nursery", "Nursery"),
-        ("primary", "Primary"),
-        ("junior_secondary", "Junior Secondary"),
-        ("senior_secondary", "Senior Secondary"),
-    ]
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     employee_id = models.CharField(max_length=20)
@@ -28,12 +22,22 @@ class Teacher(TenantMixin, models.Model):
         related_name="teaching_teachers",
         help_text="Subjects this teacher is qualified/assigned to teach",
     )
+    education_levels = models.ManyToManyField(
+        "academics.EducationLevel",
+        blank=True,
+        related_name="teachers",
+        help_text=(
+            "Education levels this teacher is assigned to. "
+            "Leave blank to allow teaching across all levels. "
+            "Schools can define their own levels in Academic Settings."
+        ),
+    )
     staff_type = models.CharField(
         max_length=20, choices=STAFF_TYPE_CHOICES, default="teaching"
     )
-    level = models.CharField(
-        max_length=20, choices=LEVEL_CHOICES, blank=True, null=True
-    )
+    # Kept for backward compatibility and display. Use education_levels (M2M)
+    # for multi-level assignment. This field is no longer choices-restricted.
+    level = models.CharField(max_length=200, blank=True, null=True)
     phone_number = models.CharField(max_length=15, blank=True)
     address = models.TextField(blank=True)
     date_of_birth = models.DateField(null=True, blank=True)
