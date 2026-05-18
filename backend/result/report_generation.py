@@ -131,16 +131,19 @@ def _build_component_breakdown(result):
     )
     return [
         {
-            "name":       cs.component.name,
-            "short_name": _abbreviate_component(cs.component.name, cs.component.code),
-            "code":       cs.component.code,
-            "score":      float(cs.score),
-            "max":        float(cs.component.max_score),
+            "name":             cs.component.name,
+            "short_name":       _abbreviate_component(cs.component.name, cs.component.code),
+            "code":             cs.component.code,
+            "score":            float(cs.score),
+            "max":              float(cs.component.max_score),
             # Use component_type as the authoritative CA/Exam flag so that
             # an EXAM component misconfigured with contributes_to_ca=True
             # is still treated as an exam (not counted in CA Total).
-            "is_ca":      cs.component.component_type != "EXAM",
-            "type":       cs.component.component_type,
+            "is_ca":            cs.component.component_type != "EXAM",
+            "type":             cs.component.component_type,
+            # When False: score is still included in ca_total/total,
+            # but no individual column is rendered in the printed sheet.
+            "show_in_report":   cs.component.show_in_printed_report,
         }
         for cs in scores
     ]
@@ -588,6 +591,10 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                         "components": component_breakdown,
                         "ca_components": ca_components,
                         "exam_components": exam_components,
+                        # visible_* = only columns that render in the printed sheet.
+                        # ca_total still aggregates ALL ca_components (visible or not).
+                        "visible_ca_components":   [c for c in ca_components   if c["show_in_report"]],
+                        "visible_exam_components": [c for c in exam_components if c["show_in_report"]],
                         "ca_total": sum(c["score"] for c in ca_components),
                         "total": sum(c["score"] for c in component_breakdown),
                         "percentage": float(result.percentage or 0),
@@ -802,6 +809,8 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
                         "components": component_breakdown,
                         "ca_components": ca_components,
                         "exam_components": exam_components,
+                        "visible_ca_components":   [c for c in ca_components   if c["show_in_report"]],
+                        "visible_exam_components": [c for c in exam_components if c["show_in_report"]],
                         "ca_total": sum(c["score"] for c in ca_components),
                         "total": sum(c["score"] for c in component_breakdown),
                         "percentage": float(result.percentage or 0),
@@ -991,6 +1000,8 @@ class PrimaryReportGenerator(ReportGenerator):
                         "components": component_breakdown,
                         "ca_components": ca_components,
                         "exam_components": exam_components,
+                        "visible_ca_components":   [c for c in ca_components   if c["show_in_report"]],
+                        "visible_exam_components": [c for c in exam_components if c["show_in_report"]],
                         "ca_total": sum(c["score"] for c in ca_components),
                         "total": sum(c["score"] for c in component_breakdown),
                         "percentage": float(result.percentage or 0),

@@ -98,25 +98,38 @@ def bulk_upload_students(request):
         status="pending",
     )
 
-    # Enqueue Celery task
+    # Enqueue Celery task (falls back to synchronous if no broker is available)
     from students.tasks import process_bulk_student_upload
-    task = process_bulk_student_upload.delay(
-        upload_record_id=record.pk,
-        tenant_id=tenant.id,
-        file_path=file_path,
-        file_ext=ext,
-        academic_session_id=int(academic_session_id) if academic_session_id else None,
-        uploaded_by_id=request.user.pk,
-    )
-
-    # record.result_data = {"celery_task_id": task.id}
-    # record.save(update_fields=["result_data"])
+    task_id = None
+    try:
+        task = process_bulk_student_upload.delay(
+            upload_record_id=record.pk,
+            tenant_id=tenant.id,
+            file_path=file_path,
+            file_ext=ext,
+            academic_session_id=int(academic_session_id) if academic_session_id else None,
+            uploaded_by_id=request.user.pk,
+        )
+        task_id = task.id
+    except Exception as celery_err:
+        logger.warning(
+            "Celery unavailable (%s). Running bulk student upload synchronously.",
+            celery_err,
+        )
+        process_bulk_student_upload(
+            upload_record_id=record.pk,
+            tenant_id=tenant.id,
+            file_path=file_path,
+            file_ext=ext,
+            academic_session_id=int(academic_session_id) if academic_session_id else None,
+            uploaded_by_id=request.user.pk,
+        )
 
     return Response(
         {
             "upload_id": record.pk,
-            "task_id": task.id,
-            "status": "pending",
+            "task_id": task_id,
+            "status": "pending" if task_id else "processing",
             "message": "File accepted. Processing started.",
         },
         status=202,

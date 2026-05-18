@@ -226,6 +226,16 @@ class AssessmentComponent(TenantMixin, models.Model):
         default=True,
         help_text="True = counted in CA sub-total; False = standalone (e.g. final Exam)",
     )
+    show_in_printed_report = models.BooleanField(
+        default=True,
+        help_text=(
+            "If False, teachers still enter this component score (and it is "
+            "included in the CA/Exam total), but it does NOT appear as its own "
+            "column in the printed result sheet. "
+            "Use this when individual CA tests should be entered separately but "
+            "only the aggregate CA total should print (e.g. CA1+CA2+CA3 → CA 60%)."
+        ),
+    )
     display_order = models.PositiveSmallIntegerField(default=0)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1189,15 +1199,19 @@ class BaseTermReport(models.Model):
     # ── Position recalculation (SQL RANK) ─────────────────────────────────
 
     @classmethod
-    def bulk_recalculate_positions(cls, exam_session, student_class, **_):
+    def bulk_recalculate_positions(
+        cls, exam_session, student_class,
+        statuses=("APPROVED", "PUBLISHED"), **_
+    ):
         """
-        Rank APPROVED/PUBLISHED term reports for a class using SQL RANK().
+        Rank term reports for a class using SQL RANK().
         One annotate query + one bulk_update.
+        Pass statuses=("DRAFT","APPROVED","PUBLISHED") to include all records.
         """
         base_filter = dict(
             exam_session=exam_session,
             student__student_class=student_class,
-            status__in=("APPROVED", "PUBLISHED"),
+            status__in=statuses,
         )
         with transaction.atomic():
             qs = cls.objects.filter(**base_filter).select_for_update()
@@ -2292,12 +2306,17 @@ class NurseryTermReport(TenantMixin, BaseTermReport, models.Model):
         )
 
     @classmethod
-    def bulk_recalculate_positions(cls, exam_session, student_class, **_):
-        """SQL RANK() — no Python sort."""
+    def bulk_recalculate_positions(
+        cls, exam_session, student_class,
+        statuses=("APPROVED", "PUBLISHED"), **_
+    ):
+        """SQL RANK() — no Python sort.
+        Pass statuses=("DRAFT","APPROVED","PUBLISHED") to include all records.
+        """
         base_filter = dict(
             exam_session=exam_session,
             student__student_class=student_class,
-            status__in=("APPROVED", "PUBLISHED"),
+            status__in=statuses,
         )
         with transaction.atomic():
             qs = cls.objects.filter(**base_filter).select_for_update()

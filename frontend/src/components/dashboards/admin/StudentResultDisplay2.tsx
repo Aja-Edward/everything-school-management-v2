@@ -460,7 +460,7 @@ useEffect(() => {
         
         {/* Action Buttons */}
         <div className="flex items-center gap-3">
-          
+
           {/* PDF Download Button - Using same pattern as EnhancedResultsManagement */}
           {pdfReportId ? (
             <PDFDownloadButton
@@ -479,7 +479,7 @@ useEffect(() => {
               }}
             />
           ) : (
-            <div 
+            <div
               className={`px-4 py-2 rounded-lg ${themeClasses.buttonSecondary} opacity-50 cursor-not-allowed flex items-center gap-2`}
               title="PDF download requires a published report. Please ensure the result has been approved and published through the results management system."
             >
@@ -489,7 +489,219 @@ useEffect(() => {
           )}
         </div>
       </div>
-      
+
+      {/* Result Content */}
+      {actualTermReport && (
+        <div className={`rounded-xl border ${themeClasses.border} overflow-hidden`}>
+          {/* Summary Row */}
+          <div className={`grid grid-cols-2 md:grid-cols-4 gap-4 p-4 ${themeClasses.bgSecondary} border-b ${themeClasses.border}`}>
+            <div className="text-center">
+              <p className={`text-xl font-bold ${themeClasses.textPrimary}`}>
+                {actualTermReport.overall_percentage != null
+                  ? `${parseFloat(actualTermReport.overall_percentage).toFixed(1)}%`
+                  : actualTermReport.average_score != null
+                  ? `${parseFloat(actualTermReport.average_score).toFixed(1)}%`
+                  : '—'}
+              </p>
+              <p className={`text-xs mt-1 ${themeClasses.textTertiary}`}>Overall %</p>
+            </div>
+            <div className="text-center">
+              <p className={`text-xl font-bold ${themeClasses.textPrimary}`}>
+                {actualTermReport.class_position
+                  ? `${actualTermReport.class_position}/${actualTermReport.total_students_in_class || actualTermReport.total_students || '—'}`
+                  : '—'}
+              </p>
+              <p className={`text-xs mt-1 ${themeClasses.textTertiary}`}>Position</p>
+            </div>
+            <div className="text-center">
+              <p className={`text-xl font-bold ${themeClasses.textPrimary}`}>
+                {actualTermReport.overall_grade || actualTermReport.grade || '—'}
+              </p>
+              <p className={`text-xs mt-1 ${themeClasses.textTertiary}`}>Grade</p>
+            </div>
+            <div className="text-center">
+              <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
+                actualTermReport.status === 'PUBLISHED' ? 'bg-violet-100 text-violet-700' :
+                actualTermReport.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-700' :
+                'bg-slate-100 text-slate-600'
+              }`}>
+                {actualTermReport.status || 'DRAFT'}
+              </span>
+              <p className={`text-xs mt-1 ${themeClasses.textTertiary}`}>Status</p>
+            </div>
+          </div>
+
+          {/* Subject Results Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className={`${themeClasses.bgSecondary} border-b ${themeClasses.border}`}>
+                <tr>
+                  <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider ${themeClasses.textTertiary}`}>Subject</th>
+                  {educationLevel === 'NURSERY' ? (
+                    <>
+                      <th className={`px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider ${themeClasses.textTertiary}`}>Marks</th>
+                      <th className={`px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider ${themeClasses.textTertiary}`}>Max</th>
+                      <th className={`px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider ${themeClasses.textTertiary}`}>%</th>
+                    </>
+                  ) : (
+                    <>
+                      <th className={`px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider ${themeClasses.textTertiary}`}>CA</th>
+                      <th className={`px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider ${themeClasses.textTertiary}`}>Total</th>
+                      <th className={`px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider ${themeClasses.textTertiary}`}>%</th>
+                    </>
+                  )}
+                  <th className={`px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider ${themeClasses.textTertiary}`}>Grade</th>
+                  {educationLevel === 'NURSERY' && (
+                    <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider ${themeClasses.textTertiary}`}>Comment</th>
+                  )}
+                </tr>
+              </thead>
+              <tbody className={`divide-y ${themeClasses.border}`}>
+                {(actualTermReport.subject_results ?? []).length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className={`px-4 py-8 text-center ${themeClasses.textTertiary}`}>
+                      No subject results recorded
+                    </td>
+                  </tr>
+                ) : (
+                  (actualTermReport.subject_results as any[]).map((sr: any, i: number) => (
+                    <tr key={sr.id || i} className={`hover:${themeClasses.bgSecondary}`}>
+                      <td className={`px-4 py-3 font-medium ${themeClasses.textPrimary}`}>
+                        {sr.subject?.name || sr.subject_name || '—'}
+                      </td>
+                      {educationLevel === 'NURSERY' ? (
+                        <>
+                          <td className={`px-4 py-3 text-center ${themeClasses.textPrimary}`}>{sr.mark_obtained ?? '—'}</td>
+                          <td className={`px-4 py-3 text-center ${themeClasses.textSecondary}`}>{sr.max_marks_obtainable ?? '—'}</td>
+                          <td className={`px-4 py-3 text-center ${themeClasses.textPrimary}`}>
+                            {sr.percentage != null ? `${parseFloat(sr.percentage).toFixed(1)}%` : '—'}
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td className={`px-4 py-3 text-center ${themeClasses.textSecondary}`}>
+                            {sr.ca_total != null ? parseFloat(sr.ca_total).toFixed(1) : '—'}
+                          </td>
+                          <td className={`px-4 py-3 text-center font-medium ${themeClasses.textPrimary}`}>
+                            {sr.total_score != null ? parseFloat(sr.total_score).toFixed(1) : '—'}
+                          </td>
+                          <td className={`px-4 py-3 text-center ${themeClasses.textPrimary}`}>
+                            {sr.percentage != null ? `${parseFloat(sr.percentage).toFixed(1)}%` : '—'}
+                          </td>
+                        </>
+                      )}
+                      <td className="px-4 py-3 text-center">
+                        <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
+                          sr.grade?.startsWith('A') ? 'bg-emerald-100 text-emerald-700' :
+                          sr.grade?.startsWith('B') ? 'bg-blue-100 text-blue-700' :
+                          sr.grade?.startsWith('C') ? 'bg-amber-100 text-amber-700' :
+                          'bg-red-100 text-red-700'
+                        }`}>
+                          {sr.grade || '—'}
+                        </span>
+                      </td>
+                      {educationLevel === 'NURSERY' && (
+                        <td className={`px-4 py-3 text-sm italic ${themeClasses.textSecondary}`}>
+                          {sr.academic_comment || '—'}
+                        </td>
+                      )}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Teacher Remarks */}
+          {(actualTermReport.class_teacher_remark || actualTermReport.head_teacher_remark) && (
+            <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 p-4 border-t ${themeClasses.border}`}>
+              {actualTermReport.class_teacher_remark && (
+                <div className="bg-blue-50 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-blue-700 mb-1">Class Teacher Remark</p>
+                  <p className="text-sm text-blue-900">{actualTermReport.class_teacher_remark}</p>
+                </div>
+              )}
+              {actualTermReport.head_teacher_remark && (
+                <div className="bg-violet-50 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-violet-700 mb-1">Head Teacher Remark</p>
+                  <p className="text-sm text-violet-900">{actualTermReport.head_teacher_remark}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Nursery Physical Development */}
+          {educationLevel === 'NURSERY' && (actualTermReport.physical_development || actualTermReport.health || actualTermReport.cleanliness || actualTermReport.general_conduct) && (
+            <div className={`p-4 border-t ${themeClasses.border}`}>
+              <p className={`text-xs font-semibold uppercase tracking-wider mb-3 ${themeClasses.textTertiary}`}>Physical Development</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {actualTermReport.physical_development && (
+                  <div className={`rounded-lg p-3 ${themeClasses.bgSecondary}`}>
+                    <p className={`text-xs ${themeClasses.textTertiary}`}>Physical</p>
+                    <p className={`text-sm font-medium mt-1 ${themeClasses.textPrimary}`}>{actualTermReport.physical_development_display || actualTermReport.physical_development}</p>
+                  </div>
+                )}
+                {actualTermReport.health && (
+                  <div className={`rounded-lg p-3 ${themeClasses.bgSecondary}`}>
+                    <p className={`text-xs ${themeClasses.textTertiary}`}>Health</p>
+                    <p className={`text-sm font-medium mt-1 ${themeClasses.textPrimary}`}>{actualTermReport.health_display || actualTermReport.health}</p>
+                  </div>
+                )}
+                {actualTermReport.cleanliness && (
+                  <div className={`rounded-lg p-3 ${themeClasses.bgSecondary}`}>
+                    <p className={`text-xs ${themeClasses.textTertiary}`}>Cleanliness</p>
+                    <p className={`text-sm font-medium mt-1 ${themeClasses.textPrimary}`}>{actualTermReport.cleanliness_display || actualTermReport.cleanliness}</p>
+                  </div>
+                )}
+                {actualTermReport.general_conduct && (
+                  <div className={`rounded-lg p-3 ${themeClasses.bgSecondary}`}>
+                    <p className={`text-xs ${themeClasses.textTertiary}`}>Conduct</p>
+                    <p className={`text-sm font-medium mt-1 ${themeClasses.textPrimary}`}>{actualTermReport.general_conduct_display || actualTermReport.general_conduct}</p>
+                  </div>
+                )}
+              </div>
+              {actualTermReport.physical_development_comment && (
+                <p className={`mt-3 text-sm italic ${themeClasses.textSecondary}`}>{actualTermReport.physical_development_comment}</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Fallback: show raw results if no term report */}
+      {!actualTermReport && results.length > 0 && (
+        <div className={`rounded-xl border ${themeClasses.border} overflow-hidden`}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className={`${themeClasses.bgSecondary} border-b ${themeClasses.border}`}>
+                <tr>
+                  <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider ${themeClasses.textTertiary}`}>Subject</th>
+                  <th className={`px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider ${themeClasses.textTertiary}`}>Score</th>
+                  <th className={`px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider ${themeClasses.textTertiary}`}>Grade</th>
+                  <th className={`px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider ${themeClasses.textTertiary}`}>Status</th>
+                </tr>
+              </thead>
+              <tbody className={`divide-y ${themeClasses.border}`}>
+                {results.map((r: any, i: number) => (
+                  <tr key={r.id || i} className={`hover:${themeClasses.bgSecondary}`}>
+                    <td className={`px-4 py-3 font-medium ${themeClasses.textPrimary}`}>{r.subject?.name || '—'}</td>
+                    <td className={`px-4 py-3 text-center ${themeClasses.textPrimary}`}>
+                      {r.total_score != null ? parseFloat(r.total_score).toFixed(1) : r.mark_obtained ?? '—'}
+                    </td>
+                    <td className={`px-4 py-3 text-center ${themeClasses.textPrimary}`}>{r.grade || '—'}</td>
+                    <td className={`px-4 py-3 text-center`}>
+                      <span className={`text-xs font-medium ${r.status === 'PUBLISHED' ? 'text-violet-600' : r.status === 'APPROVED' ? 'text-emerald-600' : 'text-slate-500'}`}>
+                        {r.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

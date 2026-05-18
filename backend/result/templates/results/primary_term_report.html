@@ -469,14 +469,15 @@ tbody tr:nth-child(even) {
                     <th class="col-subject" rowspan="2">SUBJECT</th>
 
                     {# ── CA components grouped under one spanning header ── #}
-                    {% if first.ca_components %}
-                        <th colspan="{{ first.ca_components|length }}">
+                    {# Only show_in_printed_report=True components appear as columns #}
+                    {% if first.visible_ca_components %}
+                        <th colspan="{{ first.visible_ca_components|length }}">
                             CONTINUOUS ASSESSMENT
                         </th>
                     {% endif %}
 
                     {# ── Non-CA (exam) components get their own header cell ── #}
-                    {% for c in first.exam_components %}
+                    {% for c in first.visible_exam_components %}
                         <th rowspan="2">{{ c.short_name }}<br>({{ c.max|floatformat:0 }})</th>
                     {% endfor %}
 
@@ -487,8 +488,8 @@ tbody tr:nth-child(even) {
                     <th rowspan="2">REMARK</th>
                 </tr>
                 <tr>
-                    {# ── Individual CA sub-headers ── #}
-                    {% for c in first.ca_components %}
+                    {# ── Individual CA sub-headers (visible only) ── #}
+                    {% for c in first.visible_ca_components %}
                         <th>{{ c.short_name }}<br>({{ c.max|floatformat:0 }})</th>
                     {% endfor %}
                 </tr>
@@ -498,11 +499,11 @@ tbody tr:nth-child(even) {
                 <tr>
                     <td class="subject-name">{{ subject.name }}</td>
 
-                    {% for c in subject.ca_components %}
+                    {% for c in subject.visible_ca_components %}
                         <td>{{ c.score|floatformat:1 }}</td>
                     {% endfor %}
 
-                    {% for c in subject.exam_components %}
+                    {% for c in subject.visible_exam_components %}
                         <td>{{ c.score|floatformat:1 }}</td>
                     {% endfor %}
 

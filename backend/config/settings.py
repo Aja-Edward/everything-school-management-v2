@@ -304,17 +304,21 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
 ]
 
 # Celery + Redis
-CELERY_BROKER_URL = os.environ.get("REDIS_URL")
-CELERY_RESULT_BACKEND = os.environ.get("REDIS_URL")
+# When REDIS_URL is not configured (no Redis service), fall back to
+# synchronous (eager) mode so tasks run in-process without a broker.
+_REDIS_URL = os.environ.get("REDIS_URL")
+CELERY_BROKER_URL = _REDIS_URL or "memory://"
+CELERY_RESULT_BACKEND = _REDIS_URL or "cache+memory://"
 
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = "Africa/Lagos"
 
-# Production: no eager mode
-CELERY_TASK_ALWAYS_EAGER = False
-CELERY_TASK_EAGER_PROPAGATES = False
+# Run tasks synchronously (in-process) when no Redis broker is available.
+# With Redis, tasks are queued normally and executed by a Celery worker.
+CELERY_TASK_ALWAYS_EAGER = not bool(_REDIS_URL)
+CELERY_TASK_EAGER_PROPAGATES = not bool(_REDIS_URL)
 
 # Worker tuning (optional)
 CELERY_WORKER_POOL = "threads"

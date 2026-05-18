@@ -1132,7 +1132,7 @@ class BaseResultViewSetMixin:
             if pair in seen:
                 continue
             seen.add(pair)
-            defaults = {"status": DRAFT, "is_published": False}
+            defaults = {"status": DRAFT, "is_published": False, "tenant": obj.tenant}
             if ModelClass == SeniorSecondaryResult and getattr(obj, "stream", None):
                 defaults["stream"] = obj.stream
             term_report, _ = TermReportModel.objects.get_or_create(
@@ -1614,6 +1614,8 @@ class SeniorSecondaryTermReportViewSet(
             return Response(
                 {"error": f"Cannot publish from status '{report.status}'."}, status=400
             )
+        exam_session = report.exam_session
+        student_class_id = report.student.student_class_id
         now = timezone.now()
         with transaction.atomic():
             SeniorSecondaryTermReport.objects.filter(pk=report.pk).update(
@@ -1625,6 +1627,13 @@ class SeniorSecondaryTermReportViewSet(
             SeniorSecondaryResult.bulk_publish(
                 report.subject_results.all(), request.user
             )
+            report.refresh_from_db()
+            report.calculate_metrics()
+            if student_class_id:
+                SeniorSecondaryTermReport.bulk_recalculate_positions(
+                    exam_session=exam_session,
+                    student_class=student_class_id,
+                )
         report.refresh_from_db()
         return Response(
             SeniorSecondaryTermReportSerializer(
@@ -1665,11 +1674,20 @@ class SeniorSecondaryTermReportViewSet(
             return Response({"error": "Permission denied."}, status=403)
         with transaction.atomic():
             qs = SeniorSecondaryTermReport.objects.filter(pk__in=report_ids)
+            combos = list(qs.values_list("exam_session_id", "student__student_class").distinct())
             count = SeniorSecondaryTermReport.bulk_publish(qs, request.user)
             result_count = SeniorSecondaryResult.bulk_publish(
                 SeniorSecondaryResult.objects.filter(term_report__in=report_ids),
                 request.user,
             )
+            for r in SeniorSecondaryTermReport.objects.filter(pk__in=report_ids):
+                r.calculate_metrics()
+            for exam_session_id, sc in combos:
+                if exam_session_id and sc:
+                    es = ExamSession.objects.get(pk=exam_session_id)
+                    SeniorSecondaryTermReport.bulk_recalculate_positions(
+                        exam_session=es, student_class=sc,
+                    )
         return Response(
             {"published_reports": count, "published_subject_results": result_count}
         )
@@ -1689,24 +1707,21 @@ class SeniorSecondaryTermReportViewSet(
         except ExamSession.DoesNotExist:
             return Response({"error": "Exam session not found."}, status=404)
         student_classes = (
-            SeniorSecondaryTermReport.objects.filter(
-                tenant=request.tenant, exam_session=exam_session
-            )
+            SeniorSecondaryTermReport.objects.filter(exam_session=exam_session)
             .values_list("student__student_class", flat=True)
             .distinct()
         )
         count = 0
+        all_statuses = (DRAFT, APPROVED, PUBLISHED)
         with transaction.atomic():
-            approved_qs = SeniorSecondaryTermReport.objects.filter(
-                tenant=request.tenant,
+            all_reports_qs = SeniorSecondaryTermReport.objects.filter(
                 exam_session=exam_session,
-                status__in=(APPROVED, PUBLISHED),
             )
-            SeniorSecondaryTermReport.bulk_calculate_metrics(approved_qs)
+            SeniorSecondaryTermReport.bulk_calculate_metrics(all_reports_qs)
             # Recalculate subject positions per class+subject
             subjects = (
                 SeniorSecondaryResult.objects.filter(
-                    tenant=request.tenant, exam_session=exam_session,
+                    exam_session=exam_session,
                     status__in=(APPROVED, PUBLISHED),
                 )
                 .values_list("subject_id", "student__student_class")
@@ -1723,6 +1738,7 @@ class SeniorSecondaryTermReportViewSet(
                 if sc:
                     SeniorSecondaryTermReport.bulk_recalculate_positions(
                         exam_session=exam_session, student_class=sc,
+                        statuses=all_statuses,
                     )
                     count += 1
         return Response({"recalculated_groups": count, "exam_session": str(exam_session_id)})
@@ -2014,6 +2030,8 @@ class JuniorSecondaryTermReportViewSet(
             return Response(
                 {"error": f"Cannot publish from status '{report.status}'."}, status=400
             )
+        exam_session = report.exam_session
+        student_class_id = report.student.student_class_id
         now = timezone.now()
         with transaction.atomic():
             JuniorSecondaryTermReport.objects.filter(pk=report.pk).update(
@@ -2025,6 +2043,13 @@ class JuniorSecondaryTermReportViewSet(
             JuniorSecondaryResult.bulk_publish(
                 report.subject_results.all(), request.user
             )
+            report.refresh_from_db()
+            report.calculate_metrics()
+            if student_class_id:
+                JuniorSecondaryTermReport.bulk_recalculate_positions(
+                    exam_session=exam_session,
+                    student_class=student_class_id,
+                )
         report.refresh_from_db()
         return Response(
             JuniorSecondaryTermReportSerializer(
@@ -2064,6 +2089,7 @@ class JuniorSecondaryTermReportViewSet(
             qs = JuniorSecondaryTermReport.objects.filter(
                 pk__in=ser.validated_data["result_ids"]
             )
+            combos = list(qs.values_list("exam_session_id", "student__student_class").distinct())
             count = JuniorSecondaryTermReport.bulk_publish(qs, request.user)
             result_count = JuniorSecondaryResult.bulk_publish(
                 JuniorSecondaryResult.objects.filter(
@@ -2071,6 +2097,14 @@ class JuniorSecondaryTermReportViewSet(
                 ),
                 request.user,
             )
+            for r in JuniorSecondaryTermReport.objects.filter(pk__in=ser.validated_data["result_ids"]):
+                r.calculate_metrics()
+            for exam_session_id, sc in combos:
+                if exam_session_id and sc:
+                    es = ExamSession.objects.get(pk=exam_session_id)
+                    JuniorSecondaryTermReport.bulk_recalculate_positions(
+                        exam_session=es, student_class=sc,
+                    )
         return Response(
             {"published_reports": count, "published_subject_results": result_count}
         )
@@ -2087,21 +2121,20 @@ class JuniorSecondaryTermReportViewSet(
         except ExamSession.DoesNotExist:
             return Response({"error": "Exam session not found."}, status=404)
         student_classes = (
-            JuniorSecondaryTermReport.objects.filter(tenant=request.tenant, exam_session=exam_session)
+            JuniorSecondaryTermReport.objects.filter(exam_session=exam_session)
             .values_list("student__student_class", flat=True)
             .distinct()
         )
         count = 0
+        all_statuses = (DRAFT, APPROVED, PUBLISHED)
         with transaction.atomic():
-            approved_qs = JuniorSecondaryTermReport.objects.filter(
-                tenant=request.tenant,
+            all_reports_qs = JuniorSecondaryTermReport.objects.filter(
                 exam_session=exam_session,
-                status__in=(APPROVED, PUBLISHED),
             )
-            JuniorSecondaryTermReport.bulk_calculate_metrics(approved_qs)
+            JuniorSecondaryTermReport.bulk_calculate_metrics(all_reports_qs)
             subjects = (
                 JuniorSecondaryResult.objects.filter(
-                    tenant=request.tenant, exam_session=exam_session,
+                    exam_session=exam_session,
                     status__in=(APPROVED, PUBLISHED),
                 )
                 .values_list("subject_id", "student__student_class")
@@ -2118,6 +2151,7 @@ class JuniorSecondaryTermReportViewSet(
                 if sc:
                     JuniorSecondaryTermReport.bulk_recalculate_positions(
                         exam_session=exam_session, student_class=sc,
+                        statuses=all_statuses,
                     )
                     count += 1
         return Response({"recalculated_groups": count, "exam_session": str(exam_session_id)})
@@ -2385,6 +2419,8 @@ class PrimaryTermReportViewSet(
             return Response(
                 {"error": f"Cannot publish from status '{report.status}'."}, status=400
             )
+        exam_session = report.exam_session
+        student_class_id = report.student.student_class_id
         now = timezone.now()
         with transaction.atomic():
             PrimaryTermReport.objects.filter(pk=report.pk).update(
@@ -2394,6 +2430,13 @@ class PrimaryTermReportViewSet(
                 updated_at=now,
             )
             PrimaryResult.bulk_publish(report.subject_results.all(), request.user)
+            report.refresh_from_db()
+            report.calculate_metrics()
+            if student_class_id:
+                PrimaryTermReport.bulk_recalculate_positions(
+                    exam_session=exam_session,
+                    student_class=student_class_id,
+                )
         report.refresh_from_db()
         return Response(
             PrimaryTermReportSerializer(report, context={"request": request}).data
@@ -2431,6 +2474,7 @@ class PrimaryTermReportViewSet(
             qs = PrimaryTermReport.objects.filter(
                 pk__in=ser.validated_data["result_ids"]
             )
+            combos = list(qs.values_list("exam_session_id", "student__student_class").distinct())
             count = PrimaryTermReport.bulk_publish(qs, request.user)
             result_count = PrimaryResult.bulk_publish(
                 PrimaryResult.objects.filter(
@@ -2438,6 +2482,14 @@ class PrimaryTermReportViewSet(
                 ),
                 request.user,
             )
+            for r in PrimaryTermReport.objects.filter(pk__in=ser.validated_data["result_ids"]):
+                r.calculate_metrics()
+            for exam_session_id, sc in combos:
+                if exam_session_id and sc:
+                    es = ExamSession.objects.get(pk=exam_session_id)
+                    PrimaryTermReport.bulk_recalculate_positions(
+                        exam_session=es, student_class=sc,
+                    )
         return Response(
             {"published_reports": count, "published_subject_results": result_count}
         )
@@ -2454,21 +2506,20 @@ class PrimaryTermReportViewSet(
         except ExamSession.DoesNotExist:
             return Response({"error": "Exam session not found."}, status=404)
         student_classes = (
-            PrimaryTermReport.objects.filter(tenant=request.tenant, exam_session=exam_session)
+            PrimaryTermReport.objects.filter(exam_session=exam_session)
             .values_list("student__student_class", flat=True)
             .distinct()
         )
         count = 0
+        all_statuses = (DRAFT, APPROVED, PUBLISHED)
         with transaction.atomic():
-            approved_qs = PrimaryTermReport.objects.filter(
-                tenant=request.tenant,
+            all_reports_qs = PrimaryTermReport.objects.filter(
                 exam_session=exam_session,
-                status__in=(APPROVED, PUBLISHED),
             )
-            PrimaryTermReport.bulk_calculate_metrics(approved_qs)
+            PrimaryTermReport.bulk_calculate_metrics(all_reports_qs)
             subjects = (
                 PrimaryResult.objects.filter(
-                    tenant=request.tenant, exam_session=exam_session,
+                    exam_session=exam_session,
                     status__in=(APPROVED, PUBLISHED),
                 )
                 .values_list("subject_id", "student__student_class")
@@ -2485,6 +2536,7 @@ class PrimaryTermReportViewSet(
                 if sc:
                     PrimaryTermReport.bulk_recalculate_positions(
                         exam_session=exam_session, student_class=sc,
+                        statuses=all_statuses,
                     )
                     count += 1
         return Response({"recalculated_groups": count, "exam_session": str(exam_session_id)})
@@ -2825,6 +2877,8 @@ class NurseryTermReportViewSet(
                 {"error": f"Cannot publish from status '{report.status}'."},
                 status=400,
             )
+        exam_session = report.exam_session
+        student_class_id = report.student.student_class_id
         now = timezone.now()
         with transaction.atomic():
             NurseryTermReport.objects.filter(pk=report.pk).update(
@@ -2839,6 +2893,13 @@ class NurseryTermReportViewSet(
                 published_by=request.user,
                 published_date=now,
             )
+            report.refresh_from_db()
+            report.calculate_metrics()
+            if student_class_id:
+                NurseryTermReport.bulk_recalculate_positions(
+                    exam_session=exam_session,
+                    student_class=student_class_id,
+                )
         report.refresh_from_db()
         return Response(
             {
@@ -2894,6 +2955,7 @@ class NurseryTermReportViewSet(
         report_ids = ser.validated_data["result_ids"]
         with transaction.atomic():
             qs = NurseryTermReport.objects.filter(pk__in=report_ids)
+            combos = list(qs.values_list("exam_session_id", "student__student_class").distinct())
             count = NurseryTermReport.bulk_publish(qs, request.user)
             # One UPDATE for all child results — no N+1 loop.
             result_count = NurseryResult.objects.filter(
@@ -2903,6 +2965,14 @@ class NurseryTermReportViewSet(
                 published_by=request.user,
                 published_date=timezone.now(),
             )
+            for r in NurseryTermReport.objects.filter(pk__in=report_ids):
+                r.calculate_metrics()
+            for exam_session_id, sc in combos:
+                if exam_session_id and sc:
+                    es = ExamSession.objects.get(pk=exam_session_id)
+                    NurseryTermReport.bulk_recalculate_positions(
+                        exam_session=es, student_class=sc,
+                    )
         return Response(
             {"published_reports": count, "published_subject_results": result_count}
         )
@@ -2918,23 +2988,23 @@ class NurseryTermReportViewSet(
             exam_session = ExamSession.objects.get(pk=exam_session_id, tenant=request.tenant)
         except ExamSession.DoesNotExist:
             return Response({"error": "Exam session not found."}, status=404)
+        # Use exam_session (already tenant-scoped) to filter — avoids excluding
+        # records where tenant was not set on creation.
         student_classes = (
-            NurseryTermReport.objects.filter(tenant=request.tenant, exam_session=exam_session)
+            NurseryTermReport.objects.filter(exam_session=exam_session)
             .values_list("student__student_class", flat=True)
             .distinct()
         )
         count = 0
+        all_statuses = (DRAFT, APPROVED, PUBLISHED)
         with transaction.atomic():
-            for report in NurseryTermReport.objects.filter(
-                tenant=request.tenant,
-                exam_session=exam_session,
-                status__in=(APPROVED, PUBLISHED),
-            ):
+            for report in NurseryTermReport.objects.filter(exam_session=exam_session):
                 report.calculate_metrics()
             for sc in student_classes:
                 if sc:
                     NurseryTermReport.bulk_recalculate_positions(
                         exam_session=exam_session, student_class=sc,
+                        statuses=all_statuses,
                     )
                     count += 1
         return Response({"recalculated_groups": count, "exam_session": str(exam_session_id)})

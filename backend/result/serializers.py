@@ -292,6 +292,7 @@ class AssessmentComponentCreateUpdateSerializer(serializers.ModelSerializer):
             "component_type",
             "max_score",
             "contributes_to_ca",
+            "show_in_printed_report",
             "display_order",
             "is_active",
         ]

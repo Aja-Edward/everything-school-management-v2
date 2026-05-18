@@ -374,7 +374,7 @@ def handle_nursery_result_save(sender, instance, created, **kwargs):
             term_report, created = NurseryTermReport.objects.get_or_create(
                 student=student,
                 exam_session=exam_session,
-                defaults={"status": "DRAFT", "is_published": False},
+                defaults={"status": "DRAFT", "is_published": False, "tenant": student.tenant},
             )
             # Link the result to its term report if not already linked.
             # Uses update() to bypass save() and avoid re-triggering this signal.
@@ -480,7 +480,7 @@ def _ensure_term_report(instance, report_model_path, extra_defaults, level_name)
         ReportModel = apps.get_model(app_label, model_name)
         ResultModel = type(instance)
 
-        defaults = {"status": "DRAFT", "is_published": False}
+        defaults = {"status": "DRAFT", "is_published": False, "tenant": instance.student.tenant}
         defaults.update(extra_defaults)
 
         with transaction.atomic():
@@ -585,7 +585,7 @@ def _bulk_generate_for_level(exam_session, education_level):
         try:
             with transaction.atomic():
                 student = Student.objects.get(id=student_id)
-                defaults = {"status": "DRAFT", "is_published": False}
+                defaults = {"status": "DRAFT", "is_published": False, "tenant": student.tenant}
 
                 if education_level == 'SENIOR_SECONDARY':
                     first_result = ResultModel.objects.filter(
@@ -698,6 +698,7 @@ def fix_specific_student_report(student_id, exam_session_id, education_level):
             if first_result and getattr(first_result, "stream", None):
                 defaults["stream"] = first_result.stream
 
+        defaults.setdefault("tenant", student.tenant)
         term_report = ReportModel.objects.create(
             student=student, exam_session=exam_session, **defaults
         )

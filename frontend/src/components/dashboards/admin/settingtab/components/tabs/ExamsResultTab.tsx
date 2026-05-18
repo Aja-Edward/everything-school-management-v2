@@ -358,7 +358,8 @@ const ExamsResultTab: React.FC = () => {
 
   const blankComponent = (): AssessmentComponentCreateUpdate & { id?: number } => ({
     education_level: 0 as any, name: '', code: '', component_type: 'CA',
-    max_score: '10', contributes_to_ca: true, display_order: 0, is_active: true,
+    max_score: '10', contributes_to_ca: true, show_in_printed_report: true,
+    display_order: 0, is_active: true,
   });
   const [componentForm, setComponentForm] = useState(blankComponent());
 
@@ -802,7 +803,7 @@ const ExamsResultTab: React.FC = () => {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
-                      {['Name', 'Code', 'Level', 'Type', 'Max Score', 'CA?', 'Order', 'Status', ''].map((h) => (
+                      {['Name', 'Code', 'Level', 'Type', 'Max Score', 'CA?', 'Prints?', 'Order', 'Status', ''].map((h) => (
                         <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">{h}</th>
                       ))}
                     </tr>
@@ -832,6 +833,11 @@ const ExamsResultTab: React.FC = () => {
                               ? <CheckCircle className="w-4 h-4 text-gray-900" />
                               : <X className="w-4 h-4 text-gray-300" />}
                           </td>
+                          <td className="px-4 py-3">
+                            {(comp.show_in_printed_report ?? true)
+                              ? <CheckCircle className="w-4 h-4 text-green-600" />
+                              : <span className="text-xs text-amber-600 font-medium">Hidden</span>}
+                          </td>
                           <td className="px-4 py-3 text-gray-500">{comp.display_order}</td>
                           <td className="px-4 py-3">
                             {comp.is_active
@@ -851,6 +857,7 @@ const ExamsResultTab: React.FC = () => {
                                     component_type: comp.component_type as any,
                                     max_score: comp.max_score,
                                     contributes_to_ca: comp.contributes_to_ca,
+                                    show_in_printed_report: comp.show_in_printed_report ?? true,
                                     display_order: comp.display_order,
                                     is_active: comp.is_active,
                                   });
@@ -1318,6 +1325,15 @@ const ExamsResultTab: React.FC = () => {
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input
                 type="checkbox"
+                checked={componentForm.show_in_printed_report}
+                onChange={(e) => setComponentForm((f) => ({ ...f, show_in_printed_report: e.target.checked }))}
+                className="w-4 h-4"
+              />
+              <span>Show as column on printed report</span>
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
                 checked={componentForm.is_active}
                 onChange={(e) => setComponentForm((f) => ({ ...f, is_active: e.target.checked }))}
                 className="w-4 h-4"
@@ -1325,6 +1341,11 @@ const ExamsResultTab: React.FC = () => {
               <span>Active</span>
             </label>
           </div>
+          {!componentForm.show_in_printed_report && (
+            <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              This component will be entered by teachers and included in the CA/Exam total, but will <strong>not</strong> appear as its own column on the printed result sheet.
+            </p>
+          )}
 
           <div className="flex justify-end gap-3 pt-4 border-t">
             <button

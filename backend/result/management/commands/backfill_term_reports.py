@@ -42,7 +42,7 @@ class Command(BaseCommand):
                     report, _ = report_model.objects.get_or_create(
                         student=result.student,
                         exam_session=result.exam_session,
-                        defaults={"status": "DRAFT"},
+                        defaults={"status": "DRAFT", "tenant": result.student.tenant},
                     )
                     result_model.objects.filter(id=result.id).update(
                         term_report=report

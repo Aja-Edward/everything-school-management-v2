@@ -97,24 +97,37 @@ def bulk_upload_teachers(request):
         status="pending",
     )
 
-    # Enqueue Celery task
+    # Enqueue Celery task (falls back to synchronous if no broker is available)
     from teacher.tasks import process_bulk_teacher_upload
-    task = process_bulk_teacher_upload.delay(
-        upload_record_id=record.pk,
-        tenant_id=tenant.id,
-        file_path=file_path,
-        file_ext=ext,
-        uploaded_by_id=request.user.pk,
-    )
-
-    # record.result_data = {"celery_task_id": task.id}
-    # record.save(update_fields=["result_data"])
+    task_id = None
+    try:
+        task = process_bulk_teacher_upload.delay(
+            upload_record_id=record.pk,
+            tenant_id=str(tenant.id),
+            file_path=file_path,
+            file_ext=ext,
+            uploaded_by_id=request.user.pk,
+        )
+        task_id = task.id
+    except Exception as celery_err:
+        # Celery / broker unavailable — run synchronously so the upload still works.
+        logger.warning(
+            "Celery unavailable (%s). Running bulk teacher upload synchronously.",
+            celery_err,
+        )
+        process_bulk_teacher_upload(
+            upload_record_id=record.pk,
+            tenant_id=str(tenant.id),
+            file_path=file_path,
+            file_ext=ext,
+            uploaded_by_id=request.user.pk,
+        )
 
     return Response(
         {
             "upload_id": record.pk,
-            "task_id": task.id,
-            "status": "pending",
+            "task_id": task_id,
+            "status": "pending" if task_id else "processing",
             "message": "File accepted. Processing started.",
         },
         status=202,

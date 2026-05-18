@@ -74,6 +74,7 @@ export interface AssessmentComponent {
   component_type_display: string;
   max_score: string; // Decimal from Django → string
   contributes_to_ca: boolean;
+  show_in_printed_report: boolean;
   display_order: number;
   is_active: boolean;
   created_at: string;
@@ -87,6 +88,7 @@ export interface AssessmentComponentCreateUpdate {
   component_type: ComponentType;
   max_score: string;
   contributes_to_ca: boolean;
+  show_in_printed_report: boolean;
   display_order: number;
   is_active: boolean;
 }
