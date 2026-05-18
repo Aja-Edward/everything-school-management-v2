@@ -304,8 +304,6 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
 ]
 
 # Celery + Redis
-# When REDIS_URL is not configured (no Redis service), fall back to
-# synchronous (eager) mode so tasks run in-process without a broker.
 _REDIS_URL = os.environ.get("REDIS_URL")
 CELERY_BROKER_URL = _REDIS_URL or "memory://"
 CELERY_RESULT_BACKEND = _REDIS_URL or "cache+memory://"
@@ -315,12 +313,17 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = "Africa/Lagos"
 
-# Run tasks synchronously (in-process) when no Redis broker is available.
-# With Redis, tasks are queued normally and executed by a Celery worker.
-CELERY_TASK_ALWAYS_EAGER = not bool(_REDIS_URL)
-CELERY_TASK_EAGER_PROPAGATES = not bool(_REDIS_URL)
+# Tasks run synchronously (in the web process) UNLESS a dedicated Celery
+# worker service is running. Set CELERY_WORKER_AVAILABLE=true in your Render
+# environment variables only after you have added a Background Worker service
+# with the command: celery -A config worker --loglevel=info
+_WORKER_AVAILABLE = os.environ.get("CELERY_WORKER_AVAILABLE", "").lower() == "true"
+CELERY_TASK_ALWAYS_EAGER = not _WORKER_AVAILABLE
+# Keep False always: task failures are recorded in BulkUploadRecord.status,
+# no need to propagate exceptions through .delay() into the view.
+CELERY_TASK_EAGER_PROPAGATES = False
 
-# Worker tuning (optional)
+# Worker tuning (used only when CELERY_WORKER_AVAILABLE=true)
 CELERY_WORKER_POOL = "threads"
 CELERY_WORKER_CONCURRENCY = 4
 

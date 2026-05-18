@@ -154,12 +154,29 @@ def bulk_upload_status(request, upload_id):
         result.imported   [ { row, full_name, username, password, ... } ]
     """
     from teacher.models import BulkUploadRecord
+    from django.utils import timezone
+    from datetime import timedelta
 
     tenant = _get_tenant(request)
     try:
         record = BulkUploadRecord.objects.get(pk=upload_id, tenant=tenant)
     except BulkUploadRecord.DoesNotExist:
         return Response({"error": "Upload record not found."}, status=404)
+
+    # If stuck in pending/processing for > 5 minutes, the Celery worker likely
+    # never picked up the task (no worker running). Mark it failed so the
+    # frontend stops polling.
+    if record.status in ("pending", "processing"):
+        age = timezone.now() - record.created_at
+        if age > timedelta(minutes=5):
+            record.status = "failed"
+            record.result_data = {
+                "error": (
+                    "Processing timed out. No Celery worker picked up the task. "
+                    "Please redeploy or contact support."
+                )
+            }
+            record.save(update_fields=["status", "result_data"])
 
     payload = {
         "upload_id": record.pk,
