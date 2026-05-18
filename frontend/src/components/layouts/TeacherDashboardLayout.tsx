@@ -23,7 +23,8 @@ import {
   Info,
   Trash2,
   Eye,
-  EyeOff
+  EyeOff,
+  ClipboardList,
 } from 'lucide-react';
 import { useGlobalTheme } from '@/contexts/GlobalThemeContext';
 import { useSettings } from '@/contexts/SettingsContext';
@@ -179,18 +180,26 @@ const TeacherDashboardLayout: React.FC<TeacherDashboardLayoutProps> = ({ childre
     return date.toLocaleDateString();
   };
 
+  const isNonTeaching = (user as any)?.teacher_data?.staff_type === 'non-teaching'
+    || (user as any)?.profile?.teacher_data?.staff_type === 'non-teaching';
+
   const navigationItems = [
     { id: 'dashboard', name: 'Dashboard', icon: Home, path: '/teacher/dashboard' },
     { id: 'profile', name: 'Profile', icon: User, path: '/teacher/profile' },
-    { id: 'classes', name: 'My Classes', icon: GraduationCap, path: '/teacher/classes' },
-    { id: 'subjects', name: 'My Subjects', icon: BookOpen, path: '/teacher/subjects' },
-    { id: 'students', name: 'Students', icon: Users, path: '/teacher/students' },
-    { id: 'attendance', name: 'Attendance', icon: CheckSquare, path: '/teacher/classes' },
-    { id: 'exams', name: 'Exams & Tests', icon: FileText, path: '/teacher/exams' },
-    { id: 'results', name: 'Results', icon: Award, path: '/teacher/results' },
-    { id: 'schedule', name: 'Schedule', icon: Calendar, path: '/teacher/schedule' },
+    // Teaching-specific items (hidden for non-teaching staff)
+    ...(!isNonTeaching ? [
+      { id: 'classes', name: 'My Classes', icon: GraduationCap, path: '/teacher/classes' },
+      { id: 'subjects', name: 'My Subjects', icon: BookOpen, path: '/teacher/subjects' },
+      { id: 'students', name: 'Students', icon: Users, path: '/teacher/students' },
+      { id: 'attendance', name: 'Attendance', icon: CheckSquare, path: '/teacher/classes' },
+      { id: 'exams', name: 'Exams & Tests', icon: FileText, path: '/teacher/exams' },
+      { id: 'results', name: 'Results', icon: Award, path: '/teacher/results' },
+      { id: 'schedule', name: 'Schedule', icon: Calendar, path: '/teacher/schedule' },
+      { id: 'reports', name: 'Reports', icon: BarChart3, path: '/teacher/reports' },
+    ] : []),
+    // Activity log — for non-teaching staff (and all staff)
+    { id: 'activity-log', name: 'My Activity Log', icon: ClipboardList, path: '/teacher/activity-log' },
     { id: 'messages', name: 'Messages', icon: MessageSquare, path: '/teacher/messages' },
-    { id: 'reports', name: 'Reports', icon: BarChart3, path: '/teacher/reports' },
     { id: 'settings', name: 'Settings', icon: Settings, path: '/teacher/settings' },
   ];
 

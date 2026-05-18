@@ -1,9 +1,9 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
-    TeacherViewSet, 
-    AssignmentRequestViewSet, 
-    TeacherScheduleViewSet, 
+    TeacherViewSet,
+    AssignmentRequestViewSet,
+    TeacherScheduleViewSet,
     AssignmentManagementViewSet
 )
 from teacher.bulk_views import (
@@ -12,12 +12,15 @@ from teacher.bulk_views import (
     download_upload_template,
     export_credentials,
 )
+from teacher.activity_views import StaffActivityCategoryViewSet, StaffActivityLogViewSet
 
 router = DefaultRouter()
 router.register(r"teachers", TeacherViewSet, basename="teacher")
 router.register(r"assignment-requests", AssignmentRequestViewSet, basename="assignment-request")
 router.register(r"teacher-schedules", TeacherScheduleViewSet, basename="teacher-schedule")
 router.register(r"assignment-management", AssignmentManagementViewSet, basename="assignment-management")
+router.register(r"activity-categories", StaffActivityCategoryViewSet, basename="activity-category")
+router.register(r"activity-logs", StaffActivityLogViewSet, basename="activity-log")
 
 urlpatterns = [
     # Give bulk-upload its own prefix so router regex can never intercept it

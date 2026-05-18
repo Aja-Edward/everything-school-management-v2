@@ -21,7 +21,8 @@ import {
   Menu,
   X,
   PenTool,
-  Award
+  Award,
+  ClipboardList,
 } from 'lucide-react';
 // import StudentResultChecker from './StudentResultChecker';
 import TokenGenerator from '@/pages/admin/TokenGenerator';
@@ -129,6 +130,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
     if (canViewTeachers()) {
       items.push({ name: 'Teachers', icon: Users, path: '/admin/teachers' });
+      items.push({ name: 'Staff Activities', icon: ClipboardList, path: '/admin/staff-activities' });
     }
 
     if (canViewStudents()) {

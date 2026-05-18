@@ -59,6 +59,7 @@ const PromotionDashboard = lazy(() => import('./../pages/admin/Promotiondashboar
 
 // Teacher pages
 const TeacherDashboard = lazy(() => import('./../pages/teacher/Dashboard'));
+const StaffActivityLogPage = lazy(() => import('./../pages/teacher/StaffActivityLogPage'));
 const TeacherProfile = lazy(() => import('./../pages/teacher/Profile'));
 const TeacherClasses = lazy(() => import('./../pages/teacher/Classes'));
 const TeacherAttendance = lazy(() => import('./../pages/teacher/Attendance'));
@@ -93,6 +94,7 @@ const AdminAtendanceMangement = lazy(() => import('./../pages/admin/AdminAttenda
 const AdminResultManagement = lazy(() => import('./../pages/admin/AdminResultManagement'));
 const AllTeachers = lazy(() => import('./../pages/admin/AllTeachers'));
 const TeacherBulkUploadPage = lazy(() => import('./../pages/admin/TeacherBulkUploadPage'));
+const StaffActivitiesPage = lazy(() => import('./../pages/admin/StaffActivitiesPage'));
 const AddTeacherForm = lazy(() => import('./../pages/admin/AddTeacherForm'));
 const AllParents = lazy(() => import('./../pages/admin/AllParents'));
 const AddParentForm = lazy(() => import('./../pages/admin/AddParentForm'));
@@ -431,6 +433,10 @@ export const router = createBrowserRouter([
             element: <LazyWrapper><TeacherDashboard /></LazyWrapper>,
           },
           {
+            path: 'activity-log',
+            element: <LazyWrapper><StaffActivityLogPage /></LazyWrapper>,
+          },
+          {
             path: 'profile',
             element: <LazyWrapper><TeacherProfile /></LazyWrapper>,
           },
@@ -606,6 +612,10 @@ export const router = createBrowserRouter([
           {
             path: 'teachers',
             element: <LazyWrapper><AllTeachers /></LazyWrapper>,
+          },
+          {
+            path: 'staff-activities',
+            element: <LazyWrapper><StaffActivitiesPage /></LazyWrapper>,
           },
           {
             path: 'teacher_bulk_upload',
