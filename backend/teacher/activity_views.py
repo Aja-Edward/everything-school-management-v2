@@ -81,18 +81,61 @@ class StaffActivityCategoryViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         """Admin-only: seed the default categories for this tenant."""
         if not _is_admin(request.user):
             return Response({"error": "Admin only."}, status=403)
+
         from .models import DEFAULT_ACTIVITY_CATEGORIES
         tenant = getattr(request, "tenant", None)
-        created = 0
-        for cat_data in DEFAULT_ACTIVITY_CATEGORIES:
-            _, was_created = StaffActivityCategory.objects.get_or_create(
-                tenant=tenant,
-                code=cat_data["code"],
-                defaults={**cat_data, "tenant": tenant, "is_system_default": True},
+
+        if not tenant:
+            return Response(
+                {"error": "Tenant not found on request. Ensure X-Tenant-Slug header is sent."},
+                status=400,
             )
-            if was_created:
-                created += 1
-        return Response({"seeded": created, "message": f"{created} default categories added."})
+
+        existing = StaffActivityCategory.objects.filter(tenant=tenant).count()
+        created = 0
+        errors = []
+
+        for cat_data in DEFAULT_ACTIVITY_CATEGORIES:
+            try:
+                _, was_created = StaffActivityCategory.objects.get_or_create(
+                    tenant=tenant,
+                    code=cat_data["code"],
+                    defaults={**cat_data, "tenant": tenant, "is_system_default": True},
+                )
+                if was_created:
+                    created += 1
+            except Exception as exc:
+                errors.append(f"{cat_data['code']}: {exc}")
+                logger.error("Failed to seed category %s: %s", cat_data["code"], exc)
+
+        total_now = StaffActivityCategory.objects.filter(tenant=tenant).count()
+
+        if errors:
+            return Response(
+                {
+                    "seeded": created,
+                    "existing": existing,
+                    "total": total_now,
+                    "errors": errors,
+                    "message": f"Seeded {created} categories. {len(errors)} error(s): {'; '.join(errors)}",
+                },
+                status=207,
+            )
+
+        if created == 0:
+            return Response({
+                "seeded": 0,
+                "existing": existing,
+                "total": total_now,
+                "message": f"All {total_now} default categories are already configured for this school.",
+            })
+
+        return Response({
+            "seeded": created,
+            "existing": existing,
+            "total": total_now,
+            "message": f"{created} default categories added successfully. Total: {total_now}.",
+        })
 
 
 class StaffActivityLogViewSet(TenantFilterMixin, viewsets.ModelViewSet):

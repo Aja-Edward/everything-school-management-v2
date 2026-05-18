@@ -1,1 +1,0 @@
-# Teacher management commands
