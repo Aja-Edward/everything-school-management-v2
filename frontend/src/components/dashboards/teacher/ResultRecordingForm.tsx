@@ -325,6 +325,19 @@ const ResultRecordingForm = ({
       .trim()
       .replace(/\s+/g, '_')
       .toUpperCase();
+
+  /**
+   * Last-resort level detection from any text string (classroom name, grade name, section name).
+   * Used when the education_level FK chain is null in the DB.
+   */
+  const inferLevelFromName = (name: string): string => {
+    const s = (name || '').toLowerCase();
+    if (s.includes('nursery') || s.includes('creche') || s.includes('pre-school') || s.includes('preschool') || s.includes('kg') || s.includes('kindergarten')) return 'NURSERY';
+    if (s.includes('primary') || s.includes('basic') || /\bp\s*[1-6]\b/.test(s)) return 'PRIMARY';
+    if (s.includes('jss') || s.includes('junior') || s.includes('j\.s\.s') || s.includes('jhs')) return 'JUNIOR_SECONDARY';
+    if (s.includes('sss') || s.includes('senior') || s.includes('s\.s\.s') || s.includes('shs') || s.includes('ss')) return 'SENIOR_SECONDARY';
+    return '';
+  };
   
   const [formData, setFormData] = useState({
     student: '',
@@ -334,8 +347,20 @@ const ResultRecordingForm = ({
   });
 
   const [assessmentScores, setAssessmentScores] = useState<AssessmentScores>({});
+  // Component-based scores for single mode (componentId → score string)
+  const [singleComponentScores, setSingleComponentScores] = useState<Record<number, string>>({});
   const [classStatistics, setClassStatistics] = useState<ClassStatistics>({});
   const [physicalDevelopment, setPhysicalDevelopment] = useState<PhysicalDevelopment>({});
+
+  // Scoring mode: 'component' uses configured assessment components;
+  // 'single' uses a simple mark_obtained / max_marks entry regardless of components.
+  // Schools with components configured can still freely switch to single mode per session.
+  const [scoringMode, setScoringMode] = useState<'component' | 'single'>('single');
+
+  // Single-score mode state (used when scoringMode === 'single')
+  const [bulkSingleScores, setBulkSingleScores] = useState<
+    Record<string, { markObtained: string; maxMarks: string; remark: string; resultId?: string }>
+  >({});
 
   const [bulkResults, setBulkResults] = useState<Array<{
     student_id: number;
@@ -434,12 +459,25 @@ const ResultRecordingForm = ({
       
       if (subjectAssignments.length === 0) return;
 
-      const normalizedLevel = (subjectAssignments[0].education_level || '')
-        .toString()
-        .replace(/_/g, ' ')
-        .toLowerCase()
-        .trim();
-      setSelectedEducationLevel(normalizedLevel);
+      const rawLevel = (subjectAssignments[0].education_level || '').toString().trim();
+      const normalizedLevel = rawLevel.replace(/_/g, ' ').toLowerCase().trim();
+
+      if (normalizedLevel) {
+        setSelectedEducationLevel(normalizedLevel);
+      } else {
+        // education_level is null (grade_level chain not populated in DB).
+        // Infer from classroom name / grade-level name as a fallback.
+        const a = subjectAssignments[0];
+        const inferred = inferLevelFromName(a.classroom_name || '')
+          || inferLevelFromName(a.grade_level_name || '')
+          || inferLevelFromName(a.section_name || '');
+        if (inferred) {
+          // Store in a human-readable form that normalizeEducationLevelForApi can round-trip
+          setSelectedEducationLevel(inferred.replace(/_/g, ' ').toLowerCase());
+        }
+        // If still empty, leave selectedEducationLevel unchanged (might have been
+        // set by a previous valid selection).
+      }
 
       const upperLevel = (subjectAssignments[0].education_level || '')
         .toString()
@@ -483,9 +521,17 @@ const ResultRecordingForm = ({
   const VALID_LEVELS = new Set(['NURSERY', 'PRIMARY', 'JUNIOR_SECONDARY', 'SENIOR_SECONDARY']);
 
   const fetchExistingResults = async () => {
-    if (editResult || !formData.subject || !formData.exam_session || !selectedEducationLevel) return;
-    const level = normalizeEducationLevelForApi(selectedEducationLevel);
-    // Guard: skip when the level doesn't map to a known API path
+    if (editResult || !formData.subject || !formData.exam_session) return;
+
+    // Resolve level: state first, then infer from assignment names if state is empty
+    let level = normalizeEducationLevelForApi(selectedEducationLevel);
+    if (!VALID_LEVELS.has(level)) {
+      const a = teacherAssignments.find(x => String(x.subject_id) === String(formData.subject));
+      const inferred = inferLevelFromName(a?.classroom_name || '')
+        || inferLevelFromName(a?.grade_level_name || '')
+        || inferLevelFromName(a?.section_name || '');
+      level = inferred || '';
+    }
     if (!VALID_LEVELS.has(level)) return;
     try {
       const results = await ResultService.getSubjectResults(level as any, {
@@ -549,6 +595,12 @@ const ResultRecordingForm = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedEducationLevel]);
 
+  // Auto-select scoring mode when components load: default to component when available.
+  // The teacher can still manually toggle via the UI.
+  useEffect(() => {
+    setScoringMode(assessmentComponents.length > 0 ? 'component' : 'single');
+  }, [assessmentComponents.length]);
+
   // ── FIX 1: When the selected student changes in create mode, seed the exam
   //    score field from their existing component_scores (if any). ──────────────
   useEffect(() => {
@@ -576,6 +628,27 @@ const ResultRecordingForm = ({
     }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.student, existingResultsByStudentId]);
+
+  // Seed singleComponentScores when student or existing results change (single mode).
+  useEffect(() => {
+    if (!formData.student || assessmentComponents.length === 0) return;
+    const existing = existingResultsByStudentId[String(formData.student)];
+    const seeded: Record<number, string> = {};
+    if (existing?.component_scores?.length) {
+      (existing.component_scores as any[]).forEach((cs: any) => {
+        const val = parseFloat(cs.score || '0');
+        if (val > 0 && cs.component != null) seeded[Number(cs.component)] = String(val);
+      });
+    }
+    setSingleComponentScores(prev => {
+      const merged: Record<number, string> = { ...prev };
+      Object.entries(seeded).forEach(([id, val]) => {
+        if (!merged[Number(id)]) merged[Number(id)] = val;
+      });
+      return merged;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.student, existingResultsByStudentId, assessmentComponents]);
 
   // Rebuild / repopulate bulk rows whenever students or existing results change.
   useEffect(() => {
@@ -611,6 +684,29 @@ const ResultRecordingForm = ({
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredStudents, existingResultsByStudentId]);
+
+  // Seed single-score rows when single-score mode is active
+  useEffect(() => {
+    if (scoringMode !== 'single') return;
+    if (!filteredStudents.length) return;
+    setBulkSingleScores(prev => {
+      const next = { ...prev };
+      (filteredStudents as Student[]).forEach(s => {
+        const key = String(s.id);
+        const ex = existingResultsByStudentId[key];
+        if (!next[key] || (!next[key].markObtained && !next[key].maxMarks)) {
+          next[key] = {
+            markObtained: ex ? String(parseFloat(ex.mark_obtained || '0') || '') : '',
+            maxMarks: ex ? String(parseFloat(ex.max_marks_obtainable || '100') || '100') : '100',
+            remark: ex?.academic_comment || ex?.teacher_remark || '',
+            resultId: ex?.id,
+          };
+        }
+      });
+      return next;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredStudents, existingResultsByStudentId, scoringMode]);
 
   useEffect(() => {
     if (editResult) {
@@ -904,197 +1000,117 @@ const ResultRecordingForm = ({
 
   const handleSingleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (!validateSingleForm()) return;
-    
+
     try {
       setSaving(true);
-      
+
+      // ── Resolve education level (same multi-source logic as bulk single-score) ──
+      const levelFromState = normalizeEducationLevelForApi(selectedEducationLevel);
+      const subjectAssignment = teacherAssignments.find(a => String(a.subject_id) === String(formData.subject));
+      const levelFromAssignment = normalizeEducationLevelForApi(subjectAssignment?.education_level || '');
+      const levelFromName = inferLevelFromName(subjectAssignment?.classroom_name || '')
+        || inferLevelFromName(subjectAssignment?.grade_level_name || '')
+        || inferLevelFromName(subjectAssignment?.section_name || '')
+        || inferLevelFromName(availableClasses[0]?.name || '');
+      const level = (
+        VALID_LEVELS.has(levelFromState)      ? levelFromState
+        : VALID_LEVELS.has(levelFromAssignment) ? levelFromAssignment
+        : VALID_LEVELS.has(levelFromName)       ? levelFromName
+        : ''
+      ) as any;
+
+      if (!level) {
+        toast.error('Could not determine education level. Please ensure the classroom has an education level configured.');
+        setSaving(false);
+        return;
+      }
+
+      // ── Resolve grading system ────────────────────────────────────────────────
       let gsId = gradingSystemId;
       if (gsId == null) {
         try {
-          const gradingSystems = await GradingService.getAll();
-          const activeSystem = gradingSystems.find(gs => gs.is_active) || gradingSystems[0];
-          if (activeSystem?.id) {
-            gsId = activeSystem.id;
-            setGradingSystemId(activeSystem.id);
-          }
-        } catch (e) {
-          console.error('❌ Failed to fetch grading system on submit:', e);
-        }
+          const gs = await GradingService.getAll();
+          const active = gs.find((g: any) => g.is_active) || gs[0];
+          if (active?.id) { gsId = active.id; setGradingSystemId(active.id); }
+        } catch { /* backend will use default */ }
       }
-      
-      const totalScore = calculateTotalScore(assessmentScores, selectedEducationLevel);
-      const structure = getAssessmentStructure(selectedEducationLevel, activeScoringConfig);
-      const education_level = normalizeEducationLevelForApi(selectedEducationLevel);
-      
-      let resultData: any;
-      
-      if (structure.type === 'senior') {
-        resultData = {
-          first_test_score: parseFloat(assessmentScores.test1?.toString() || '0'),
-          second_test_score: parseFloat(assessmentScores.test2?.toString() || '0'),
-          third_test_score: parseFloat(assessmentScores.test3?.toString() || '0'),
-          exam_score: parseFloat(assessmentScores.exam?.toString() || '0'),
-          teacher_remark: getAutomatedRemark(totalScore),
-          status: formData.status,
-          education_level,
-          class_average: classStatistics.class_average || 0,
-          highest_in_class: classStatistics.highest_in_class || 0,
-          lowest_in_class: classStatistics.lowest_in_class || 0,
-          class_position: classStatistics.class_position || 0,
-          total_students: classStatistics.total_students || 0,
-        };
-        
-        if (!editResult) {
-          resultData.student = formData.student;
-          resultData.subject = formData.subject;
-          resultData.exam_session = formData.exam_session;
-          resultData.grading_system = gsId ?? undefined;
-        } else {
-          if (gsId) resultData.grading_system = gsId;
-        }
-      } else if (structure.type === 'nursery') {
-        resultData = {
-          max_marks_obtainable: parseFloat(assessmentScores.max_marks_obtainable?.toString() || '100'),
-          mark_obtained: parseFloat(assessmentScores.mark_obtained?.toString() || '0'),
-          academic_comment: assessmentScores.remarks || assessmentScores.teacher_remark || getAutomatedRemark(totalScore),
-          status: formData.status,
-          education_level,
-        };
-        
-        if (!editResult) {
-          resultData.student = formData.student;
-          resultData.subject = formData.subject;
-          resultData.exam_session = formData.exam_session;
-          resultData.grading_system = gsId ?? undefined;
-        } else {
-          if (gsId) resultData.grading_system = gsId;
-        }
-      } else if (structure.type === 'primary' || structure.type === 'junior') {
-        const caScore = parseFloat(assessmentScores.ca_score?.toString() || '0');
-        const takeHomeMarks = parseFloat(assessmentScores.take_home_marks?.toString() || '0');
-        const appearanceMarks = parseFloat(assessmentScores.appearance_marks?.toString() || '0');
-        const practicalMarks = parseFloat(assessmentScores.practical_marks?.toString() || '0');
-        const projectMarks = parseFloat(assessmentScores.project_marks?.toString() || '0');
-        const noteCopyingMarks = parseFloat(assessmentScores.note_copying_marks?.toString() || '0');
-        const caTotal = parseFloat(assessmentScores.ca_total?.toString() || '0');
-        const examScore = parseFloat(assessmentScores.exam_score?.toString() || '0');
-        
-        resultData = {
-          continuous_assessment_score: caScore,
-          take_home_test_score: takeHomeMarks,
-          appearance_score: appearanceMarks,
-          practical_score: practicalMarks,
-          project_score: projectMarks,
-          note_copying_score: noteCopyingMarks,
-          total_ca_score: caTotal,
-          ca_score: caTotal,
-          exam_score: examScore,
-          total_score: totalScore,
-          grade: getGrade(totalScore),
-          remarks: getAutomatedRemark(totalScore),
-          teacher_remark: getAutomatedRemark(totalScore),
-          status: formData.status,
-          education_level,
-          class_average: classStatistics.class_average || 0,
-          highest_in_class: classStatistics.highest_in_class || 0,
-          lowest_in_class: classStatistics.lowest_in_class || 0,
-          class_position: classStatistics.class_position || 0,
-          total_students: classStatistics.total_students || 0,
-          physical_development: physicalDevelopment
-        };
-        
-        if (!editResult) {
-          resultData.student = formData.student;
-          resultData.subject = formData.subject;
-          resultData.exam_session = formData.exam_session;
-          resultData.grading_system = gsId ?? undefined;
-        } else {
-          if (gsId) resultData.grading_system = gsId;
-        }
-      } else {
-        const caScore = parseFloat(assessmentScores.ca_score?.toString() || '0');
-        const examScore = parseFloat(assessmentScores.exam_score?.toString() || '0');
-        
-        resultData = {
-          ca_score: caScore,
-          exam_score: examScore,
-          total_score: totalScore,
-          grade: getGrade(totalScore),
-          remarks: getAutomatedRemark(totalScore),
-          teacher_remark: getAutomatedRemark(totalScore),
-          status: formData.status,
-          education_level,
-          class_average: classStatistics.class_average || 0,
-          highest_in_class: classStatistics.highest_in_class || 0,
-          lowest_in_class: classStatistics.lowest_in_class || 0,
-          class_position: classStatistics.class_position || 0,
-          total_students: classStatistics.total_students || 0,
-        };
-        
-        if (!editResult) {
-          resultData.student = formData.student;
-          resultData.subject = formData.subject;
-          resultData.exam_session = formData.exam_session;
-          resultData.grading_system = gsId ?? undefined;
-        } else {
-          if (gsId) resultData.grading_system = gsId;
-        }
-      }
-      
-      console.log('💾 Submitting result data:', resultData);
-      
-      if (editResult) {
-        const candidates = [
-          editResult?.id,
-          editResult?.pk,
-          editResult?.result_id,
-          editResult?.student_result_id,
-          editResult?.studentResultId,
-          editResult?.result?.id
-        ];
-        
-        const numeric = candidates
-          .map((v) => (v !== null && v !== undefined ? Number(v) : NaN))
-          .find((n) => Number.isFinite(n) && n > 0);
-        const safeId = numeric ? String(numeric) : '';
-        
-        const finalId = safeId;
 
+      // ── PATH A: Component-based scoring (teacher chose component mode) ─────────
+      if (scoringMode === 'component' && assessmentComponents.length > 0) {
+        const scores = assessmentComponents
+          .map(c => ({ component_id: c.id, score: parseFloat(singleComponentScores[c.id] || '0') || 0 }))
+          .filter(s => s.score > 0);
+
+        if (scores.length === 0) {
+          toast.error('Please enter at least one score before saving.');
+          setSaving(false);
+          return;
+        }
+
+        const total = scores.reduce((sum, s) => sum + s.score, 0);
+        const entry: BulkComponentScoreEntry = {
+          student: String(formData.student),
+          subject: Number(formData.subject),
+          exam_session: formData.exam_session,
+          ...(gsId != null ? { grading_system: gsId } : {}),
+          // Prefer the teacher's manual remark; fall back to automated grade description
+          teacher_remark: assessmentScores.remarks || getAutomatedRemark(total),
+          scores,
+        };
+
+        await ResultService.bulkRecordComponentScores(level, [entry]);
+        toast.success(editResult ? 'Result updated successfully!' : 'Result recorded successfully!');
+        onResultCreated();
+        onClose();
+        return;
+      }
+
+      // ── PATH B: No-component mode (Nursery — direct mark_obtained) ───────────
+      const maxMarks = parseFloat(assessmentScores.max_marks_obtainable?.toString() || '100') || 100;
+      const markObtained = parseFloat(assessmentScores.mark_obtained?.toString() || '0') || 0;
+      const remark = assessmentScores.remarks || assessmentScores.teacher_remark || getAutomatedRemark(markObtained);
+
+      const nurseryPayload: Record<string, unknown> = {
+        max_marks_obtainable: maxMarks,
+        mark_obtained: markObtained,
+        academic_comment: remark,  // primary field for Nursery
+        teacher_remark: remark,    // also populate so generic display components pick it up
+        status: formData.status,
+        ...(gsId != null ? { grading_system: gsId } : {}),
+      };
+
+      if (editResult) {
+        const candidates = [editResult?.id, editResult?.pk, editResult?.result_id, editResult?.result?.id];
+        const finalId = candidates.map(v => (v != null ? Number(v) : NaN)).find(n => Number.isFinite(n) && n > 0);
         if (!finalId) {
           toast.error('Cannot update: missing result ID. Please refresh and try again.');
-          throw new Error('Invalid result id for update');
+          setSaving(false);
+          return;
         }
-        
-        await ResultService.updateSubjectResult(education_level as any, finalId, resultData as any);
+        await ResultService.updateSubjectResult(level, String(finalId), nurseryPayload);
         toast.success('Result updated successfully!');
       } else {
-        // Check if a result already exists for this student (e.g. recorded via ComponentScoreModal)
-        const existingForStudent = existingResultsByStudentId[formData.student];
-        if (existingForStudent?.id) {
-          await ResultService.updateSubjectResult(education_level as any, String(existingForStudent.id), resultData as any);
+        const existing = existingResultsByStudentId[formData.student];
+        if (existing?.id) {
+          await ResultService.updateSubjectResult(level, String(existing.id), nurseryPayload);
           toast.success('Result updated successfully!');
         } else {
-          try {
-            await ResultService.createSubjectResult(education_level as any, resultData as any);
-            toast.success('Result recorded successfully!');
-          } catch (error: any) {
-            console.error('Error creating result:', error);
-            const errMsg = error.response?.data?.non_field_errors?.[0]
-              || error.response?.data?.message
-              || error.message
-              || 'Failed to create result';
-            toast.error(errMsg);
-            throw error;
-          }
+          await ResultService.createSubjectResult(level, {
+            ...nurseryPayload,
+            student: formData.student,
+            subject: formData.subject,
+            exam_session: formData.exam_session,
+          });
+          toast.success('Result recorded successfully!');
         }
       }
-      
+
       onResultCreated();
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving result:', error);
+      toast.error(error?.response?.data?.non_field_errors?.[0] || error?.message || 'Failed to save result');
     } finally {
       setSaving(false);
     }
@@ -1107,10 +1123,79 @@ const ResultRecordingForm = ({
     try {
       setSaving(true);
 
-      if (assessmentComponents.length === 0) {
-        toast.error('Assessment components not loaded yet. Please wait and try again.');
+      // ── Single-score mode (teacher chose single mode or no components exist) ──
+      if (scoringMode === 'single') {
+        // Resolve education level from multiple fallback sources in priority order.
+        // selectedEducationLevel can be empty when the Nursery classroom's
+        // grade_level.education_level is null in the DB (assignment returns null).
+        const levelFromState = normalizeEducationLevelForApi(selectedEducationLevel);
+
+        const subjectAssignment = teacherAssignments.find(a => String(a.subject_id) === String(formData.subject));
+        const levelFromAssignment = normalizeEducationLevelForApi(subjectAssignment?.education_level || '');
+
+        // Name-based inference as final fallback
+        const levelFromName = inferLevelFromName(subjectAssignment?.classroom_name || '')
+          || inferLevelFromName(subjectAssignment?.grade_level_name || '')
+          || inferLevelFromName(subjectAssignment?.section_name || '')
+          || inferLevelFromName(availableClasses[0]?.name || '')
+          || inferLevelFromName(availableClasses[0]?.grade_level_name || '');
+
+        const level = (
+          VALID_LEVELS.has(levelFromState)    ? levelFromState
+          : VALID_LEVELS.has(levelFromAssignment) ? levelFromAssignment
+          : VALID_LEVELS.has(levelFromName)   ? levelFromName
+          : ''
+        ) as any;
+
+        if (!level) {
+          toast.error('Could not determine education level. Please ensure the classroom has an education level configured.');
+          setSaving(false);
+          return;
+        }
+        const toSave = (filteredStudents as Student[]).filter(
+          s => parseFloat(bulkSingleScores[String(s.id)]?.markObtained || '0') > 0
+        );
+        if (toSave.length === 0) {
+          toast.error('Please enter marks for at least one student');
+          return;
+        }
+
+        let gsId = gradingSystemId;
+        if (gsId == null) {
+          try {
+            const gs = await GradingService.getAll();
+            const active = gs.find((g: any) => g.is_active) || gs[0];
+            if (active?.id) { gsId = active.id; setGradingSystemId(active.id); }
+          } catch { /* backend will use default */ }
+        }
+
+        await Promise.all(toSave.map(async (s: Student) => {
+          const entry = bulkSingleScores[String(s.id)];
+          const pct = parseFloat(entry.maxMarks) > 0
+            ? (parseFloat(entry.markObtained) / parseFloat(entry.maxMarks)) * 100 : 0;
+          const autoRemark = getAutomatedRemark(pct);
+          const payload: Record<string, unknown> = {
+            student: s.id,
+            subject: Number(formData.subject),
+            exam_session: formData.exam_session,
+            mark_obtained: parseFloat(entry.markObtained) || 0,
+            max_marks_obtainable: parseFloat(entry.maxMarks) || 100,
+            academic_comment: entry.remark || autoRemark,
+            ...(gsId != null ? { grading_system: gsId } : {}),
+          };
+          if (entry.resultId) {
+            await ResultService.updateSubjectResult(level, entry.resultId, payload);
+          } else {
+            await ResultService.createSubjectResult(level, payload);
+          }
+        }));
+
+        toast.success(`${toSave.length} result(s) recorded successfully!`);
+        onResultCreated();
+        onClose();
         return;
       }
+      // ─────────────────────────────────────────────────────────────────────────
 
       const validResults = bulkResults.filter(r =>
         assessmentComponents.some(c => (parseFloat(r.componentScores[c.id] || '0') || 0) > 0)
@@ -1160,43 +1245,47 @@ const ResultRecordingForm = ({
   };
 
   const validateSingleForm = () => {
-    if (!formData.student) {
-      toast.error('Please select a student');
-      return false;
-    }
-    if (!formData.subject) {
-      toast.error('Please select a subject');
-      return false;
-    }
-    if (!selectedClass) {
-      toast.error('Please select a class');
-      return false;
-    }
-    if (!formData.exam_session) {
-      toast.error('Please select an exam session');
-      return false;
-    }
+    if (!formData.student)      { toast.error('Please select a student');       return false; }
+    if (!formData.subject)      { toast.error('Please select a subject');        return false; }
+    if (!selectedClass)         { toast.error('Please select a class');          return false; }
+    if (!formData.exam_session) { toast.error('Please select an exam session');  return false; }
 
-    const structure = getAssessmentStructure(selectedEducationLevel, activeScoringConfig);
-    const totalScore = calculateTotalScore(assessmentScores, selectedEducationLevel);
-    
-    if (totalScore <= 0) {
-      toast.error('Please enter at least one valid score');
-      return false;
-    }
-
-    for (let i = 0; i < structure.fields.length; i++) {
-      const field = structure.fields[i];
-      const value = assessmentScores[field as keyof AssessmentScores];
-      const maxValue = structure.maxValues[i];
-      
-      if (value && value !== '') {
-        const numValue = parseFloat(value.toString());
-        if (isNaN(numValue) || numValue < 0 || numValue > maxValue) {
-          toast.error(`${structure.labels[i]} must be between 0 and ${maxValue}`);
+    // ── Case 1: component-based mode (teacher chose component mode) ──────────
+    if (scoringMode === 'component' && assessmentComponents.length > 0 && !hasCAViaComponents) {
+      const hasAny = assessmentComponents.some(
+        c => parseFloat(singleComponentScores[c.id] || '0') > 0
+      );
+      if (!hasAny) {
+        toast.error('Please enter at least one score before saving.');
+        return false;
+      }
+      for (const comp of assessmentComponents) {
+        const val = parseFloat(singleComponentScores[comp.id] || '0') || 0;
+        const max = parseFloat(comp.max_score) || 0;
+        if (val < 0 || (max > 0 && val > max)) {
+          toast.error(`${comp.name} must be between 0 and ${max}`);
           return false;
         }
       }
+      return true;
+    }
+
+    // ── Case 2: CA already recorded via components (panel is read-only) ──────
+    if (hasCAViaComponents) return true;
+
+    // ── Case 3: single-score mode (teacher chose single, or no components) ───
+    if (scoringMode === 'single') {
+      const mark = parseFloat(assessmentScores.mark_obtained?.toString() || '0') || 0;
+      const max  = parseFloat(assessmentScores.max_marks_obtainable?.toString() || '100') || 100;
+      if (mark <= 0) {
+        toast.error('Please enter the mark obtained before saving.');
+        return false;
+      }
+      if (mark > max) {
+        toast.error(`Mark obtained (${mark}) cannot exceed max marks (${max}).`);
+        return false;
+      }
+      return true;
     }
 
     return true;
@@ -1206,6 +1295,15 @@ const ResultRecordingForm = ({
     if (!formData.subject) { toast.error('Please select a subject'); return false; }
     if (!selectedClass)    { toast.error('Please select a class');   return false; }
     if (!formData.exam_session) { toast.error('Please select an exam session'); return false; }
+
+    // Single-score mode (no components configured)
+    if (scoringMode === 'single') {
+      const hasAny = (filteredStudents as Student[]).some(
+        s => parseFloat(bulkSingleScores[String(s.id)]?.markObtained || '0') > 0
+      );
+      if (!hasAny) { toast.error('Please enter marks for at least one student'); return false; }
+      return true;
+    }
 
     const valid = bulkResults.filter(r =>
       assessmentComponents.some(c => (parseFloat(r.componentScores[c.id] || '0') || 0) > 0)
@@ -1310,6 +1408,7 @@ const ResultRecordingForm = ({
       status: 'DRAFT'
     });
     setAssessmentScores({});
+    setSingleComponentScores({});
     setClassStatistics({});
     setPhysicalDevelopment({});
     setBulkResults([]);
@@ -1324,6 +1423,17 @@ const ResultRecordingForm = ({
     onClose();
   };
 
+  // ── Effective education level for render (mirrors submit-time resolution) ───
+  const effectiveLevel = (() => {
+    const fromState = normalizeEducationLevelForApi(selectedEducationLevel);
+    if (VALID_LEVELS.has(fromState)) return fromState;
+    const a = teacherAssignments.find(x => String(x.subject_id) === String(formData.subject));
+    return inferLevelFromName(a?.classroom_name || '')
+      || inferLevelFromName(a?.grade_level_name || '')
+      || inferLevelFromName(a?.section_name || '')
+      || inferLevelFromName(availableClasses[0]?.name || '');
+  })();
+
   const _createModeResult = !editResult && formData.student
     ? (existingResultsByStudentId[formData.student] ?? null)
     : null;
@@ -1334,58 +1444,13 @@ const ResultRecordingForm = ({
   const hasExamViaComponents = !!_sourceResult && _existingCompScores.some((cs: any) => cs.component_type === 'EXAM');
   const allScoresViaComponents = hasCAViaComponents && hasExamViaComponents;
 
-  const renderAssessmentFields = (scores: AssessmentScores, onUpdate: (field: keyof AssessmentScores, value: string) => void) => {
-    const structure = getAssessmentStructure(selectedEducationLevel, activeScoringConfig);
-    
-    return (
-      <div className="space-y-4">
-        <h4 className="text-lg font-medium text-gray-900 dark:text-white flex items-center">
-          <BarChart3 className="w-5 h-5 mr-2" />
-          Assessment Scores ({structure.type.toUpperCase()})
-        </h4>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {structure.fields.map((field, index) => (
-            <div key={field}>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {structure.labels[index]}
-                {field === 'ca_total' && ' 🔄 Auto'}
-              </label>
-              <input
-                type="number"
-                min="0"
-                max={structure.maxValues[index]}
-                step="0.1"
-                value={scores[field as keyof AssessmentScores] || ''}
-                onChange={(e) => onUpdate(field as keyof AssessmentScores, e.target.value)}
-                className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white ${
-                  field === 'ca_total' ? 'bg-gray-100 dark:bg-gray-600 cursor-not-allowed font-semibold' : ''
-                }`}
-                placeholder={field === 'ca_total' ? 'Auto-calculated' : `0-${structure.maxValues[index]}`}
-                readOnly={field === 'ca_total'}
-              />
-            </div>
-          ))}
-        </div>
-        
-        {(() => {
-          const total = calculateTotalScore(scores, selectedEducationLevel);
-          return total > 0 ? (
-            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-blue-800 dark:text-blue-200">Total Score:</span>
-                <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">{total}</span>
-              </div>
-              <div className="mt-2">
-                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getGradeColor(getGrade(total))}`}>
-                  Grade: {getGrade(total)}
-                </span>
-              </div>
-            </div>
-          ) : null;
-        })()}
-      </div>
-    );
-  };
+  // Single-mode component total (for live preview)
+  const singleCompTotal = assessmentComponents.reduce(
+    (sum, c) => sum + (parseFloat(singleComponentScores[c.id] || '0') || 0), 0
+  );
+
+  // renderAssessmentFields removed — replaced by the three-case inline render
+  // (CASE 1: singleComponentScores inputs, CASE 2: read-only CA panel, CASE 3: single-score)
 
   const renderComponentScorePanel = () => {
     const compScores: any[] = [...((_sourceResult as any)?.component_scores ?? [])]
@@ -1631,6 +1696,45 @@ const ResultRecordingForm = ({
             </nav>
           </div>
 
+          {/* ── Scoring Mode Toggle ─────────────────────────────────────────────────
+               Shown when assessment components ARE configured for the level so
+               the school can freely choose between component-based and single-score
+               recording. Hidden when no components exist (single is the only option). ── */}
+          {!loading && assessmentComponents.length > 0 && effectiveLevel && (
+            <div className="flex items-center gap-3 mb-5 p-3 bg-gray-50 dark:bg-gray-700/40 rounded-xl border border-gray-200 dark:border-gray-600">
+              <span className="text-sm font-medium text-gray-600 dark:text-gray-300 shrink-0">Score entry mode:</span>
+              <div className="flex rounded-lg border border-gray-300 dark:border-gray-500 overflow-hidden text-sm font-medium">
+                <button
+                  type="button"
+                  onClick={() => setScoringMode('component')}
+                  className={`px-4 py-1.5 transition-colors ${
+                    scoringMode === 'component'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  By Component ({assessmentComponents.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScoringMode('single')}
+                  className={`px-4 py-1.5 transition-colors border-l border-gray-300 dark:border-gray-500 ${
+                    scoringMode === 'single'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  Single Score
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 dark:text-gray-500 hidden sm:block">
+                {scoringMode === 'component'
+                  ? 'Enter a score for each assessment component'
+                  : 'Enter one total mark and the maximum obtainable'}
+              </p>
+            </div>
+          )}
+
           {loading ? (
             <div className="flex items-center justify-center h-32">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -1648,6 +1752,7 @@ const ResultRecordingForm = ({
                         value={formData.subject}
                         onChange={(e) => {
                           setFormData(prev => ({ ...prev, subject: e.target.value, student: '' }));
+                          setSingleComponentScores({});
                           handleSubjectChange(e.target.value, !!editResult);
                         }}
                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1677,6 +1782,7 @@ const ResultRecordingForm = ({
                         onChange={(e) => {
                           setSelectedClass(e.target.value);
                           setFormData(prev => ({ ...prev, student: '' }));
+                          setSingleComponentScores({});
                           handleClassChange(e.target.value);
                         }}
                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1782,12 +1888,115 @@ const ResultRecordingForm = ({
                     </div>
                   </div>
 
-                  {selectedEducationLevel && (
+                  {/* Show score section as soon as subject + class selected (effectiveLevel resolved) */}
+                  {effectiveLevel && formData.subject && selectedClass && (
                     <>
-                      {hasCAViaComponents
-                        ? renderComponentScorePanel()
-                        : renderAssessmentFields(assessmentScores, updateAssessmentScore)
-                      }
+                      {/* ── CASE 1: Component mode (teacher chose component and components exist) ── */}
+                      {scoringMode === 'component' && assessmentComponents.length > 0 && !hasCAViaComponents && (
+                        <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-4">
+                          <h4 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                            <BarChart3 className="w-4 h-4" />
+                            Assessment Scores
+                            <span className="text-xs font-normal text-gray-400 ml-1">
+                              ({assessmentComponents.length} component{assessmentComponents.length !== 1 ? 's' : ''})
+                            </span>
+                          </h4>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                            {assessmentComponents.map(comp => (
+                              <div key={comp.id}>
+                                <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1 truncate">
+                                  {comp.name}
+                                  <span className="text-gray-400 ml-1">/ {parseFloat(comp.max_score)}</span>
+                                </label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={parseFloat(comp.max_score)}
+                                  step="0.5"
+                                  value={singleComponentScores[comp.id] || ''}
+                                  onChange={e => setSingleComponentScores(prev => ({
+                                    ...prev, [comp.id]: e.target.value
+                                  }))}
+                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white text-sm"
+                                  placeholder={`0–${parseFloat(comp.max_score)}`}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                          {/* Live total + grade preview */}
+                          {singleCompTotal > 0 && (
+                            <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 rounded-lg px-4 py-2.5">
+                              <span className="text-sm font-medium text-blue-700 dark:text-blue-300">Total Score</span>
+                              <div className="flex items-center gap-3">
+                                <span className="text-xl font-bold text-blue-600 dark:text-blue-400">
+                                  {singleCompTotal.toFixed(1).replace(/\.0$/, '')}
+                                </span>
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${getGradeColor(getGrade(singleCompTotal))}`}>
+                                  {getGrade(singleCompTotal)}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* ── CASE 2: Existing result already has CA via components → show read-only panel ── */}
+                      {hasCAViaComponents && renderComponentScorePanel()}
+
+                      {/* ── CASE 3: Single-score mode (teacher chose single, or no components) ── */}
+                      {scoringMode === 'single' && !hasCAViaComponents && (
+                        <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-4">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                              <BarChart3 className="w-4 h-4" />
+                              Score Entry
+                            </h4>
+                            <span className="text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 px-2 py-0.5 rounded-full">
+                              Single Score Mode
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Max Marks Obtainable
+                              </label>
+                              <input
+                                type="number" min="1" step="1"
+                                value={assessmentScores.max_marks_obtainable || '100'}
+                                onChange={e => updateAssessmentScore('max_marks_obtainable', e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Mark Obtained
+                              </label>
+                              <input
+                                type="number" min="0"
+                                max={parseFloat(assessmentScores.max_marks_obtainable?.toString() || '100')}
+                                step="0.5"
+                                value={assessmentScores.mark_obtained || ''}
+                                onChange={e => updateAssessmentScore('mark_obtained', e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                                placeholder="0"
+                              />
+                            </div>
+                          </div>
+                          {(() => {
+                            const mark = parseFloat(assessmentScores.mark_obtained?.toString() || '0') || 0;
+                            const max = parseFloat(assessmentScores.max_marks_obtainable?.toString() || '100') || 100;
+                            const pct = max > 0 ? Math.round((mark / max) * 100) : 0;
+                            return mark > 0 ? (
+                              <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 rounded-lg px-4 py-2.5">
+                                <span className="text-sm font-medium text-blue-700 dark:text-blue-300">{pct}%</span>
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${getGradeColor(getGrade(pct))}`}>
+                                  {getGrade(pct)}
+                                </span>
+                              </div>
+                            ) : null;
+                          })()}
+                        </div>
+                      )}
 
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -1920,7 +2129,7 @@ const ResultRecordingForm = ({
                     </div>
                   </div>
 
-                  {bulkResults.length > 0 && assessmentComponents.length > 0 && (
+                  {bulkResults.length > 0 && scoringMode === 'component' && assessmentComponents.length > 0 && (
                     <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
                       <h4 className="text-lg font-medium text-gray-900 dark:text-white mb-4 flex items-center">
                         <GraduationCap className="w-5 h-5 mr-2" />
@@ -1985,10 +2194,99 @@ const ResultRecordingForm = ({
                     </div>
                   )}
 
-                  {bulkResults.length > 0 && assessmentComponents.length === 0 && (
-                    <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3">
-                      <Info className="w-4 h-4 shrink-0" />
-                      Loading assessment components… please wait.
+                  {/* ── Single-score mode: no components configured ─────────────────── */}
+                  {filteredStudents.length > 0 && scoringMode === 'single' && (
+                    <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                          <GraduationCap className="w-5 h-5" />
+                          Enter Scores
+                        </h4>
+                        <span className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 px-2 py-1 rounded-full font-medium">
+                          Single Score Mode
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                        No assessment components are configured for this level. Enter a total mark and the maximum obtainable for each student.
+                      </p>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full">
+                          <thead>
+                            <tr className="border-b border-gray-200 dark:border-gray-600">
+                              <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300 min-w-[160px]">Student</th>
+                              <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300 w-28">Max Marks</th>
+                              <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300 w-32">Mark Obtained</th>
+                              <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300 w-16">%</th>
+                              <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300 w-16">Grade</th>
+                              <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">Remark</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(filteredStudents as Student[]).map(s => {
+                              const entry = bulkSingleScores[String(s.id)] || { markObtained: '', maxMarks: '100', remark: '' };
+                              const mark = parseFloat(entry.markObtained) || 0;
+                              const max  = parseFloat(entry.maxMarks)  || 100;
+                              const pct  = max > 0 ? Math.round((mark / max) * 100) : 0;
+                              const grade = mark > 0 ? getGrade(pct) : '';
+                              return (
+                                <tr key={s.id} className="border-b border-gray-100 dark:border-gray-600 hover:bg-white dark:hover:bg-gray-600/30">
+                                  <td className="py-2 px-3 text-sm font-medium text-gray-900 dark:text-white">{s.full_name}</td>
+                                  <td className="py-2 px-3">
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      step="1"
+                                      value={entry.maxMarks}
+                                      onChange={e => setBulkSingleScores(prev => ({
+                                        ...prev,
+                                        [String(s.id)]: { ...prev[String(s.id)] || { markObtained: '', remark: '' }, maxMarks: e.target.value },
+                                      }))}
+                                      className="w-20 px-2 py-1 border border-gray-300 dark:border-gray-500 rounded focus:ring-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-white text-sm"
+                                    />
+                                  </td>
+                                  <td className="py-2 px-3">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max={max}
+                                      step="0.5"
+                                      value={entry.markObtained}
+                                      onChange={e => setBulkSingleScores(prev => ({
+                                        ...prev,
+                                        [String(s.id)]: { ...prev[String(s.id)] || { maxMarks: '100', remark: '' }, markObtained: e.target.value },
+                                      }))}
+                                      className="w-24 px-2 py-1 border border-gray-300 dark:border-gray-500 rounded focus:ring-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-white text-sm"
+                                      placeholder="0"
+                                    />
+                                  </td>
+                                  <td className="py-2 px-3 text-sm text-gray-600 dark:text-gray-300">
+                                    {mark > 0 ? `${pct}%` : '—'}
+                                  </td>
+                                  <td className="py-2 px-3">
+                                    {grade && (
+                                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${getGradeColor(grade)}`}>
+                                        {grade}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="py-2 px-3">
+                                    <input
+                                      type="text"
+                                      value={entry.remark || ''}
+                                      onChange={e => setBulkSingleScores(prev => ({
+                                        ...prev,
+                                        [String(s.id)]: { ...prev[String(s.id)] || { markObtained: '', maxMarks: '100' }, remark: e.target.value },
+                                      }))}
+                                      className="w-36 px-2 py-1 border border-gray-300 dark:border-gray-500 rounded focus:ring-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-white text-sm"
+                                      placeholder="Optional remark"
+                                    />
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   )}
 
@@ -2002,7 +2300,14 @@ const ResultRecordingForm = ({
                     </button>
                     <button
                       type="submit"
-                      disabled={saving || bulkResults.length === 0 || assessmentComponents.length === 0}
+                      disabled={
+                        saving ||
+                        (scoringMode === 'component'
+                          ? bulkResults.length === 0
+                          : !(filteredStudents as Student[]).some(
+                              s => parseFloat(bulkSingleScores[String(s.id)]?.markObtained || '0') > 0
+                            ))
+                      }
                       className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                     >
                       {saving ? (
@@ -2010,7 +2315,13 @@ const ResultRecordingForm = ({
                       ) : (
                         <Save className="w-4 h-4 mr-2" />
                       )}
-                      Record {bulkResults.filter(r => rowTotal(r.componentScores) > 0).length} Results
+                      Record{' '}
+                      {scoringMode === 'component'
+                        ? bulkResults.filter(r => rowTotal(r.componentScores) > 0).length
+                        : (filteredStudents as Student[]).filter(
+                            s => parseFloat(bulkSingleScores[String(s.id)]?.markObtained || '0') > 0
+                          ).length}{' '}
+                      Results
                     </button>
                   </div>
                 </form>

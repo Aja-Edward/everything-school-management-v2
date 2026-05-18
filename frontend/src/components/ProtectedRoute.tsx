@@ -5,9 +5,11 @@ import { UserRole } from '@/types/types';
 interface ProtectedRouteProps {
   children: React.ReactNode;
   allowedRoles: UserRole[];
+  /** Override the login redirect. Defaults to '/login'. */
+  loginPath?: string;
 }
 
-const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) => {
+const ProtectedRoute = ({ children, allowedRoles, loginPath = '/login' }: ProtectedRouteProps) => {
   const { user, isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
 
@@ -33,8 +35,7 @@ const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) => {
 
   // If not authenticated, redirect to login page
   if (!isAuthenticated || !user) {
-    // Use single login page for tenant subdomains
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    return <Navigate to={loginPath} state={{ from: location }} replace />;
   }
 
   // Check if user's role is allowed

@@ -48,10 +48,12 @@ urlpatterns = [
     # Standalone endpoints
     path("my-schedule/", student_schedule_view, name="student-schedule"),
     # Token endpoints
+    path("admin/terms-for-tenant/", views.get_terms_for_tenant),
     path("admin/generate-result-tokens/", views.generate_result_tokens),
     path("admin/get-all-result-tokens/", views.get_all_result_tokens),
     path("admin/delete-expired-tokens/", views.delete_expired_tokens),
     path("admin/delete-all-tokens-for-term/", views.delete_all_tokens_for_term),
+    path("my-classroom/", views.get_my_classroom_for_result),
     path("result-token/", views.get_student_result_token),
     path("verify-result-token/", views.verify_result_token),
     # ── Router last ─────────────────────────

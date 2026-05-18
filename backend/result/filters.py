@@ -5,8 +5,8 @@ from .models import StudentTermResult, _RESULT_STATUS
 
 
 class StudentTermResultFilter(django_filters.FilterSet):
-    # student pk is UUID — NumberFilter rejects UUID strings
-    student = django_filters.UUIDFilter(field_name="student_id")
+    # Student.id is a BigAutoField (integer) — UUIDFilter was incorrect
+    student = django_filters.NumberFilter(field_name="student_id")
 
     # academic_session pk is an integer AutoField — NumberFilter correct
     academic_session = django_filters.NumberFilter(field_name="academic_session_id")

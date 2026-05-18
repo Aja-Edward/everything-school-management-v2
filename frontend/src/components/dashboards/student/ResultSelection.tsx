@@ -1,26 +1,12 @@
-import React, { useState, useEffect, useMemo, ReactNode } from 'react';
-import { Calendar, BookOpen, GraduationCap, ArrowRight, Download, Trophy, Loader2, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Calendar, BookOpen, GraduationCap, ArrowRight, Download, Trophy, Loader2, AlertCircle, Check } from 'lucide-react';
 import { AcademicSession, Term, EducationLevel } from '@/types/types';
-import api, {API_BASE_URL} from '@/services/api'
+import { API_BASE_URL } from '@/services/api';
+import { useDesign } from '@/contexts/DesignContext';
 
 // ============================================================================
 // TYPE DEFINITIONS
 // ============================================================================
-
-interface GradeLevel {
-  id: number;
-  name: string;
-  education_level: EducationLevel;
-  order: number;
-  is_active: boolean;
-}
-
-interface Section {
-  id: number;
-  name: string;
-  grade_level: number | GradeLevel;
-  is_active: boolean;
-}
 
 interface ClassInfo {
   id: number;
@@ -77,47 +63,93 @@ interface ResultSelectionProps {
 }
 
 // ============================================================================
+// COLOR HELPERS
+// ============================================================================
+
+const hexToRgb = (hex: string) => {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result
+    ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) }
+    : null;
+};
+
+const makeColorStyles = (primaryColor: string) => {
+  const rgb = hexToRgb(primaryColor);
+  const rgba = (alpha: number) =>
+    rgb ? `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})` : primaryColor;
+
+  return {
+    primaryColor,
+    selectedCard: {
+      border: `2px solid ${primaryColor}`,
+      background: rgba(0.08),
+      color: primaryColor,
+    },
+    hoverCard: {
+      border: `2px solid ${rgba(0.4)}`,
+      background: rgba(0.04),
+    },
+    defaultCard: {
+      border: '2px solid #e5e7eb',
+    },
+    stepActive: {
+      background: primaryColor,
+      color: '#fff',
+    },
+    stepDone: {
+      background: primaryColor,
+      color: '#fff',
+    },
+    stepConnectorDone: {
+      background: primaryColor,
+    },
+    primaryBtn: {
+      background: primaryColor,
+      color: '#fff',
+    },
+    iconColor: { color: primaryColor },
+    iconBg: { background: rgba(0.1) },
+  };
+};
+
+// ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
 const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelectionProps) => {
+  const { settings: designSettings } = useDesign();
+  const primaryColor = designSettings?.primary_color || '#4F46E5';
+  const colors = makeColorStyles(primaryColor);
+
   // State
   const [academicSessions, setAcademicSessions] = useState<AcademicSession[]>([]);
   const [terms, setTerms] = useState<Term[]>([]);
   const [classes, setClasses] = useState<ClassInfo[]>([]);
   const [examSessions, setExamSessions] = useState<ExamSession[]>([]);
-  
+
   const [selectedSessionId, setSelectedSessionId] = useState<number | string | null>(null);
   const [selectedTermId, setSelectedTermId] = useState<number | string | null>(null);
   const [selectedClassId, setSelectedClassId] = useState<number | null>(null);
   const [resultType, setResultType] = useState<'termly' | 'yearly' | 'annually' | ''>('');
-  
+
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [studentInfo, setStudentInfo] = useState<StudentInfo | null>(null);
+  const [hoveredCard, setHoveredCard] = useState<string | null>(null);
 
   // ============================================================================
   // HELPER FUNCTIONS
   // ============================================================================
 
-  const getTermDisplayName = (term: Term): string => {
-    return term.name_display || term.name || 'Term';
-  };
+  const getTermDisplayName = (term: Term): string =>
+    term.name_display || term.name || 'Term';
 
-  const getClassDisplayName = (classItem: ClassInfo): string => {
-    return classItem.name || classItem.class_name || 'Class';
-  };
+  const getClassDisplayName = (classItem: ClassInfo): string =>
+    classItem.name || classItem.class_name || 'Class';
 
-  const getSessionDisplayName = (session: AcademicSession): string => {
-    return session.name || `${session.start_date}/${session.end_date}` || 'Session';
-  };
-
-  const normalizeClassName = (name: string): string => {
-    return name.toLowerCase()
-      .replace(/\s+/g, '') // Remove all whitespace
-      .replace(/^ss(\d)/, 'sss$1'); // Convert SS1 to SSS1 if needed
-  };
+  const getSessionDisplayName = (session: AcademicSession): string =>
+    session.name || `${session.start_date}/${session.end_date}` || 'Session';
 
   // ============================================================================
   // DATA FETCHING
@@ -150,7 +182,6 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
         };
         setStudentInfo(verifiedStudent);
 
-        // Fetch current academic session and exam sessions in parallel
         const [sessionRes, examsRes] = await Promise.all([
           fetch(`${API_BASE_URL}/classrooms/academic-sessions/current/`, fetchOptions),
           fetch(`${API_BASE_URL}/results/exam-sessions/`, fetchOptions),
@@ -160,7 +191,6 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
 
         const currentSession: AcademicSession = await sessionRes.json();
 
-        // Fetch terms for current session
         const termsRes = await fetch(
           `${API_BASE_URL}/classrooms/academic-sessions/${currentSession.id}/terms/`,
           fetchOptions
@@ -171,34 +201,33 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
         const termsData: Term[] = await termsRes.json();
         const examSessionsData: ExamSession[] = examsRes.ok ? await examsRes.json() : [];
 
-
-        // Fetch classrooms directly for the current academic session, filtered by education level
         let classesData: ClassInfo[] = [];
 
-        const classroomsRes = await fetch(
-          `${API_BASE_URL}/classrooms/classrooms/?is_active=true&academic_session=${currentSession.id}`,
+        const myClassroomRes = await fetch(
+          `${API_BASE_URL}/students/my-classroom/`,
           fetchOptions
         );
 
-        if (classroomsRes.ok) {
-          const raw = await classroomsRes.json();
-          const allClassrooms: any[] = Array.isArray(raw) ? raw : (raw.results ?? []);
+        if (myClassroomRes.ok) {
+          const myData = await myClassroomRes.json();
+          const cls = myData.classroom;
 
-          classesData = allClassrooms
-            .filter((c: any) =>
-              !verifiedStudent.education_level ||
-              (c.education_level ?? '').toUpperCase() === verifiedStudent.education_level.toUpperCase()
-            )
-            .map((c: any) => ({
-              id: c.id,
-              name: c.name || c.section_name || 'Unknown Class',
-              class_name: c.name,
-              education_level: (c.education_level ?? '') as EducationLevel,
-              section_id: typeof c.section === 'number' ? c.section : c.section?.id,
-              grade_level_id: c.grade_level_id,
-              grade_name: c.grade_level_name,
-              section_name: c.section_name,
-            }));
+          if (myData.education_level) {
+            verifiedStudent.education_level = myData.education_level as EducationLevel;
+          }
+
+          if (cls && (cls.id || cls.name)) {
+            classesData = [{
+              id: cls.id ?? 0,
+              name: cls.name || myData.student_class || 'My Class',
+              class_name: cls.name,
+              education_level: (myData.education_level ?? '') as EducationLevel,
+              section_id: undefined,
+              grade_level_id: undefined,
+              grade_name: myData.student_class,
+              section_name: cls.section_name,
+            }];
+          }
         }
 
         if (!isMounted) return;
@@ -209,7 +238,6 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
         setExamSessions(Array.isArray(examSessionsData) ? examSessionsData : []);
         setClasses(classesData);
 
-        // Auto-select the term that matches the student's verified token term
         if (verifiedTokenData.school_term && Array.isArray(termsData)) {
           const tokenTerm = verifiedTokenData.school_term.toLowerCase();
           const match = termsData.find((t: Term) => {
@@ -219,24 +247,8 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
           if (match) setSelectedTermId(match.id);
         }
 
-        // Auto-select the student's current class
-        if (verifiedTokenData.current_class && classesData.length > 0) {
-          const currentClassName = String(verifiedTokenData.current_class).trim();
-          const normalizedTarget = normalizeClassName(currentClassName);
-
-          let studentClass = classesData.find(
-            c => c.name === currentClassName || c.class_name === currentClassName
-          );
-
-          if (!studentClass) {
-            studentClass = classesData.find(c => {
-              const n1 = normalizeClassName(c.name || '');
-              const n2 = normalizeClassName(c.class_name || '');
-              return n1 === normalizedTarget || n2 === normalizedTarget;
-            });
-          }
-
-          if (studentClass) setSelectedClassId(studentClass.id);
+        if (classesData.length > 0) {
+          setSelectedClassId(classesData[0].id);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load academic data');
@@ -265,7 +277,7 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
     () => terms.find(t => t.id === selectedTermId),
     [terms, selectedTermId]
   );
-  
+
   const selectedClass = useMemo(
     () => classes.find(c => c.id === selectedClassId),
     [classes, selectedClassId]
@@ -288,7 +300,7 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
 
   const getNextStep = (): void => {
     const maxSteps = isSecondaryClass ? 4 : 3;
-    
+
     if (currentStep < maxSteps) {
       setCurrentStep(currentStep + 1);
     } else {
@@ -303,28 +315,25 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
 
       let examSessionId = '';
       if (examSessions.length > 0) {
-        const matchingExamSession = examSessions.find(es => 
-          es.term === term.id && 
+        const matchingExamSession = examSessions.find(es =>
+          es.term === term.id &&
           es.academic_session === Number(session.id)
         );
         examSessionId = matchingExamSession?.id?.toString() || examSessions[0]?.id?.toString() || '';
       }
 
-      console.log('✅ Submitting:', { session: session.name, term: term.name, class: classObj.name });
       onSelectionComplete({
         academicSession: session,
         term: term,
         class: classObj,
         resultType,
-        examSession: examSessionId
+        examSession: examSessionId,
       });
     }
   };
 
   const getPreviousStep = (): void => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
-    }
+    if (currentStep > 1) setCurrentStep(currentStep - 1);
   };
 
   const canProceed = (): boolean => {
@@ -338,14 +347,20 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
   };
 
   // ============================================================================
-  // UI HELPERS
+  // CARD STYLE HELPER
   // ============================================================================
 
-  const getStepColor = (step: number): string => {
-    if (step < currentStep) return 'bg-green-500';
-    if (step === currentStep) return 'bg-blue-500';
-    return 'bg-gray-300 dark:bg-slate-600';
+  const cardStyle = (isSelected: boolean, cardKey: string) => {
+    if (isSelected) return colors.selectedCard;
+    if (hoveredCard === cardKey) return { ...colors.defaultCard, ...colors.hoverCard };
+    return colors.defaultCard;
   };
+
+  // ============================================================================
+  // STEP DEFINITIONS
+  // ============================================================================
+
+  const stepLabels = ['Session', 'Term', 'Class', ...(isSecondaryClass ? ['Type'] : [])];
 
   // ============================================================================
   // RENDER STEP CONTENT
@@ -354,23 +369,29 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
   const getStepContent = (): React.ReactNode => {
     if (loading) {
       return (
-        <div className="flex flex-col items-center justify-center py-12">
-          <Loader2 className="w-12 h-12 animate-spin text-blue-600 mb-4" />
-          <p className="text-gray-600 dark:text-slate-400">Loading your academic information...</p>
+        <div className="flex flex-col items-center justify-center py-16">
+          <div
+            className="w-14 h-14 rounded-full flex items-center justify-center mb-5"
+            style={colors.iconBg}
+          >
+            <Loader2 className="w-7 h-7 animate-spin" style={colors.iconColor} />
+          </div>
+          <p className="text-gray-500 dark:text-slate-400 text-sm">Loading your academic information...</p>
         </div>
       );
     }
 
     if (error) {
       return (
-        <div className="text-center py-12">
-          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <AlertCircle className="w-8 h-8 text-red-600" />
+        <div className="text-center py-16">
+          <div className="w-14 h-14 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <AlertCircle className="w-7 h-7 text-red-500" />
           </div>
-          <p className="text-red-600 mb-4">{error}</p>
+          <p className="text-red-500 text-sm mb-5">{error}</p>
           <button
             onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90"
+            style={colors.primaryBtn}
           >
             Retry
           </button>
@@ -384,27 +405,36 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
       case 1:
         return (
           <div className="space-y-6">
-            <div className="text-center mb-8">
-              <Calendar className="w-16 h-16 text-blue-600 mx-auto mb-4" />
-              <h3 className="text-2xl font-bold text-gray-800 dark:text-slate-100 mb-2">Select Academic Session</h3>
-              <p className="text-gray-600 dark:text-slate-400">Choose the academic year for your result</p>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {academicSessions.map((session) => (
-                <button
-                  key={session.id}
-                  onClick={() => setSelectedSessionId(session.id)}
-                  className={`p-6 rounded-xl border-2 transition-all duration-200 ${
-                    selectedSessionId === session.id
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
-                      : 'border-gray-200 dark:border-slate-600 hover:border-blue-300 hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-800 dark:text-slate-200'
-                  }`}
-                >
-                  <div className="text-lg font-semibold">
-                    {getSessionDisplayName(session)}
-                  </div>
-                </button>
-              ))}
+            <StepHeader
+              icon={Calendar}
+              title="Academic Session"
+              subtitle="Choose the academic year for your result"
+              colors={colors}
+            />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {academicSessions.map((session) => {
+                const key = `session-${session.id}`;
+                const isSelected = selectedSessionId === session.id;
+                return (
+                  <button
+                    key={session.id}
+                    onClick={() => setSelectedSessionId(session.id)}
+                    onMouseEnter={() => setHoveredCard(key)}
+                    onMouseLeave={() => setHoveredCard(null)}
+                    style={cardStyle(isSelected, key)}
+                    className="p-5 rounded-xl transition-all duration-200 text-left"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold">{getSessionDisplayName(session)}</span>
+                      {isSelected && (
+                        <span className="w-5 h-5 rounded-full flex items-center justify-center shrink-0" style={{ background: primaryColor }}>
+                          <Check className="w-3 h-3 text-white" />
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
         );
@@ -412,36 +442,41 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
       case 2:
         return (
           <div className="space-y-6">
-            <div className="text-center mb-8">
-              <BookOpen className="w-16 h-16 text-green-600 mx-auto mb-4" />
-              <h3 className="text-2xl font-bold text-gray-800 dark:text-slate-100 mb-2">Select Term</h3>
-              <p className="text-gray-600 dark:text-slate-400">
-                {filteredTerms.length === 0 
-                  ? 'No terms available for selected session' 
-                  : 'Choose the term for your result'}
-              </p>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <StepHeader
+              icon={BookOpen}
+              title="Term"
+              subtitle={filteredTerms.length === 0 ? 'No terms available for selected session' : 'Choose the term for your result'}
+              colors={colors}
+            />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {filteredTerms.length === 0 ? (
-                <div className="col-span-3 text-center text-gray-500 dark:text-slate-400 py-8">
+                <div className="col-span-3 text-center text-gray-400 dark:text-slate-500 py-8 text-sm">
                   Please select a different academic session
                 </div>
               ) : (
-                filteredTerms.map((term) => (
-                  <button
-                    key={term.id}
-                    onClick={() => setSelectedTermId(term.id)}
-                    className={`p-6 rounded-xl border-2 transition-all duration-200 ${
-                      selectedTermId === term.id
-                        ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300'
-                        : 'border-gray-200 dark:border-slate-600 hover:border-green-300 hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-800 dark:text-slate-200'
-                    }`}
-                  >
-                    <div className="text-lg font-semibold">
-                      {getTermDisplayName(term)}
-                    </div>
-                  </button>
-                ))
+                filteredTerms.map((term) => {
+                  const key = `term-${term.id}`;
+                  const isSelected = selectedTermId === term.id;
+                  return (
+                    <button
+                      key={term.id}
+                      onClick={() => setSelectedTermId(term.id)}
+                      onMouseEnter={() => setHoveredCard(key)}
+                      onMouseLeave={() => setHoveredCard(null)}
+                      style={cardStyle(isSelected, key)}
+                      className="p-5 rounded-xl transition-all duration-200 text-left"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold">{getTermDisplayName(term)}</span>
+                        {isSelected && (
+                          <span className="w-5 h-5 rounded-full flex items-center justify-center shrink-0" style={{ background: primaryColor }}>
+                            <Check className="w-3 h-3 text-white" />
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })
               )}
             </div>
           </div>
@@ -450,90 +485,108 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
       case 3:
         return (
           <div className="space-y-6">
-            <div className="text-center mb-8">
-              <GraduationCap className="w-16 h-16 text-purple-600 mx-auto mb-4" />
-              <h3 className="text-2xl font-bold text-gray-800 dark:text-slate-100 mb-2">Select Class</h3>
-              <p className="text-gray-600 dark:text-slate-400">Choose your class</p>
-            </div>
+            <StepHeader
+              icon={GraduationCap}
+              title="Class"
+              subtitle="Your enrolled class"
+              colors={colors}
+            />
             {classes.length === 0 ? (
-              <div className="text-center text-gray-500 dark:text-slate-400 py-8">
-                <p className="mb-4">❌ No classes found for {studentInfo?.education_level}</p>
-                <p className="text-sm space-y-2">
-                  <div>📋 Possible issues:</div>
-                  <div className="inline-block text-left">
-                    <div>• No GradeLevel exists with education_level = {studentInfo?.education_level}</div>
-                    <div>• GradeLevel exists but has no Sections</div>
-                    <div>• Sections exist but have no Classrooms</div>
-                  </div>
-                  <div className="mt-4">Check browser console for diagnostic details</div>
-                </p>
+              <div className="text-center text-gray-400 dark:text-slate-500 py-10 text-sm">
+                <p className="font-medium mb-1 text-gray-500">No classes found</p>
+                <p>No active classrooms found for your education level ({studentInfo?.education_level}). Please contact your school office.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-h-96 overflow-y-auto">
-                {classes.map((classItem) => (
-                  <button
-                    key={classItem.id}
-                    onClick={() => setSelectedClassId(classItem.id)}
-                    className={`p-4 rounded-xl border-2 transition-all duration-200 ${
-                      selectedClassId === classItem.id
-                        ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300'
-                        : 'border-gray-200 dark:border-slate-600 hover:border-purple-300 hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-800 dark:text-slate-200'
-                    }`}
-                  >
-                    <div className="text-lg font-semibold">
-                      {getClassDisplayName(classItem)}
-                    </div>
-                  </button>
-                ))}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 max-h-96 overflow-y-auto">
+                {classes.map((classItem) => {
+                  const key = `class-${classItem.id}`;
+                  const isSelected = selectedClassId === classItem.id;
+                  return (
+                    <button
+                      key={classItem.id}
+                      onClick={() => setSelectedClassId(classItem.id)}
+                      onMouseEnter={() => setHoveredCard(key)}
+                      onMouseLeave={() => setHoveredCard(null)}
+                      style={cardStyle(isSelected, key)}
+                      className="p-5 rounded-xl transition-all duration-200 text-left"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold">{getClassDisplayName(classItem)}</span>
+                        {isSelected && (
+                          <span className="w-5 h-5 rounded-full flex items-center justify-center shrink-0" style={{ background: primaryColor }}>
+                            <Check className="w-3 h-3 text-white" />
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
         );
 
-      case 4:
+      case 4: {
         if (!isSecondaryClass) return null;
-        
+
         const isSeniorSecondary = (selectedClass?.name || selectedClass?.class_name || '').toLowerCase().includes('ss');
-        
+        const firstTypeKey = isSeniorSecondary ? 'termly' : 'yearly';
+        const firstTypeValue = isSeniorSecondary ? 'termly' : 'yearly';
+
+        const resultOptions = [
+          {
+            value: firstTypeValue as 'termly' | 'yearly',
+            label: isSeniorSecondary ? 'Termly Result' : 'Yearly Result',
+            description: isSeniorSecondary ? 'Single term performance' : 'Complete academic year',
+            icon: '📅',
+            key: `type-${firstTypeKey}`,
+          },
+          {
+            value: 'annually' as const,
+            label: 'Annual Result',
+            description: 'Annual cumulative assessment',
+            icon: '📊',
+            key: 'type-annually',
+          },
+        ];
+
         return (
           <div className="space-y-6">
-            <div className="text-center mb-8">
-              <Trophy className="w-16 h-16 text-orange-600 mx-auto mb-4" />
-              <h3 className="text-2xl font-bold text-gray-800 dark:text-slate-100 mb-2">Select Result Type</h3>
-              <p className="text-gray-600 dark:text-slate-400">Choose the type of result you want to view</p>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <button
-                onClick={() => setResultType(isSeniorSecondary ? 'termly' : 'yearly')}
-                className={`p-8 rounded-xl border-2 transition-all duration-200 ${
-                  resultType === (isSeniorSecondary ? 'termly' : 'yearly')
-                    ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300'
-                    : 'border-gray-200 dark:border-slate-600 hover:border-orange-300 hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-800 dark:text-slate-200'
-                }`}
-              >
-                <div className="text-center">
-                  <div className="text-2xl mb-2">📅</div>
-                  <div className="text-xl font-semibold mb-2">{isSeniorSecondary ? 'Termly Result' : 'Yearly Result'}</div>
-                  <div className="text-sm">{isSeniorSecondary ? 'Single term performance' : 'Complete academic year'}</div>
-                </div>
-              </button>
-              <button
-                onClick={() => setResultType('annually')}
-                className={`p-8 rounded-xl border-2 transition-all duration-200 ${
-                  resultType === 'annually'
-                    ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300'
-                    : 'border-gray-200 dark:border-slate-600 hover:border-orange-300 hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-800 dark:text-slate-200'
-                }`}
-              >
-                <div className="text-center">
-                  <div className="text-2xl mb-2">📊</div>
-                  <div className="text-xl font-semibold mb-2">Annual Result</div>
-                  <div className="text-sm">Annual assessment</div>
-                </div>
-              </button>
+            <StepHeader
+              icon={Trophy}
+              title="Result Type"
+              subtitle="Choose the type of result you want to view"
+              colors={colors}
+            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {resultOptions.map((opt) => {
+                const isSelected = resultType === opt.value;
+                return (
+                  <button
+                    key={opt.key}
+                    onClick={() => setResultType(opt.value)}
+                    onMouseEnter={() => setHoveredCard(opt.key)}
+                    onMouseLeave={() => setHoveredCard(null)}
+                    style={cardStyle(isSelected, opt.key)}
+                    className="p-7 rounded-xl transition-all duration-200 text-center"
+                  >
+                    <div className="text-3xl mb-3">{opt.icon}</div>
+                    <div className="text-base font-semibold mb-1">{opt.label}</div>
+                    <div className="text-xs text-gray-500 dark:text-slate-400">{opt.description}</div>
+                    {isSelected && (
+                      <div className="mt-3 flex justify-center">
+                        <span className="w-5 h-5 rounded-full flex items-center justify-center" style={{ background: primaryColor }}>
+                          <Check className="w-3 h-3 text-white" />
+                        </span>
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
         );
+      }
 
       default:
         return null;
@@ -549,58 +602,95 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
   const studentName = studentInfo?.full_name || 'Student';
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-3xl mx-auto">
+      {/* Header */}
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-800 dark:text-slate-100 mb-2">Result Portal</h1>
-        <p className="text-gray-600 dark:text-slate-400">Welcome, {studentName}</p>
+        <div
+          className="inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-4"
+          style={colors.iconBg}
+        >
+          <GraduationCap className="w-7 h-7" style={colors.iconColor} />
+        </div>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100 mb-1">Result Portal</h1>
+        <p className="text-sm text-gray-500 dark:text-slate-400">Welcome, <span className="font-medium text-gray-700 dark:text-slate-300">{studentName}</span></p>
         {studentInfo?.verified && (
-          <p className="text-sm text-green-600 dark:text-green-400 mt-2">✅ Identity verified</p>
+          <span className="inline-flex items-center gap-1 mt-2 text-xs font-medium px-2.5 py-1 rounded-full" style={{ color: primaryColor, background: makeColorStyles(primaryColor).iconBg.background }}>
+            <Check className="w-3 h-3" />
+            Identity verified
+          </span>
         )}
       </div>
 
+      {/* Step Indicator */}
       <div className="flex justify-center mb-8">
-        <div className="flex items-center space-x-4">
-          {steps.map((step) => (
-            <div key={step} className="flex items-center">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold ${getStepColor(step)}`}>
-                {step}
+        <div className="flex items-center gap-0">
+          {steps.map((step, idx) => {
+            const isDone = step < currentStep;
+            const isActive = step === currentStep;
+            return (
+              <div key={step} className="flex items-center">
+                <div className="flex flex-col items-center">
+                  <div
+                    className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold transition-all duration-300"
+                    style={
+                      isDone
+                        ? colors.stepDone
+                        : isActive
+                        ? colors.stepActive
+                        : { background: '#e5e7eb', color: '#9ca3af' }
+                    }
+                  >
+                    {isDone ? <Check className="w-4 h-4" /> : step}
+                  </div>
+                  <span className="text-xs mt-1.5 font-medium" style={isActive ? colors.iconColor : { color: '#9ca3af' }}>
+                    {stepLabels[idx]}
+                  </span>
+                </div>
+                {idx < steps.length - 1 && (
+                  <div
+                    className="w-14 h-0.5 mx-1 mb-5 transition-all duration-300"
+                    style={step < currentStep ? colors.stepConnectorDone : { background: '#e5e7eb' }}
+                  />
+                )}
               </div>
-              {step < steps.length && (
-                <div className={`w-16 h-1 mx-2 ${step < currentStep ? 'bg-green-500' : 'bg-gray-300 dark:bg-slate-600'}`}></div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-8 border border-gray-200 dark:border-slate-700">
+      {/* Card */}
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 p-8">
         {getStepContent()}
 
         {!loading && !error && (
-          <div className="flex justify-between mt-8">
+          <div className="flex justify-between mt-8 pt-6 border-t border-gray-100 dark:border-slate-700">
             <button
               onClick={getPreviousStep}
               disabled={currentStep === 1}
-              className={`px-6 py-3 rounded-lg font-semibold transition-colors ${
+              className="px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+              style={
                 currentStep === 1
-                  ? 'bg-gray-200 dark:bg-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed'
-                  : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-200 hover:bg-gray-300 dark:hover:bg-slate-600'
-              }`}
+                  ? { background: '#f3f4f6', color: '#d1d5db', cursor: 'not-allowed' }
+                  : { background: '#f3f4f6', color: '#374151' }
+              }
             >
               Previous
             </button>
-            
+
             <button
               onClick={getNextStep}
               disabled={!canProceed()}
-              className={`px-6 py-3 rounded-lg font-semibold transition-colors flex items-center space-x-2 ${
+              className="px-5 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-opacity"
+              style={
                 canProceed()
-                  ? 'bg-blue-600 text-white hover:bg-blue-700'
-                  : 'bg-gray-200 dark:bg-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed'
-              }`}
+                  ? { ...colors.primaryBtn, opacity: 1 }
+                  : { background: '#e5e7eb', color: '#9ca3af', cursor: 'not-allowed' }
+              }
             >
               <span>{currentStep === maxSteps ? 'View Result' : 'Next'}</span>
-              {currentStep === maxSteps ? <Download className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
+              {currentStep === maxSteps
+                ? <Download className="w-4 h-4" />
+                : <ArrowRight className="w-4 h-4" />}
             </button>
           </div>
         )}
@@ -608,5 +698,28 @@ const ResultSelection = ({ onSelectionComplete, verifiedTokenData }: ResultSelec
     </div>
   );
 };
+
+// ============================================================================
+// STEP HEADER SUB-COMPONENT
+// ============================================================================
+
+interface StepHeaderProps {
+  icon: React.ElementType;
+  title: string;
+  subtitle: string;
+  colors: ReturnType<typeof makeColorStyles>;
+}
+
+const StepHeader = ({ icon: Icon, title, subtitle, colors }: StepHeaderProps) => (
+  <div className="flex items-center gap-4 mb-6">
+    <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={colors.iconBg}>
+      <Icon className="w-6 h-6" style={colors.iconColor} />
+    </div>
+    <div>
+      <h3 className="text-lg font-bold text-gray-900 dark:text-slate-100">{title}</h3>
+      <p className="text-sm text-gray-500 dark:text-slate-400">{subtitle}</p>
+    </div>
+  </div>
+);
 
 export default ResultSelection;

@@ -373,21 +373,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         {/* Token Generator Modal */}
         {showTokenGenerator && (
-          <div className="fixed inset-0 z-50 overflow-auto bg-black/50 backdrop-blur-sm">
-            <div className="min-h-screen flex items-start justify-center pt-8 pb-8 px-4">
-              <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full">
-                <div className="flex items-center justify-between p-4 border-b border-gray-200">
-                  <h2 className="text-lg font-semibold text-gray-900">Result Token Generator</h2>
-                  <button
-                    onClick={() => setShowTokenGenerator(false)}
-                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                  >
-                    <X className="w-5 h-5 text-gray-500" />
-                  </button>
-                </div>
-                <div className="p-6">
-                  <TokenGenerator />
-                </div>
+          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-start justify-center overflow-y-auto py-6 px-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl my-auto">
+              {/* Sticky header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 sticky top-0 bg-white rounded-t-xl z-10">
+                <h2 className="text-base font-bold text-gray-900">Result Token Generator</h2>
+                <button
+                  onClick={() => setShowTokenGenerator(false)}
+                  className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+              {/* Scrollable body */}
+              <div className="overflow-y-auto max-h-[80vh]">
+                <TokenGenerator />
               </div>
             </div>
           </div>

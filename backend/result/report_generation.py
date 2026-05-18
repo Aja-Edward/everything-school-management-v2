@@ -247,9 +247,10 @@ class ReportGenerator:
 
     def get_class_average_age(self, student, exam_session):
         try:
+            # education_level is a @property — filter by student_class only,
+            # which already implies the same education level.
             peers = Student.objects.filter(
                 student_class=student.student_class,
-                education_level=student.education_level,
                 date_of_birth__isnull=False,
             )
             if not peers.exists():

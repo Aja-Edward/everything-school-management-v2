@@ -11,7 +11,6 @@ import { PDFDownloadButton } from './PDFDownloadComponents';
 import {
   AcademicSession,
   EducationLevel,
-  
 } from '@/types/types';
 
 // Import extracted utilities
@@ -75,21 +74,28 @@ interface StudentResultDisplayProps {
   currentUser?: { id: string; student_id?: string };
 }
 
-const StudentResultDisplay2: React.FC<StudentResultDisplayProps> = ({ 
-  student, 
-  selections 
+const StudentResultDisplay2: React.FC<StudentResultDisplayProps> = ({
+  student,
+  selections
 }) => {
   const { isDarkMode } = useGlobalTheme();
-  const { 
-    service: resultService, 
-    loading: settingsLoading 
+  const {
+    service: resultService,
+    loading: settingsLoading
   } = useResultService();
 
   // Authentication
   const { authenticatedStudentId, loading: authLoading } = useAuthenticatedStudent();
-  
-  // State
-  const [studentData, setStudentData] = useState<StudentData | null>(null);
+
+  // State — pre-populate from props so a failed/blocked API call doesn't leave the view blank
+  const [studentData, setStudentData] = useState<StudentData | null>({
+    id: student.id,
+    full_name: student.full_name,
+    username: student.username,
+    student_class: student.student_class,
+    education_level: student.education_level as EducationLevel,
+    profile_picture: student.profile_picture,
+  });
   const [results, setResults] = useState<ExtendedStandardResult[]>([]);
   const [termResults, setTermResults] = useState<ExtendedStudentTermResult[]>([]);
   const [enhancedResult, setEnhancedResult] = useState<EnhancedResultSheet | null>(null);
@@ -178,25 +184,33 @@ useEffect(() => {
 
         console.log('📊 Fetching with filters:', filters);
 
-        // 2️⃣ Fetch student info
+        // 2️⃣ Fetch full student info (enriches the prop data with gender, age, etc.)
+        // For student users the API is blocked by SectionFilterMixin → try but don't throw.
         console.log('👤 Fetching student info...');
-        const studentInfo = await StudentService.getStudent(parseInt(actualStudentId));
-        setStudentData({
-          id: studentInfo.id.toString(),
-          full_name: studentInfo.full_name ?? '',
-          username: studentInfo.username ?? '',
-          student_class: studentInfo.student_class ?? '',
-          education_level: (studentInfo.education_level ?? '') as EducationLevel,
-          profile_picture: studentInfo.profile_picture ?? undefined,
-          gender: studentInfo.gender ?? undefined,
-          age: studentInfo.age ?? undefined,
-          date_of_birth: studentInfo.date_of_birth ?? undefined,
-          classroom: studentInfo.classroom ?? undefined,
-          stream: studentInfo.stream != null ? String(studentInfo.stream) : undefined,
-          parent_contact: studentInfo.parent_contact ?? undefined,
-          emergency_contact: studentInfo.emergency_contact ?? undefined,
-          admission_date: studentInfo.admission_date ?? undefined,
-        });
+        try {
+          const studentInfo = await StudentService.getStudent(parseInt(actualStudentId));
+          setStudentData({
+            id: studentInfo.id.toString(),
+            full_name: studentInfo.full_name ?? student.full_name,
+            username: studentInfo.username ?? student.username,
+            student_class: studentInfo.student_class ?? student.student_class,
+            education_level: (studentInfo.education_level ?? student.education_level) as EducationLevel,
+            profile_picture: studentInfo.profile_picture ?? student.profile_picture,
+            gender: studentInfo.gender ?? undefined,
+            age: studentInfo.age ?? undefined,
+            date_of_birth: studentInfo.date_of_birth ?? undefined,
+            classroom: studentInfo.classroom ?? undefined,
+            stream: studentInfo.stream != null ? String(studentInfo.stream) : undefined,
+            parent_contact: studentInfo.parent_contact ?? undefined,
+            emergency_contact: studentInfo.emergency_contact ?? undefined,
+            admission_date: studentInfo.admission_date ?? undefined,
+          });
+        } catch {
+          // Student role cannot fetch the full profile via the standard endpoint —
+          // the section_filtering middleware blocks it. Prop data is already set in
+          // useState initialiser so the view can continue without interruption.
+          console.info('ℹ️ Could not enrich student profile from API — using prop data.');
+        }
 
         // 3️⃣ Fetch results based on education level
         console.log('📚 Fetching results for education level:', educationLevel);
@@ -223,10 +237,16 @@ useEffect(() => {
 
         console.log('✅ Fetched results:', fetchedResults.length, 'subjects');
 
-        // 4️⃣ Fetch term results
+        // 4️⃣ Fetch term results (non-fatal — StudentTermResult is a legacy model with
+        //    potentially 0 records; the real per-level term data comes from step 5)
         console.log('📈 Fetching term results...');
-        const fetchedTermResults = await resultService.getStudentTermResults(filters) as any;
-        console.log('✅ Fetched term results:', fetchedTermResults.length, 'items');
+        let fetchedTermResults: any[] = [];
+        try {
+          fetchedTermResults = await resultService.getStudentTermResults(filters) as any;
+          console.log('✅ Fetched term results:', fetchedTermResults.length, 'items');
+        } catch (termResultErr) {
+          console.info('ℹ️ getStudentTermResults skipped (non-fatal):', (termResultErr as any)?.message);
+        }
 
         // 5️⃣ Fetch term report UUID for PDF download (ALL education levels except session reports)
         console.log('🔍 Checking if should fetch term report...', {

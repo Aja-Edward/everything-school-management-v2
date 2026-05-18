@@ -49,26 +49,45 @@ class AttendanceViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
     ordering_fields = ["date", "student"]
 
     def get_queryset(self):
+        user = self.request.user
+        tenant = getattr(self.request, "tenant", None)
+
+        select = (
+            "student__user",
+            "student__stream",
+            "student__student_class",
+            "student__student_class__education_level",
+            "student__section",
+            "teacher__user",
+            "section",
+        )
+
+        # Students bypass section-mixin filtering and see only their own records.
+        # The mixin returns queryset.none() when the student has no active classroom,
+        # which would incorrectly hide legitimate attendance records.
+        if user.is_authenticated and getattr(user, "role", None) == "student":
+            try:
+                student = Student.objects.get(user=user, tenant=tenant)
+                return (
+                    Attendance.objects.filter(student=student, tenant=tenant)
+                    .select_related(*select)
+                )
+            except Student.DoesNotExist:
+                return Attendance.objects.none()
+
         queryset = (
             super()
             .get_queryset()
-            .select_related(
-                "student__user",
-                "student__stream",
-                "student__student_class",
-                "student__student_class__education_level",  # needed for education_level_display
-                "student__section",  # needed for student's section details
-                "teacher__user",
-                "section",  # needed for section_name
-            )
+            .select_related(*select)
         )
-        user = self.request.user
-        if user.is_authenticated and user.role == "parent":
+
+        if user.is_authenticated and getattr(user, "role", None) == "parent":
             try:
                 parent_profile = ParentProfile.objects.get(user=user)
                 return queryset.filter(student__in=parent_profile.children.all())
             except ParentProfile.DoesNotExist:
                 return Attendance.objects.none()
+
         return queryset
 
     @action(

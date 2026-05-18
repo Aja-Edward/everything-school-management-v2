@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Eye, Edit, Trash2, CheckCircle, Award, FileText,
-  Filter, Search, User, AlertCircle, Plus, ChevronLeft,
+  Search, User, AlertCircle, Plus, ChevronLeft,
   ChevronRight, ChevronsLeft, ChevronsRight, Download,
   RefreshCw, Clock, X, BookOpen, List,
 } from 'lucide-react';
@@ -982,7 +982,8 @@ const EnhancedResultsManagement: React.FC = () => {
                         const caTotal = caComps.length > 0
                           ? caComps.reduce((s: number, c: any) => s + (parseFloat(c.score) || 0), 0)
                           : parseFloat(r.ca_total || '0');
-                        const examScore = examComp ? parseFloat(examComp.score) : parseFloat(r.exam_score || '0');
+                        // Nursery has no exam_score — fall back to mark_obtained
+                        const examScore = examComp ? parseFloat(examComp.score) : parseFloat(r.exam_score || (r as any).mark_obtained || '0');
                         const isActing = srActionLoading === String(r.id);
                         return (
                           <tr key={r.id || idx} className={`hover:bg-slate-50 ${idx % 2 === 1 ? 'bg-slate-50/30' : ''}`}>
@@ -1024,10 +1025,18 @@ const EnhancedResultsManagement: React.FC = () => {
                               <span className="text-sm font-bold text-slate-900">{parseFloat(r.total_score || '0').toFixed(1)}</span>
                             </td>
                             <td className="px-4 py-3 text-center"><GradeChip grade={r.grade || '—'} /></td>
-                            <td className="px-4 py-3 text-xs text-slate-600 max-w-[120px] truncate">{r.teacher_remark || ''}</td>
+                            <td className="px-4 py-3 text-xs text-slate-600 max-w-[120px] truncate" title={r.teacher_remark || (r as any).academic_comment || ''}>{r.teacher_remark || (r as any).academic_comment || ''}</td>
                             <td className="px-4 py-3"><StatusBadge status={(r.status || 'DRAFT') as ResultStatus} /></td>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-1">
+                                {/* Edit — always available */}
+                                <button
+                                  onClick={() => setEditTarget({ report: { education_level: r.education_level } as EnrichedReport, subjectResult: r })}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                                  title="Edit result"
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </button>
                                 {r.status === 'DRAFT' && (
                                   <button onClick={() => handleSrApprove(r)} disabled={isActing}
                                     className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 disabled:opacity-40" title="Approve">
@@ -1371,7 +1380,7 @@ const EnhancedResultsManagement: React.FC = () => {
           result={editTarget.subjectResult}
           educationLevel={editTarget.report.education_level}
           onClose={() => setEditTarget(null)}
-          onSuccess={() => { setEditTarget(null); loadReports(true); }}
+          onSuccess={() => { setEditTarget(null); loadReports(true); loadSubjectResults(); }}
         />
       )}
     </div>

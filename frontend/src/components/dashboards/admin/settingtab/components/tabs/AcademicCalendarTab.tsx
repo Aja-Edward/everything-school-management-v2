@@ -654,211 +654,186 @@ const loadData = async () => {
     };
   };
 
+  // ── shared input / select classes ──────────────────────────────────────────
+  const inputCls =
+    'w-full px-3 py-2.5 text-sm border border-gray-300 rounded-lg bg-white text-gray-900 ' +
+    'focus:outline-none focus:ring-2 focus:ring-black focus:border-black ' +
+    'placeholder:text-gray-400 transition-colors';
+
+  const labelCls = 'block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5';
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <Loader2 className="animate-spin h-12 w-12 mx-auto text-blue-600 mb-4" />
-          <p className="text-lg text-gray-600 dark:text-gray-400 font-medium">Loading academic calendar...</p>
-          <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">Please wait while we fetch your data</p>
+        <div className="text-center space-y-3">
+          <Loader2 className="animate-spin h-10 w-10 mx-auto text-black" />
+          <p className="text-sm font-medium text-gray-700">Loading academic calendar…</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8 p-6 bg-gray-50 dark:bg-gray-900 min-h-screen">
-      {/* Enhanced Header */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl">
-              <CalendarIcon className="w-8 h-8 text-white" />
+    <div className="space-y-5 p-4 sm:p-6 bg-gray-50 min-h-screen">
+
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-7">
+        {/* Title row */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-black rounded-lg shrink-0">
+              <CalendarIcon className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 leading-tight">
                 Academic Calendar
               </h1>
-              <p className="text-lg text-gray-600 dark:text-gray-400">
-                Manage academic sessions and terms for your institution
+              <p className="text-sm text-gray-500 mt-0.5 hidden sm:block">
+                Manage academic sessions and terms
               </p>
             </div>
           </div>
           <button
             onClick={loadData}
-            className="flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-black text-white text-sm font-semibold rounded-lg hover:bg-gray-800 active:bg-gray-900 transition-colors self-start sm:self-auto"
           >
-            <RefreshCw className="w-5 h-5" />
-            <span className="font-semibold">Refresh</span>
+            <RefreshCw className="w-4 h-4" />
+            Refresh
           </button>
         </div>
 
-        {/* Enhanced Current Status Cards */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 rounded-xl p-6 border border-blue-200 dark:border-blue-700/50">
-            <div className="flex items-center gap-4 mb-4">
-              <div className="p-3 bg-blue-600 rounded-xl">
-                <School className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h3 className="text-xl font-bold text-gray-900 dark:text-white">Current Session</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Active academic year</p>
-              </div>
+        {/* Status cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Current Session */}
+          <div className="rounded-lg border border-gray-200 p-4 bg-gray-50">
+            <div className="flex items-center gap-2 mb-3">
+              <School className="w-4 h-4 text-gray-500 shrink-0" />
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Current Session</span>
             </div>
             {currentSession ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="w-5 h-5 text-green-600" />
-                  <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{currentSession.name}</p>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                  <Clock className="w-4 h-4" />
-                  <span>{formatDate(currentSession.start_date)} - {formatDate(currentSession.end_date)}</span>
-                </div>
-              </div>
+              <>
+                <p className="text-lg font-bold text-gray-900 leading-tight">{currentSession.name}</p>
+                <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  {formatDate(currentSession.start_date)} – {formatDate(currentSession.end_date)}
+                </p>
+              </>
             ) : (
-              <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
-                <AlertCircle className="w-5 h-5" />
-                <p className="font-medium">No current session set</p>
-              </div>
+              <p className="text-sm text-gray-400 flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4" /> No current session set
+              </p>
             )}
           </div>
 
-          <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 rounded-xl p-6 border border-green-200 dark:border-green-700/50">
-            <div className="flex items-center gap-4 mb-4">
-              <div className="p-3 bg-green-600 rounded-xl">
-                <CalendarDays className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h3 className="text-xl font-bold text-gray-900 dark:text-white">Current Term</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Active academic term</p>
-              </div>
+          {/* Current Term */}
+          <div className="rounded-lg border border-gray-200 p-4 bg-gray-50">
+            <div className="flex items-center gap-2 mb-3">
+              <CalendarDays className="w-4 h-4 text-gray-500 shrink-0" />
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Current Term</span>
             </div>
             {currentTerm ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="w-5 h-5 text-green-600" />
-                  <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-                    {getTermDisplayName(currentTerm.name)}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                  <Clock className="w-4 h-4" />
-                  <span>{formatDate(currentTerm.start_date)} - {formatDate(currentTerm.end_date)}</span>
-                </div>
-              </div>
+              <>
+                <p className="text-lg font-bold text-gray-900 leading-tight">
+                  {getTermDisplayName(currentTerm.name)}
+                </p>
+                <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  {formatDate(currentTerm.start_date)} – {formatDate(currentTerm.end_date)}
+                </p>
+              </>
             ) : (
-              <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
-                <AlertCircle className="w-5 h-5" />
-                <p className="font-medium">No current term set</p>
-              </div>
+              <p className="text-sm text-gray-400 flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4" /> No current term set
+              </p>
             )}
           </div>
         </div>
       </div>
 
-      {/* Enhanced Navigation Tabs */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-2">
-        <div className="flex space-x-2">
+      {/* ── Navigation Tabs ─────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-gray-200 p-1.5 flex gap-1.5">
+        {(['sessions', 'terms'] as const).map((tab) => (
           <button
-            onClick={() => setActiveSection('sessions')}
-            className={`flex-1 py-4 px-6 rounded-lg text-sm font-semibold transition-all duration-200 ${
-              activeSection === 'sessions'
-                ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'
+            key={tab}
+            onClick={() => setActiveSection(tab)}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-semibold transition-colors ${
+              activeSection === tab
+                ? 'bg-black text-white'
+                : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
             }`}
           >
-            <div className="flex items-center justify-center gap-2">
-              <School className="w-5 h-5" />
-              <span>Academic Sessions</span>
-            </div>
+            {tab === 'sessions' ? <School className="w-4 h-4" /> : <CalendarDays className="w-4 h-4" />}
+            <span>{tab === 'sessions' ? 'Academic Sessions' : 'Terms'}</span>
           </button>
-          <button
-            onClick={() => setActiveSection('terms')}
-            className={`flex-1 py-4 px-6 rounded-lg text-sm font-semibold transition-all duration-200 ${
-              activeSection === 'terms'
-                ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'
-            }`}
-          >
-            <div className="flex items-center justify-center gap-2">
-              <CalendarDays className="w-5 h-5" />
-              <span>Terms</span>
-            </div>
-          </button>
-        </div>
+        ))}
       </div>
 
-      {/* Enhanced Sessions Section */}
+      {/* ── Sessions Section ────────────────────────────────────────────────── */}
       {activeSection === 'sessions' && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
-          <div className="flex items-center justify-between mb-8">
+        <div className="bg-white rounded-xl border border-gray-200">
+          {/* Section header */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-5 sm:p-6 border-b border-gray-100">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Academic Sessions</h2>
-              <p className="text-gray-600 dark:text-gray-400">Manage your academic years and sessions</p>
+              <h2 className="text-base font-bold text-gray-900">Academic Sessions</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Manage your academic years</p>
             </div>
             <button
               onClick={() => setShowSessionForm(true)}
-              className="flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-black text-white text-sm font-semibold rounded-lg hover:bg-gray-800 transition-colors self-start sm:self-auto"
             >
-              <Plus className="w-5 h-5" />
-              <span className="font-semibold">Add Session</span>
+              <Plus className="w-4 h-4" /> Add Session
             </button>
           </div>
 
-          {/* Enhanced Sessions List */}
-          <div className="space-y-4">
+          {/* Sessions list */}
+          <div className="divide-y divide-gray-100">
             {sessions.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="p-4 bg-gray-100 dark:bg-gray-700 rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-                  <Calendar className="w-8 h-8 text-gray-400" />
+              <div className="text-center py-14 px-6">
+                <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
+                  <Calendar className="w-6 h-6 text-gray-400" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No Sessions Found</h3>
-                <p className="text-gray-600 dark:text-gray-400 mb-6">
-                  Create your first academic session to get started with managing your school calendar.
+                <h3 className="text-sm font-semibold text-gray-900 mb-1">No sessions yet</h3>
+                <p className="text-sm text-gray-500 mb-5 max-w-xs mx-auto">
+                  Create your first academic session to start managing your school calendar.
                 </p>
                 <button
                   onClick={() => setShowSessionForm(true)}
-                  className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-black text-white text-sm font-semibold rounded-lg hover:bg-gray-800 transition-colors"
                 >
-                  <Plus className="w-4 h-4" />
-                  Create First Session
+                  <Plus className="w-4 h-4" /> Create Session
                 </button>
               </div>
             ) : (
               sessions.map((session) => (
-                <div key={session.id} className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-6 border border-gray-200 dark:border-gray-600 hover:shadow-md transition-all duration-200">
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-4 mb-3">
-                        <h4 className="text-xl font-bold text-gray-900 dark:text-white">
-                          {session.name}
-                        </h4>
-                        <div className="flex gap-2">
-                          {session.is_current && (
-                            <span className="px-3 py-1 text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 rounded-full">
-                              Current
-                            </span>
-                          )}
-                          {session.is_active && (
-                            <span className="px-3 py-1 text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 rounded-full">
-                              Active
-                            </span>
-                          )}
-                        </div>
+                <div key={session.id} className="p-4 sm:p-5 hover:bg-gray-50 transition-colors">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <h4 className="text-sm font-bold text-gray-900 truncate">{session.name}</h4>
+                        {session.is_current && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold bg-black text-white rounded-full">
+                            <CheckCircle className="w-3 h-3" /> Current
+                          </span>
+                        )}
+                        {session.is_active && !session.is_current && (
+                          <span className="px-2 py-0.5 text-xs font-semibold border border-gray-300 text-gray-600 rounded-full">
+                            Active
+                          </span>
+                        )}
                       </div>
-                      <div className="flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
-                        <div className="flex items-center gap-2">
-                          <Clock className="w-4 h-4" />
-                          <span>{formatDate(session.start_date)} - {formatDate(session.end_date)}</span>
-                        </div>
-                      </div>
+                      <p className="text-xs text-gray-500 flex items-center gap-1">
+                        <Clock className="w-3 h-3 shrink-0" />
+                        {formatDate(session.start_date)} – {formatDate(session.end_date)}
+                      </p>
                     </div>
-                    <div className="flex items-center gap-3">
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-2 self-end sm:self-auto">
                       {!session.is_current && (
                         <button
                           onClick={() => handleSetCurrentSession(session.id)}
-                          className="px-4 py-2 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                          className="px-3 py-1.5 text-xs font-semibold border border-black text-black rounded-lg hover:bg-black hover:text-white transition-colors"
                         >
                           Set Current
                         </button>
@@ -870,19 +845,21 @@ const loadData = async () => {
                             name: session.name,
                             start_date: session.start_date,
                             end_date: session.end_date,
-                            is_current: session.is_current
+                            is_current: session.is_current,
                           });
                           setShowSessionForm(true);
                         }}
-                        className="p-3 text-gray-600 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                        className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                        title="Edit"
                       >
-                        <Edit3 className="w-5 h-5" />
+                        <Edit3 className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleDeleteSession(session.id)}
-                        className="p-3 text-gray-600 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                        className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                        title="Delete"
                       >
-                        <Trash2 className="w-5 h-5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
@@ -893,121 +870,115 @@ const loadData = async () => {
         </div>
       )}
 
-      {/* Enhanced Terms Section */}
+      {/* ── Terms Section ───────────────────────────────────────────────────── */}
       {activeSection === 'terms' && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
-          <div className="flex items-center justify-between mb-8">
+        <div className="bg-white rounded-xl border border-gray-200">
+          {/* Section header */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-5 sm:p-6 border-b border-gray-100">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Academic Terms</h2>
-              <p className="text-gray-600 dark:text-gray-400">Manage terms within your academic sessions</p>
+              <h2 className="text-base font-bold text-gray-900">Academic Terms</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Manage terms within your sessions</p>
             </div>
             <button
               onClick={() => setShowTermForm(true)}
-              className="flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-black text-white text-sm font-semibold rounded-lg hover:bg-gray-800 transition-colors self-start sm:self-auto"
             >
-              <Plus className="w-5 h-5" />
-              <span className="font-semibold">Add Term</span>
+              <Plus className="w-4 h-4" /> Add Term
             </button>
           </div>
 
-          {/* Enhanced Terms List */}
-          <div className="space-y-4">
+          {/* Terms list */}
+          <div className="divide-y divide-gray-100">
             {terms.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="p-4 bg-gray-100 dark:bg-gray-700 rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-                  <BookOpen className="w-8 h-8 text-gray-400" />
+              <div className="text-center py-14 px-6">
+                <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
+                  <BookOpen className="w-6 h-6 text-gray-400" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No Terms Found</h3>
-                <p className="text-gray-600 dark:text-gray-400 mb-6">
-                  Create terms for your academic sessions to organize the school year.
+                <h3 className="text-sm font-semibold text-gray-900 mb-1">No terms yet</h3>
+                <p className="text-sm text-gray-500 mb-5 max-w-xs mx-auto">
+                  Create terms for your sessions to organise the school year.
                 </p>
                 <button
                   onClick={() => setShowTermForm(true)}
-                  className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-black text-white text-sm font-semibold rounded-lg hover:bg-gray-800 transition-colors"
                 >
-                  <Plus className="w-4 h-4" />
-                  Create First Term
+                  <Plus className="w-4 h-4" /> Create Term
                 </button>
               </div>
             ) : (
               terms.map((term) => {
-                const session = sessions.find(s => s.id === term.academic_session);
+                const session = sessions.find((s) => s.id === term.academic_session);
                 return (
-                  <div key={term.id} className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-6 border border-gray-200 dark:border-gray-600 hover:shadow-md transition-all duration-200">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-4 mb-3">
-                          <h4 className="text-xl font-bold text-gray-900 dark:text-white">
-                            {getTermDisplayName(term.name)}
-                          </h4>
-                          <div className="flex gap-2">
-                            {term.is_current && (
-                              <span className="px-3 py-1 text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 rounded-full">
-                                Current
-                              </span>
-                            )}
-                            {term.is_active && (
-                              <span className="px-3 py-1 text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 rounded-full">
-                                Active
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
-                            <div className="flex items-center gap-2">
-                              <Clock className="w-4 h-4" />
-                              <span>{formatDate(term.start_date)} - {formatDate(term.end_date)}</span>
-                            </div>
-                          </div>
-                          {session && (
-                            <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-500">
-                              <School className="w-4 h-4" />
-                              <span>Session: {session.name}</span>
-                            </div>
+                  <div key={term.id} className="p-4 sm:p-5 hover:bg-gray-50 transition-colors">
+                    <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+                      {/* Info */}
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="text-sm font-bold text-gray-900">{getTermDisplayName(term.name)}</h4>
+                          {term.is_current && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold bg-black text-white rounded-full">
+                              <CheckCircle className="w-3 h-3" /> Current
+                            </span>
                           )}
-                          {term.next_term_begins && (
-                            <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-500">
-                              <ChevronRight className="w-4 h-4" />
-                              <span>Next term begins: {formatDate(term.next_term_begins)}</span>
-                            </div>
+                          {term.is_active && !term.is_current && (
+                            <span className="px-2 py-0.5 text-xs font-semibold border border-gray-300 text-gray-600 rounded-full">
+                              Active
+                            </span>
                           )}
                         </div>
+                        <p className="text-xs text-gray-500 flex items-center gap-1">
+                          <Clock className="w-3 h-3 shrink-0" />
+                          {formatDate(term.start_date)} – {formatDate(term.end_date)}
+                        </p>
+                        {session && (
+                          <p className="text-xs text-gray-400 flex items-center gap-1">
+                            <School className="w-3 h-3 shrink-0" /> {session.name}
+                          </p>
+                        )}
+                        {term.next_term_begins && (
+                          <p className="text-xs text-gray-400 flex items-center gap-1">
+                            <ChevronRight className="w-3 h-3 shrink-0" />
+                            Next term: {formatDate(term.next_term_begins)}
+                          </p>
+                        )}
                       </div>
-                      <div className="flex items-center gap-3">
+
+                      {/* Actions */}
+                      <div className="flex items-center gap-2 self-end sm:self-start">
                         {!term.is_current && (
                           <button
                             onClick={() => handleSetCurrentTerm(term.id)}
-                            className="px-4 py-2 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                            className="px-3 py-1.5 text-xs font-semibold border border-black text-black rounded-lg hover:bg-black hover:text-white transition-colors"
                           >
                             Set Current
                           </button>
                         )}
                         <button
                           onClick={() => {
-                          setEditingTerm(term.id);
-                          setTermForm({
-                            term_type_id: term.term_type_id || '',  // ✅ replaces term.name
-                            academic_session: term.academic_session,
-                            start_date: term.start_date,
-                            end_date: term.end_date,
-                            is_current: term.is_current,
-                            next_term_begins: term.next_term_begins,
-                            holidays_start: term.holidays_start,
-                            holidays_end: term.holidays_end,
-                          });
-                          setShowTermForm(true);
-                        }}
-                                                  
-                          className="p-3 text-gray-600 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                            setEditingTerm(term.id);
+                            setTermForm({
+                              term_type_id: term.term_type_id || '',
+                              academic_session: term.academic_session,
+                              start_date: term.start_date,
+                              end_date: term.end_date,
+                              is_current: term.is_current,
+                              next_term_begins: term.next_term_begins,
+                              holidays_start: term.holidays_start,
+                              holidays_end: term.holidays_end,
+                            });
+                            setShowTermForm(true);
+                          }}
+                          className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                          title="Edit"
                         >
-                          <Edit3 className="w-5 h-5" />
+                          <Edit3 className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDeleteTerm(term.id)}
-                          className="p-3 text-gray-600 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                          className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                          title="Delete"
                         >
-                          <Trash2 className="w-5 h-5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
@@ -1019,271 +990,251 @@ const loadData = async () => {
         </div>
       )}
 
-      {/* Enhanced Session Form Modal */}
+      {/* ── Session Form Modal ──────────────────────────────────────────────── */}
       {showSessionForm && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <div className="p-8">
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
-                    {editingSession ? 'Edit Session' : 'Add New Session'}
-                  </h3>
-                  <p className="text-gray-600 dark:text-gray-400 mt-1">
-                    {editingSession ? 'Update the academic session details' : 'Create a new academic session'}
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    setShowSessionForm(false);
-                    setEditingSession(null);
-                    setSessionForm({ name: '', start_date: '', end_date: '', is_current: false });
-                  }}
-                  className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                >
-                  <X className="w-6 h-6" />
-                </button>
+        <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+          <div className="bg-white w-full sm:max-w-md sm:rounded-xl rounded-t-2xl shadow-2xl max-h-[92vh] overflow-y-auto">
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
+              <div>
+                <h3 className="text-base font-bold text-gray-900">
+                  {editingSession ? 'Edit Session' : 'New Session'}
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {editingSession ? 'Update session details' : 'Create an academic session'}
+                </p>
               </div>
+              <button
+                onClick={() => {
+                  setShowSessionForm(false);
+                  setEditingSession(null);
+                  setSessionForm({ name: '', start_date: '', end_date: '', is_current: false });
+                }}
+                className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-              <div className="space-y-6">
+            {/* Modal body */}
+            <div className="p-5 space-y-4">
+              <div>
+                <label className={labelCls}>Session Name</label>
+                <input
+                  type="text"
+                  value={sessionForm.name}
+                  onChange={(e) => setSessionForm({ ...sessionForm, name: e.target.value })}
+                  placeholder="e.g., 2024/2025"
+                  className={inputCls}
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                    Session Name
-                  </label>
-                  <input
-                    type="text"
-                    value={sessionForm.name}
-                    onChange={(e) => setSessionForm({ ...sessionForm, name: e.target.value })}
-                    placeholder="e.g., 2024/2025"
-                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-all duration-200"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                    Start Date
-                  </label>
+                  <label className={labelCls}>Start Date</label>
                   <input
                     type="date"
                     value={sessionForm.start_date}
                     onChange={(e) => setSessionForm({ ...sessionForm, start_date: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-all duration-200"
+                    className={inputCls}
                   />
                 </div>
-
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                    End Date
-                  </label>
+                  <label className={labelCls}>End Date</label>
                   <input
                     type="date"
                     value={sessionForm.end_date}
                     onChange={(e) => setSessionForm({ ...sessionForm, end_date: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-all duration-200"
+                    className={inputCls}
                   />
                 </div>
-
-                <div className="flex items-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
-                  <input
-                    type="checkbox"
-                    id="is_current"
-                    checked={sessionForm.is_current}
-                    onChange={(e) => setSessionForm({ ...sessionForm, is_current: e.target.checked })}
-                    className="w-5 h-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  />
-                  <label htmlFor="is_current" className="ml-3 text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Set as current session
-                  </label>
-                </div>
               </div>
+              <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                <input
+                  type="checkbox"
+                  id="is_current"
+                  checked={sessionForm.is_current}
+                  onChange={(e) => setSessionForm({ ...sessionForm, is_current: e.target.checked })}
+                  className="w-4 h-4 rounded border-gray-300 accent-black"
+                />
+                <span className="text-sm font-medium text-gray-700">Set as current session</span>
+              </label>
+            </div>
 
-              <div className="flex justify-end gap-4 mt-8">
-                <button
-                  onClick={() => {
-                    setShowSessionForm(false);
-                    setEditingSession(null);
-                    setSessionForm({ name: '', start_date: '', end_date: '', is_current: false });
-                  }}
-                  className="px-6 py-3 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => editingSession ? handleUpdateSession(editingSession) : handleCreateSession()}
-                  disabled={saving}
-                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-200 disabled:opacity-50 font-semibold"
-                >
-                  {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-                  {editingSession ? 'Update Session' : 'Create Session'}
-                </button>
-              </div>
+            {/* Modal footer */}
+            <div className="flex gap-3 px-5 py-4 border-t border-gray-100 sticky bottom-0 bg-white">
+              <button
+                onClick={() => {
+                  setShowSessionForm(false);
+                  setEditingSession(null);
+                  setSessionForm({ name: '', start_date: '', end_date: '', is_current: false });
+                }}
+                className="flex-1 py-2.5 text-sm font-semibold border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => editingSession ? handleUpdateSession(editingSession) : handleCreateSession()}
+                disabled={saving}
+                className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 text-sm font-semibold bg-black text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+              >
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {editingSession ? 'Update' : 'Create'}
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Enhanced Term Form Modal */}
+      {/* ── Term Form Modal ─────────────────────────────────────────────────── */}
       {showTermForm && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <div className="p-8">
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
-                    {editingTerm ? 'Edit Term' : 'Add New Term'}
-                  </h3>
-                  <p className="text-gray-600 dark:text-gray-400 mt-1">
-                    {editingTerm ? 'Update the term details' : 'Create a new academic term'}
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    setShowTermForm(false);
-                    setEditingTerm(null);
-                    setTermForm({ term_type_id: '', academic_session: '', start_date: '', end_date: '', is_current: false });
-                  }}
-                  className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+        <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+          <div className="bg-white w-full sm:max-w-md sm:rounded-xl rounded-t-2xl shadow-2xl max-h-[92vh] overflow-y-auto">
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
+              <div>
+                <h3 className="text-base font-bold text-gray-900">
+                  {editingTerm ? 'Edit Term' : 'New Term'}
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {editingTerm ? 'Update term details' : 'Create an academic term'}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowTermForm(false);
+                  setEditingTerm(null);
+                  setTermForm({ term_type_id: '', academic_session: '', start_date: '', end_date: '', is_current: false });
+                }}
+                className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal body */}
+            <div className="p-5 space-y-4">
+              <div>
+                <label className={labelCls}>Term Type</label>
+                <select
+                  value={termForm.term_type_id || ''}
+                  onChange={(e) => setTermForm({ ...termForm, term_type_id: e.target.value })}
+                  className={inputCls}
                 >
-                  <X className="w-6 h-6" />
-                </button>
+                  <option value="">Select term type</option>
+                  {termTypes.map((tt) => (
+                    <option key={tt.id} value={tt.id}>{tt.name}</option>
+                  ))}
+                </select>
               </div>
 
-              <div className="space-y-6">
-                 <div>
-                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                        Term Type
-                      </label>
-                      <select
-                        value={termForm.term_type_id || ''}
-                        onChange={(e) => setTermForm({ ...termForm, term_type_id: e.target.value })}
-                        className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+              <div>
+                <label className={labelCls}>Academic Session</label>
+                <select
+                  value={termForm.academic_session}
+                  onChange={(e) => setTermForm({ ...termForm, academic_session: e.target.value })}
+                  className={inputCls}
+                >
+                  <option value="">Select session</option>
+                  {sessions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({formatDate(s.start_date)} – {formatDate(s.end_date)})
+                    </option>
+                  ))}
+                </select>
+
+                {termForm.academic_session && (
+                  <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-2">
+                    <p className="text-xs text-gray-500">
+                      Session range:{' '}
+                      <span className="font-semibold text-gray-700">
+                        {(() => {
+                          const sel = sessions.find((s) => s.id === termForm.academic_session);
+                          return sel ? `${formatDate(sel.start_date)} – ${formatDate(sel.end_date)}` : '';
+                        })()}
+                      </span>
+                    </p>
+                    {termForm.academic_session && termForm.term_type_id && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const termType = termTypes.find((tt) => tt.id === Number(termForm.term_type_id));
+                          if (termType) {
+                            const suggested = getSuggestedTermDates(termForm.academic_session, termType.code);
+                            setTermForm((prev) => ({ ...prev, ...suggested }));
+                          }
+                        }}
+                        className="w-full py-1.5 text-xs font-semibold border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
                       >
-                        <option value="">Select Term Type</option>
-                        {termTypes.map((tt) => (
-                          <option key={tt.id} value={tt.id}>{tt.name}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                      <div>
-                   <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                     Academic Session
-                   </label>
-                   <select
-                     value={termForm.academic_session}
-                     onChange={(e) => setTermForm({ ...termForm, academic_session: e.target.value })}
-                     className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-all duration-200"
-                   >
-                     <option value="">Select Session</option>
-                     {sessions.map((session) => (
-                       <option key={session.id} value={session.id}>
-                         {session.name} ({formatDate(session.start_date)} - {formatDate(session.end_date)})
-                       </option>
-                     ))}
-                   </select>
-                                       {termForm.academic_session && (
-                      <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
-                        <p className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-1">
-                          📅 Selected Session Date Range:
-                        </p>
-                        <p className="text-sm text-blue-600 dark:text-blue-300 font-semibold">
-                          {(() => {
-                            const selectedSession = sessions.find(s => s.id === termForm.academic_session);
-                            return selectedSession ? `${formatDate(selectedSession.start_date)} to ${formatDate(selectedSession.end_date)}` : '';
-                          })()}
-                        </p>
-                        {termForm.academic_session && termForm.term_type_id && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const termType = termTypes.find(tt => tt.id === Number(termForm.term_type_id));
-                                  if (termType) {
-                                    const suggested = getSuggestedTermDates(termForm.academic_session, termType.code);
-                                    setTermForm(prev => ({ ...prev, ...suggested }));
-                                  }
-                                }}
-                                className="mt-2 w-full py-2 px-4 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
-                              >
-                                💡 Use Suggested Dates
-                              </button>
-                            )}
-                        <p className="text-xs text-blue-500 dark:text-blue-400">
-                          💡 Use the "Use Suggested Dates" button below for automatic date calculation
-                        </p>
-                      </div>
+                        Use Suggested Dates
+                      </button>
                     )}
-                 </div>
+                  </div>
+                )}
+              </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                    Start Date
-                  </label>
+                  <label className={labelCls}>Start Date</label>
                   <input
                     type="date"
                     value={termForm.start_date}
                     onChange={(e) => setTermForm({ ...termForm, start_date: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-all duration-200"
+                    className={inputCls}
                   />
                 </div>
-
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                    End Date
-                  </label>
+                  <label className={labelCls}>End Date</label>
                   <input
                     type="date"
                     value={termForm.end_date}
                     onChange={(e) => setTermForm({ ...termForm, end_date: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-all duration-200"
+                    className={inputCls}
                   />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                    Next Term Begins (Optional)
-                  </label>
-                  <input
-                    type="date"
-                    value={termForm.next_term_begins || ''}
-                    onChange={(e) => setTermForm({ ...termForm, next_term_begins: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-all duration-200"
-                  />
-                </div>
-
-                <div className="flex items-center p-4 bg-green-50 dark:bg-green-900/20 rounded-xl">
-                  <input
-                    type="checkbox"
-                    id="term_is_current"
-                    checked={termForm.is_current}
-                    onChange={(e) => setTermForm({ ...termForm, is_current: e.target.checked })}
-                    className="w-5 h-5 text-green-600 focus:ring-green-500 border-gray-300 rounded"
-                  />
-                  <label htmlFor="term_is_current" className="ml-3 text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Set as current term
-                  </label>
                 </div>
               </div>
 
-              <div className="flex justify-end gap-4 mt-8">
-                <button
-                  onClick={() => {
-                    setShowTermForm(false);
-                    setEditingTerm(null);
-                    setTermForm({ term_type_id: '', academic_session: '', start_date: '', end_date: '', is_current: false });
-                  }}
-                  className="px-6 py-3 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => editingTerm ? handleUpdateTerm(editingTerm) : handleCreateTerm()}
-                  disabled={saving}
-                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-200 disabled:opacity-50 font-semibold"
-                >
-                  {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-                  {editingTerm ? 'Update Term' : 'Create Term'}
-                </button>
+              <div>
+                <label className={labelCls}>Next Term Begins <span className="normal-case font-normal text-gray-400">(optional)</span></label>
+                <input
+                  type="date"
+                  value={termForm.next_term_begins || ''}
+                  onChange={(e) => setTermForm({ ...termForm, next_term_begins: e.target.value })}
+                  className={inputCls}
+                />
               </div>
+
+              <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                <input
+                  type="checkbox"
+                  id="term_is_current"
+                  checked={termForm.is_current}
+                  onChange={(e) => setTermForm({ ...termForm, is_current: e.target.checked })}
+                  className="w-4 h-4 rounded border-gray-300 accent-black"
+                />
+                <span className="text-sm font-medium text-gray-700">Set as current term</span>
+              </label>
+            </div>
+
+            {/* Modal footer */}
+            <div className="flex gap-3 px-5 py-4 border-t border-gray-100 sticky bottom-0 bg-white">
+              <button
+                onClick={() => {
+                  setShowTermForm(false);
+                  setEditingTerm(null);
+                  setTermForm({ term_type_id: '', academic_session: '', start_date: '', end_date: '', is_current: false });
+                }}
+                className="flex-1 py-2.5 text-sm font-semibold border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => editingTerm ? handleUpdateTerm(editingTerm) : handleCreateTerm()}
+                disabled={saving}
+                className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 text-sm font-semibold bg-black text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+              >
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {editingTerm ? 'Update' : 'Create'}
+              </button>
             </div>
           </div>
         </div>

@@ -2,6 +2,19 @@ import React, { useState } from 'react';
 import { Download, FileDown, Loader } from 'lucide-react';
 import { toast } from 'react-toastify';
 import ResultService from '@/services/ResultService';
+import weasyPrintService from '@/services/WeasyPrintPDFService';
+
+/** Inline blob → browser download in case the service helper is missing */
+const triggerDownload = (blob: Blob, filename: string) => {
+  try {
+    weasyPrintService.triggerBlobDownload(blob, filename);
+  } catch {
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), { href: url, download: filename });
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+};
 
 // ============================================
 // PDF Download Button Component
@@ -65,7 +78,7 @@ export const PDFDownloadButton: React.FC<PDFDownloadButtonProps> = ({
       const filename = `Report_${sanitizedName}_${sanitizedTerm}_${sanitizedSession}.pdf`;
 
       // Trigger download
-      ResultService.triggerBlobDownload(blob, filename);
+      triggerDownload(blob, filename);
 
       toast.success('PDF downloaded successfully!');
     } catch (error: any) {
@@ -191,7 +204,7 @@ export const BulkPDFDownload: React.FC<BulkPDFDownloadProps> = ({
       const filename = `Reports_Bulk_${timestamp}.zip`;
 
       // Trigger download
-      ResultService.triggerBlobDownload(blob, filename);
+      triggerDownload(blob, filename);
 
       toast.success(`${selectedResults.length} reports downloaded successfully!`);
     } catch (error: any) {

@@ -117,6 +117,7 @@ const ExamReviewManager = lazy(() => import('./../components/dashboards/admin/Ex
 
 // Platform Admin pages
 const PendingPayments = lazy(() => import('./../pages/platform-admin/PendingPayments'));
+const PlatformAdminLoginPage = lazy(() => import('./../pages/platform-admin/LoginPage'));
 
 // Super Admin (Platform level)
 const SuperAdminPage = lazy(() => import('./../pages/SuperAdminDashbaord'));
@@ -675,6 +676,10 @@ export const router = createBrowserRouter([
         path: 'platform-admin',
         children: [
           {
+            path: 'login',
+            element: <LazyWrapper><PlatformAdminLoginPage /></LazyWrapper>,
+          },
+          {
             path: 'pending-payments',
             element: (
               <ProtectedRoute allowedRoles={[UserRole.PLATFORM_ADMIN, UserRole.SUPERADMIN]}>
@@ -685,10 +690,17 @@ export const router = createBrowserRouter([
         ]
       },
 
-      // Super Admin (Platform level - accessed from main domain)
+      // Super Admin (Platform level - protected, redirect to platform-admin/login if not authorised)
       {
         path: 'super-admin/dashboard',
-        element: <LazyWrapper><SuperAdminPage /></LazyWrapper>,
+        element: (
+          <ProtectedRoute
+            allowedRoles={[UserRole.SUPERADMIN, UserRole.PLATFORM_ADMIN]}
+            loginPath="/platform-admin/login"
+          >
+            <LazyWrapper><SuperAdminPage /></LazyWrapper>
+          </ProtectedRoute>
+        ),
       },
 
       // 404

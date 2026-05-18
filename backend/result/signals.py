@@ -36,11 +36,82 @@ Design principles:
 """
 
 import logging
+from decimal import Decimal
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.db import transaction
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# SHARED: sync grade-level result → StudentResult (unified read model)
+# ---------------------------------------------------------------------------
+
+def _sync_to_student_result(instance):
+    """
+    Mirror any grade-level result (Senior/Junior/Primary/Nursery) into the
+    unified StudentResult table so dashboard queries have one place to look.
+    Called for APPROVED and PUBLISHED results only.
+    """
+    from result.models import StudentResult
+
+    if not instance.grading_system_id:
+        logger.warning(
+            "_sync_to_student_result: skipped (no grading_system) for student %s",
+            instance.student_id,
+        )
+        return
+
+    ca = Decimal(instance.ca_total or 0)
+    total = Decimal(instance.total_score or 0)
+    exam_score = max(total - ca, Decimal(0))
+
+    lookup = dict(
+        tenant_id=instance.tenant_id,
+        student=instance.student,
+        subject=instance.subject,
+        exam_session=instance.exam_session,
+    )
+    defaults = dict(
+        grading_system_id=instance.grading_system_id,
+        ca_score=ca,
+        exam_score=exam_score,
+        grade=instance.grade,
+        grade_point=instance.grade_point,
+        is_passed=instance.is_passed,
+        status=instance.status,
+    )
+
+    try:
+        obj, created = StudentResult.objects.update_or_create(**lookup, defaults=defaults)
+        logger.info(
+            "%s StudentResult %s for student %s subject %s",
+            "Created" if created else "Updated",
+            obj.id,
+            instance.student_id,
+            instance.subject_id,
+        )
+    except Exception as exc:
+        logger.error("_sync_to_student_result failed: %s", exc, exc_info=True)
+
+
+def _delete_from_student_result(instance):
+    """Remove the corresponding StudentResult when a grade-level result is deleted."""
+    from result.models import StudentResult
+
+    deleted, _ = StudentResult.objects.filter(
+        tenant_id=instance.tenant_id,
+        student=instance.student,
+        subject=instance.subject,
+        exam_session=instance.exam_session,
+    ).delete()
+    if deleted:
+        logger.info(
+            "Deleted StudentResult for student %s subject %s",
+            instance.student_id,
+            instance.subject_id,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +138,7 @@ def handle_senior_secondary_result_save(sender, instance, created, **kwargs):
         extra_defaults=_senior_stream_defaults(instance),
         level_name="SeniorSecondary",
     )
+    _sync_to_student_result(instance)
 
 
 @receiver(post_delete, sender="result.SeniorSecondaryResult")
@@ -118,6 +190,7 @@ def handle_senior_secondary_result_delete(sender, instance, **kwargs):
             )
 
     transaction.on_commit(_recalc)
+    _delete_from_student_result(instance)
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +216,7 @@ def handle_junior_secondary_result_save(sender, instance, created, **kwargs):
         extra_defaults={},
         level_name="JuniorSecondary",
     )
+    _sync_to_student_result(instance)
 
 
 @receiver(post_delete, sender="result.JuniorSecondaryResult")
@@ -185,6 +259,7 @@ def handle_junior_secondary_result_delete(sender, instance, **kwargs):
             )
 
     transaction.on_commit(_recalc)
+    _delete_from_student_result(instance)
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +285,7 @@ def handle_primary_result_save(sender, instance, created, **kwargs):
         extra_defaults={},
         level_name="Primary",
     )
+    _sync_to_student_result(instance)
 
 
 @receiver(post_delete, sender="result.PrimaryResult")
@@ -254,6 +330,7 @@ def handle_primary_result_delete(sender, instance, **kwargs):
             )
 
     transaction.on_commit(_recalc)
+    _delete_from_student_result(instance)
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +394,7 @@ def handle_nursery_result_save(sender, instance, created, **kwargs):
             )
 
     transaction.on_commit(_create_report)
+    _sync_to_student_result(instance)
 
 
 @receiver(post_delete, sender="result.NurseryResult")
@@ -372,6 +450,7 @@ def handle_nursery_result_delete(sender, instance, **kwargs):
             )
 
     transaction.on_commit(_recalc)
+    _delete_from_student_result(instance)
 
 
 # ---------------------------------------------------------------------------

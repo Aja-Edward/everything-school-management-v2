@@ -3,6 +3,7 @@ import api from "@/services/api";
 import {
   PromotionRule,
   PromotionRuleRow,
+  EditableRuleField,
   PromotionFilter,
   PromotionSummary,
   EducationLevel,
@@ -66,14 +67,14 @@ export function usePromotionThreshold(
         const rules: PromotionRule[] = Array.isArray(raw) ? raw : raw.results ?? [];
 
         const rule = rules.find((r) => {
-        const detail = r.education_level_detail as any;
-        const byCode =
-          String(detail?.code ?? "").toLowerCase() === String(levelId).toLowerCase() ||
-          String(detail?.level_type ?? "").toLowerCase().replace(/-/g, "_") ===
-            String(levelId).toLowerCase().replace(/-/g, "_");
-        const byId = String(detail?.id ?? r.education_level) === String(levelId);
-        return byCode || byId;
-      });
+          const detail = r.education_level_detail;
+          const byCode =
+            String(detail?.code ?? "").toLowerCase() === String(levelId).toLowerCase() ||
+            String(detail?.level_type ?? "").toLowerCase().replace(/-/g, "_") ===
+              String(levelId).toLowerCase().replace(/-/g, "_");
+          const byId = String(detail?.id ?? r.education_level) === String(levelId);
+          return byCode || byId;
+        });
 
       const t = rule ? parseFloat(rule.pass_threshold) : FALLBACK_THRESHOLD;
       setCache(levelId, t);
@@ -159,7 +160,7 @@ export function usePromotionRules(): UsePromotionRulesReturn {
   }, []);
 
   const updateRow = useCallback(
-    (levelId: string | number, field: keyof PromotionRuleRow, value: unknown) => {
+    (levelId: string | number, field: EditableRuleField, value: unknown) => {
       setRows((prev) =>
         prev.map((row) =>
           row.education_level_id === levelId

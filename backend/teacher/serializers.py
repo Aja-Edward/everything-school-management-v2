@@ -316,24 +316,30 @@ class TeacherSerializer(serializers.ModelSerializer):
         return None
 
     def get_assigned_subjects(self, obj):
-        """Returns the subjects assigned to this teacher."""
-        assignments = ClassroomTeacherAssignment.objects.filter(
-            teacher=obj, is_active=True
-        ).select_related("subject")
-
+        """
+        Returns subjects this teacher can teach.
+        Merges two sources so the list is never empty after a subject assignment:
+          1. ClassroomTeacherAssignment records (teacher already placed in a class)
+          2. teacher.requested_subjects  (subjects saved directly on the teacher profile)
+        """
+        seen = set()
         subjects = []
-        seen_subject_ids = set()
 
-        for assignment in assignments:
-            if assignment.subject and assignment.subject.id not in seen_subject_ids:
-                subjects.append(
-                    {
-                        "id": assignment.subject.id,
-                        "name": assignment.subject.name,
-                        "code": assignment.subject.code,
-                    }
-                )
-                seen_subject_ids.add(assignment.subject.id)
+        # Source 1: existing classroom-level assignments
+        for a in (
+            ClassroomTeacherAssignment.objects
+            .filter(teacher=obj, is_active=True)
+            .select_related("subject")
+        ):
+            if a.subject and a.subject.id not in seen:
+                subjects.append({"id": a.subject.id, "name": a.subject.name, "code": a.subject.code})
+                seen.add(a.subject.id)
+
+        # Source 2: subjects saved directly on the teacher (set via PATCH subjects:[...])
+        for s in obj.subjects.all():
+            if s.id not in seen:
+                subjects.append({"id": s.id, "name": s.name, "code": s.code})
+                seen.add(s.id)
 
         return subjects
 
@@ -355,6 +361,17 @@ class TeacherSerializer(serializers.ModelSerializer):
                 if grade_level and grade_level.education_level
                 else None
             )
+            # Fallback: use the teacher's own level field when the classroom
+            # grade_level chain is incomplete (common for Nursery/Primary classes
+            # whose section.class_grade.grade_level.education_level is not set).
+            if not education_level and obj.level:
+                level_map = {
+                    "nursery":           "NURSERY",
+                    "primary":           "PRIMARY",
+                    "junior_secondary":  "JUNIOR_SECONDARY",
+                    "senior_secondary":  "SENIOR_SECONDARY",
+                }
+                education_level = level_map.get(obj.level.lower())
 
             # Uses pre-calculated count from annotation
             student_count = getattr(classroom, "student_count", 0)
@@ -603,8 +620,22 @@ class TeacherSerializer(serializers.ModelSerializer):
         return teacher
 
     def _create_classroom_assignments(self, teacher, assignments, subjects):
-        """Create classroom assignments using the new ClassroomTeacherAssignment model"""
+        """Create classroom assignments using the new ClassroomTeacherAssignment model.
+
+        Also persists ``subjects`` to ``teacher.requested_subjects`` so that
+        ``get_assigned_subjects`` can return them even before the teacher has
+        been placed in a specific classroom (e.g. nursery/primary class-teacher
+        model where no per-subject ClassroomTeacherAssignment is created yet).
+        """
         print(f"Creating classroom assignments for teacher {teacher.id}")
+
+        # Persist the subjects list directly on the teacher profile.
+        # This is the canonical store that get_assigned_subjects reads from
+        # when no classroom assignments exist yet.
+        if subjects is not None:
+            subject_objects = Subject.objects.filter(id__in=[int(s) for s in subjects if s])
+            teacher.subjects.set(subject_objects)
+            print(f"Set {subject_objects.count()} subjects for teacher {teacher.id}")
 
         ClassroomTeacherAssignment.objects.filter(teacher=teacher).delete()
 

@@ -5,8 +5,9 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { getAbsoluteUrl } from '@/utils/urlUtils';
 import {
   Eye, Trash2, Download, Printer, X, ChevronLeft, ChevronRight,
-  CheckCircle, Globe, RefreshCw, Calculator,
+  CheckCircle, Globe, RefreshCw, Calculator, Pencil,
 } from 'lucide-react';
+import EditSubjectResultForm from '@/components/dashboards/admin/EditSubjectResultForm';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -114,11 +115,13 @@ function flattenTermReport(report: AnyTermReport, level: EducationLevelType): Fl
     name: sr.subject?.name ?? sr.subject_name ?? 'Unknown',
     code: sr.subject?.code ?? sr.subject_code ?? '',
     ca_score: safeFloat(sr.ca_total ?? sr.mark_obtained ?? 0),
-    exam_score: safeFloat(sr.exam_score ?? 0),
+    // Nursery stores the mark in mark_obtained (no separate exam_score field)
+    exam_score: safeFloat(sr.exam_score ?? sr.mark_obtained ?? 0),
     total_score: safeFloat(sr.total_score ?? sr.mark_obtained ?? 0),
     percentage: safeFloat(sr.percentage ?? 0),
     grade: sr.grade ?? '',
-    remarks: sr.teacher_remark ?? sr.remarks ?? '',
+    // Use || not ?? so empty-string teacher_remark falls through to academic_comment
+    remarks: sr.teacher_remark || sr.academic_comment || sr.remarks || '',
     stream_name: sr.stream?.name ?? sr.stream_name ?? '',
     stream_id: sr.stream?.id ?? '',
   }));
@@ -203,6 +206,7 @@ const AdminResult = () => {
 
   // ── Modals ────────────────────────────────────────────────────────────────
   const [viewTarget,   setViewTarget]   = useState<FlatResult | null>(null);
+  const [editTarget,   setEditTarget]   = useState<FlatResult | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<FlatResult | null>(null);
   const [deleting,     setDeleting]     = useState(false);
 
@@ -538,6 +542,10 @@ const AdminResult = () => {
                               <Globe size={13} />
                             </button>
                           )}
+                          <button onClick={() => setEditTarget(r)} title="Edit subjects"
+                            className="p-1.5 bg-amber-500 text-white rounded hover:bg-amber-600 transition-colors">
+                            <Pencil size={13} />
+                          </button>
                           <button onClick={() => setViewTarget(r)} title="View report"
                             className="p-1.5 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors">
                             <Eye size={13} />
@@ -695,11 +703,19 @@ const AdminResult = () => {
                   <p className="text-sm text-gray-500">{schoolAddress}</p>
                 </div>
               </div>
-              <div className="text-right">
-                <h2 className="text-lg font-semibold">STUDENT REPORT CARD</h2>
-                {viewTarget.next_term_begins && (
-                  <p className="text-sm text-gray-500">Next Term: {viewTarget.next_term_begins}</p>
-                )}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => { setEditTarget(viewTarget); setViewTarget(null); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 text-sm font-medium transition-colors"
+                >
+                  <Pencil size={14} /> Edit Results
+                </button>
+                <div className="text-right">
+                  <h2 className="text-lg font-semibold">STUDENT REPORT CARD</h2>
+                  {viewTarget.next_term_begins && (
+                    <p className="text-sm text-gray-500">Next Term: {viewTarget.next_term_begins}</p>
+                  )}
+                </div>
               </div>
             </div>
             <div className="p-6 border-b grid grid-cols-2 gap-4 text-sm">
@@ -825,6 +841,18 @@ const AdminResult = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Edit Subject Results Modal ── */}
+      {editTarget && (
+        <EditSubjectResultForm
+          result={editTarget.raw as any}
+          onClose={() => setEditTarget(null)}
+          onSuccess={() => {
+            setEditTarget(null);
+            loadPage();
+          }}
+        />
       )}
 
       {/* ── Recalculate Positions Modal ── */}

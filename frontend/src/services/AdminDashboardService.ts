@@ -216,13 +216,12 @@ const fetchDashboardData = async (): Promise<OptimizedDashboardData> => {
   try {
     // Try optimized endpoint first
     const optimizedData = await api.get('/api/dashboard/admin/optimized/');
-    console.log('✅ Got data from optimized endpoint');
-    console.log("OPTIMIZED DATA:", optimizedData.data);
+    console.log("Attempting to fetch dashboard data from optimized endpoint...", optimizedData);
+   
     return transformOptimizedResponse(optimizedData);
   } catch (error: any) {
     // If optimized endpoint doesn't exist (404), fall back to parallel calls
     if (error?.response?.status === 404) {
-      console.log('⚠️ Optimized endpoint not available, falling back to parallel calls');
       return fetchDashboardDataFallback();
     }
     throw error;
@@ -307,26 +306,27 @@ const fetchDashboardDataFallback = async (): Promise<OptimizedDashboardData> => 
  * Transform optimized API response to our format
  */
 const transformOptimizedResponse = (response: any): OptimizedDashboardData => {
+  const s = response.dashboardStats
   return {
     stats: {
-      totalStudents: response.stats?.total_students || 0,
-      totalTeachers: response.stats?.total_teachers || 0,
-      totalParents: response.stats?.total_parents || 0,
-      totalUsers: (response.stats?.total_students || 0) + (response.stats?.total_teachers || 0) + (response.stats?.total_parents || 0),
-      totalClasses: response.stats?.total_classes || 0,
-      activeStudents: response.stats?.active_students || 0,
-      activeTeachers: response.stats?.active_teachers || 0
+      totalStudents: s?.total_students || 0,
+      totalTeachers: s?.total_teachers || 0,
+      totalParents: s?.total_parents || 0,
+      totalUsers: (s?.total_students || 0) + (s?.total_teachers || 0) + (s?.total_parents || 0),
+      totalClasses: s?.total_classes || 0,
+      activeStudents: s?.active_students || 0,
+      activeTeachers: s?.active_teachers || 0
     },
     attendance: {
-      todayRate: response.attendance?.today_rate || 0,
-      weeklyAverage: response.attendance?.weekly_average || 0,
-      monthlyAverage: response.attendance?.monthly_average || 0,
-      trends: response.attendance?.trends || []
-    },
-    gradeDistribution: response.grade_distribution || [],
-    recentActivity: response.recent_activity || [],
+  todayRate: response.attendanceData?.attendanceRate || 0,
+  weeklyAverage: response.attendanceData?.attendanceRate || 0, // same field, best you have
+  monthlyAverage: response.attendanceData?.attendanceRate || 0,
+  trends: []
+},
+    gradeDistribution: [],
+    recentActivity: response.messages || [],
     classrooms: response.classrooms || [],
-    lastUpdated: response.last_updated || new Date().toISOString()
+    lastUpdated: response.loadedAt || new Date().toISOString(),
   };
 };
 
@@ -505,10 +505,10 @@ export const fetchEnhancedStats = async (forceRefresh = false): Promise<Enhanced
  */
 const fetchEnhancedStatsData = async (): Promise<EnhancedDashboardStats> => {
   try {
-    const response = await api.get('/api/dashboard/admin/enhanced-stats/');
-    console.log("OPTIMIZED DATA:", response.data);
-    console.log('✅ Got enhanced stats from API');
-    return response;
+    const data = await api.get('/api/dashboard/admin/enhanced-stats/');
+    
+    console.log('✅ Got enhanced stats from API', data);
+    return data as EnhancedDashboardStats;
   } catch (error: any) {
     console.error('❌ Failed to fetch enhanced stats:', error);
     throw error;

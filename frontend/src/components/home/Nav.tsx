@@ -89,6 +89,18 @@ const Nav: React.FC = () => {
               {isDarkMode ? '☀' : '☾'}
             </button>
 
+            {/* Platform Admin Login */}
+            <button
+              onClick={() => navigate('/platform-admin/login')}
+              className={`hidden sm:block px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                scrolled
+                  ? 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800'
+                  : 'text-gray-300 hover:text-white hover:bg-white/10'
+              }`}
+            >
+              Admin Login
+            </button>
+
             {/* Register School CTA */}
             <button
               onClick={() => navigate('/onboarding/register')}
@@ -137,7 +149,13 @@ const Nav: React.FC = () => {
               </NavLink>
             ))}
 
-            <div className="pt-3">
+            <div className="pt-3 space-y-2">
+              <button
+                onClick={() => { navigate('/platform-admin/login'); closeMenu(); }}
+                className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm font-medium rounded-lg transition-colors"
+              >
+                Admin Login
+              </button>
               <button
                 onClick={() => { navigate('/onboarding/register'); closeMenu(); }}
                 className="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"

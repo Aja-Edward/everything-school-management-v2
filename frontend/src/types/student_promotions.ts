@@ -16,6 +16,8 @@ export interface EducationLevel {
   name: string;
   /** Only levels whose type is in ManagedLevelType get promotion rules. */
   level_type: ManagedLevelType | string;
+  /** Short identifier returned by the backend e.g. "primary" */
+  code?: string;
 }
 
 // ─── Promotion rules ──────────────────────────────────────────────────────────
@@ -23,7 +25,7 @@ export interface EducationLevel {
 export interface PromotionRule {
   id: string;
   education_level: string | number;
-  education_level_detail?: Pick<EducationLevel, "id" | "name">;
+  education_level_detail?: Pick<EducationLevel, "id" | "name" | "code" | "level_type">;
   /** Comes as a decimal string from the API e.g. "49.00" */
   pass_threshold: string;
   require_all_three_terms: boolean;
@@ -170,6 +172,9 @@ export interface UsePromotionThresholdReturn {
   loading: boolean;
 }
 
+/** Fields an admin can actually edit on a PromotionRuleRow. */
+export type EditableRuleField = "pass_threshold" | "require_all_three_terms";
+
 /** usePromotionRules — full CRUD for PromotionSettingsPage. */
 export interface UsePromotionRulesReturn {
   rows: PromotionRuleRow[];
@@ -180,7 +185,7 @@ export interface UsePromotionRulesReturn {
   hasDirty: boolean;
   updateRow: (
     levelId: string | number,
-    field: keyof PromotionRuleRow,
+    field: EditableRuleField,
     value: unknown
   ) => void;
   saveAll: () => Promise<boolean>;

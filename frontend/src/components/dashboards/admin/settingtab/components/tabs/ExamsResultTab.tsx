@@ -65,30 +65,30 @@ const SectionHeader = ({
   sectionKey: string; activeSections: Set<string>;
   onToggle: (k: string) => void; onAdd: () => void; addLabel: string;
 }) => (
-  <div className="bg-black px-8 py-6">
-    <div className="flex items-center justify-between">
-      <div className="flex items-center space-x-4">
-        <div className="bg-white/20 p-3 rounded-xl"><Icon className="h-6 w-6 text-white" /></div>
-        <div>
-          <h2 className="text-xl font-bold text-white">{title}</h2>
-          <p className="text-white/70 text-sm">{subtitle}</p>
+  <div className="bg-black px-4 sm:px-8 py-4 sm:py-6">
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="bg-white/20 p-2.5 rounded-lg shrink-0"><Icon className="h-5 w-5 text-white" /></div>
+        <div className="min-w-0">
+          <h2 className="text-base sm:text-lg font-bold text-white truncate">{title}</h2>
+          <p className="text-white/70 text-xs hidden sm:block">{subtitle}</p>
         </div>
       </div>
-      <div className="flex items-center space-x-3">
-        <span className="bg-white/20 text-white text-sm font-medium px-3 py-1 rounded-full">{count}</span>
+      <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+        <span className="bg-white/20 text-white text-xs font-medium px-2.5 py-1 rounded-full">{count}</span>
         <button
           onClick={() => onToggle(sectionKey)}
-          className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg flex items-center space-x-2 text-sm transition-colors"
+          className="bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-xs transition-colors"
         >
           {activeSections.has(sectionKey)
-            ? <><EyeOff className="h-4 w-4" /><span>Hide</span></>
-            : <><Eye className="h-4 w-4" /><span>Show</span></>}
+            ? <><EyeOff className="h-3.5 w-3.5" /><span>Hide</span></>
+            : <><Eye className="h-3.5 w-3.5" /><span>Show</span></>}
         </button>
         <button
           onClick={onAdd}
-          className="bg-white text-black hover:bg-gray-100 px-4 py-2 rounded-lg flex items-center space-x-2 font-medium text-sm transition-colors"
+          className="bg-white text-black hover:bg-gray-100 px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-semibold text-xs transition-colors"
         >
-          <Plus className="h-4 w-4" /><span>{addLabel}</span>
+          <Plus className="h-3.5 w-3.5" /><span>{addLabel}</span>
         </button>
       </div>
     </div>
@@ -99,21 +99,21 @@ const ModalShell = ({ title, subtitle, icon: Icon, onClose, children, wide }: {
   title: string; subtitle: string; icon: React.ElementType;
   onClose: () => void; children: React.ReactNode; wide?: boolean;
 }) => (
-  <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 overflow-y-auto">
-    <div className={`bg-white rounded-2xl shadow-2xl w-full ${wide ? 'max-w-3xl' : 'max-w-2xl'} my-4`}>
-      <div className="bg-black px-8 py-6 rounded-t-2xl flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <div className="bg-white/20 p-3 rounded-xl"><Icon className="h-6 w-6 text-white" /></div>
-          <div>
-            <h3 className="text-xl font-bold text-white">{title}</h3>
-            <p className="text-white/70 text-sm">{subtitle}</p>
+  <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+    <div className={`bg-white w-full ${wide ? 'sm:max-w-3xl' : 'sm:max-w-2xl'} sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col max-h-[92vh]`}>
+      <div className="bg-black px-5 sm:px-8 py-4 sm:py-6 sm:rounded-t-2xl rounded-t-2xl flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="bg-white/20 p-2.5 rounded-lg shrink-0"><Icon className="h-5 w-5 text-white" /></div>
+          <div className="min-w-0">
+            <h3 className="text-base sm:text-xl font-bold text-white">{title}</h3>
+            <p className="text-white/70 text-xs hidden sm:block">{subtitle}</p>
           </div>
         </div>
-        <button onClick={onClose} className="bg-white/20 hover:bg-white/30 text-white p-2 rounded-lg transition-colors">
+        <button onClick={onClose} className="bg-white/20 hover:bg-white/30 text-white p-2 rounded-lg transition-colors ml-3 shrink-0">
           <X className="h-5 w-5" />
         </button>
       </div>
-      <div className="p-8 space-y-6 max-h-[75vh] overflow-y-auto">{children}</div>
+      <div className="p-5 sm:p-8 space-y-5 overflow-y-auto">{children}</div>
     </div>
   </div>
 );
@@ -153,15 +153,15 @@ const EmptyState = ({ icon: Icon, title, subtitle }: { icon: React.ElementType; 
 );
 
 const InfoBanner = ({ children }: { children: React.ReactNode }) => (
-  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start gap-2 text-sm text-blue-800">
-    <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
+  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex items-start gap-2 text-sm text-gray-700">
+    <Info className="w-4 h-4 mt-0.5 flex-shrink-0 text-gray-500" />
     <span>{children}</span>
   </div>
 );
 
 const WarnBanner = ({ children }: { children: React.ReactNode }) => (
-  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2 text-sm text-amber-800">
-    <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+  <div className="bg-gray-100 border border-gray-300 rounded-lg p-3 flex items-start gap-2 text-sm text-gray-800">
+    <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0 text-gray-600" />
     <span>{children}</span>
   </div>
 );
@@ -205,9 +205,7 @@ const ComponentSummaryPanel = ({
     <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold text-gray-700">Active Components for this Level</p>
-        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-          mismatch ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-        }`}>
+        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${mismatch ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700'}`}>
           Sum: {componentSum}
         </span>
       </div>
@@ -218,7 +216,7 @@ const ComponentSummaryPanel = ({
               <ChevronRight className="w-3 h-3 text-gray-400" />
               {c.name}
               {c.contributes_to_ca && (
-                <span className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded text-[10px]">CA</span>
+                <span className="border border-gray-300 text-gray-600 px-1.5 py-0.5 rounded text-[10px]">CA</span>
               )}
             </span>
             <span className="font-semibold text-gray-800">{c.max_score}</span>
@@ -226,7 +224,7 @@ const ComponentSummaryPanel = ({
         ))}
       </div>
       {mismatch && (
-        <p className="text-xs text-red-600 font-medium pt-1 border-t border-red-200">
+        <p className="text-xs text-gray-900 font-bold pt-1 border-t border-gray-300">
           ⚠ Component sum ({componentSum}) ≠ Total Max Score ({totalMaxScore}). The backend will reject this.
           Update Total Max Score to {componentSum}.
         </p>
@@ -258,13 +256,13 @@ const NurseryModeBanner = ({
 
   if (nurseryComponents.length === 0) {
     return (
-      <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 flex items-start gap-3">
-        <div className="bg-purple-100 p-2 rounded-lg flex-shrink-0">
-          <Info className="w-4 h-4 text-purple-700" />
+      <div className="border border-dashed border-gray-300 rounded-xl p-4 flex items-start gap-3 bg-gray-50">
+        <div className="bg-gray-200 p-2 rounded-lg shrink-0">
+          <Info className="w-4 h-4 text-gray-700" />
         </div>
         <div>
-          <p className="text-sm font-semibold text-purple-800">Single Score Mode (Active)</p>
-          <p className="text-xs text-purple-700 mt-0.5">
+          <p className="text-sm font-semibold text-gray-900">Single Score Mode (Active)</p>
+          <p className="text-xs text-gray-600 mt-0.5">
             No components configured for this level. Teachers will enter <strong>Score Obtainable</strong> and{' '}
             <strong>Score Obtained</strong> directly per subject — no CA breakdown.
             Add components below to switch to component-based entry.
@@ -275,13 +273,13 @@ const NurseryModeBanner = ({
   }
 
   return (
-    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-start gap-3">
-      <div className="bg-emerald-100 p-2 rounded-lg flex-shrink-0">
-        <CheckCircle className="w-4 h-4 text-emerald-700" />
+    <div className="border border-gray-200 rounded-xl p-4 flex items-start gap-3 bg-gray-50">
+      <div className="bg-black p-2 rounded-lg shrink-0">
+        <CheckCircle className="w-4 h-4 text-white" />
       </div>
       <div>
-        <p className="text-sm font-semibold text-emerald-800">Component Mode (Active)</p>
-        <p className="text-xs text-emerald-700 mt-0.5">
+        <p className="text-sm font-semibold text-gray-900">Component Mode (Active)</p>
+        <p className="text-xs text-gray-600 mt-0.5">
           {nurseryComponents.length} component{nurseryComponents.length > 1 ? 's' : ''} configured.
           Teachers will enter individual component scores. Remove all components to switch back to single score mode.
         </p>
@@ -730,7 +728,7 @@ const ExamsResultTab: React.FC = () => {
   }, {});
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">
 
       {/* ── Stats ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -831,14 +829,14 @@ const ExamsResultTab: React.FC = () => {
                           <td className="px-4 py-3 font-semibold text-gray-900">{comp.max_score}</td>
                           <td className="px-4 py-3">
                             {comp.contributes_to_ca
-                              ? <CheckCircle className="w-4 h-4 text-emerald-500" />
+                              ? <CheckCircle className="w-4 h-4 text-gray-900" />
                               : <X className="w-4 h-4 text-gray-300" />}
                           </td>
                           <td className="px-4 py-3 text-gray-500">{comp.display_order}</td>
                           <td className="px-4 py-3">
                             {comp.is_active
-                              ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Active</span>
-                              : <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Inactive</span>}
+                              ? <span className="text-xs bg-gray-900 text-white px-2 py-0.5 rounded-full">Active</span>
+                              : <span className="text-xs bg-gray-200 text-gray-500 px-2 py-0.5 rounded-full">Inactive</span>}
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-1">
@@ -928,8 +926,8 @@ const ExamsResultTab: React.FC = () => {
                         {(et as any).category_display || et.category}
                       </span>
                       {et.is_active
-                        ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Active</span>
-                        : <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Inactive</span>}
+                        ? <span className="text-xs bg-gray-900 text-white px-2 py-0.5 rounded-full">Active</span>
+                        : <span className="text-xs bg-gray-200 text-gray-500 px-2 py-0.5 rounded-full">Inactive</span>}
                     </div>
                   </div>
                 ))}
@@ -978,14 +976,14 @@ const ExamsResultTab: React.FC = () => {
                           <div className="flex items-center gap-2 mb-1">
                             <p className="font-semibold text-gray-900">{sess.name}</p>
                             {sess.is_published && (
-                              <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <span className="text-xs bg-gray-900 text-white px-2 py-0.5 rounded-full flex items-center gap-1">
                                 <CheckCircle className="w-3 h-3" />Published
                               </span>
                             )}
                           </div>
                           <p className="text-sm text-gray-500">{sessionName}</p>
                           <div className="flex gap-2 mt-2 flex-wrap">
-                            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{examTypeName}</span>
+                            <span className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">{examTypeName}</span>
                             <span className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">{termName}</span>
                           </div>
                         </div>
@@ -1060,11 +1058,11 @@ const ExamsResultTab: React.FC = () => {
                         <div>
                           <div className="flex items-center gap-2 mb-1">
                             <p className="font-semibold text-gray-900">{gs.name}</p>
-                            {gs.is_active && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Active</span>}
+                            {gs.is_active && <span className="text-xs bg-gray-900 text-white px-2 py-0.5 rounded-full">Active</span>}
                           </div>
                           <div className="flex gap-2 text-xs flex-wrap">
                             <span className="bg-gray-100 px-2 py-0.5 rounded-full">{gs.grading_type}</span>
-                            <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Pass: {gs.pass_mark}</span>
+                            <span className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">Pass: {gs.pass_mark}</span>
                             <span className="bg-gray-100 px-2 py-0.5 rounded-full">{gsGrades.length} grades</span>
                           </div>
                         </div>
@@ -1096,7 +1094,7 @@ const ExamsResultTab: React.FC = () => {
                       {gsGrades.length > 0 && (
                         <div className="flex gap-1 flex-wrap mt-2">
                           {[...gsGrades].sort((a, b) => Number(b.min_score) - Number(a.min_score)).map((g) => (
-                            <span key={g.id} className={`text-xs px-2 py-0.5 rounded-full font-medium ${g.is_passing ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                            <span key={g.id} className={`text-xs px-2 py-0.5 rounded-full font-medium ${g.is_passing ? 'bg-gray-900 text-white' : 'bg-gray-200 text-gray-500'}`}>
                               {g.grade}
                             </span>
                           ))}
@@ -1147,27 +1145,27 @@ const ExamsResultTab: React.FC = () => {
                   const mismatch = componentSum > 0 && componentSum !== Number(cfg.total_max_score);
 
                   return (
-                    <div key={cfg.id} className={`border rounded-xl p-5 hover:shadow-md transition-shadow ${mismatch ? 'border-red-200 bg-red-50/30' : 'border-gray-200'}`}>
+                    <div key={cfg.id} className={`border rounded-xl p-5 hover:shadow-md transition-shadow ${mismatch ? 'border-gray-400 bg-gray-50' : 'border-gray-200'}`}>
                       <div className="flex items-start justify-between mb-3">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
                             <p className="font-semibold text-gray-900">{cfg.name}</p>
                             {cfg.is_default && (
-                              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <span className="text-xs bg-gray-900 text-white px-2 py-0.5 rounded-full flex items-center gap-1">
                                 <Star className="w-3 h-3" />Default
                               </span>
                             )}
                           </div>
                           <div className="flex gap-2 text-xs flex-wrap">
                             <span className="bg-gray-100 px-2 py-0.5 rounded-full">{elName}</span>
-                            <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">{cfg.result_type}</span>
+                            <span className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">{cfg.result_type}</span>
                             <span className="bg-gray-100 px-2 py-0.5 rounded-full">Max: {cfg.total_max_score}</span>
                             {cfg.is_active
-                              ? <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Active</span>
-                              : <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Inactive</span>}
+                              ? <span className="bg-gray-900 text-white px-2 py-0.5 rounded-full">Active</span>
+                              : <span className="bg-gray-200 text-gray-500 px-2 py-0.5 rounded-full">Inactive</span>}
                           </div>
                           {mismatch && (
-                            <p className="text-xs text-red-600 mt-1.5 font-medium">
+                            <p className="text-xs text-gray-900 mt-1.5 font-bold">
                               ⚠ Components sum to {componentSum}, not {cfg.total_max_score}
                             </p>
                           )}
@@ -1249,7 +1247,7 @@ const ExamsResultTab: React.FC = () => {
             return null;
           })()}
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField label="Name" required>
               <input
                 type="text"
@@ -1272,7 +1270,7 @@ const ExamsResultTab: React.FC = () => {
             </FormField>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField label="Component Type">
               <select
                 value={componentForm.component_type}
@@ -1307,7 +1305,7 @@ const ExamsResultTab: React.FC = () => {
             />
           </FormField>
 
-          <div className="flex items-center gap-6">
+          <div className="flex flex-wrap items-center gap-4">
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input
                 type="checkbox"
@@ -1352,7 +1350,7 @@ const ExamsResultTab: React.FC = () => {
           icon={FileText}
           onClose={() => { setShowExamTypeForm(false); setExamTypeForm(blankExamType()); }}
         >
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField label="Name" required>
               <input
                 type="text"
@@ -1374,7 +1372,7 @@ const ExamsResultTab: React.FC = () => {
               />
             </FormField>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField label="Category">
               <select
                 value={examTypeForm.category}
@@ -1448,7 +1446,7 @@ const ExamsResultTab: React.FC = () => {
               placeholder="e.g. 2024/2025 First Term CA"
             />
           </FormField>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField label="Exam Type" required>
               <select
                 value={String(examSessionForm.exam_type)}
@@ -1494,7 +1492,7 @@ const ExamsResultTab: React.FC = () => {
               ))}
             </select>
           </FormField>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField label="Start Date">
               <input
                 type="date"
@@ -1520,7 +1518,7 @@ const ExamsResultTab: React.FC = () => {
               className={inputCls}
             />
           </FormField>
-          <div className="flex items-center gap-6">
+          <div className="flex flex-wrap items-center gap-4">
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input
                 type="checkbox"
@@ -1595,7 +1593,7 @@ const ExamsResultTab: React.FC = () => {
               className={inputCls}
             />
           </FormField>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <FormField label="Min Score">
               <input
                 type="number"
@@ -1650,8 +1648,8 @@ const ExamsResultTab: React.FC = () => {
 
       {/* ── Grades Management Modal ── */}
       {showGradesModal && selectedGradingSystem && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+          <div className="bg-white w-full sm:max-w-3xl sm:rounded-2xl rounded-t-2xl shadow-2xl max-h-[92vh] flex flex-col">
             <div className="bg-black px-8 py-5 rounded-t-2xl flex items-center justify-between">
               <div>
                 <p className="text-xl font-bold text-white">Grades — {selectedGradingSystem.name}</p>
@@ -1666,7 +1664,7 @@ const ExamsResultTab: React.FC = () => {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="p-6">
+            <div className="p-5 sm:p-6 overflow-y-auto">
               <button
                 onClick={() => {
                   setGradeForm(blankGrade(selectedGradingSystem.id));
@@ -1693,7 +1691,7 @@ const ExamsResultTab: React.FC = () => {
                             {g.grade_point !== undefined ? ` · GP: ${g.grade_point}` : ''}
                           </p>
                         </div>
-                        <span className={`text-xs px-2 py-0.5 rounded-full ml-2 ${g.is_passing ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ml-2 ${g.is_passing ? 'bg-gray-900 text-white' : 'bg-gray-200 text-gray-500'}`}>
                           {g.is_passing ? 'Pass' : 'Fail'}
                         </span>
                       </div>
@@ -1727,8 +1725,8 @@ const ExamsResultTab: React.FC = () => {
 
       {/* ── Grade Form Modal ── */}
       {showGradeForm && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+        <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4">
+          <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl shadow-2xl max-h-[92vh] flex flex-col">
             <div className="bg-black px-8 py-5 rounded-t-2xl flex items-center justify-between">
               <p className="text-xl font-bold text-white">{gradeForm.id ? 'Edit' : 'Create'} Grade</p>
               <button
@@ -1738,8 +1736,8 @@ const ExamsResultTab: React.FC = () => {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+            <div className="p-5 sm:p-6 space-y-4 overflow-y-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label="Grade" required>
                   <input
                     type="text"
@@ -1759,7 +1757,7 @@ const ExamsResultTab: React.FC = () => {
                   />
                 </FormField>
               </div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <FormField label="Min Score">
                   <input
                     type="number"
@@ -1840,7 +1838,7 @@ const ExamsResultTab: React.FC = () => {
             report generator. The Total Max Score must equal the sum of active components for this level.
           </InfoBanner>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField label="Configuration Name" required>
               <input
                 type="text"
@@ -1909,7 +1907,7 @@ const ExamsResultTab: React.FC = () => {
             />
           </FormField>
 
-          <div className="flex items-center gap-6">
+          <div className="flex flex-wrap items-center gap-4">
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input
                 type="checkbox"

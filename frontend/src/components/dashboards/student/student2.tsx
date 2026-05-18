@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import {
   User, Calendar, BookOpen, Trophy, Clock, CreditCard, MessageSquare, Settings,
-  GraduationCap, Home, AlertTriangle, ArrowLeft, Download,
+  GraduationCap, Home, AlertTriangle, ArrowLeft,
   LogOut, Menu, X, Check
 } from 'lucide-react';
+import { useDesign } from '@/contexts/DesignContext';
 
 // Import your actual components
 import PortalLogin from './PortalLogin';
@@ -13,6 +14,9 @@ import StudentResultDisplay2 from '@/components/dashboards/admin/StudentResultDi
 import DashboardContent from './DashboardContent';
 import ProfileTab from './ProfileTab';
 import StudentLessons from '@/pages/student/StudentLessons';
+import StudentAcademics from './StudentAcademics';
+import StudentGrades from './StudentGrades';
+import StudentAttendance from './StudentAttendance';
 import { useAuth } from '@/hooks/useAuth';
 import { useSettings } from '@/hooks/useSettings';
 import api from '@/services/api';
@@ -50,6 +54,8 @@ interface StudentRecord {
 const StudentPortal = () => {
   const { user, logout } = useAuth();
   const { settings } = useSettings();
+  const { settings: designSettings } = useDesign();
+  const primaryColor = designSettings?.primary_color || '#4F46E5';
   const navigate = useNavigate();
 
   const isStudentPortalEnabled = settings?.student_portal_enabled !== false;
@@ -252,7 +258,7 @@ const StudentPortal = () => {
                 {isSidebarOpen ? <X size={24} className="text-gray-700 dark:text-gray-300" /> : <Menu size={24} className="text-gray-700 dark:text-gray-300" />}
               </button>
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: primaryColor }}>
                   <GraduationCap className="text-white" size={20} />
                 </div>
                 <div>
@@ -343,16 +349,17 @@ const StudentPortal = () => {
                   <li key={item.id}>
                     <button
                       className={`flex items-center w-full px-3 py-2.5 rounded-lg text-sm font-medium transition-colors duration-200 ${
-                        activeSection === item.id
-                          ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900'
-                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                        activeSection !== item.id
+                          ? 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                          : ''
                       }`}
+                      style={activeSection === item.id ? { background: primaryColor, color: '#fff' } : undefined}
                       onClick={() => handleTabChange(item.id)}
                     >
                       <item.icon className="mr-3 flex-shrink-0" size={18} />
                       <span className="flex-1 text-left">{item.label}</span>
                       {activeSection === item.id && (
-                        <div className="w-1.5 h-1.5 bg-white dark:bg-gray-900 rounded-full"></div>
+                        <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
                       )}
                     </button>
                   </li>
@@ -400,6 +407,12 @@ const StudentPortal = () => {
               <ProfileTab />
             ) : activeSection === 'schedule' ? (
               <StudentLessons />
+            ) : activeSection === 'academics' ? (
+              <StudentAcademics />
+            ) : activeSection === 'grades' ? (
+              <StudentGrades />
+            ) : activeSection === 'attendance' ? (
+              <StudentAttendance />
             ) : (
               <ComingSoonMessage sectionName={menuItems.find(item => item.id === activeSection)?.label} />
             )}
@@ -494,16 +507,16 @@ const PortalContent = ({
                 <GraduationCap size={24} />
               </div>
               <div className="flex-1">
-                <h3 className="text-lg font-semibold mb-2">Access Granted!</h3>
+                <h3 className="text-lg font-semibold mb-2 text-white">Access Granted!</h3>
                 <p className="text-white/90 mb-3 text-sm">{verifiedTokenData.school_term}</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                   <div className="bg-white/10 rounded-lg px-3 py-2">
                     <p className="text-white/70 text-xs mb-1">Student</p>
-                    <p className="font-medium">{studentRecord.full_name}</p>
+                    <p className="font-medium text-white">{studentRecord.full_name}</p>
                   </div>
                   <div className="bg-white/10 rounded-lg px-3 py-2">
                     <p className="text-white/70 text-xs mb-1">Class & Level</p>
-                    <p className="font-medium">{studentRecord.student_class} • {studentRecord.education_level}</p>
+                    <p className="font-medium text-white">{studentRecord.student_class} • {studentRecord.education_level}</p>
                   </div>
                 </div>
                 <p className="text-xs text-white/70 mt-3">

@@ -2,7 +2,23 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework import viewsets, status, filters
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser, BasePermission
+
+
+class IsPlatformAdmin(BasePermission):
+    """
+    Allows access only to platform-level superadmins.
+    Tenant admins (is_staff=True only) are explicitly excluded.
+    """
+    message = "Only platform administrators can perform this action."
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        return (
+            request.user.is_superuser
+            or (hasattr(request.user, "role") and request.user.role.upper() == "SUPERADMIN")
+        )
 from django.contrib.auth import get_user_model
 from schoolSettings.permissions import (
     HasStudentsPermission,
@@ -68,16 +84,70 @@ def generate_human_readable_token():
     return "-".join(segments)
 
 
+@api_view(["GET"])
+@permission_classes([IsPlatformAdmin])
+def get_terms_for_tenant(request):
+    """
+    Platform admin: list all academic terms for a specific tenant.
+    Used so the platform admin can see Term IDs and share/use them.
+
+    GET /api/students/admin/terms-for-tenant/?tenant_id=<uuid>
+    """
+    from tenants.models import Tenant
+
+    tenant_id = request.query_params.get("tenant_id")
+    if not tenant_id:
+        return Response({"error": "tenant_id is required"}, status=400)
+
+    try:
+        tenant = Tenant.objects.get(id=tenant_id)
+    except Tenant.DoesNotExist:
+        return Response({"error": "Tenant not found"}, status=404)
+
+    terms = (
+        Term.objects.filter(tenant=tenant)
+        .select_related("term_type", "academic_session")
+        .order_by("-academic_session__start_date", "term_type__display_order")
+    )
+
+    data = []
+    for t in terms:
+        session = t.academic_session
+        data.append({
+            "id": t.id,
+            "name": t.name,  # property returning term_type.name
+            "term_type": t.term_type.name if t.term_type else "",
+            "academic_session": {
+                "id": session.id,
+                "name": session.name,
+            } if session else None,
+            "start_date": t.start_date.isoformat() if t.start_date else None,
+            "end_date": t.end_date.isoformat() if t.end_date else None,
+            "is_current": t.is_current,
+            "is_active": t.is_active,
+        })
+
+    return Response({
+        "tenant": {"id": str(tenant.id), "name": tenant.name},
+        "terms": data,
+        "count": len(data),
+    })
+
+
 @api_view(["POST"])
 @permission_classes([IsAdminUser])
 def generate_result_tokens(request):
     """
-    Admin endpoint to generate result tokens for all active students of a school term.
+    Generate result tokens for all active students of a school term.
+
+    - Platform admin (is_superuser): can generate for any tenant's term.
+    - Tenant admin (is_staff, not superuser): can only generate tokens for
+      terms that belong to their own tenant.
 
     Request body:
     {
         "school_term_id": 1,
-        "days_until_expiry": 30  // Optional, defaults to term end date
+        "days_until_expiry": 30   // optional — defaults to term end date
     }
     """
     school_term_id = request.data.get("school_term_id")
@@ -89,19 +159,45 @@ def generate_result_tokens(request):
         )
 
     try:
-        school_term = Term.objects.get(id=school_term_id)
+        school_term = Term.objects.select_related("tenant", "academic_session").get(
+            id=school_term_id
+        )
     except Term.DoesNotExist:
         return Response(
             {"error": f"School term with id {school_term_id} not found"},
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    students = User.objects.filter(role="student", is_active=True)
+    tenant = school_term.tenant
+    if not tenant:
+        return Response(
+            {"error": "This term has no associated tenant."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Tenant admins can only generate tokens for their own school's terms
+    is_platform_admin = request.user.is_superuser or (
+        hasattr(request.user, "role") and request.user.role.upper() == "SUPERADMIN"
+    )
+    if not is_platform_admin:
+        request_tenant = getattr(request, "tenant", None)
+        if not request_tenant or str(request_tenant.id) != str(tenant.id):
+            return Response(
+                {"error": "You can only generate tokens for your own school's terms."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+    # Only generate tokens for students belonging to this term's tenant
+    tenant_students = (
+        Student.objects.filter(tenant=tenant, is_active=True)
+        .select_related("user")
+    )
+    student_users = [s.user for s in tenant_students if s.user]
+
     created_count = 0
     updated_count = 0
     errors = []
 
-    # Calculate expiration
     if days_until_expiry:
         expiration_datetime = timezone.now() + timedelta(days=int(days_until_expiry))
     else:
@@ -109,12 +205,10 @@ def generate_result_tokens(request):
             datetime.combine(school_term.end_date, time.max)
         )
 
-    for student in students:
+    for student_user in student_users:
         try:
-            # Generate a unique token for each student
             token_string = generate_human_readable_token()
 
-            # Ensure token is unique (retry if collision occurs)
             max_retries = 10
             retries = 0
             while (
@@ -127,9 +221,9 @@ def generate_result_tokens(request):
             if retries >= max_retries:
                 raise Exception("Failed to generate unique token after 10 attempts")
 
-            # Create or update the token
             token_obj, created = ResultCheckToken.objects.update_or_create(
-                student=student,
+                tenant=tenant,
+                student=student_user,
                 school_term=school_term,
                 defaults={
                     "token": token_string,
@@ -145,27 +239,25 @@ def generate_result_tokens(request):
                 updated_count += 1
 
         except Exception as e:
-            errors.append(
-                {
-                    "student_id": student.id,
-                    "username": student.username,
-                    "error": str(e),
-                }
-            )
+            errors.append({
+                "student_id": student_user.id,
+                "username": student_user.username,
+                "error": str(e),
+            })
 
     delta = expiration_datetime - timezone.now()
-    days_calculated = delta.days
 
     response_data = {
         "success": True,
         "message": "Result tokens generated successfully",
+        "tenant": tenant.name,
         "school_term": school_term.name,
         "academic_session": str(school_term.academic_session),
         "tokens_created": created_count,
         "tokens_updated": updated_count,
         "total_students": created_count + updated_count,
         "expires_at": expiration_datetime.isoformat(),
-        "days_until_expiry": days_calculated,
+        "days_until_expiry": delta.days,
         "expiry_date": expiration_datetime.strftime("%B %d, %Y"),
     }
 
@@ -174,6 +266,65 @@ def generate_result_tokens(request):
         response_data["error_count"] = len(errors)
 
     return Response(response_data, status=status.HTTP_201_CREATED)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def get_my_classroom_for_result(request):
+    """
+    Returns the logged-in student's own classroom details for the result portal.
+
+    This bypasses the SectionFilterMixin which blocks students from querying
+    the general classroom list endpoint.
+
+    GET /api/students/my-classroom/
+    """
+    try:
+        student = Student.objects.select_related(
+            "user",
+            "student_class",
+            "student_class__education_level",
+            "section",
+        ).get(user=request.user)
+    except Student.DoesNotExist:
+        return Response({"classroom": None, "education_level": None})
+
+    # Derive a normalised education level string (e.g. "SENIOR_SECONDARY")
+    education_level = None
+    if student.student_class and student.student_class.education_level:
+        el = student.student_class.education_level
+        education_level = getattr(el, "level_type", None) or getattr(el, "code", None) or str(el)
+
+    # Try to find the Classroom record via the student's section
+    classroom_data = None
+    if student.section:
+        classroom = (
+            Classroom.objects.select_related("section")
+            .filter(section=student.section, is_active=True)
+            .first()
+        )
+        if classroom:
+            classroom_data = {
+                "id": classroom.id,
+                "name": classroom.name,
+                "section_name": classroom.section.name if classroom.section else None,
+                "education_level": education_level,
+            }
+
+    # Fallback: use the computed classroom name from the Student property
+    if not classroom_data:
+        classroom_data = {
+            "id": None,
+            "name": student.classroom,  # @property — returns section full_name or class name
+            "section_name": student.section.name if student.section else None,
+            "education_level": education_level,
+        }
+
+    return Response({
+        "classroom": classroom_data,
+        "education_level": education_level,
+        "student_class": student.student_class.name if student.student_class else None,
+    })
 
 
 @api_view(["GET"])
@@ -231,38 +382,60 @@ def get_student_result_token(request):
 @permission_classes([IsAuthenticated])
 def verify_result_token(request):
     """
-    Verify result token and return complete student information.
+    Verify a result token and return student information.
+
+    Security model:
+    - Token is looked up by string first (to give a clear "not found" error).
+    - Token must belong to the logged-in student — prevents one student using
+      another student's token.
+    - Tokens are NOT marked as used, so students can re-check results as many
+      times as needed until the token expires.
     """
-    token_string = request.data.get("token")
+    token_string = request.data.get("token", "").strip().upper()
 
     if not token_string:
         return Response(
-            {"error": "Token is required", "is_valid": False},
+            {"error": "Token is required.", "is_valid": False},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    # Step 1 — does this token exist at all?
     try:
         token_obj = ResultCheckToken.objects.select_related(
             "student", "school_term"
-        ).get(token=token_string, student=request.user)
+        ).get(token=token_string)
     except ResultCheckToken.DoesNotExist:
         return Response(
-            {"error": "Invalid token", "is_valid": False},
+            {
+                "error": "Token not found. Please check the token and try again.",
+                "is_valid": False,
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    # Step 2 — does this token belong to the student who is logged in?
+    if token_obj.student_id != request.user.pk:
+        return Response(
+            {
+                "error": "This token does not belong to your account. "
+                         "Please use the token issued to you by your school.",
+                "is_valid": False,
+            },
             status=status.HTTP_403_FORBIDDEN,
         )
 
-    if not token_obj.is_valid():
+    # Step 3 — is the token still valid (not expired)?
+    if timezone.now() > token_obj.expires_at:
         return Response(
             {
-                "error": "Token has expired or already used",
+                "error": "This token has expired. Contact your school for a new one.",
                 "is_valid": False,
                 "expires_at": token_obj.expires_at.isoformat(),
             },
             status=status.HTTP_403_FORBIDDEN,
         )
 
-    # Mark the token as used so it cannot be verified again
-    token_obj.mark_as_used()
+    # Tokens are NOT marked as used — students can re-check their results freely.
 
     student = None
     try:
@@ -310,7 +483,8 @@ def verify_result_token(request):
 @permission_classes([IsAdminUser])
 def get_all_result_tokens(request):
     """
-    Admin endpoint to retrieve all result tokens for a specific school term.
+    Retrieve all result tokens for a specific school term.
+    Platform admin: any term. Tenant admin: only their own school's terms.
     """
     school_term_id = request.query_params.get("school_term_id")
 
@@ -320,12 +494,24 @@ def get_all_result_tokens(request):
         )
 
     try:
-        school_term = Term.objects.get(id=school_term_id)
+        school_term = Term.objects.select_related("tenant").get(id=school_term_id)
     except Term.DoesNotExist:
         return Response(
             {"error": f"School term with id {school_term_id} not found"},
             status=status.HTTP_404_NOT_FOUND,
         )
+
+    # Tenant admin scope check
+    is_platform_admin = request.user.is_superuser or (
+        hasattr(request.user, "role") and request.user.role.upper() == "SUPERADMIN"
+    )
+    if not is_platform_admin:
+        request_tenant = getattr(request, "tenant", None)
+        if not request_tenant or str(request_tenant.id) != str(school_term.tenant_id):
+            return Response(
+                {"error": "You can only view tokens for your own school's terms."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
     tokens = (
         ResultCheckToken.objects.filter(school_term=school_term)
@@ -404,7 +590,7 @@ def get_all_result_tokens(request):
 
 
 @api_view(["DELETE"])
-@permission_classes([IsAdminUser])
+@permission_classes([IsPlatformAdmin])
 def delete_expired_tokens(request):
     """
     Admin endpoint to delete expired result tokens.
@@ -436,7 +622,8 @@ def delete_expired_tokens(request):
 @permission_classes([IsAdminUser])
 def delete_all_tokens_for_term(request):
     """
-    Admin endpoint to delete ALL tokens for a specific term.
+    Delete ALL tokens for a specific term.
+    Platform admin: any term. Tenant admin: only their own school's terms.
 
     Request body: { "school_term_id": 1 }
     """
@@ -448,12 +635,24 @@ def delete_all_tokens_for_term(request):
         )
 
     try:
-        school_term = Term.objects.get(id=school_term_id)
+        school_term = Term.objects.select_related("tenant").get(id=school_term_id)
     except Term.DoesNotExist:
         return Response(
             {"error": f"School term with id {school_term_id} not found"},
             status=status.HTTP_404_NOT_FOUND,
         )
+
+    # Tenant admin scope check
+    is_platform_admin = request.user.is_superuser or (
+        hasattr(request.user, "role") and request.user.role.upper() == "SUPERADMIN"
+    )
+    if not is_platform_admin:
+        request_tenant = getattr(request, "tenant", None)
+        if not request_tenant or str(request_tenant.id) != str(school_term.tenant_id):
+            return Response(
+                {"error": "You can only delete tokens for your own school's terms."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
     tokens = ResultCheckToken.objects.filter(school_term=school_term)
     count = tokens.count()

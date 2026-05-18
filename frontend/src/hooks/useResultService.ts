@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { useSettings } from './useSettings';
 import ResultSettingsService from '@/services/ResultSettingsService';
+import resultCheckerService from '@/services/ResultCheckerService';
 
 import type { 
   GradingSystem, 
@@ -20,18 +21,23 @@ import type {
 export const useResultService = () => {
   const { settings, isLoading, error } = useSettings();
 
-  // Automatically set school settings when available
+  // Sync school settings to the service when available
+  // Guard: setSchoolSettings may not exist on all versions of ResultSettingsService
   useEffect(() => {
-    if (settings) {
-      ResultSettingsService.setSchoolSettings(settings);
+    if (settings && typeof (ResultSettingsService as any).setSchoolSettings === 'function') {
+      (ResultSettingsService as any).setSchoolSettings(settings);
     }
   }, [settings]);
 
   // Memoized service wrapper to provide type-safe methods
   const service = useMemo(() => ({
-    // School Settings
-    getSchoolSettings: () => ResultSettingsService.getSchoolSettings(),
-    setSchoolSettings: (schoolSettings: any) => ResultSettingsService.setSchoolSettings(schoolSettings),
+    // School Settings (guard: these methods may not exist on all service versions)
+    getSchoolSettings: () => typeof (ResultSettingsService as any).getSchoolSettings === 'function'
+      ? (ResultSettingsService as any).getSchoolSettings()
+      : null,
+    setSchoolSettings: (schoolSettings: any) => typeof (ResultSettingsService as any).setSchoolSettings === 'function'
+      ? (ResultSettingsService as any).setSchoolSettings(schoolSettings)
+      : undefined,
 
     // Grading Systems - Updated with proper methods
     getGradingSystems: (): Promise<GradingSystem[]> => ResultSettingsService.getGradingSystems(),
@@ -93,22 +99,22 @@ export const useResultService = () => {
     setDefaultScoringConfiguration: (id: string): Promise<any> => 
       ResultSettingsService.setDefaultScoringConfiguration(id),
 
-    // Student Results (Legacy/Generic)
-    getStudentResults: (filters?: ResultFilters): Promise<StudentResult[]> => 
-      ResultSettingsService.getStudentResults(filters),
-    getStudentResultsByStudent: (studentId: string): Promise<StudentResult[]> => 
-      ResultSettingsService.getStudentResultsByStudent(studentId),
-    approveStudentResult: (id: string): Promise<any> => 
+    // Student Results — delegated to ResultCheckerService (correct service)
+    getStudentResults: (filters?: ResultFilters): Promise<StudentResult[]> =>
+      resultCheckerService.getStudentResults(filters as any) as any,
+    getStudentResultsByStudent: (studentId: string): Promise<StudentResult[]> =>
+      resultCheckerService.getStudentResults({ student: studentId } as any) as any,
+    approveStudentResult: (id: string): Promise<any> =>
       ResultSettingsService.approveResult('student', id),
-    publishStudentResult: (id: string): Promise<any> => 
+    publishStudentResult: (id: string): Promise<any> =>
       ResultSettingsService.publishResult('student', id),
 
-    // Student Term Results
-    getStudentTermResults: (filters?: ResultFilters): Promise<StudentTermResult[]> => 
-      ResultSettingsService.getStudentTermResults(filters),
-    getStudentTermResultDetailed: (id: string): Promise<any> => 
+    // Student Term Results — delegated to ResultCheckerService (correct service)
+    getStudentTermResults: (filters?: ResultFilters): Promise<StudentTermResult[]> =>
+      resultCheckerService.getStudentTermResults(filters as any) as any,
+    getStudentTermResultDetailed: (id: string): Promise<any> =>
       ResultSettingsService.getStudentTermResultDetailed(id),
-    generateTermReport: (data: any): Promise<any> => 
+    generateTermReport: (data: any): Promise<any> =>
       ResultSettingsService.generateTermReport(data),
 
     // Result Sheets
@@ -120,17 +126,19 @@ export const useResultService = () => {
       ResultSettingsService.approveResultSheet(id),
 
     // Enhanced Result Generation
+    // Note: generateEnhancedResultSheet has no backend implementation yet.
+    // Returns null so callers that already guard with try/catch degrade gracefully.
     generateEnhancedResultSheet: (
-      studentId: string, 
-      examSessionId: string, 
-      templateId?: string
-    ): Promise<EnhancedResultSheet> => 
-      ResultSettingsService.generateEnhancedResultSheet(studentId, examSessionId, templateId),
+      _studentId: string,
+      _examSessionId: string,
+      _templateId?: string
+    ): Promise<EnhancedResultSheet | null> =>
+      Promise.resolve(null),
     generateBulkResultSheets: (
-      studentIds: string[], 
-      examSessionId: string
-    ): Promise<EnhancedResultSheet[]> => 
-      ResultSettingsService.generateBulkResultSheets(studentIds, examSessionId),
+      _studentIds: string[],
+      _examSessionId: string
+    ): Promise<EnhancedResultSheet[]> =>
+      Promise.resolve([]),
 
     // Assessment Scores
     getAssessmentScores: (filters?: ResultFilters): Promise<AssessmentScore[]> => 
@@ -140,85 +148,82 @@ export const useResultService = () => {
     getResultComments: (filters?: ResultFilters): Promise<ResultComment[]> => 
       ResultSettingsService.getResultComments(filters),
 
-    // Education Level Specific Results with proper typing
+    // ── Education Level Specific Results ────────────────────────────────────
+    // GET methods delegate to ResultCheckerService (the correct service).
+    // Write methods (create/update/delete/approve/publish) stay on ResultSettingsService.
+
     // Nursery
-    getNurseryResults: (filters?: ResultFilters): Promise<NurseryResult[]> => 
-      ResultSettingsService.getNurseryResults(filters),
-
-    getNurseryTermReports: (filters?: ResultFilters): Promise<any[]> => 
-      ResultSettingsService.getNurseryTermReports(filters),
-
-    createNurseryResult: (data: Partial<NurseryResult>): Promise<NurseryResult> => 
+    getNurseryResults: (filters?: ResultFilters): Promise<NurseryResult[]> =>
+      resultCheckerService.getTermlyResults('NURSERY', filters as any) as any,
+    getNurseryTermReports: (filters?: ResultFilters): Promise<any[]> =>
+      resultCheckerService.getTermReports('NURSERY', filters as any),
+    createNurseryResult: (data: Partial<NurseryResult>): Promise<NurseryResult> =>
       ResultSettingsService.createNurseryResult(data),
-    updateNurseryResult: (id: string, data: Partial<NurseryResult>): Promise<NurseryResult> => 
+    updateNurseryResult: (id: string, data: Partial<NurseryResult>): Promise<NurseryResult> =>
       ResultSettingsService.updateNurseryResult(id, data),
-    deleteNurseryResult: (id: string): Promise<void> => ResultSettingsService.deleteNurseryResult(id),
-    approveNurseryResult: (id: string): Promise<any> => 
+    deleteNurseryResult: (id: string): Promise<void> =>
+      ResultSettingsService.deleteNurseryResult(id),
+    approveNurseryResult: (id: string): Promise<any> =>
       ResultSettingsService.approveResult('nursery', id),
-    publishNurseryResult: (id: string): Promise<any> => 
+    publishNurseryResult: (id: string): Promise<any> =>
       ResultSettingsService.publishResult('nursery', id),
 
     // Primary
-    getPrimaryResults: (filters?: ResultFilters): Promise<PrimaryResult[]> => 
-      ResultSettingsService.getPrimaryResults(filters),
-
-    getPrimaryTermReports: (filters?: ResultFilters): Promise<any[]> => 
-      ResultSettingsService.getPrimaryTermReports(filters),
-
-    createPrimaryResult: (data: Partial<PrimaryResult>): Promise<PrimaryResult> => 
+    getPrimaryResults: (filters?: ResultFilters): Promise<PrimaryResult[]> =>
+      resultCheckerService.getTermlyResults('PRIMARY', filters as any) as any,
+    getPrimaryTermReports: (filters?: ResultFilters): Promise<any[]> =>
+      resultCheckerService.getTermReports('PRIMARY', filters as any),
+    createPrimaryResult: (data: Partial<PrimaryResult>): Promise<PrimaryResult> =>
       ResultSettingsService.createPrimaryResult(data),
-    updatePrimaryResult: (id: string, data: Partial<PrimaryResult>): Promise<PrimaryResult> => 
+    updatePrimaryResult: (id: string, data: Partial<PrimaryResult>): Promise<PrimaryResult> =>
       ResultSettingsService.updatePrimaryResult(id, data),
-    deletePrimaryResult: (id: string): Promise<void> => ResultSettingsService.deletePrimaryResult(id),
-    approvePrimaryResult: (id: string): Promise<any> => 
+    deletePrimaryResult: (id: string): Promise<void> =>
+      ResultSettingsService.deletePrimaryResult(id),
+    approvePrimaryResult: (id: string): Promise<any> =>
       ResultSettingsService.approveResult('primary', id),
-    publishPrimaryResult: (id: string): Promise<any> => 
+    publishPrimaryResult: (id: string): Promise<any> =>
       ResultSettingsService.publishResult('primary', id),
 
     // Junior Secondary
-    getJuniorSecondaryResults: (filters?: ResultFilters): Promise<JuniorSecondaryResult[]> => 
-      ResultSettingsService.getJuniorSecondaryResults(filters),
-
-    getJuniorSecondaryTermReports: (filters?: ResultFilters): Promise<any[]> => 
-      ResultSettingsService.getJuniorSecondaryTermReports(filters),
-
-    createJuniorSecondaryResult: (data: Partial<JuniorSecondaryResult>): Promise<JuniorSecondaryResult> => 
+    getJuniorSecondaryResults: (filters?: ResultFilters): Promise<JuniorSecondaryResult[]> =>
+      resultCheckerService.getTermlyResults('JUNIOR_SECONDARY', filters as any) as any,
+    getJuniorSecondaryTermReports: (filters?: ResultFilters): Promise<any[]> =>
+      resultCheckerService.getTermReports('JUNIOR_SECONDARY', filters as any),
+    createJuniorSecondaryResult: (data: Partial<JuniorSecondaryResult>): Promise<JuniorSecondaryResult> =>
       ResultSettingsService.createJuniorSecondaryResult(data),
-    updateJuniorSecondaryResult: (id: string, data: Partial<JuniorSecondaryResult>): Promise<JuniorSecondaryResult> => 
+    updateJuniorSecondaryResult: (id: string, data: Partial<JuniorSecondaryResult>): Promise<JuniorSecondaryResult> =>
       ResultSettingsService.updateJuniorSecondaryResult(id, data),
-    deleteJuniorSecondaryResult: (id: string): Promise<void> => 
+    deleteJuniorSecondaryResult: (id: string): Promise<void> =>
       ResultSettingsService.deleteJuniorSecondaryResult(id),
-    approveJuniorSecondaryResult: (id: string): Promise<any> => 
+    approveJuniorSecondaryResult: (id: string): Promise<any> =>
       ResultSettingsService.approveResult('junior-secondary', id),
-    publishJuniorSecondaryResult: (id: string): Promise<any> => 
+    publishJuniorSecondaryResult: (id: string): Promise<any> =>
       ResultSettingsService.publishResult('junior-secondary', id),
 
     // Senior Secondary
-    getSeniorSecondaryTermlyResults: (filters?: ResultFilters): Promise<SeniorSecondaryResult[]> => 
-      ResultSettingsService.getSeniorSecondaryTermlyResults(filters),
-
-    getSeniorSecondaryTermReports: (filters?: ResultFilters): Promise<any[]> => 
-      ResultSettingsService.getSeniorSecondaryTermReports(filters),
-    
-    createSeniorSecondaryResult: (data: Partial<SeniorSecondaryResult>): Promise<SeniorSecondaryResult> => 
+    getSeniorSecondaryTermlyResults: (filters?: ResultFilters): Promise<SeniorSecondaryResult[]> =>
+      resultCheckerService.getTermlyResults('SENIOR_SECONDARY', filters as any) as any,
+    getSeniorSecondaryTermReports: (filters?: ResultFilters): Promise<any[]> =>
+      resultCheckerService.getTermReports('SENIOR_SECONDARY', filters as any),
+    createSeniorSecondaryResult: (data: Partial<SeniorSecondaryResult>): Promise<SeniorSecondaryResult> =>
       ResultSettingsService.createSeniorSecondaryResult(data),
-    updateSeniorSecondaryResult: (id: string, data: Partial<SeniorSecondaryResult>): Promise<SeniorSecondaryResult> => 
+    updateSeniorSecondaryResult: (id: string, data: Partial<SeniorSecondaryResult>): Promise<SeniorSecondaryResult> =>
       ResultSettingsService.updateSeniorSecondaryResult(id, data),
-    deleteSeniorSecondaryResult: (id: string): Promise<void> => 
+    deleteSeniorSecondaryResult: (id: string): Promise<void> =>
       ResultSettingsService.deleteSeniorSecondaryResult(id),
-    approveSeniorSecondaryResult: (id: string): Promise<any> => 
+    approveSeniorSecondaryResult: (id: string): Promise<any> =>
       ResultSettingsService.approveResult('senior-secondary', id),
-    publishSeniorSecondaryResult: (id: string): Promise<any> => 
+    publishSeniorSecondaryResult: (id: string): Promise<any> =>
       ResultSettingsService.publishResult('senior-secondary', id),
 
     // Senior Secondary Session Results
-    getSeniorSecondarySessionResults: (filters?: ResultFilters): Promise<SeniorSecondarySessionReport[]> => 
-      ResultSettingsService.getSeniorSecondarySessionResults(filters),
-    createSeniorSecondarySessionResult: (data: Partial<SeniorSecondarySessionReport>): Promise<SeniorSecondarySessionReport> => 
+    getSeniorSecondarySessionResults: (filters?: ResultFilters): Promise<SeniorSecondarySessionReport[]> =>
+      resultCheckerService.getSessionResults(filters as any) as any,
+    createSeniorSecondarySessionResult: (data: Partial<SeniorSecondarySessionReport>): Promise<SeniorSecondarySessionReport> =>
       ResultSettingsService.createSeniorSecondarySessionResult(data),
-    updateSeniorSecondarySessionResult: (id: string, data: Partial<SeniorSecondarySessionReport>): Promise<SeniorSecondarySessionReport> => 
+    updateSeniorSecondarySessionResult: (id: string, data: Partial<SeniorSecondarySessionReport>): Promise<SeniorSecondarySessionReport> =>
       ResultSettingsService.updateSeniorSecondarySessionResult(id, data),
-    deleteSeniorSecondarySessionResult: (id: string): Promise<void> => 
+    deleteSeniorSecondarySessionResult: (id: string): Promise<void> =>
       ResultSettingsService.deleteSeniorSecondarySessionResult(id),
 
     // Bulk Operations (using actual endpoints)

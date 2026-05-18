@@ -42,6 +42,7 @@ const GradeChart: React.FC<GradeChartProps> = ({ data, loading = false }) => {
   if (!data) {
     console.warn('[GradeChart] data is null – check enhancedStats?.grade_distribution');
   } else if (!data.distribution) {
+    console.log("GradeChart received data:", JSON.stringify(data, null, 2));
     console.warn('[GradeChart] data.distribution is missing. Received keys:', Object.keys(data));
   } else if (data.distribution.length === 0) {
     console.warn('[GradeChart] data.distribution is an empty array');

@@ -230,13 +230,11 @@ const handleSubmit = async (e: React.FormEvent) => {
 
     try {
       const teacher = teachers.find(t => t.id.toString() === teacherId);
-      
-      if (teacher?.assigned_subjects) {
-        const teacherSubjects = teacher.assigned_subjects.map(assignedSubject => {
-          return subjects.find(s => s.id === assignedSubject.id);
-        }).filter(Boolean) as Subject[];
-        
-        setAvailableSubjects(teacherSubjects);
+
+      if (teacher?.assigned_subjects && teacher.assigned_subjects.length > 0) {
+        // Use assigned_subjects directly — they already carry id/name/code
+        // from the backend and don't need cross-referencing with the local subjects list.
+        setAvailableSubjects(teacher.assigned_subjects as Subject[]);
         setSelectedSubjects([]);
       } else {
         setAvailableSubjects([]);
@@ -516,6 +514,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                     onClick={() => {
                       setSelectedClassroom(classroom);
                       resetAssignmentForm();
+                      loadTeachers();
                       setShowAssignTeacherModal(true);
                     }}
                     className="p-3 bg-green-50 hover:bg-green-100 text-green-700 rounded-lg transition-all duration-200 hover:scale-110 group relative"

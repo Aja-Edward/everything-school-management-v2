@@ -1,10 +1,38 @@
-
-import React, { useState } from 'react';
-import { CheckCircle, AlertCircle, Loader, Key, Download, Printer, Eye, Search, Copy, Check, RefreshCw, Trash2, Calendar, Clock } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  CheckCircle, AlertCircle, Loader, Key, Download, Printer,
+  Eye, Search, Copy, Check, RefreshCw, Trash2,
+  Building2, Info, ShieldOff,
+} from 'lucide-react';
 import api from '@/services/api';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface Tenant {
+  id: string;
+  name: string;
+  slug: string;
+  is_active: boolean;
+  status: string;
+}
+
+interface TermOption {
+  id: number;
+  name: string;
+  term_type: string;
+  // Platform-admin endpoint returns an object; tenant /academics/terms/ returns a bare ID
+  academic_session: { id: number; name: string } | number | null;
+  academic_session_name?: string; // flat string field from TermSerializer
+  start_date: string | null;
+  end_date: string | null;
+  is_current: boolean;
+  is_active: boolean;
+}
+
 interface GenerationResult {
   success: boolean;
   message: string;
+  tenant: string;
   school_term: string;
   academic_session: string;
   tokens_created: number;
@@ -28,148 +56,194 @@ interface StudentToken {
   status?: string;
 }
 
-const AdminResultTokenGenerator = () => {
-  const [termId, setTermId] = useState('');
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const fmtDate = (d: string | null) =>
+  d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+
+/** Safely extract the session name regardless of whether the field is an
+ *  object {id, name} (platform-admin endpoint) or a bare integer FK
+ *  (tenant /academics/terms/ endpoint which also sends academic_session_name). */
+const sessionName = (t: TermOption): string => {
+  if (typeof t.academic_session === 'object' && t.academic_session !== null)
+    return t.academic_session.name;
+  return t.academic_session_name ?? '';
+};
+
+const getUserRole = () => {
+  try {
+    const raw = localStorage.getItem('userData');
+    if (!raw) return { isPlatformAdmin: false, isTenantAdmin: false };
+    const u = JSON.parse(raw);
+    const isPlatformAdmin = !!(u?.is_superuser);
+    const isTenantAdmin   = !!(u?.is_staff && !u?.is_superuser);
+    return { isPlatformAdmin, isTenantAdmin };
+  } catch { return { isPlatformAdmin: false, isTenantAdmin: false }; }
+};
+
+const { isPlatformAdmin, isTenantAdmin } = getUserRole();
+const canAccessTokens = isPlatformAdmin || isTenantAdmin;
+
+// ─── Select component ─────────────────────────────────────────────────────────
+
+const inputCls =
+  'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 ' +
+  'focus:outline-none focus:ring-2 focus:ring-black focus:border-black bg-white ' +
+  'disabled:opacity-50 disabled:cursor-not-allowed';
+
+const labelCls = 'block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5';
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
+const AdminResultTokenGenerator: React.FC = () => {
+  // ── School + term selection ──────────────────────────────────────────────
+  const [tenants, setTenants]         = useState<Tenant[]>([]);
+  const [loadingTenants, setLoadingTenants] = useState(false);
+  const [selectedTenantId, setSelectedTenantId] = useState('');
+
+  const [tenantTerms, setTenantTerms] = useState<TermOption[]>([]);
+  const [loadingTerms, setLoadingTerms] = useState(false);
+
+  const [generateTermId, setGenerateTermId] = useState('');
+  const [viewTermId, setViewTermId]         = useState('');
   const [daysUntilExpiry, setDaysUntilExpiry] = useState('30');
-  const [viewTermId, setViewTermId] = useState('');
-  const [generating, setGenerating] = useState(false);
-  const [result, setResult] = useState<GenerationResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-  const [showTokens, setShowTokens] = useState(false);
-  const [tokens, setTokens] = useState<StudentToken[]>([]);
+
+  // ── Operation state ──────────────────────────────────────────────────────
+  const [generating, setGenerating]   = useState(false);
+  const [result, setResult]           = useState<GenerationResult | null>(null);
+  const [error, setError]             = useState<string | null>(null);
+
+  const [tokens, setTokens]           = useState<StudentToken[]>([]);
   const [loadingTokens, setLoadingTokens] = useState(false);
+  const [showTokens, setShowTokens]   = useState(false);
+  const [tokenStats, setTokenStats]   = useState<any>(null);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [tokenStats, setTokenStats] = useState<any>(null);
+  const [deleting, setDeleting]       = useState(false);
+
+  // ── Load data on mount ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!canAccessTokens) return;
+
+    if (isPlatformAdmin) {
+      // Platform admin: load all tenant schools to pick from
+      setLoadingTenants(true);
+      api.get('/api/tenants/list/')
+        .then((data: any) => {
+          const list: Tenant[] = Array.isArray(data) ? data : data?.results ?? [];
+          setTenants(list.filter(t => t.is_active));
+        })
+        .catch(() => setError('Could not load school list.'))
+        .finally(() => setLoadingTenants(false));
+    } else {
+      // Tenant admin: load their own school's terms directly
+      setLoadingTerms(true);
+      api.get('/api/academics/terms/')
+        .then((data: any) => {
+          const list: TermOption[] = Array.isArray(data) ? data : data?.results ?? [];
+          setTenantTerms(list);
+        })
+        .catch(() => setError('Could not load terms.'))
+        .finally(() => setLoadingTerms(false));
+    }
+  }, []);
+
+  // ── Load terms when platform admin selects a tenant ───────────────────────
+  useEffect(() => {
+    if (!isPlatformAdmin || !selectedTenantId) { setTenantTerms([]); return; }
+    setLoadingTerms(true);
+    setTenantTerms([]);
+    setGenerateTermId('');
+    setViewTermId('');
+    setResult(null);
+    setShowTokens(false);
+
+    api.get('/api/students/admin/terms-for-tenant/', { tenant_id: selectedTenantId })
+      .then((data: any) => setTenantTerms(data?.terms ?? []))
+      .catch(() => setError('Could not load terms for this school.'))
+      .finally(() => setLoadingTerms(false));
+  }, [selectedTenantId]);
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  const termLabel = (t: TermOption) => {
+    const sn = sessionName(t);
+    return `${t.name}${sn ? ` — ${sn}` : ''}${t.is_current ? ' (current)' : ''}`;
+  };
+
+  const selectedTenant = tenants.find(t => t.id === selectedTenantId);
+
+  // ── Generate tokens ───────────────────────────────────────────────────────
 
   const generateTokens = async () => {
-    if (!termId) {
-      setError('Please enter Term ID');
-      return;
-    }
+    if (!generateTermId) { setError('Please select a term.'); return; }
+    setGenerating(true);
+    setError(null);
+    setResult(null);
 
     try {
-      setGenerating(true);
-      setError(null);
-      setSuccess(false);
-      setResult(null);
+      const body: any = { school_term_id: parseInt(generateTermId) };
+      if (daysUntilExpiry && parseInt(daysUntilExpiry) > 0)
+        body.days_until_expiry = parseInt(daysUntilExpiry);
 
-      const requestBody: any = { school_term_id: parseInt(termId) };
-      
-      if (daysUntilExpiry && parseInt(daysUntilExpiry) > 0) {
-        requestBody.days_until_expiry = parseInt(daysUntilExpiry);
-      }
-
-      const data = await api.post('/api/students/admin/generate-result-tokens/', requestBody);
-      console.log('Token generation response:', data);
-      
-      // Log errors if they exist
-      if (data.errors && data.errors.length > 0) {
-        console.error('Token generation errors:', data.errors);
-        console.error('First 5 errors:', data.errors.slice(0, 5));
-      }
-      
+      const data = await api.post('/api/students/admin/generate-result-tokens/', body);
       setResult(data);
-      setSuccess(true);
-      setViewTermId(termId);
-      
-      // Only fetch tokens if some were actually created
-      if (data.total_students > 0 || data.tokens_created > 0 || data.tokens_updated > 0) {
-        await fetchTokens(termId);
-      } else if (data.error_count > 0) {
-        setError(`Token generation failed for all ${data.error_count} students. Check console for error details.`);
-      } else {
-        setError('Token generation succeeded but no tokens were created. This term may have no enrolled students.');
-      }
+      setViewTermId(generateTermId);
+      if ((data.total_students ?? 0) > 0) await fetchTokens(generateTermId);
     } catch (err: any) {
-      setError(err.message || 'Failed to generate tokens. Please try again.');
-      setSuccess(false);
+      setError(err?.response?.data?.error || err.message || 'Failed to generate tokens.');
     } finally {
       setGenerating(false);
     }
   };
 
-  const fetchTokens = async (termIdToFetch?: string) => {
-    const targetTermId = termIdToFetch || viewTermId;
-    if (!targetTermId) {
-      setError('Please enter a Term ID to view tokens');
-      return;
-    }
-    
+  // ── Fetch tokens ──────────────────────────────────────────────────────────
+
+  const fetchTokens = async (termId?: string) => {
+    const id = termId || viewTermId;
+    if (!id) { setError('Please select a term first.'); return; }
+    setLoadingTokens(true);
+    setError(null);
     try {
-      setLoadingTokens(true);
-      setError(null);
-      
-      const data = await api.get('/api/students/admin/get-all-result-tokens/', { school_term_id: targetTermId });
-        setTokens(data.tokens || []);
-        setTokenStats(data.statistics || null);
-        setShowTokens(true);  
-        setViewTermId(targetTermId);
-      
-    } catch (err) {
-      setError('Failed to fetch tokens. Please try again.');
+      const data = await api.get('/api/students/admin/get-all-result-tokens/', { school_term_id: id });
+      setTokens(data.tokens || []);
+      setTokenStats(data.statistics || null);
+      setShowTokens(true);
+      setViewTermId(id);
+    } catch {
+      setError('Failed to fetch tokens.');
     } finally {
       setLoadingTokens(false);
     }
   };
 
-  const deleteExpiredTokens = async () => {
-    if (!confirm('Are you sure you want to delete ALL expired tokens across all terms?')) {
-      return;
-    }
+  // ── Delete actions ────────────────────────────────────────────────────────
 
+  const deleteExpiredTokens = async () => {
+    if (!confirm('Delete ALL expired tokens across all terms?')) return;
+    setDeleting(true);
     try {
-      setDeleting(true);
-      setError(null);
-      
       const data = await api.delete('/api/students/admin/delete-expired-tokens/');
-        alert(`Successfully deleted ${data.deleted_count} expired tokens`);
-        
-        if (viewTermId) {
-          await fetchTokens();
-        }
-     
-    } catch (err) {
-      setError('Failed to delete expired tokens');
-    } finally {
-      setDeleting(false);
-    }
+      alert(`Deleted ${data.deleted_count} expired tokens`);
+      if (viewTermId) await fetchTokens();
+    } catch { setError('Failed to delete expired tokens.'); }
+    finally { setDeleting(false); }
   };
 
   const deleteAllTokensForTerm = async () => {
-    if (!viewTermId) {
-      setError('Please view tokens for a term first');
-      return;
-    }
-
-    if (!confirm(`Are you sure you want to delete ALL tokens for Term ${viewTermId}? This action cannot be undone.`)) {
-      return;
-    }
-
+    if (!viewTermId) { setError('View tokens for a term first.'); return; }
+    if (!confirm(`Delete ALL tokens for this term? This cannot be undone.`)) return;
+    setDeleting(true);
     try {
-      setDeleting(true);
-      setError(null);
-    
-      
-     const data = await api.delete('/students/admin/delete-all-tokens-for-term/', { school_term_id: parseInt(viewTermId) });
-
-      if (data) {
-       
-        alert(data.message);
-        setTokens([]);
-        setShowTokens(false);
-        setTokenStats(null);
-      } else {
-        setError('Failed to delete tokens');
-      }
-    } catch (err) {
-      setError('Failed to delete tokens');
-    } finally {
-      setDeleting(false);
-    }
+      const data = await api.delete('/api/students/admin/delete-all-tokens-for-term/', { school_term_id: parseInt(viewTermId) });
+      alert(data.message);
+      setTokens([]); setShowTokens(false); setTokenStats(null);
+    } catch { setError('Failed to delete tokens.'); }
+    finally { setDeleting(false); }
   };
+
+  // ── Copy / export / print ─────────────────────────────────────────────────
 
   const copyToken = (token: string) => {
     navigator.clipboard.writeText(token);
@@ -177,439 +251,474 @@ const AdminResultTokenGenerator = () => {
     setTimeout(() => setCopiedToken(null), 2000);
   };
 
-  const exportToCSV = () => {
-    const headers = ['Student Name', 'Username', 'Class', 'Token', 'Expires At', 'Status'];
+  const filteredTokens = tokens.filter(t =>
+    [t.student_name, t.username, t.student_class, t.token]
+      .some(f => f?.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
+
+  const isExpired = (exp: string) => new Date(exp) < new Date();
+
+  const exportCSV = () => {
     const rows = filteredTokens.map(t => [
-      t.student_name,
-      t.username,
-      t.student_class,
-      t.token,
-      new Date(t.expires_at).toLocaleDateString(),
-      t.status || 'Active'
+      t.student_name, t.username, t.student_class, t.token,
+      new Date(t.expires_at).toLocaleDateString(), t.status || 'Active',
     ]);
-    
-    const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `result_tokens_term_${viewTermId}_${new Date().toISOString().split('T')[0]}.csv`;
+    const csv = [['Student Name','Username','Class','Token','Expires','Status'], ...rows]
+      .map(r => r.join(',')).join('\n');
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
+      download: `tokens_term_${viewTermId}_${new Date().toISOString().split('T')[0]}.csv`,
+    });
     a.click();
   };
 
   const printTokens = () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-    
-    const html = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Result Tokens - Term ${viewTermId}</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 20px; }
-            h1 { text-align: center; margin-bottom: 10px; }
-            .subtitle { text-align: center; color: #666; margin-bottom: 30px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-            th { background-color: #4F46E5; color: white; }
-            tr:nth-child(even) { background-color: #f9f9f9; }
-            .token { font-family: 'Courier New', monospace; font-size: 13px; font-weight: bold; }
-            .active { color: green; }
-            .expired { color: red; }
-            @media print {
-              button { display: none; }
-            }
-          </style>
-        </head>
-        <body>
-          <h1>Result Access Tokens</h1>
-          <p class="subtitle">Term ${viewTermId} • Generated: ${new Date().toLocaleDateString()}</p>
-          <table>
-            <thead>
-              <tr>
-                <th>Student Name</th>
-                <th>Username</th>
-                <th>Class</th>
-                <th>Token</th>
-                <th>Expires</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${filteredTokens.map(t => `
-                <tr>
-                  <td>${t.student_name}</td>
-                  <td>${t.username}</td>
-                  <td>${t.student_class}</td>
-                  <td class="token">${t.token}</td>
-                  <td>${new Date(t.expires_at).toLocaleDateString()}</td>
-                  <td class="${t.status === 'Active' ? 'active' : 'expired'}">${t.status || 'Active'}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </body>
-      </html>
-    `;
-    
-    printWindow.document.write(html);
-    printWindow.document.close();
-    printWindow.print();
+    const w = window.open('', '_blank');
+    if (!w) return;
+    const tenantName = selectedTenant?.name || 'School';
+    const termName = tenantTerms.find(t => String(t.id) === viewTermId)?.name || `Term ${viewTermId}`;
+    const html = `<!DOCTYPE html><html><head><title>Result Tokens</title>
+    <style>
+      body{font-family:Arial,sans-serif;padding:20px}
+      h1{text-align:center}p.sub{text-align:center;color:#666;margin-bottom:24px}
+      table{width:100%;border-collapse:collapse}
+      th,td{border:1px solid #ddd;padding:10px;text-align:left}
+      th{background:#111;color:#fff}.token{font-family:monospace;font-weight:bold}
+      .active{color:green}.expired{color:red}
+      @media print{button{display:none}}
+    </style></head><body>
+    <h1>Result Access Tokens</h1>
+    <p class="sub">${tenantName} · ${termName} · Generated: ${new Date().toLocaleDateString()}</p>
+    <table><thead><tr><th>Student</th><th>Username</th><th>Class</th><th>Token</th><th>Expires</th><th>Status</th></tr></thead>
+    <tbody>${filteredTokens.map(t => `
+      <tr><td>${t.student_name}</td><td>${t.username}</td><td>${t.student_class}</td>
+      <td class="token">${t.token}</td><td>${new Date(t.expires_at).toLocaleDateString()}</td>
+      <td class="${isExpired(t.expires_at)?'expired':'active'}">${isExpired(t.expires_at)?'Expired':t.status||'Active'}</td></tr>
+    `).join('')}</tbody></table></body></html>`;
+    w.document.documentElement.innerHTML = html;
+    w.print();
   };
 
-  const filteredTokens = tokens.filter(t => 
-    t.student_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    t.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    t.student_class.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    t.token.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // ─── Guard ────────────────────────────────────────────────────────────────
 
-  const isTokenExpired = (expiresAt: string) => {
-    return new Date(expiresAt) < new Date();
-  };
+  if (!canAccessTokens) {
+    return (
+      <div className="p-8 flex flex-col items-center justify-center min-h-[300px] text-center">
+        <ShieldOff className="text-gray-300 mb-4" size={36} />
+        <h2 className="text-sm font-semibold text-gray-700">Access Restricted</h2>
+        <p className="text-xs text-gray-400 mt-1 max-w-xs">
+          Only school administrators can access the result token system.
+        </p>
+      </div>
+    );
+  }
+
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-4">
-      <div className="max-w-6xl mx-auto">
-        <div className="mb-4">
-          <h1 className="text-lg font-semibold text-gray-900">Result Token Management</h1>
-          <p className="text-xs text-gray-500 mt-0.5">Generate and manage result access tokens</p>
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
+
+      {/* Header */}
+      <div>
+        <h1 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+          <Key className="w-5 h-5" /> Result Token Management
+        </h1>
+        <p className="text-xs text-gray-500 mt-0.5">Platform admin only — generate per-school, per-term result access tokens</p>
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div className="flex items-start gap-2.5 bg-white border border-gray-200 rounded-xl p-4 text-sm text-gray-800">
+          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-gray-500" />
+          <span>{error}</span>
         </div>
+      )}
 
-        {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-            <div className="flex items-start gap-2">
-              <AlertCircle className="text-red-600 mt-0.5 flex-shrink-0" size={16} />
-              <p className="text-sm text-red-600">{error}</p>
-            </div>
+      {/* ── Step 1: Select School (platform admin only) ───────────────────── */}
+      {isPlatformAdmin && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <span className="w-6 h-6 bg-black text-white text-xs font-bold rounded-full flex items-center justify-center shrink-0">1</span>
+            <h2 className="text-sm font-bold text-gray-900">Select School</h2>
           </div>
-        )}
 
-        <div className="grid gap-4 lg:grid-cols-2 mb-4">
-          {/* Generate New Tokens Card */}
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <h2 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <Key size={16} className="text-gray-500" />
-              Generate New Tokens
-            </h2>
+          {loadingTenants ? (
+            <div className="flex items-center gap-2 text-xs text-gray-400 py-1">
+              <Loader size={12} className="animate-spin" /> Loading schools…
+            </div>
+          ) : (
+            <select
+              value={selectedTenantId}
+              onChange={e => setSelectedTenantId(e.target.value)}
+              className={inputCls}
+            >
+              <option value="">Choose a school…</option>
+              {tenants.map(t => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          )}
 
-            {success && result && (
-              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="text-green-600" size={14} />
-                    <span className="text-xs font-medium text-green-800">
-                      {result.tokens_created} created, {result.tokens_updated} updated
-                    </span>
+          {selectedTenant && (
+            <div className="mt-3 flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+              <Building2 className="w-3.5 h-3.5 shrink-0" />
+              <span>Selected: <strong className="text-gray-900">{selectedTenant.name}</strong></span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Step 2: Terms reference table ────────────────────────────────── */}
+      {/* Platform admin: show after school selected. Tenant admin: show always */}
+      {(isTenantAdmin || selectedTenantId) && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+            <span className="w-6 h-6 bg-black text-white text-xs font-bold rounded-full flex items-center justify-center shrink-0">
+              {isPlatformAdmin ? '2' : '1'}
+            </span>
+            <h2 className="text-sm font-bold text-gray-900">Academic Terms</h2>
+            <span className="text-xs text-gray-400 ml-1">— IDs you need to generate tokens</span>
+          </div>
+
+          {loadingTerms ? (
+            <div className="flex items-center gap-2 text-xs text-gray-400 p-5">
+              <Loader size={12} className="animate-spin" /> Loading terms…
+            </div>
+          ) : tenantTerms.length === 0 ? (
+            <div className="p-5 text-sm text-gray-400 flex items-center gap-2">
+              <Info size={14} /> No terms found for this school.
+            </div>
+          ) : (
+            <>
+              {/* Desktop */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-100">
+                      {['Term ID', 'Term Name', 'Session', 'Start', 'End', 'Status'].map(h => (
+                        <th key={h} className="px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {tenantTerms.map(t => (
+                      <tr key={t.id} className={`hover:bg-gray-50 ${t.is_current ? 'bg-gray-50' : ''}`}>
+                        <td className="px-5 py-3">
+                          <span className="font-mono font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded text-sm">{t.id}</span>
+                        </td>
+                        <td className="px-5 py-3 font-medium text-gray-900">
+                          {t.name}
+                          {t.is_current && (
+                            <span className="ml-2 px-1.5 py-0.5 text-[10px] font-semibold bg-gray-900 text-white rounded-full">current</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3 text-gray-600">{sessionName(t) || '—'}</td>
+                        <td className="px-5 py-3 text-gray-500 text-xs">{t.start_date ? fmtDate(t.start_date) : '—'}</td>
+                        <td className="px-5 py-3 text-gray-500 text-xs">{t.end_date ? fmtDate(t.end_date) : '—'}</td>
+                        <td className="px-5 py-3">
+                          {t.is_active
+                            ? <span className="text-xs text-gray-700 font-medium">Active</span>
+                            : <span className="text-xs text-gray-400">Inactive</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile */}
+              <div className="sm:hidden divide-y divide-gray-100">
+                {tenantTerms.map(t => (
+                  <div key={t.id} className="px-4 py-3 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-sm text-gray-900">
+                        {t.name}
+                        {t.is_current && <span className="ml-2 px-1.5 py-0.5 text-[10px] font-semibold bg-gray-900 text-white rounded-full">current</span>}
+                      </span>
+                      <span className="font-mono font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded text-xs">ID: {t.id}</span>
+                    </div>
+                    <p className="text-xs text-gray-500">{sessionName(t)}</p>
+                    {t.start_date && t.end_date && (
+                      <p className="text-xs text-gray-400">{fmtDate(t.start_date)} — {fmtDate(t.end_date)}</p>
+                    )}
                   </div>
-                  <span className="text-[10px] text-green-600">Expires: {result.expiry_date}</span>
+                ))}
+              </div>
+
+              <div className="px-5 py-3 border-t border-gray-100 bg-gray-50">
+                <p className="text-xs text-gray-500 flex items-center gap-1.5">
+                  <Info className="w-3.5 h-3.5 shrink-0" />
+                  Share the <strong>Term ID</strong> with the tenant admin so they can generate tokens themselves, or generate below.
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Step 3: Generate + View ───────────────────────────────────────── */}
+      {(isTenantAdmin || selectedTenantId) && tenantTerms.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+          {/* Generate card */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-6 h-6 bg-black text-white text-xs font-bold rounded-full flex items-center justify-center shrink-0">
+                {isPlatformAdmin ? '3' : '2'}
+              </span>
+              <h2 className="text-sm font-bold text-gray-900">Generate Tokens</h2>
+            </div>
+
+            {/* Success result */}
+            {result && (
+              <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="text-gray-700" size={14} />
+                  <span className="text-xs font-semibold text-gray-900">
+                    {result.tokens_created} created · {result.tokens_updated} updated
+                  </span>
                 </div>
-                {result.total_students === 0 && (
-                  <p className="text-[10px] text-amber-600 mb-2">No students found for this term.</p>
-                )}
-                {result.errors && result.errors.length > 0 && (
-                  <p className="text-[10px] text-red-600 mb-2">{result.error_count} errors occurred</p>
+                <p className="text-xs text-gray-500">
+                  School: <strong>{result.tenant}</strong> · Term: <strong>{result.school_term}</strong>
+                </p>
+                <p className="text-xs text-gray-500">Expires: {result.expiry_date}</p>
+                {result.error_count && result.error_count > 0 && (
+                  <p className="text-xs text-gray-700 font-medium">{result.error_count} errors occurred</p>
                 )}
                 <button
-                  onClick={() => { setResult(null); setSuccess(false); setError(null); setTermId(''); }}
-                  className="w-full py-1.5 bg-white hover:bg-gray-50 text-gray-700 rounded border border-green-200 text-xs font-medium"
+                  onClick={() => { setResult(null); setGenerateTermId(''); setError(null); }}
+                  className="w-full py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors mt-1"
                 >
-                  Generate More
+                  Generate Again
                 </button>
               </div>
             )}
 
-            {!success && (
+            {!result && (
               <div className="space-y-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Term ID *</label>
-                  <input
-                    type="number"
-                    value={termId}
-                    onChange={(e) => setTermId(e.target.value)}
-                    placeholder="e.g., 1"
-                    className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-                  />
+                  <label className={labelCls}>Select Term *</label>
+                  <select
+                    value={generateTermId}
+                    onChange={e => setGenerateTermId(e.target.value)}
+                    className={inputCls}
+                  >
+                    <option value="">Choose a term…</option>
+                    {tenantTerms.map(t => (
+                      <option key={t.id} value={t.id}>{termLabel(t)}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Days Until Expiry</label>
+                  <label className={labelCls}>Days Until Expiry <span className="font-normal normal-case text-gray-400">(optional)</span></label>
                   <input
                     type="number"
                     value={daysUntilExpiry}
-                    onChange={(e) => setDaysUntilExpiry(e.target.value)}
-                    placeholder="30"
+                    onChange={e => setDaysUntilExpiry(e.target.value)}
+                    placeholder="Default: term end date"
                     min="1"
-                    className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                    className={inputCls}
                   />
-                  <p className="text-[10px] text-gray-400 mt-0.5">Optional. Default: 30 days</p>
+                  <p className="text-[11px] text-gray-400 mt-1">Leave blank to expire on term end date</p>
                 </div>
 
-                <div className="bg-gray-50 border border-gray-200 rounded-lg p-2">
-                  <p className="text-[10px] text-gray-500">
-                    Tokens are human-readable: <code className="bg-white px-1 py-0.5 rounded font-mono text-gray-700">A7B-2C9-X3Y</code>
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-2.5">
+                  <p className="text-[11px] text-gray-500">
+                    Token format: <code className="bg-white px-1 py-0.5 rounded font-mono text-gray-700">A7B-2C9-X3Y-5Z1</code>
                   </p>
                 </div>
 
                 <button
                   onClick={generateTokens}
-                  disabled={generating || !termId}
-                  className={`w-full py-2 px-4 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
-                    generating || !termId
-                      ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                      : 'bg-gray-900 hover:bg-gray-800 text-white'
-                  }`}
+                  disabled={generating || !generateTermId}
+                  className="w-full py-2.5 text-sm font-semibold rounded-lg flex items-center justify-center gap-2 transition-colors bg-black hover:bg-gray-800 text-white disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
                 >
                   {generating ? (
-                    <>
-                      <Loader size={14} className="animate-spin" />
-                      Generating...
-                    </>
+                    <><Loader size={14} className="animate-spin" />Generating…</>
                   ) : (
-                    <>
-                      <Key size={14} />
-                      Generate Tokens
-                    </>
+                    <><Key size={14} />Generate Tokens</>
                   )}
                 </button>
               </div>
             )}
           </div>
 
-          {/* View & Manage Tokens Card */}
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <h2 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          {/* View & manage card */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center gap-2 mb-4">
               <Eye size={16} className="text-gray-500" />
-              View & Manage Tokens
-            </h2>
+              <h2 className="text-sm font-bold text-gray-900">View & Manage</h2>
+            </div>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Term ID *</label>
-                <input
-                  type="number"
+                <label className={labelCls}>Select Term *</label>
+                <select
                   value={viewTermId}
-                  onChange={(e) => setViewTermId(e.target.value)}
-                  placeholder="e.g., 1, 2, 3..."
-                  className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-                />
+                  onChange={e => setViewTermId(e.target.value)}
+                  className={inputCls}
+                >
+                  <option value="">Choose a term…</option>
+                  {tenantTerms.map(t => (
+                    <option key={t.id} value={t.id}>{termLabel(t)}</option>
+                  ))}
+                </select>
               </div>
 
               <button
                 onClick={() => fetchTokens()}
                 disabled={loadingTokens || !viewTermId}
-                className={`w-full py-2.5 px-4 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
-                  loadingTokens || !viewTermId
-                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                    : 'bg-gray-900 hover:bg-gray-800 text-white'
-                }`}
+                className="w-full py-2.5 text-sm font-semibold rounded-lg flex items-center justify-center gap-2 transition-colors bg-black hover:bg-gray-800 text-white disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
               >
                 {loadingTokens ? (
-                  <>
-                    <Loader size={16} className="animate-spin" />
-                    Loading...
-                  </>
+                  <><Loader size={14} className="animate-spin" />Loading…</>
                 ) : (
-                  <>
-                    <Eye size={16} />
-                    View Tokens
-                  </>
+                  <><Eye size={14} />View Tokens</>
                 )}
               </button>
 
               {showTokens && (
                 <div className="space-y-2">
-                  <button
-                    onClick={() => fetchTokens()}
-                    disabled={loadingTokens}
-                    className="w-full py-2 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors text-sm font-medium flex items-center justify-center gap-2"
-                  >
-                    <RefreshCw size={14} />
-                    Refresh
+                  <button onClick={() => fetchTokens()} disabled={loadingTokens}
+                    className="w-full py-2 text-xs font-medium border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2 transition-colors">
+                    <RefreshCw size={12} />Refresh
                   </button>
-
-                  <button
-                    onClick={deleteAllTokensForTerm}
-                    disabled={deleting}
-                    className="w-full py-2 px-4 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm font-medium flex items-center justify-center gap-2"
-                  >
-                    {deleting ? (
-                      <>
-                        <Loader size={16} className="animate-spin" />
-                        Deleting...
-                      </>
-                    ) : (
-                      <>
-                        <Trash2 size={16} />
-                        Delete All Tokens for This Term
-                      </>
-                    )}
+                  <button onClick={deleteAllTokensForTerm} disabled={deleting}
+                    className="w-full py-2 text-xs font-medium border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 flex items-center justify-center gap-2 transition-colors">
+                    {deleting ? <Loader size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                    Delete All Tokens for This Term
                   </button>
-
-                  <button
-                    onClick={deleteExpiredTokens}
-                    disabled={deleting}
-                    className="w-full py-2 px-4 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors font-medium flex items-center justify-center gap-2"
-                  >
-                    {deleting ? (
-                      <>
-                        <Loader size={16} className="animate-spin" />
-                        Deleting...
-                      </>
-                    ) : (
-                      <>
-                        <Trash2 size={16} />
-                        Delete All Expired Tokens
-                      </>
-                    )}
+                  <button onClick={deleteExpiredTokens} disabled={deleting}
+                    className="w-full py-2 text-xs font-medium border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 flex items-center justify-center gap-2 transition-colors">
+                    {deleting ? <Loader size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                    Delete All Expired Tokens (Global)
                   </button>
                 </div>
               )}
             </div>
           </div>
         </div>
+      )}
 
-        {/* Token Statistics */}
-        {showTokens && tokenStats && (
-          <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-            <div className="grid grid-cols-4 gap-3">
-              <div className="text-center">
-                <p className="text-[10px] text-gray-400 uppercase">Total</p>
-                <p className="text-lg font-semibold text-gray-900">{tokenStats.total}</p>
+      {/* ── Token stats ───────────────────────────────────────────────────── */}
+      {showTokens && tokenStats && (
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
+            Token Statistics — {selectedTenant?.name}
+          </p>
+          <div className="grid grid-cols-4 gap-3">
+            {[
+              { label: 'Total', value: tokenStats.total },
+              { label: 'Active', value: tokenStats.active },
+              { label: 'Expired', value: tokenStats.expired },
+              { label: 'Used', value: tokenStats.used },
+            ].map(s => (
+              <div key={s.label} className="text-center">
+                <p className="text-[10px] text-gray-400 uppercase font-medium">{s.label}</p>
+                <p className="text-xl font-bold text-gray-900">{s.value}</p>
               </div>
-              <div className="text-center">
-                <p className="text-[10px] text-gray-400 uppercase">Active</p>
-                <p className="text-lg font-semibold text-green-600">{tokenStats.active}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-[10px] text-gray-400 uppercase">Expired</p>
-                <p className="text-lg font-semibold text-amber-600">{tokenStats.expired}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-[10px] text-gray-400 uppercase">Used</p>
-                <p className="text-lg font-semibold text-purple-600">{tokenStats.used}</p>
-              </div>
-            </div>
+            ))}
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Tokens List */}
-        {showTokens && tokens.length > 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-gray-900">
-                Term {viewTermId} ({filteredTokens.length} tokens)
-              </h2>
-              <div className="flex gap-2">
-                <button
-                  onClick={exportToCSV}
-                  className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded flex items-center gap-1 text-xs font-medium transition-colors"
-                >
-                  <Download size={12} />
-                  CSV
-                </button>
-                <button
-                  onClick={printTokens}
-                  className="px-2 py-1 bg-gray-900 hover:bg-gray-800 text-white rounded flex items-center gap-1 text-xs font-medium transition-colors"
-                >
-                  <Printer size={12} />
-                  Print
-                </button>
-              </div>
-            </div>
-
-            <div className="mb-3">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-400" size={14} />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search tokens..."
-                  className="w-full pl-8 pr-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-                />
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <div className="max-h-[600px] overflow-y-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 sticky top-0">
-                    <tr>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Student</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Username</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Class</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Token</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Expires</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredTokens.map((token) => {
-                      const expired = isTokenExpired(token.expires_at);
-                      return (
-                        <tr key={token.id} className="border-b border-gray-100 hover:bg-gray-50">
-                          <td className="px-3 py-2 text-sm text-gray-900">{token.student_name}</td>
-                          <td className="px-3 py-2 text-sm text-gray-600">{token.username}</td>
-                          <td className="px-3 py-2 text-sm text-gray-600">{token.student_class}</td>
-                          <td className="px-3 py-2">
-                            <code className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">
-                              {token.token}
-                            </code>
-                          </td>
-                          <td className="px-3 py-2 text-sm text-gray-600">
-                            {new Date(token.expires_at).toLocaleDateString()}
-                          </td>
-                          <td className="px-3 py-2">
-                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
-                              expired
-                                ? 'bg-red-50 text-red-700'
-                                : 'bg-green-50 text-green-700'
-                            }`}>
-                              {expired ? 'Expired' : token.status || 'Active'}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2">
-                            <button
-                              onClick={() => copyToken(token.token)}
-                              className="p-1 hover:bg-gray-100 rounded transition-colors"
-                              title="Copy token"
-                            >
-                              {copiedToken === token.token ? (
-                                <Check size={14} className="text-green-600" />
-                              ) : (
-                                <Copy size={14} className="text-gray-400" />
-                              )}
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {filteredTokens.length === 0 && (
-              <div className="text-center py-6 text-sm text-gray-500">
-                No tokens found matching your search.
-              </div>
-            )}
-          </div>
-        )}
-
-        {showTokens && tokens.length === 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 p-6 text-center">
-            <AlertCircle className="mx-auto text-gray-300 mb-3" size={32} />
-            <h3 className="text-sm font-medium text-gray-900 mb-1">No Tokens Found</h3>
-            <p className="text-xs text-gray-500">
-              Generate tokens for Term {viewTermId} to see them here.
+      {/* ── Tokens table ─────────────────────────────────────────────────── */}
+      {showTokens && tokens.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200">
+          <div className="px-5 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <p className="text-sm font-bold text-gray-900">
+              {selectedTenant?.name} — {tenantTerms.find(t => String(t.id) === viewTermId)?.name || `Term ${viewTermId}`}
+              <span className="text-gray-400 font-normal ml-2">({filteredTokens.length} tokens)</span>
             </p>
+            <div className="flex gap-2">
+              <button onClick={exportCSV}
+                className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 flex items-center gap-1 transition-colors">
+                <Download size={12} />CSV
+              </button>
+              <button onClick={printTokens}
+                className="px-3 py-1.5 text-xs font-medium bg-black text-white rounded-lg hover:bg-gray-800 flex items-center gap-1 transition-colors">
+                <Printer size={12} />Print
+              </button>
+            </div>
           </div>
-        )}
-      </div>
+
+          <div className="px-5 py-3 border-b border-gray-100">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={13} />
+              <input
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search by name, class or token…"
+                className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black"
+              />
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <div className="max-h-[500px] overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr>
+                    {['Student','Username','Class','Token','Expires','Status',''].map(h => (
+                      <th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filteredTokens.map(token => {
+                    const expired = isExpired(token.expires_at);
+                    return (
+                      <tr key={token.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-2.5 text-gray-900 font-medium">{token.student_name}</td>
+                        <td className="px-4 py-2.5 text-gray-500 text-xs">{token.username}</td>
+                        <td className="px-4 py-2.5 text-gray-500 text-xs">{token.student_class}</td>
+                        <td className="px-4 py-2.5">
+                          <code className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">
+                            {token.token}
+                          </code>
+                        </td>
+                        <td className="px-4 py-2.5 text-gray-500 text-xs">
+                          {new Date(token.expires_at).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
+                            expired ? 'bg-gray-100 text-gray-500' : 'bg-gray-900 text-white'
+                          }`}>
+                            {expired ? 'Expired' : token.status || 'Active'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <button onClick={() => copyToken(token.token)}
+                            className="p-1 hover:bg-gray-100 rounded transition-colors" title="Copy">
+                            {copiedToken === token.token
+                              ? <Check size={13} className="text-gray-700" />
+                              : <Copy size={13} className="text-gray-400" />}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {filteredTokens.length === 0 && (
+            <div className="py-10 text-center text-sm text-gray-400">
+              No tokens matching your search.
+            </div>
+          )}
+        </div>
+      )}
+
+      {showTokens && tokens.length === 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+          <AlertCircle className="mx-auto text-gray-300 mb-3" size={28} />
+          <p className="text-sm font-medium text-gray-700">No tokens found for this term</p>
+          <p className="text-xs text-gray-400 mt-1">Generate tokens first using the Generate panel above.</p>
+        </div>
+      )}
     </div>
   );
 };

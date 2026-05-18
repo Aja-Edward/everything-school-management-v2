@@ -22,6 +22,12 @@ class Teacher(TenantMixin, models.Model):
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     employee_id = models.CharField(max_length=20)
+    subjects = models.ManyToManyField(
+        Subject,
+        blank=True,
+        related_name="teaching_teachers",
+        help_text="Subjects this teacher is qualified/assigned to teach",
+    )
     staff_type = models.CharField(
         max_length=20, choices=STAFF_TYPE_CHOICES, default="teaching"
     )
