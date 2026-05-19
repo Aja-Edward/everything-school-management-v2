@@ -443,10 +443,11 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
     focus:border-transparent outline-none transition-all duration-300
     ${themeClasses.inputBg} ${themeClasses.inputFocus} ${themeClasses.textPrimary}`;
 
-  const isTeaching            = formData.staff_type === 'teaching';
-  // Show subject assignment if teaching AND at least one level uses subject teachers
-  // (or if we can't determine levels — default to showing it for safety)
-  const isSubjectTeacherModel = isTeaching && anyLevelUsesSubjectTeachers();
+  const isTeaching = formData.staff_type === 'teaching';
+  // Always show subject assignment for teaching staff — schools use subject
+  // teachers across all levels (Nursery → SSS). The admin controls which
+  // subjects are assigned; no level restriction is applied here.
+  const isSubjectTeacherModel = isTeaching;
   const totalPages = Math.ceil(subjectTotalCount / PAGE_SIZE);
   const rangeStart = (subjectPage - 1) * PAGE_SIZE + 1;
   const rangeEnd   = Math.min(subjectPage * PAGE_SIZE, subjectTotalCount);

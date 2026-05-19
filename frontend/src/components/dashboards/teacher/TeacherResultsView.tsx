@@ -117,8 +117,8 @@ const TeacherResults: React.FC = () => {
 
       const subjects = await TeacherDashboardService.getTeacherSubjects(teacherId);
 
-      // ── Build assignments ──────────────────────────────────────────────────
-      const assignments: ExtendedAssignment[] = subjects.flatMap((subject: any) => {
+      // ── Build assignments from classroom assignments ────────────────────────
+      let assignments: ExtendedAssignment[] = subjects.flatMap((subject: any) => {
         if (!Array.isArray(subject.assignments)) return [];
         return subject.assignments.map((a: any): ExtendedAssignment => ({
           id: a.id,
@@ -136,6 +136,40 @@ const TeacherResults: React.FC = () => {
           is_primary_teacher: a.is_primary_teacher || a.is_class_teacher || false,
         }));
       });
+
+      // ── Fallback: use teacher's M2M assigned subjects when no classroom
+      //    assignments exist (subject-teacher model — no fixed classroom) ────────
+      if (assignments.length === 0) {
+        try {
+          const teacherProfile = await TeacherService.getTeacher(teacherId);
+          // assigned_subjects comes from the serializer method field
+          const m2mSubjects: any[] = teacherProfile.assigned_subjects ?? [];
+          if (m2mSubjects.length > 0) {
+            assignments = m2mSubjects.map((s: any): ExtendedAssignment => ({
+              id: s.id,
+              classroom_name: '',
+              classroom_id: null,           // no fixed classroom — picker will appear
+              section_name: '',
+              section_id: null,
+              grade_level_name: '',
+              // Derive level from the subject's education_levels JSON array
+              education_level: (
+                Array.isArray(s.education_levels) && s.education_levels.length > 0
+                  ? (s.education_levels[0] as EducationLevel)
+                  : undefined
+              ),
+              subject_name: s.name || 'Unknown Subject',
+              subject_code: s.code || '',
+              subject_id: Number(s.id),
+              student_count: 0,
+              periods_per_week: 0,
+              is_primary_teacher: false,
+            }));
+          }
+        } catch {
+          // silently ignore — assignments stays empty
+        }
+      }
 
       setTeacherAssignments(assignments as unknown as TeacherAssignment[]);
 
