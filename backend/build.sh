@@ -7,4 +7,6 @@ python manage.py migrate
 # Safe to re-run — uses get_or_create, never duplicates.
 python manage.py seed_activity_categories || true
 python manage.py seed_appraisal_criteria || true
+# TEMPORARY DIAGNOSTIC — remove after checking Render build log
+python manage.py diagnose_kebi_subjects || true
 
