@@ -13,6 +13,10 @@ from teacher.bulk_views import (
     export_credentials,
 )
 from teacher.activity_views import StaffActivityCategoryViewSet, StaffActivityLogViewSet
+from teacher.appraisal_views import (
+    AppraisalCriteriaViewSet, PerformanceAppraisalViewSet, StaffNoteViewSet
+)
+from teacher.pd_views import ProfessionalDevelopmentViewSet
 
 router = DefaultRouter()
 router.register(r"teachers", TeacherViewSet, basename="teacher")
@@ -21,6 +25,10 @@ router.register(r"teacher-schedules", TeacherScheduleViewSet, basename="teacher-
 router.register(r"assignment-management", AssignmentManagementViewSet, basename="assignment-management")
 router.register(r"activity-categories", StaffActivityCategoryViewSet, basename="activity-category")
 router.register(r"activity-logs", StaffActivityLogViewSet, basename="activity-log")
+router.register(r"appraisal-criteria", AppraisalCriteriaViewSet, basename="appraisal-criteria")
+router.register(r"appraisals", PerformanceAppraisalViewSet, basename="appraisal")
+router.register(r"staff-notes", StaffNoteViewSet, basename="staff-note")
+router.register(r"professional-development", ProfessionalDevelopmentViewSet, basename="professional-development")
 
 urlpatterns = [
     # Give bulk-upload its own prefix so router regex can never intercept it

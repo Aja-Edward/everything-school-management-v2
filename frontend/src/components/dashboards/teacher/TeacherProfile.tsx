@@ -1,10 +1,203 @@
-import React, { useState, useEffect } from "react";
-import { User, Award, GraduationCap, Edit, BookOpen, TrendingUp, Users, Camera, Save, X, CheckCircle, AlertCircle, Briefcase, FileText, Share2 } from "lucide-react";
+import React, { useState, useEffect, useCallback } from "react";
+import { User, Award, GraduationCap, Edit, BookOpen, Users, Camera, Save, X, CheckCircle, AlertCircle, Briefcase, FileText, Share2, Star, MessageSquare, ThumbsUp, Shield, ChevronRight } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { TeacherUserData } from "@/types/types";
 import TeacherService from "@/services/TeacherService";
 import AssignmentManagement from "./AssignmentManagement";
 import SignatureRemarksManagement from "./SignatureRemarksManagement";
+import PerformanceService, {
+  PerformanceAppraisal, StaffNote, NoteType, AppraisalStatus,
+  ProfessionalDevelopment, PDType, CreatePDPayload, PDSummary,
+} from "@/services/PerformanceService";
+import { toast } from "react-toastify";
+
+// ── Performance tab types & helpers ──────────────────────────────────────────
+
+const APPRAISAL_STATUS_CFG: Record<AppraisalStatus, { label: string; color: string }> = {
+  draft:        { label: 'Draft',                 color: 'bg-slate-100 text-slate-600' },
+  submitted:    { label: 'Pending Acknowledgment', color: 'bg-amber-100 text-amber-700' },
+  acknowledged: { label: 'Acknowledged',           color: 'bg-emerald-100 text-emerald-700' },
+};
+
+const NOTE_TYPE_CFG: Record<NoteType, { label: string; positive: boolean; color: string; borderColor: string; icon: React.ElementType }> = {
+  commendation:    { label: 'Commendation',           positive: true,  color: 'bg-emerald-50 text-emerald-800', borderColor: 'border-l-emerald-400', icon: Star },
+  appreciation:    { label: 'Letter of Appreciation', positive: true,  color: 'bg-blue-50 text-blue-800',       borderColor: 'border-l-blue-400',    icon: ThumbsUp },
+  query:           { label: 'Query',                  positive: false, color: 'bg-amber-50 text-amber-800',     borderColor: 'border-l-amber-400',   icon: MessageSquare },
+  warning:         { label: 'Written Warning',        positive: false, color: 'bg-orange-50 text-orange-800',   borderColor: 'border-l-orange-400',  icon: AlertCircle },
+  caution:         { label: 'Caution',                positive: false, color: 'bg-red-50 text-red-800',         borderColor: 'border-l-red-400',     icon: Shield },
+  improvement_plan:{ label: 'Improvement Plan',       positive: false, color: 'bg-purple-50 text-purple-800',   borderColor: 'border-l-purple-400',  icon: CheckCircle },
+};
+
+const GRADE_COLORS: Record<string, string> = {
+  Excellent: 'text-emerald-700 bg-emerald-100',
+  'Very Good': 'text-blue-700 bg-blue-100',
+  Good: 'text-violet-700 bg-violet-100',
+  Average: 'text-amber-700 bg-amber-100',
+  'Below Average': 'text-orange-700 bg-orange-100',
+  Poor: 'text-red-700 bg-red-100',
+};
+
+function StarDisplay({ score, max }: { score: number; max: number }) {
+  return (
+    <div className="flex items-center gap-0.5">
+      {Array.from({ length: max }).map((_, i) => (
+        <Star key={i} className={`w-3.5 h-3.5 ${i < score ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
+      ))}
+      <span className="ml-1 text-xs text-slate-500">{score}/{max}</span>
+    </div>
+  );
+}
+
+// ── Appraisal detail modal ────────────────────────────────────────────────────
+
+function AppraisalModal({ appraisal, onClose, onAcknowledged }: {
+  appraisal: PerformanceAppraisal; onClose: () => void;
+  onAcknowledged: (a: PerformanceAppraisal) => void;
+}) {
+  const [response, setResponse] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const handleAcknowledge = async () => {
+    setSaving(true);
+    try {
+      const updated = await PerformanceService.acknowledgeAppraisal(appraisal.id, response);
+      toast.success('Appraisal acknowledged');
+      onAcknowledged(updated);
+      onClose();
+    } catch (e: any) { toast.error(e?.message || 'Failed'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-5 py-4 flex items-start justify-between rounded-t-2xl">
+          <div>
+            <h3 className="font-bold text-slate-900 dark:text-white">Performance Appraisal</h3>
+            <p className="text-xs text-slate-500 mt-0.5">{appraisal.period_display} {appraisal.academic_year} · {appraisal.appraiser_role_display}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          {appraisal.overall_score != null && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-violet-50 dark:bg-violet-900/30 rounded-xl p-4">
+                <p className="text-xs text-violet-600 dark:text-violet-400 font-semibold uppercase tracking-wider">Overall Score</p>
+                <p className="text-3xl font-bold text-violet-900 dark:text-violet-100 mt-1">{appraisal.overall_score}%</p>
+              </div>
+              <div className={`rounded-xl p-4 flex items-center justify-center ${GRADE_COLORS[appraisal.overall_grade] || 'bg-slate-50 text-slate-600'}`}>
+                <div className="text-center">
+                  <p className="text-xs font-semibold uppercase tracking-wider opacity-70">Grade</p>
+                  <p className="text-xl font-bold mt-1">{appraisal.overall_grade}</p>
+                </div>
+              </div>
+            </div>
+          )}
+          {appraisal.scores.length > 0 && (
+            <div className="space-y-2">
+              {appraisal.scores.map(s => (
+                <div key={s.id} className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 rounded-lg px-3 py-2">
+                  <p className="flex-1 text-xs text-slate-800 dark:text-slate-200">{s.criteria_name}</p>
+                  <StarDisplay score={s.score} max={s.max_score} />
+                </div>
+              ))}
+            </div>
+          )}
+          {appraisal.overall_comment && (
+            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3">
+              <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 mb-1">Appraiser's Comment</p>
+              <p className="text-sm text-blue-900 dark:text-blue-200">{appraisal.overall_comment}</p>
+            </div>
+          )}
+          {appraisal.recommendation && (
+            <div className="bg-violet-50 dark:bg-violet-900/20 rounded-xl p-3">
+              <p className="text-xs font-semibold text-violet-700 dark:text-violet-400 mb-1">Recommendations</p>
+              <p className="text-sm text-violet-900 dark:text-violet-200">{appraisal.recommendation}</p>
+            </div>
+          )}
+          {appraisal.status === 'submitted' && (
+            <div className="border border-amber-200 dark:border-amber-700 rounded-xl p-4 bg-amber-50 dark:bg-amber-900/20 space-y-3">
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Please acknowledge this appraisal</p>
+              <textarea rows={2} value={response} onChange={e => setResponse(e.target.value)}
+                placeholder="Optional response…"
+                className="w-full px-3 py-2 border border-amber-300 rounded-lg text-sm resize-none focus:ring-2 focus:ring-amber-400 outline-none bg-white dark:bg-slate-800 dark:text-white dark:border-amber-600" />
+              <button onClick={handleAcknowledge} disabled={saving}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+                <CheckCircle className="w-4 h-4" /> {saving ? 'Acknowledging…' : 'Acknowledge'}
+              </button>
+            </div>
+          )}
+          {appraisal.status === 'acknowledged' && appraisal.teacher_response && (
+            <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-3">
+              <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 mb-1">Your Response</p>
+              <p className="text-sm text-emerald-900 dark:text-emerald-200">{appraisal.teacher_response}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Staff note detail modal ───────────────────────────────────────────────────
+
+function NoteModal({ note, onClose, onAcknowledged }: {
+  note: StaffNote; onClose: () => void;
+  onAcknowledged: (n: StaffNote) => void;
+}) {
+  const [comment, setComment] = useState('');
+  const [saving, setSaving] = useState(false);
+  const cfg = NOTE_TYPE_CFG[note.note_type] ?? NOTE_TYPE_CFG.query;
+
+  const handleAcknowledge = async () => {
+    setSaving(true);
+    try {
+      const updated = await PerformanceService.acknowledgeNote(note.id, comment);
+      toast.success('Note acknowledged');
+      onAcknowledged(updated);
+      onClose();
+    } catch (e: any) { toast.error(e?.message || 'Failed'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-5 py-4 flex items-start justify-between rounded-t-2xl">
+          <div>
+            <h3 className="font-bold text-slate-900 dark:text-white">{note.title}</h3>
+            <p className="text-xs text-slate-500 mt-0.5">From: {note.issued_by_name}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className={`rounded-xl p-4 ${cfg.positive ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-amber-50 dark:bg-amber-900/20'}`}>
+            <p className={`text-xs font-semibold uppercase tracking-wider opacity-60 mb-2 ${cfg.positive ? 'text-emerald-700' : 'text-amber-700'}`}>{note.note_type_display} · {note.category_display}</p>
+            <p className={`text-sm whitespace-pre-line ${cfg.positive ? 'text-emerald-900 dark:text-emerald-200' : 'text-amber-900 dark:text-amber-200'}`}>{note.content}</p>
+          </div>
+          {!note.is_acknowledged && (
+            <div className="border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-3">
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Acknowledge receipt</p>
+              <textarea rows={2} value={comment} onChange={e => setComment(e.target.value)}
+                placeholder="Optional comment…"
+                className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm resize-none focus:ring-2 focus:ring-blue-400 outline-none bg-white dark:bg-slate-800 dark:text-white" />
+              <button onClick={handleAcknowledge} disabled={saving}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+                <CheckCircle className="w-4 h-4" /> {saving ? 'Confirming…' : 'I Acknowledge Receipt'}
+              </button>
+            </div>
+          )}
+          {note.is_acknowledged && (
+            <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-3">
+              <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 mb-1">✓ Acknowledged · {new Date(note.acknowledged_at!).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+              {note.teacher_comment && <p className="text-sm text-emerald-900 dark:text-emerald-200 italic">"{note.teacher_comment}"</p>}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface TeacherProfileProps {
   onRefresh?: () => void;
@@ -28,6 +221,118 @@ const TeacherProfile: React.FC<TeacherProfileProps> = ({ onRefresh }) => {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [profileData, setProfileData] = useState<any>(null);
   const [showBioModal, setShowBioModal] = useState(false);
+
+  // ── Performance tab state ──
+  const [appraisals, setAppraisals] = useState<PerformanceAppraisal[]>([]);
+  const [staffNotes, setStaffNotes] = useState<StaffNote[]>([]);
+  const [perfLoading, setPerfLoading] = useState(false);
+  const [perfTab, setPerfTab] = useState<'appraisals' | 'notes'>('appraisals');
+  const [viewAppraisal, setViewAppraisal] = useState<PerformanceAppraisal | null>(null);
+  const [viewNote, setViewNote] = useState<StaffNote | null>(null);
+
+  const loadPerformanceData = useCallback(async () => {
+    setPerfLoading(true);
+    try {
+      const [aData, nData] = await Promise.all([
+        PerformanceService.getAppraisals(),
+        PerformanceService.getNotes(),
+      ]);
+      setAppraisals(Array.isArray(aData) ? aData : (aData as any).results ?? []);
+      setStaffNotes(Array.isArray(nData) ? nData : (nData as any).results ?? []);
+    } catch { /* silently fail — not critical */ }
+    finally { setPerfLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'performance') loadPerformanceData();
+  }, [activeTab, loadPerformanceData]);
+
+  // ── Professional Development state ──
+  const [pdRecords, setPdRecords] = useState<ProfessionalDevelopment[]>([]);
+  const [pdSummary, setPdSummary] = useState<PDSummary | null>(null);
+  const [pdLoading, setPdLoading] = useState(false);
+  const [showPdForm, setShowPdForm] = useState(false);
+  const [editPd, setEditPd] = useState<ProfessionalDevelopment | null>(null);
+  const [pdFormData, setPdFormData] = useState<CreatePDPayload>({
+    title: '', dev_type: 'training', provider: '',
+    date_completed: '', date_expires: '', duration_hours: undefined,
+    certificate_url: '', description: '',
+  });
+  const [pdSaving, setPdSaving] = useState(false);
+
+  const loadPdData = useCallback(async () => {
+    setPdLoading(true);
+    try {
+      const [records, summary] = await Promise.all([
+        PerformanceService.getPDRecords(),
+        PerformanceService.getPDSummary(),
+      ]);
+      setPdRecords(Array.isArray(records) ? records : (records as any).results ?? []);
+      setPdSummary(summary);
+    } catch { /* non-critical */ }
+    finally { setPdLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'professional') loadPdData();
+  }, [activeTab, loadPdData]);
+
+  const openPdForm = (record?: ProfessionalDevelopment) => {
+    if (record) {
+      setEditPd(record);
+      setPdFormData({
+        title: record.title,
+        dev_type: record.dev_type,
+        provider: record.provider,
+        date_completed: record.date_completed,
+        date_expires: record.date_expires ?? '',
+        duration_hours: record.duration_hours ? parseFloat(record.duration_hours) : undefined,
+        certificate_url: record.certificate_url ?? '',
+        description: record.description,
+      });
+    } else {
+      setEditPd(null);
+      setPdFormData({ title: '', dev_type: 'training', provider: '', date_completed: '', date_expires: '', duration_hours: undefined, certificate_url: '', description: '' });
+    }
+    setShowPdForm(true);
+  };
+
+  const handlePdSave = async () => {
+    if (!pdFormData.title.trim()) { toast.error('Enter a title'); return; }
+    if (!pdFormData.date_completed) { toast.error('Enter the completion date'); return; }
+    setPdSaving(true);
+    try {
+      const payload: CreatePDPayload = {
+        ...pdFormData,
+        duration_hours: pdFormData.duration_hours || undefined,
+        date_expires: pdFormData.date_expires || undefined,
+        certificate_url: pdFormData.certificate_url || undefined,
+      };
+      const saved = editPd
+        ? await PerformanceService.updatePDRecord(editPd.id, payload)
+        : await PerformanceService.createPDRecord(payload);
+      setPdRecords(prev => editPd
+        ? prev.map(r => r.id === saved.id ? saved : r)
+        : [saved, ...prev]);
+      toast.success(editPd ? 'Record updated' : 'Record added');
+      setShowPdForm(false);
+      setEditPd(null);
+      loadPdData();   // refresh summary counts
+    } catch (e: any) {
+      const msg = e?.response?.data ? Object.values(e.response.data).flat().join(' ') : (e?.message || 'Failed');
+      toast.error(msg);
+    } finally { setPdSaving(false); }
+  };
+
+  const handlePdDelete = async (id: number) => {
+    if (!confirm('Delete this professional development record?')) return;
+    try {
+      await PerformanceService.deletePDRecord(id);
+      setPdRecords(prev => prev.filter(r => r.id !== id));
+      toast.success('Deleted');
+      loadPdData();
+    } catch { toast.error('Failed to delete'); }
+  };
   const [formData, setFormData] = useState({
     first_name: "",
     last_name: "",
@@ -80,7 +385,7 @@ const TeacherProfile: React.FC<TeacherProfileProps> = ({ onRefresh }) => {
         try {
           const teachersResponse = await TeacherService.getTeachers({
             user: user.id
-          });
+          } as any);
 
           console.log('Teachers response:', teachersResponse);
 
@@ -673,41 +978,245 @@ const TeacherProfile: React.FC<TeacherProfileProps> = ({ onRefresh }) => {
                 )}
               </div>
 
+              {/* ── Professional Development (real data) ── */}
               <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-                <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mb-4 sm:mb-6">Professional Development</h3>
-                <div className="grid grid-cols-3 gap-3 sm:gap-4">
-                  <div className="text-center p-4 sm:p-6 bg-blue-50 dark:bg-blue-900/20 rounded-2xl">
-                    <div className="text-2xl sm:text-3xl font-bold text-blue-600 dark:text-blue-400 mb-1">48</div>
-                    <div className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 font-medium">Training Hours</div>
-                  </div>
-                  <div className="text-center p-4 sm:p-6 bg-blue-50 dark:bg-blue-900/20 rounded-2xl">
-                    <div className="text-2xl sm:text-3xl font-bold text-blue-600 dark:text-blue-400 mb-1">3</div>
-                    <div className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 font-medium">Certifications</div>
-                  </div>
-                  <div className="text-center p-4 sm:p-6 bg-blue-50 dark:bg-blue-900/20 rounded-2xl">
-                    <div className="text-2xl sm:text-3xl font-bold text-blue-600 dark:text-blue-400 mb-1">12</div>
-                    <div className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 font-medium">Workshops</div>
-                  </div>
+                <div className="flex items-center justify-between mb-4 sm:mb-6">
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">Professional Development</h3>
+                  <button onClick={() => openPdForm()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700">
+                    + Add Record
+                  </button>
                 </div>
+
+                {/* Summary stats */}
+                <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-5">
+                  {[
+                    { label: 'CPD Hours', value: pdSummary ? (pdSummary.total_hours > 0 ? pdSummary.total_hours.toFixed(0) : '0') : '—' },
+                    { label: 'Certifications', value: pdSummary?.certifications ?? '—' },
+                    { label: 'Workshops / Events', value: pdSummary?.workshops ?? '—' },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-2xl">
+                      <div className="text-2xl sm:text-3xl font-bold text-blue-600 dark:text-blue-400 mb-1">{value}</div>
+                      <div className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 font-medium">{label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Records list */}
+                {pdLoading ? (
+                  <div className="flex justify-center py-8"><div className="w-7 h-7 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" /></div>
+                ) : pdRecords.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400 dark:text-slate-500 text-sm">
+                    No records yet. Click "+ Add Record" to log your first training, workshop, or certification.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {pdRecords.map(r => {
+                      const TYPE_COLORS: Record<string, string> = {
+                        training: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+                        workshop: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
+                        certification: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+                        seminar: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+                        conference: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
+                        course: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
+                        degree: 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300',
+                        other: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
+                      };
+                      return (
+                        <div key={r.id} className={`flex items-start gap-3 p-3 sm:p-4 rounded-xl border-l-4 ${
+                          r.approval_status === 'approved' ? 'bg-emerald-50 dark:bg-emerald-900/10 border-l-emerald-400' :
+                          r.approval_status === 'rejected' ? 'bg-red-50 dark:bg-red-900/10 border-l-red-400' :
+                          'bg-slate-50 dark:bg-slate-700/50 border-l-amber-400'
+                        }`}>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_COLORS[r.dev_type] ?? TYPE_COLORS.other}`}>
+                                {r.dev_type_display}
+                              </span>
+                              {/* Approval status badge */}
+                              {r.approval_status === 'approved' && (
+                                <span className="text-xs bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                                  <CheckCircle className="w-3 h-3" /> Approved
+                                </span>
+                              )}
+                              {r.approval_status === 'pending' && (
+                                <span className="text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-2 py-0.5 rounded-full font-medium">
+                                  ⏳ Pending Approval
+                                </span>
+                              )}
+                              {r.approval_status === 'rejected' && (
+                                <span className="text-xs bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 px-2 py-0.5 rounded-full font-medium">
+                                  ✗ Rejected
+                                </span>
+                              )}
+                              {r.is_expired && (
+                                <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-medium">Expired</span>
+                              )}
+                            </div>
+                            <p className="font-semibold text-slate-900 dark:text-white text-sm mt-1">{r.title}</p>
+                            {r.provider && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{r.provider}</p>}
+                            <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
+                              <span className="text-xs text-slate-500 dark:text-slate-400">
+                                {new Date(r.date_completed).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </span>
+                              {r.duration_hours && (
+                                <span className="text-xs text-slate-500 dark:text-slate-400">{r.duration_hours} hrs</span>
+                              )}
+                              {r.certificate_url && (
+                                <a href={r.certificate_url} target="_blank" rel="noopener noreferrer"
+                                  className="text-xs text-blue-600 hover:underline">View Certificate</a>
+                              )}
+                            </div>
+                            {/* Show rejection reason to teacher */}
+                            {r.approval_status === 'rejected' && r.rejection_reason && (
+                              <p className="text-xs text-red-700 dark:text-red-400 mt-1.5 italic bg-red-100 dark:bg-red-900/20 px-2 py-1 rounded">
+                                Reason: {r.rejection_reason}
+                              </p>
+                            )}
+                            {r.approval_status === 'rejected' && (
+                              <p className="text-xs text-slate-500 mt-1">Edit the record to resubmit for approval.</p>
+                            )}
+                          </div>
+                          {/* Edit/delete only for pending or rejected records */}
+                          {r.approval_status !== 'approved' && (
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <button onClick={() => openPdForm(r)}
+                                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors" title="Edit">
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button onClick={() => handlePdDelete(r.id)}
+                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors" title="Delete">
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
+              {/* ── PD Add/Edit Form Modal ── */}
+              {showPdForm && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
+                    <div className="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-5 py-4 flex items-center justify-between rounded-t-2xl">
+                      <h3 className="font-bold text-slate-900 dark:text-white">{editPd ? 'Edit Record' : 'Add Development Record'}</h3>
+                      <button onClick={() => { setShowPdForm(false); setEditPd(null); }}
+                        className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="p-5 space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="sm:col-span-2">
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Title / Name *</label>
+                          <input type="text" value={pdFormData.title}
+                            onChange={e => setPdFormData(f => ({ ...f, title: e.target.value }))}
+                            placeholder="e.g. Child Psychology Workshop"
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-400 outline-none dark:bg-slate-800 dark:text-white" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Type *</label>
+                          <select value={pdFormData.dev_type}
+                            onChange={e => setPdFormData(f => ({ ...f, dev_type: e.target.value as PDType }))}
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-400 outline-none dark:bg-slate-800 dark:text-white">
+                            {([
+                              ['training','Training'], ['workshop','Workshop'], ['certification','Certification'],
+                              ['seminar','Seminar'], ['conference','Conference'], ['course','Online / Self-Study Course'],
+                              ['degree','Academic Degree / Upgrade'], ['other','Other'],
+                            ] as const).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Provider / Institution</label>
+                          <input type="text" value={pdFormData.provider ?? ''}
+                            onChange={e => setPdFormData(f => ({ ...f, provider: e.target.value }))}
+                            placeholder="e.g. TRCN, Coursera, State Ministry"
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-400 outline-none dark:bg-slate-800 dark:text-white" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Date Completed *</label>
+                          <input type="date" value={pdFormData.date_completed}
+                            onChange={e => setPdFormData(f => ({ ...f, date_completed: e.target.value }))}
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-400 outline-none dark:bg-slate-800 dark:text-white" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Expiry Date <span className="font-normal text-slate-400">(certs only)</span></label>
+                          <input type="date" value={pdFormData.date_expires ?? ''}
+                            onChange={e => setPdFormData(f => ({ ...f, date_expires: e.target.value }))}
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-400 outline-none dark:bg-slate-800 dark:text-white" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Duration (hours)</label>
+                          <input type="number" min={0} step={0.5} value={pdFormData.duration_hours ?? ''}
+                            onChange={e => setPdFormData(f => ({ ...f, duration_hours: e.target.value ? parseFloat(e.target.value) : undefined }))}
+                            placeholder="e.g. 8"
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-400 outline-none dark:bg-slate-800 dark:text-white" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Certificate URL</label>
+                          <input type="url" value={pdFormData.certificate_url ?? ''}
+                            onChange={e => setPdFormData(f => ({ ...f, certificate_url: e.target.value }))}
+                            placeholder="https://…"
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-400 outline-none dark:bg-slate-800 dark:text-white" />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Description / Key Takeaways</label>
+                          <textarea rows={3} value={pdFormData.description ?? ''}
+                            onChange={e => setPdFormData(f => ({ ...f, description: e.target.value }))}
+                            placeholder="Skills gained, what was covered…"
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-400 outline-none resize-none dark:bg-slate-800 dark:text-white" />
+                        </div>
+                      </div>
+                      <div className="flex gap-3 pt-2 border-t border-slate-200 dark:border-slate-700">
+                        <button onClick={() => { setShowPdForm(false); setEditPd(null); }}
+                          className="flex-1 px-4 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800">
+                          Cancel
+                        </button>
+                        <button onClick={handlePdSave} disabled={pdSaving}
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+                          <Save className="w-4 h-4" /> {pdSaving ? 'Saving…' : editPd ? 'Update' : 'Add Record'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Service Summary (derived from real hire_date + education levels) ── */}
               <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-                <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mb-4 sm:mb-6">Teaching Experience</h3>
-                <div className="space-y-3 sm:space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 bg-slate-50 dark:bg-slate-700/50 rounded-xl gap-2">
-                    <div>
-                      <h4 className="font-semibold text-slate-900 dark:text-white text-sm sm:text-base">Primary Education</h4>
-                      <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-1">5 years experience</p>
-                    </div>
-                    <span className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-medium">2016-2021</span>
+                <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mb-4">Service Summary</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-xl">
+                    <span className="text-xs sm:text-sm text-slate-700 dark:text-slate-300">Hire Date</span>
+                    <span className="font-semibold text-slate-900 dark:text-white text-xs sm:text-sm">
+                      {profileData?.hire_date ? new Date(profileData.hire_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                    </span>
                   </div>
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 bg-slate-50 dark:bg-slate-700/50 rounded-xl gap-2">
-                    <div>
-                      <h4 className="font-semibold text-slate-900 dark:text-white text-sm sm:text-base">Secondary Education</h4>
-                      <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-1">3 years experience</p>
-                    </div>
-                    <span className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-medium">2021-Present</span>
+                  <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-xl">
+                    <span className="text-xs sm:text-sm text-slate-700 dark:text-slate-300">Years of Service</span>
+                    <span className="font-semibold text-slate-900 dark:text-white text-xs sm:text-sm">{getYearsOfService()} yrs</span>
                   </div>
+                  <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-xl">
+                    <span className="text-xs sm:text-sm text-slate-700 dark:text-slate-300">Staff Type</span>
+                    <span className="font-semibold text-slate-900 dark:text-white text-xs sm:text-sm capitalize">
+                      {profileData?.staff_type ?? '—'}
+                    </span>
+                  </div>
+                  {profileData?.education_levels_detail?.length > 0 && (
+                    <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-xl">
+                      <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 mb-2">Education Levels</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {profileData.education_levels_detail.map((el: any) => (
+                          <span key={el.id} className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 px-2 py-0.5 rounded-full font-medium">
+                            {el.name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -715,96 +1224,135 @@ const TeacherProfile: React.FC<TeacherProfileProps> = ({ onRefresh }) => {
 
           {activeTab === "performance" && (
             <div className="space-y-4 sm:space-y-6">
-              <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-                <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white mb-4 sm:mb-6">Performance Overview</h2>
-                
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
-                  <div className="bg-blue-600 rounded-2xl p-4 sm:p-5 text-white shadow-md">
-                    <div className="flex items-center justify-between mb-2 sm:mb-3">
-                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
-                        <CheckCircle className="w-5 h-5 sm:w-6 sm:h-6" />
+              {/* Summary cards */}
+              {(() => {
+                const pendingA = appraisals.filter(a => a.status === 'submitted').length;
+                const pendingN = staffNotes.filter(n => !n.is_acknowledged).length;
+                const pending = pendingA + pendingN;
+                const latest = [...appraisals].filter(a => a.overall_score != null && a.status === 'acknowledged')
+                  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+                return (
+                  <>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 text-center border border-slate-200 dark:border-slate-700 shadow-sm">
+                        <p className="text-2xl font-bold text-slate-900 dark:text-white">{appraisals.length}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Appraisals</p>
                       </div>
-                      <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-white/70" />
+                      <div className={`rounded-2xl p-4 text-center border shadow-sm ${latest ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
+                        <p className={`text-2xl font-bold ${latest ? 'text-blue-900 dark:text-blue-100' : 'text-slate-400'}`}>{latest ? `${latest.overall_score}%` : '—'}</p>
+                        <p className={`text-xs mt-0.5 ${latest ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500'}`}>Latest Score</p>
+                      </div>
+                      <div className={`rounded-2xl p-4 text-center border shadow-sm ${pending > 0 ? 'bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-700' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
+                        <p className={`text-2xl font-bold ${pending > 0 ? 'text-amber-700 dark:text-amber-300' : 'text-slate-400'}`}>{pending}</p>
+                        <p className={`text-xs mt-0.5 ${pending > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500'}`}>Action Needed</p>
+                      </div>
                     </div>
-                    <p className="text-xs sm:text-sm font-medium text-white/80 mb-1">Attendance</p>
-                    <p className="text-2xl sm:text-3xl font-bold">95%</p>
-                    <p className="text-xs text-white/70 mt-1 sm:mt-2">Last 30 days</p>
-                  </div>
+                    {pending > 0 && (
+                      <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-2xl p-4 flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                        <p className="text-sm text-amber-800 dark:text-amber-300">
+                          {pendingA > 0 && `${pendingA} appraisal(s) need acknowledgment. `}
+                          {pendingN > 0 && `${pendingN} staff note(s) need acknowledgment.`}
+                        </p>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
 
-                  <div className="bg-blue-600 rounded-2xl p-4 sm:p-5 text-white shadow-md">
-                    <div className="flex items-center justify-between mb-2 sm:mb-3">
-                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
-                        <Users className="w-5 h-5 sm:w-6 sm:h-6" />
-                      </div>
-                      <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-white/70" />
-                    </div>
-                    <p className="text-xs sm:text-sm font-medium text-white/80 mb-1">Success Rate</p>
-                    <p className="text-2xl sm:text-3xl font-bold">87%</p>
-                    <p className="text-xs text-white/70 mt-1 sm:mt-2">This term</p>
-                  </div>
-
-                  <div className="bg-blue-600 rounded-2xl p-4 sm:p-5 text-white shadow-md">
-                    <div className="flex items-center justify-between mb-2 sm:mb-3">
-                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
-                        <BookOpen className="w-5 h-5 sm:w-6 sm:h-6" />
-                      </div>
-                      <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-white/70" />
-                    </div>
-                    <p className="text-xs sm:text-sm font-medium text-white/80 mb-1">Completion</p>
-                    <p className="text-2xl sm:text-3xl font-bold">92%</p>
-                    <p className="text-xs text-white/70 mt-1 sm:mt-2">This week</p>
-                  </div>
-
-                  <div className="bg-blue-600 rounded-2xl p-4 sm:p-5 text-white shadow-md">
-                    <div className="flex items-center justify-between mb-2 sm:mb-3">
-                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
-                        <Award className="w-5 h-5 sm:w-6 sm:h-6" />
-                      </div>
-                      <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-white/70" />
-                    </div>
-                    <p className="text-xs sm:text-sm font-medium text-white/80 mb-1">Rating</p>
-                    <p className="text-2xl sm:text-3xl font-bold">4.2/5</p>
-                    <p className="text-xs text-white/70 mt-1 sm:mt-2">Annual review</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-                  <div className="bg-white dark:bg-slate-700 rounded-2xl p-4 sm:p-6 border border-slate-200 dark:border-slate-600">
-                    <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mb-3 sm:mb-4">Student Performance</h3>
-                    <div className="space-y-3 sm:space-y-4">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs sm:text-sm text-slate-700 dark:text-slate-300">Class Average</span>
-                        <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">87.5%</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs sm:text-sm text-slate-700 dark:text-slate-300">Students Improved</span>
-                        <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">78%</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs sm:text-sm text-slate-700 dark:text-slate-300">Pass Rate</span>
-                        <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">94%</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="bg-white dark:bg-slate-700 rounded-2xl p-4 sm:p-6 border border-slate-200 dark:border-slate-600">
-                    <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mb-3 sm:mb-4">Development</h3>
-                    <div className="space-y-3 sm:space-y-4">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs sm:text-sm text-slate-700 dark:text-slate-300">Training Hours</span>
-                        <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">48 hrs</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs sm:text-sm text-slate-700 dark:text-slate-300">Certifications</span>
-                        <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">3</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs sm:text-sm text-slate-700 dark:text-slate-300">Workshops</span>
-                        <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">12</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+              {/* Sub-tabs */}
+              <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-fit">
+                {([
+                  { id: 'appraisals', label: 'Appraisals', icon: Award, count: appraisals.filter(a => a.status === 'submitted').length },
+                  { id: 'notes',      label: 'Staff Notes', icon: MessageSquare, count: staffNotes.filter(n => !n.is_acknowledged).length },
+                ] as const).map(t => {
+                  const Icon = t.icon;
+                  return (
+                    <button key={t.id} onClick={() => setPerfTab(t.id as any)}
+                      className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${perfTab === t.id ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+                      <Icon className="w-4 h-4" />
+                      {t.label}
+                      {t.count > 0 && <span className="bg-amber-500 text-white text-xs px-1.5 py-0.5 rounded-full">{t.count}</span>}
+                    </button>
+                  );
+                })}
               </div>
+
+              {/* Appraisals */}
+              {perfTab === 'appraisals' && (
+                <div className="space-y-3">
+                  {perfLoading ? (
+                    <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" /></div>
+                  ) : appraisals.length === 0 ? (
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 py-12 text-center shadow-sm">
+                      <Award className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                      <p className="text-slate-500 dark:text-slate-400 text-sm">No appraisals yet. Your head teacher or proprietress will create one for you.</p>
+                    </div>
+                  ) : appraisals.map(a => (
+                    <button key={a.id} onClick={() => setViewAppraisal(a)}
+                      className={`w-full text-left bg-white dark:bg-slate-800 rounded-xl border p-4 hover:border-blue-300 transition-colors flex items-center gap-3 shadow-sm ${a.status === 'submitted' ? 'border-amber-300 ring-1 ring-amber-200' : 'border-slate-200 dark:border-slate-700'}`}>
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-blue-100 dark:bg-blue-900/30">
+                        <Star className="w-5 h-5 text-blue-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-medium text-slate-900 dark:text-white text-sm">{a.period_display} {a.academic_year}</p>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${APPRAISAL_STATUS_CFG[a.status]?.color ?? 'bg-slate-100 text-slate-600'}`}>{APPRAISAL_STATUS_CFG[a.status]?.label}</span>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">By: {a.appraiser_role_display}</p>
+                        {a.overall_score != null && (
+                          <p className="text-xs mt-1 font-medium text-slate-700 dark:text-slate-300">Score: {a.overall_score}% — {a.overall_grade}</p>
+                        )}
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-300 flex-shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Staff Notes */}
+              {perfTab === 'notes' && (
+                <div className="space-y-3">
+                  {perfLoading ? (
+                    <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" /></div>
+                  ) : staffNotes.length === 0 ? (
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 py-12 text-center shadow-sm">
+                      <MessageSquare className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                      <p className="text-slate-500 dark:text-slate-400 text-sm">No staff notes yet.</p>
+                    </div>
+                  ) : staffNotes.map(note => {
+                    const cfg = NOTE_TYPE_CFG[note.note_type] ?? NOTE_TYPE_CFG.query;
+                    const Icon = cfg.icon;
+                    return (
+                      <button key={note.id} onClick={() => setViewNote(note)}
+                        className={`w-full text-left bg-white dark:bg-slate-800 rounded-xl border-l-4 border border-slate-200 dark:border-slate-700 p-4 hover:border-blue-300 transition-colors flex items-start gap-3 shadow-sm ${cfg.borderColor} ${!note.is_acknowledged ? 'ring-1 ring-amber-200' : ''}`}>
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${cfg.positive ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-orange-100 dark:bg-orange-900/30'}`}>
+                          <Icon className={`w-4 h-4 ${cfg.positive ? 'text-emerald-600' : 'text-orange-600'}`} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-medium text-slate-900 dark:text-white text-sm">{note.title}</p>
+                            {!note.is_acknowledged && <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">Acknowledge</span>}
+                          </div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{note.note_type_display} · {note.category_display}</p>
+                          <p className="text-xs text-slate-400 mt-0.5">{new Date(note.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-slate-300 flex-shrink-0 mt-1" />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Modals */}
+              {viewAppraisal && (
+                <AppraisalModal appraisal={viewAppraisal} onClose={() => setViewAppraisal(null)}
+                  onAcknowledged={a => { setAppraisals(prev => prev.map(x => x.id === a.id ? a : x)); setViewAppraisal(null); }} />
+              )}
+              {viewNote && (
+                <NoteModal note={viewNote} onClose={() => setViewNote(null)}
+                  onAcknowledged={n => { setStaffNotes(prev => prev.map(x => x.id === n.id ? n : x)); setViewNote(null); }} />
+              )}
             </div>
           )}
 

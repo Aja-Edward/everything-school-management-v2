@@ -23,6 +23,9 @@ import {
   PenTool,
   Award,
   ClipboardList,
+  Star,
+  MessageSquare as MsgSq,
+  BookOpen,
 } from 'lucide-react';
 // import StudentResultChecker from './StudentResultChecker';
 import TokenGenerator from '@/pages/admin/TokenGenerator';
@@ -131,6 +134,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (canViewTeachers()) {
       items.push({ name: 'Teachers', icon: Users, path: '/admin/teachers' });
       items.push({ name: 'Staff Activities', icon: ClipboardList, path: '/admin/staff-activities' });
+      items.push({ name: 'Appraisals', icon: Star, path: '/admin/appraisals' });
+      items.push({ name: 'Staff Notes', icon: MsgSq, path: '/admin/staff-notes' });
+      items.push({ name: 'PD Review', icon: BookOpen, path: '/admin/pd-review' });
     }
 
     if (canViewStudents()) {

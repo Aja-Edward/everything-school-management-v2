@@ -179,25 +179,33 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         #   legacy_qs = queryset.filter(education_levels__contains=[education_levels_param])
         education_levels_param = self.request.query_params.get("education_levels")
         if education_levels_param:
-            # Step 1: collect matching subject IDs in a subquery
-            # This avoids the DISTINCT + JOIN + OFFSET bug where PostgreSQL
-            # can't paginate correctly over a DISTINCT query on joined tables.
-            matching_ids = (
-                Subject.objects.filter(
-                    Q(grade_levels__education_level__level_type=education_levels_param)
-                    | Q(education_levels__icontains=education_levels_param)
+            # Support comma-separated multi-level queries:
+            # education_levels=JUNIOR_SECONDARY,SENIOR_SECONDARY
+            level_values = [v.strip() for v in education_levels_param.split(",") if v.strip()]
+
+            combined_q = Q()
+            for lv in level_values:
+                combined_q |= (
+                    # Match by level_type (NURSERY/PRIMARY/JUNIOR_SECONDARY/SENIOR_SECONDARY)
+                    Q(grade_levels__education_level__level_type__iexact=lv)
+                    # Also match by education level name (e.g. "Junior Secondary", "JSS")
+                    | Q(grade_levels__education_level__name__icontains=lv)
+                    # Also match by code (e.g. "jss", "primary")
+                    | Q(grade_levels__education_level__code__iexact=lv)
+                    # Legacy JSONField fallback (deprecated field)
+                    | Q(education_levels__icontains=lv)
                 )
+
+            matching_ids = (
+                Subject.objects.filter(combined_q)
                 .values_list("id", flat=True)
                 .distinct()
             )
-
-            # Step 2: filter the main queryset by those IDs — no JOIN, no DISTINCT,
-            # so LIMIT/OFFSET works correctly
             queryset = queryset.filter(id__in=matching_ids)
 
             logger.info(
-                "[SubjectViewSet] education_levels='%s' → %d subjects",
-                education_levels_param,
+                "[SubjectViewSet] education_levels=%r → %d subjects",
+                level_values,
                 queryset.count(),
             )
 

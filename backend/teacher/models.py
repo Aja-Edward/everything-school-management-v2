@@ -364,6 +364,378 @@ class TeacherSchedule(TenantMixin, models.Model):
         return f"{self.teacher} - {self.subject} ({self.day_of_week} {self.start_time}-{self.end_time})"
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# PROFESSIONAL DEVELOPMENT
+# ══════════════════════════════════════════════════════════════════════════════
+
+class ProfessionalDevelopment(TenantMixin, models.Model):
+    """
+    A single professional development record for a teacher.
+    Teachers log their own; admins can verify/approve.
+
+    Examples: workshops attended, certifications earned, online courses,
+    in-house training, seminars, academic upgrades, etc.
+    """
+
+    TYPE_CHOICES = [
+        ("training",      "Training"),
+        ("workshop",      "Workshop"),
+        ("certification", "Certification"),
+        ("seminar",       "Seminar"),
+        ("conference",    "Conference"),
+        ("course",        "Online / Self-Study Course"),
+        ("degree",        "Academic Degree / Upgrade"),
+        ("other",         "Other"),
+    ]
+
+    teacher = models.ForeignKey(
+        Teacher, on_delete=models.CASCADE, related_name="professional_developments"
+    )
+    title = models.CharField(
+        max_length=200,
+        help_text="Name of the training, workshop, certification, etc.",
+    )
+    dev_type = models.CharField(
+        max_length=20, choices=TYPE_CHOICES, default="training"
+    )
+    provider = models.CharField(
+        max_length=200, blank=True,
+        help_text="Awarding body, institution, or organiser.",
+    )
+    date_completed = models.DateField(help_text="Date completed or attended.")
+    date_expires = models.DateField(
+        null=True, blank=True,
+        help_text="Expiry date (certifications only).",
+    )
+    duration_hours = models.DecimalField(
+        max_digits=6, decimal_places=1,
+        null=True, blank=True,
+        help_text="Number of CPD / contact hours.",
+    )
+    certificate_url = models.URLField(
+        blank=True, null=True,
+        help_text="Link to a certificate image or PDF.",
+    )
+    description = models.TextField(
+        blank=True,
+        help_text="Skills gained, key takeaways, or any extra notes.",
+    )
+
+    # ── Approval workflow ──────────────────────────────────────────────────────
+    STATUS_PENDING  = "pending"
+    STATUS_APPROVED = "approved"
+    STATUS_REJECTED = "rejected"
+    STATUS_CHOICES = [
+        (STATUS_PENDING,  "Pending Review"),
+        (STATUS_APPROVED, "Approved"),
+        (STATUS_REJECTED, "Rejected"),
+    ]
+
+    approval_status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING,
+        help_text="Admin must approve a record for it to appear on the teacher's public profile.",
+    )
+    rejection_reason = models.TextField(
+        blank=True,
+        help_text="Reason given when a record is rejected (visible to the teacher).",
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="reviewed_pd_records",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    # Keep is_verified as a derived convenience property
+    @property
+    def is_verified(self):
+        return self.approval_status == self.STATUS_APPROVED
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-date_completed", "-created_at"]
+
+    def __str__(self):
+        return f"{self.teacher.user.get_full_name()} — {self.title} ({self.get_dev_type_display()})"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PERFORMANCE APPRAISAL SYSTEM
+# ══════════════════════════════════════════════════════════════════════════════
+
+class AppraisalCriteria(TenantMixin, models.Model):
+    """
+    Tenant-configurable appraisal criteria.
+    E.g. Punctuality, Classroom Management, Subject Knowledge …
+    Admin defines these; the same set is used for every appraisal.
+    """
+
+    APPLICABLE_CHOICES = [
+        ("all", "All Staff"),
+        ("teaching", "Teaching Staff Only"),
+        ("non-teaching", "Non-Teaching Staff Only"),
+    ]
+
+    name = models.CharField(max_length=120)
+    code = models.SlugField(max_length=60)
+    description = models.TextField(blank=True)
+    applicable_to = models.CharField(
+        max_length=20, choices=APPLICABLE_CHOICES, default="all"
+    )
+    max_score = models.PositiveSmallIntegerField(
+        default=5,
+        help_text="Maximum score for this criterion (usually 5 or 10).",
+    )
+    display_order = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    is_system_default = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ["tenant", "code"]
+        ordering = ["display_order", "name"]
+
+    def __str__(self):
+        return self.name
+
+
+class PerformanceAppraisal(TenantMixin, models.Model):
+    """
+    One appraisal record for one teacher for one period.
+    Workflow:  DRAFT → SUBMITTED → ACKNOWLEDGED
+    """
+
+    PERIOD_CHOICES = [
+        ("first_term", "First Term"),
+        ("second_term", "Second Term"),
+        ("third_term", "Third Term"),
+        ("annual", "Annual Review"),
+        ("probation", "Probationary Review"),
+    ]
+    APPRAISER_ROLE_CHOICES = [
+        ("proprietress", "Proprietress"),
+        ("head_teacher", "Head Teacher"),
+        ("form_teacher", "Form Teacher"),
+        ("admin", "Admin"),
+    ]
+    STATUS_DRAFT = "draft"
+    STATUS_SUBMITTED = "submitted"
+    STATUS_ACKNOWLEDGED = "acknowledged"
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, "Draft"),
+        (STATUS_SUBMITTED, "Submitted"),
+        (STATUS_ACKNOWLEDGED, "Acknowledged"),
+    ]
+
+    teacher = models.ForeignKey(
+        Teacher, on_delete=models.CASCADE, related_name="appraisals"
+    )
+    appraiser = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="given_appraisals",
+    )
+    appraiser_role = models.CharField(max_length=20, choices=APPRAISER_ROLE_CHOICES)
+    period = models.CharField(max_length=20, choices=PERIOD_CHOICES)
+    academic_year = models.CharField(
+        max_length=20, blank=True,
+        help_text="e.g. 2025/2026",
+    )
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT
+    )
+    overall_comment = models.TextField(
+        blank=True,
+        help_text="General narrative from the appraiser.",
+    )
+    recommendation = models.TextField(
+        blank=True,
+        help_text="Recommendations for improvement or recognition.",
+    )
+    teacher_response = models.TextField(
+        blank=True,
+        help_text="Teacher's written response to the appraisal.",
+    )
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return (
+            f"{self.teacher.user.get_full_name()} — "
+            f"{self.get_period_display()} {self.academic_year} ({self.get_status_display()})"
+        )
+
+    @property
+    def overall_score(self):
+        """Average score across all criteria, as a percentage of max."""
+        scores = self.scores.all()
+        if not scores:
+            return None
+        total = sum(s.score for s in scores)
+        max_total = sum(s.criteria.max_score for s in scores)
+        if not max_total:
+            return None
+        return round((total / max_total) * 100, 1)
+
+    @property
+    def overall_grade(self):
+        pct = self.overall_score
+        if pct is None:
+            return "—"
+        if pct >= 90:
+            return "Excellent"
+        if pct >= 75:
+            return "Very Good"
+        if pct >= 60:
+            return "Good"
+        if pct >= 45:
+            return "Average"
+        if pct >= 30:
+            return "Below Average"
+        return "Poor"
+
+
+class AppraisalScore(models.Model):
+    """Individual criterion score within an appraisal."""
+
+    appraisal = models.ForeignKey(
+        PerformanceAppraisal, on_delete=models.CASCADE, related_name="scores"
+    )
+    criteria = models.ForeignKey(
+        AppraisalCriteria, on_delete=models.PROTECT, related_name="scores"
+    )
+    score = models.PositiveSmallIntegerField(
+        help_text="Score given (1 to criteria.max_score)."
+    )
+    comment = models.TextField(blank=True)
+
+    class Meta:
+        unique_together = ["appraisal", "criteria"]
+
+    def __str__(self):
+        return f"{self.criteria.name}: {self.score}/{self.criteria.max_score}"
+
+
+# ── Staff Notes (Commendations & Disciplinary) ────────────────────────────────
+
+class StaffNote(TenantMixin, models.Model):
+    """
+    A formal note issued to a staff member by an admin.
+    Can be positive (commendation, appreciation) or negative (query, warning).
+    Teachers must acknowledge receipt.
+    """
+
+    NOTE_TYPE_COMMENDATION = "commendation"
+    NOTE_TYPE_APPRECIATION = "appreciation"
+    NOTE_TYPE_QUERY = "query"
+    NOTE_TYPE_WARNING = "warning"
+    NOTE_TYPE_CAUTION = "caution"
+    NOTE_TYPE_IMPROVEMENT = "improvement_plan"
+
+    NOTE_TYPE_CHOICES = [
+        (NOTE_TYPE_COMMENDATION, "Commendation"),
+        (NOTE_TYPE_APPRECIATION, "Letter of Appreciation"),
+        (NOTE_TYPE_QUERY, "Query"),
+        (NOTE_TYPE_WARNING, "Written Warning"),
+        (NOTE_TYPE_CAUTION, "Caution"),
+        (NOTE_TYPE_IMPROVEMENT, "Performance Improvement Plan"),
+    ]
+
+    POSITIVE_TYPES = {NOTE_TYPE_COMMENDATION, NOTE_TYPE_APPRECIATION}
+    NEGATIVE_TYPES = {NOTE_TYPE_QUERY, NOTE_TYPE_WARNING, NOTE_TYPE_CAUTION, NOTE_TYPE_IMPROVEMENT}
+
+    CATEGORY_CHOICES = [
+        ("punctuality", "Punctuality & Attendance"),
+        ("performance", "Teaching Performance"),
+        ("conduct", "Professional Conduct"),
+        ("innovation", "Innovation & Initiative"),
+        ("teamwork", "Teamwork & Collaboration"),
+        ("student_relations", "Student Relations"),
+        ("administrative", "Administrative Duties"),
+        ("other", "Other"),
+    ]
+
+    teacher = models.ForeignKey(
+        Teacher, on_delete=models.CASCADE, related_name="staff_notes"
+    )
+    issued_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="issued_staff_notes",
+    )
+    note_type = models.CharField(max_length=20, choices=NOTE_TYPE_CHOICES)
+    category = models.CharField(max_length=30, choices=CATEGORY_CHOICES)
+    title = models.CharField(max_length=200)
+    content = models.TextField()
+    is_acknowledged = models.BooleanField(default=False)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    teacher_comment = models.TextField(
+        blank=True,
+        help_text="Optional response from the teacher when acknowledging.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.get_note_type_display()} — {self.teacher.user.get_full_name()}: {self.title}"
+
+    @property
+    def is_positive(self):
+        return self.note_type in self.POSITIVE_TYPES
+
+
+# ─── Default appraisal criteria seeded for every new tenant ──────────────────
+
+DEFAULT_APPRAISAL_CRITERIA = [
+    {"name": "Punctuality & Attendance", "code": "punctuality",
+     "description": "Regular and timely arrival to school and assigned duties.",
+     "applicable_to": "all", "max_score": 5, "display_order": 1},
+    {"name": "Lesson Preparation & Planning", "code": "lesson_planning",
+     "description": "Quality of lesson notes, scheme of work, and teaching aids.",
+     "applicable_to": "teaching", "max_score": 5, "display_order": 2},
+    {"name": "Classroom Management", "code": "classroom_management",
+     "description": "Ability to maintain order, engagement, and a conducive learning environment.",
+     "applicable_to": "teaching", "max_score": 5, "display_order": 3},
+    {"name": "Subject Knowledge & Delivery", "code": "subject_knowledge",
+     "description": "Depth of subject expertise and clarity of teaching delivery.",
+     "applicable_to": "teaching", "max_score": 5, "display_order": 4},
+    {"name": "Student Assessment & Feedback", "code": "assessment",
+     "description": "Quality and timeliness of marking, grading, and feedback to students.",
+     "applicable_to": "teaching", "max_score": 5, "display_order": 5},
+    {"name": "Student Relations & Welfare", "code": "student_relations",
+     "description": "Positive, supportive relationship with students; attention to welfare.",
+     "applicable_to": "teaching", "max_score": 5, "display_order": 6},
+    {"name": "Professional Conduct", "code": "professional_conduct",
+     "description": "Dress code, language, attitude, and adherence to school policies.",
+     "applicable_to": "all", "max_score": 5, "display_order": 7},
+    {"name": "Teamwork & Collaboration", "code": "teamwork",
+     "description": "Works well with colleagues, participates in staff meetings and activities.",
+     "applicable_to": "all", "max_score": 5, "display_order": 8},
+    {"name": "Initiative & Innovation", "code": "initiative",
+     "description": "Proactively improves processes, shows creativity in duties.",
+     "applicable_to": "all", "max_score": 5, "display_order": 9},
+    {"name": "Administrative Duties", "code": "admin_duties",
+     "description": "Timely submission of reports, records, and administrative tasks.",
+     "applicable_to": "all", "max_score": 5, "display_order": 10},
+    {"name": "Duty Performance", "code": "duty_performance",
+     "description": "Quality and consistency of assigned non-teaching duties.",
+     "applicable_to": "non-teaching", "max_score": 5, "display_order": 11},
+]
+
+
 class BulkUploadRecord(TenantMixin, models.Model):
     """
     Tracks state and results of a single bulk student upload job.

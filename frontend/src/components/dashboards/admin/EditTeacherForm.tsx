@@ -18,21 +18,46 @@ interface EditTeacherFormProps {
   isDark: boolean;
 }
 
+// Maps a normalised (lowercase, spaces) level key to its API education_level token.
+// Keys must be unique — variants are handled by normaliseLevel() below.
 const LEVEL_TO_EDUCATION_LEVEL: Record<string, string> = {
-  nursery:          'NURSERY',
-  primary:          'PRIMARY',
-  junior_secondary: 'JUNIOR_SECONDARY',
-  senior_secondary: 'SENIOR_SECONDARY',
-  secondary:        'JUNIOR_SECONDARY',
+  nursery:           'NURSERY',
+  primary:           'PRIMARY',
+  junior_secondary:  'JUNIOR_SECONDARY',
+  senior_secondary:  'SENIOR_SECONDARY',
+  secondary:         'JUNIOR_SECONDARY',
+  'junior secondary':'JUNIOR_SECONDARY',
+  'senior secondary':'SENIOR_SECONDARY',
+  jss:               'JUNIOR_SECONDARY',
+  sss:               'SENIOR_SECONDARY',
+  js:                'JUNIOR_SECONDARY',
+  ss:                'SENIOR_SECONDARY',
 };
 
-const LEVEL_TO_CLASSROOM_FILTER: Record<string, string> = {
-  nursery:          'NURSERY',
-  primary:          'PRIMARY',
-  junior_secondary: 'JUNIOR_SECONDARY',
-  senior_secondary: 'SENIOR_SECONDARY',
-  secondary:        'SECONDARY',
-};
+/** Normalise a free-form level string to an EDUCATION_LEVEL API token.
+ *  Returns null if unrecognised. */
+function normaliseLevel(raw: string): string | null {
+  const key = raw.trim().toLowerCase().replace(/_/g, ' ');
+  return LEVEL_TO_EDUCATION_LEVEL[key] ?? LEVEL_TO_EDUCATION_LEVEL[key.replace(/ /g, '_')] ?? null;
+}
+
+/** Given a teacher record, derive the set of education-level tokens to use. */
+function deriveTeacherLevels(teacher: any): string[] {
+  // Prefer M2M field (new)
+  const m2m: any[] = teacher?.education_levels_detail ?? teacher?.education_levels_detail ?? [];
+  if (Array.isArray(m2m) && m2m.length > 0) {
+    return m2m
+      .map((el: any) => normaliseLevel(el.level_type || el.name || el.code || ''))
+      .filter(Boolean) as string[];
+  }
+  // Fall back to free-form level string
+  const raw: string = teacher?.level ?? '';
+  if (!raw) return [];
+  const tokens = raw.toLowerCase() === 'all'
+    ? ['NURSERY', 'PRIMARY', 'JUNIOR_SECONDARY', 'SENIOR_SECONDARY']
+    : raw.split(/,|;/).map(s => normaliseLevel(s)).filter(Boolean) as string[];
+  return [...new Set(tokens)];
+}
 
 const PAGE_SIZE = 20;
 
@@ -63,17 +88,20 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
   const [uploading, setUploading]       = useState(false);
 
   // ── Subjects ──────────────────────────────────────────────────────────────
-  const [subjectOptions, setSubjectOptions]       = useState< SubjectOption[]>([]);
+  const [subjectOptions, setSubjectOptions]       = useState<SubjectOption[]>([]);
   const [selectedSubjects, setSelectedSubjects]   = useState<string[]>([]);
   const [subjectsLoading, setSubjectsLoading]     = useState(false);
   const [subjectPage, setSubjectPage]             = useState(1);
   const [subjectTotalCount, setSubjectTotalCount] = useState(0);
   const [subjectHasNext, setSubjectHasNext]       = useState(false);
   const [subjectHasPrev, setSubjectHasPrev]       = useState(false);
+  const seededRef = useRef(false);
 
-  // Use a ref to track whether we've already seeded from teacher.assigned_subjects,
-  // keyed by level so a level-change correctly re-seeds.
-  const seededLevelRef = useRef<string | undefined | null>(null);
+  // ── Multi-level subject filter ────────────────────────────────────────────
+  // Derived from the teacher's education_levels M2M (or level free-form string).
+  // Admin can toggle individual levels on/off to filter the subject list.
+  const [teacherLevels]      = useState<string[]>(() => deriveTeacherLevels(teacher));
+  const [activeLevelFilter, setActiveLevelFilter] = useState<string>('ALL');
 
   // ── Classrooms ────────────────────────────────────────────────────────────
   const [classroomOptions, setClassroomOptions]   = useState<{ id: number; name: string }[]>([]);
@@ -101,56 +129,62 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
     }).catch(() => { /* keep defaults */ });
   }, []);
 
-  const levelUsesSubjectTeachers = (level: string | undefined): boolean => {
-    if (!level) return false;
+  /** Returns true if subject teachers are used for at least one of this
+   *  teacher's education levels (covers the cross-level teacher case). */
+  const anyLevelUsesSubjectTeachers = (): boolean => {
     const map: Record<string, boolean> = {
-      nursery:           teachingModel.nursery_use_subject_teachers,
-      primary:           teachingModel.primary_use_subject_teachers,
-      junior_secondary:  teachingModel.junior_secondary_use_subject_teachers,
-      senior_secondary:  teachingModel.senior_secondary_use_subject_teachers,
+      NURSERY:           teachingModel.nursery_use_subject_teachers,
+      PRIMARY:           teachingModel.primary_use_subject_teachers,
+      JUNIOR_SECONDARY:  teachingModel.junior_secondary_use_subject_teachers,
+      SENIOR_SECONDARY:  teachingModel.senior_secondary_use_subject_teachers,
     };
-    return map[level] ?? (level === 'junior_secondary' || level === 'senior_secondary');
+    // If the teacher has known levels, check those. Otherwise check formData.level.
+    if (teacherLevels.length > 0) {
+      return teacherLevels.some(lv => map[lv] ?? true);
+    }
+    const lv = formData.level;
+    if (!lv) return false;
+    const token = normaliseLevel(lv) ?? '';
+    return map[token] ?? (token === 'JUNIOR_SECONDARY' || token === 'SENIOR_SECONDARY');
   };
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Effect 1 — Reset page + selections when level changes
+  // Effect — Fetch subjects (multi-level aware)
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    setSubjectPage(1);
-    setSelectedSubjects([]);
-    seededLevelRef.current = null;
-  }, [formData.level]);
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Effect 2 — Fetch subjects page
-  //
-  // ─────────────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (formData.staff_type !== 'teaching' || !formData.level) {
+    if (formData.staff_type !== 'teaching') {
       setSubjectOptions([]);
       setSubjectTotalCount(0);
-      setSubjectHasNext(false);
-      setSubjectHasPrev(false);
       return;
     }
 
-    const educationLevel = LEVEL_TO_EDUCATION_LEVEL[formData.level];
-    if (!educationLevel) return;
+    // Determine which education level tokens to query.
+    // Priority: activeLevelFilter tab → teacher's M2M levels → formData.level
+    let levelsToQuery: string[] = [];
+    if (activeLevelFilter !== 'ALL') {
+      levelsToQuery = [activeLevelFilter];
+    } else if (teacherLevels.length > 0) {
+      levelsToQuery = teacherLevels;
+    } else if (formData.level) {
+      const token = normaliseLevel(formData.level);
+      if (token) levelsToQuery = [token];
+    }
 
-    let cancelled = false; // prevent stale state updates if level/page changes mid-fetch
+    // If no level context at all, fetch all subjects (no filter)
+    let cancelled = false;
 
     const fetchSubjects = async () => {
       setSubjectsLoading(true);
       try {
-        // Build URL params explicitly so offset is always sent as a proper
-        // query-string value. This bypasses any ambiguity in api.get()'s
-        // internal param serialisation.
         const params = new URLSearchParams({
-          education_levels: educationLevel,
-          available_only:   'true',
-          page_size:        String(PAGE_SIZE),   // ← matches page_size_query_param
-          page:             String(subjectPage), // ← matches PageNumberPagination
+          available_only: 'true',
+          page_size:      String(PAGE_SIZE),
+          page:           String(subjectPage),
         });
+        // Comma-separate multi-level: backend now supports OR queries
+        if (levelsToQuery.length > 0) {
+          params.set('education_levels', levelsToQuery.join(','));
+        }
 
         const data = await api.get(`/subjects/?${params.toString()}`);
 
@@ -167,19 +201,13 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
 
         setSubjectOptions(results.map((s: any) => ({ id: s.id, name: s.name, code: s.code })));
         setSubjectTotalCount(count);
-        setSubjectHasNext(!!data.next);      // truthy if next page URL exists
-        setSubjectHasPrev(!!data.previous);  // truthy if previous page URL exists
+        setSubjectHasNext(!!data.next);
+        setSubjectHasPrev(!!data.previous);
 
-        // Seed teacher's pre-selected subjects on page 1 of the initial load only
-        if (
-          subjectPage === 1 &&
-          seededLevelRef.current !== formData.level &&
-          teacher?.assigned_subjects?.length
-        ) {
-          setSelectedSubjects(
-            teacher.assigned_subjects.map((s: any) => String(s.id))
-          );
-          seededLevelRef.current = formData.level ?? null;
+        // Seed teacher's already-assigned subjects once on first load
+        if (subjectPage === 1 && !seededRef.current && teacher?.assigned_subjects?.length) {
+          setSelectedSubjects(teacher.assigned_subjects.map((s: any) => String(s.id)));
+          seededRef.current = true;
         }
       } catch (err) {
         if (cancelled) return;
@@ -194,26 +222,28 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
     };
 
     fetchSubjects();
-
-    // Cleanup: if the effect re-runs (level or page changed) before the fetch
-    // resolves, ignore the stale response.
     return () => { cancelled = true; };
 
-  // NOTE: `teacher` is intentionally excluded — we only need its assigned_subjects
-  // on the very first load, guarded by seededLevelRef. Including it would cause
-  // an infinite loop if the parent re-creates the teacher object on each render.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.level, formData.staff_type, subjectPage]);
+  }, [formData.staff_type, subjectPage, activeLevelFilter, formData.level]);
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Effect 3 — Fetch classrooms, server-filtered by education level
+  // Effect 3 — Fetch classrooms for the active level filter
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (formData.staff_type !== 'teaching' || !formData.level) {
+    if (formData.staff_type !== 'teaching') {
       setClassroomOptions([]);
       return;
     }
-    const educationLevel = LEVEL_TO_CLASSROOM_FILTER[formData.level];
+    // Use the active level filter tab if set; otherwise use formData.level or teacher levels
+    let educationLevel = '';
+    if (activeLevelFilter !== 'ALL') {
+      educationLevel = activeLevelFilter;
+    } else if (formData.level) {
+      educationLevel = normaliseLevel(formData.level) ?? '';
+    } else if (teacherLevels.length === 1) {
+      educationLevel = teacherLevels[0];
+    }
     if (!educationLevel) return;
 
     let cancelled = false;
@@ -257,7 +287,8 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
 
     fetchClassrooms();
     return () => { cancelled = true; };
-  }, [formData.level, formData.staff_type]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.level, formData.staff_type, activeLevelFilter]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Effect 4 — Seed classroom assignments from teacher prop
@@ -412,12 +443,19 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
     focus:border-transparent outline-none transition-all duration-300
     ${themeClasses.inputBg} ${themeClasses.inputFocus} ${themeClasses.textPrimary}`;
 
-  const isTeaching          = formData.staff_type === 'teaching' && !!formData.level;
-  const isSubjectTeacherModel = isTeaching && levelUsesSubjectTeachers(formData.level);
+  const isTeaching            = formData.staff_type === 'teaching';
+  // Show subject assignment if teaching AND at least one level uses subject teachers
+  // (or if we can't determine levels — default to showing it for safety)
+  const isSubjectTeacherModel = isTeaching && anyLevelUsesSubjectTeachers();
   const totalPages = Math.ceil(subjectTotalCount / PAGE_SIZE);
-  const levelLabel = formData.level?.replace(/_/g, ' ') ?? '';
   const rangeStart = (subjectPage - 1) * PAGE_SIZE + 1;
   const rangeEnd   = Math.min(subjectPage * PAGE_SIZE, subjectTotalCount);
+  const LEVEL_LABELS: Record<string, string> = {
+    NURSERY: 'Nursery', PRIMARY: 'Primary',
+    JUNIOR_SECONDARY: 'Junior Secondary', SENIOR_SECONDARY: 'Senior Secondary',
+  };
+  // Tabs shown above the subject list: ALL + each of the teacher's levels
+  const levelFilterTabs = ['ALL', ...teacherLevels];
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -503,14 +541,24 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
           </select>
         </div>
         <div>
-          <label className={`block text-sm font-medium ${themeClasses.textSecondary} mb-2`}>Level</label>
+          <label className={`block text-sm font-medium ${themeClasses.textSecondary} mb-2`}>
+            Level
+            {teacherLevels.length > 0 && (
+              <span className="ml-2 text-xs text-blue-500 font-normal">
+                (assigned: {teacherLevels.map(l => LEVEL_LABELS[l] ?? l).join(', ')})
+              </span>
+            )}
+          </label>
           <select name="level" value={formData.level || ''} onChange={handleInputChange} className={inputClass}>
-            <option value="">Select Level</option>
+            <option value="">All Levels / Select for classroom filter</option>
             <option value="nursery">Nursery</option>
             <option value="primary">Primary</option>
             <option value="junior_secondary">Junior Secondary</option>
             <option value="senior_secondary">Senior Secondary</option>
           </select>
+          <p className="text-xs text-gray-400 mt-1">
+            This controls which classrooms appear below. Subjects are loaded from all the teacher's assigned levels.
+          </p>
         </div>
         <div>
           <label className={`block text-sm font-medium ${themeClasses.textSecondary} mb-2`}>Qualification</label>
@@ -528,15 +576,36 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
         </div>
       </div>
 
-      {/* ── Subjects (server-filtered, paginated) ─────────────────────────── */}
+      {/* ── Subjects (multi-level, paginated) ────────────────────────────── */}
       {isTeaching && (
         <div>
+          {/* Level filter tabs — shown when teacher has known education levels */}
+          {levelFilterTabs.length > 1 && (
+            <div className="flex gap-1 flex-wrap mb-3">
+              {levelFilterTabs.map(lv => (
+                <button
+                  key={lv}
+                  type="button"
+                  onClick={() => { setActiveLevelFilter(lv); setSubjectPage(1); }}
+                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                    activeLevelFilter === lv
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
+                  }`}
+                >
+                  {lv === 'ALL' ? 'All Levels' : (LEVEL_LABELS[lv] ?? lv)}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="flex items-center justify-between mb-2">
             <label className={`block text-sm font-medium ${themeClasses.textSecondary}`}>
               Assigned Subjects
               {subjectTotalCount > 0 && (
                 <span className="ml-1 text-xs text-gray-400 font-normal">
-                  ({subjectTotalCount} available for {levelLabel})
+                  ({subjectTotalCount} found
+                  {activeLevelFilter !== 'ALL' ? ` for ${LEVEL_LABELS[activeLevelFilter] ?? activeLevelFilter}` : ' across all levels'})
                 </span>
               )}
             </label>
@@ -598,11 +667,11 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
           {subjectsLoading ? (
             <div className="flex items-center gap-2 p-4 text-gray-500 text-sm">
               <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
-              Loading {levelLabel} subjects…
+              Loading subjects…
             </div>
           ) : subjectOptions.length === 0 ? (
             <div className="bg-gray-50 p-4 rounded-lg border text-sm text-gray-500 text-center">
-              No subjects found for {levelLabel} level.
+              No subjects found{activeLevelFilter !== 'ALL' ? ` for ${LEVEL_LABELS[activeLevelFilter] ?? activeLevelFilter}` : ''}.
             </div>
           ) : (
             <div className="bg-gray-50 rounded-lg border">
@@ -666,7 +735,7 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
               Classroom Assignments
               {classroomOptions.length > 0 && (
                 <span className="ml-1 text-xs text-gray-400 font-normal">
-                  ({classroomOptions.length} classrooms for {levelLabel})
+                  ({classroomOptions.length} classrooms{activeLevelFilter !== 'ALL' ? ` for ${LEVEL_LABELS[activeLevelFilter] ?? activeLevelFilter}` : ''})
                 </span>
               )}
             </label>

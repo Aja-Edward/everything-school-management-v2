@@ -95,6 +95,9 @@ const AdminResultManagement = lazy(() => import('./../pages/admin/AdminResultMan
 const AllTeachers = lazy(() => import('./../pages/admin/AllTeachers'));
 const TeacherBulkUploadPage = lazy(() => import('./../pages/admin/TeacherBulkUploadPage'));
 const StaffActivitiesPage = lazy(() => import('./../pages/admin/StaffActivitiesPage'));
+const PerformanceAppraisalPage = lazy(() => import('./../pages/admin/PerformanceAppraisalPage'));
+const StaffNotesPage = lazy(() => import('./../pages/admin/StaffNotesPage'));
+const ProfessionalDevelopmentAdminPage = lazy(() => import('./../pages/admin/ProfessionalDevelopmentAdminPage'));
 const AddTeacherForm = lazy(() => import('./../pages/admin/AddTeacherForm'));
 const AllParents = lazy(() => import('./../pages/admin/AllParents'));
 const AddParentForm = lazy(() => import('./../pages/admin/AddParentForm'));
@@ -616,6 +619,18 @@ export const router = createBrowserRouter([
           {
             path: 'staff-activities',
             element: <LazyWrapper><StaffActivitiesPage /></LazyWrapper>,
+          },
+          {
+            path: 'appraisals',
+            element: <LazyWrapper><PerformanceAppraisalPage /></LazyWrapper>,
+          },
+          {
+            path: 'staff-notes',
+            element: <LazyWrapper><StaffNotesPage /></LazyWrapper>,
+          },
+          {
+            path: 'pd-review',
+            element: <LazyWrapper><ProfessionalDevelopmentAdminPage /></LazyWrapper>,
           },
           {
             path: 'teacher_bulk_upload',
