@@ -110,6 +110,21 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
   // ── Classroom Assignments ─────────────────────────────────────────────────
   const [currentAssignments, setCurrentAssignments] = useState<AssignmentRow[]>([]);
 
+  // All classrooms across ALL subject-teacher levels — used in assignment rows
+  // so that switching the level-filter tab never empties the classroom dropdown.
+  const [allClassroomOptions, setAllClassroomOptions] = useState<{
+    id: number; name: string; education_level: string;
+  }[]>([]);
+  const [allClassroomsLoading, setAllClassroomsLoading] = useState(false);
+
+  // Accumulated subject list (grows as pages/tabs are browsed) — used in
+  // assignment rows so subjects from other levels remain visible.
+  const [allTeacherSubjects, setAllTeacherSubjects] = useState<SubjectOption[]>(() =>
+    (teacher?.assigned_subjects ?? []).map((s: any) => ({
+      id: s.id, name: s.name, code: s.code ?? '',
+    }))
+  );
+
   // ── Teaching model config ─────────────────────────────────────────────────
   const [teachingModel, setTeachingModel] = useState<TeachingModelSettings>({
     nursery_use_subject_teachers: false,
@@ -128,25 +143,6 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
       });
     }).catch(() => { /* keep defaults */ });
   }, []);
-
-  /** Returns true if subject teachers are used for at least one of this
-   *  teacher's education levels (covers the cross-level teacher case). */
-  const anyLevelUsesSubjectTeachers = (): boolean => {
-    const map: Record<string, boolean> = {
-      NURSERY:           teachingModel.nursery_use_subject_teachers,
-      PRIMARY:           teachingModel.primary_use_subject_teachers,
-      JUNIOR_SECONDARY:  teachingModel.junior_secondary_use_subject_teachers,
-      SENIOR_SECONDARY:  teachingModel.senior_secondary_use_subject_teachers,
-    };
-    // If the teacher has known levels, check those. Otherwise check formData.level.
-    if (teacherLevels.length > 0) {
-      return teacherLevels.some(lv => map[lv] ?? true);
-    }
-    const lv = formData.level;
-    if (!lv) return false;
-    const token = normaliseLevel(lv) ?? '';
-    return map[token] ?? (token === 'JUNIOR_SECONDARY' || token === 'SENIOR_SECONDARY');
-  };
 
   // ─────────────────────────────────────────────────────────────────────────
   // Effect — Fetch subjects (multi-level aware)
@@ -228,6 +224,19 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
   }, [formData.staff_type, subjectPage, activeLevelFilter, formData.level]);
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Effect — Accumulate subject names across tabs/pages into allTeacherSubjects
+  // so assignment-row dropdowns always show subjects from every level.
+  // ─────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (subjectOptions.length === 0) return;
+    setAllTeacherSubjects((prev) => {
+      const map = new Map(prev.map((s) => [s.id, s]));
+      subjectOptions.forEach((s) => map.set(s.id, s));
+      return Array.from(map.values());
+    });
+  }, [subjectOptions]);
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Effect 3 — Fetch classrooms for the active level filter
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -291,6 +300,78 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
   }, [formData.level, formData.staff_type, activeLevelFilter]);
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Effect — Load classrooms for ALL subject-teacher levels at once.
+  // These are used in assignment rows so the classroom dropdown never empties
+  // when the user switches the level-filter tab.
+  // Respects the per-level teaching-model setting: class-teacher-only levels
+  // are excluded because those levels don't use per-subject assignments.
+  // ─────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (formData.staff_type !== 'teaching') {
+      setAllClassroomOptions([]);
+      return;
+    }
+
+    const levelSubjectMap: Record<string, boolean> = {
+      NURSERY:          teachingModel.nursery_use_subject_teachers,
+      PRIMARY:          teachingModel.primary_use_subject_teachers,
+      JUNIOR_SECONDARY: teachingModel.junior_secondary_use_subject_teachers,
+      SENIOR_SECONDARY: teachingModel.senior_secondary_use_subject_teachers,
+    };
+
+    // Only include levels where the tenant uses subject teachers.
+    // Default to true for unrecognised tokens (safe for new tenants).
+    let levelsToLoad = teacherLevels.filter((lv) => levelSubjectMap[lv] ?? true);
+    if (levelsToLoad.length === 0 && formData.level) {
+      const tok = normaliseLevel(formData.level);
+      if (tok && (levelSubjectMap[tok] ?? true)) levelsToLoad = [tok];
+    }
+    if (levelsToLoad.length === 0) return;
+
+    let cancelled = false;
+    setAllClassroomsLoading(true);
+
+    (async () => {
+      try {
+        const perLevel = await Promise.all(
+          levelsToLoad.map(async (lv) => {
+            const params = new URLSearchParams({
+              section__grade_level__education_level: lv,
+              limit: '200',
+              offset: '0',
+            });
+            const data = await api.get(`/classrooms/classrooms/?${params}`);
+            const arr: any[] = Array.isArray(data) ? data : (data.results ?? []);
+            return arr.map((c) => ({
+              id: c.id as number,
+              name: (c.name || `${c.grade_level_name || ''} ${c.section_name || ''}`.trim()) as string,
+              education_level: lv,
+            }));
+          })
+        );
+        if (cancelled) return;
+        const seen = new Set<number>();
+        setAllClassroomOptions(
+          perLevel.flat().filter((c) => {
+            if (seen.has(c.id)) return false;
+            seen.add(c.id);
+            return true;
+          })
+        );
+      } catch (err) {
+        if (!cancelled) console.error('Failed to load all-level classrooms:', err);
+      } finally {
+        if (!cancelled) setAllClassroomsLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  // teacherLevels and teachingModel are stable after mount; listing them
+  // directly avoids spurious re-runs from object identity changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.staff_type, formData.level, teacherLevels, teachingModel]);
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Effect 4 — Seed classroom assignments from teacher prop
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -308,6 +389,7 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
         subject_id:         a.subject_id         || '',
         is_primary_teacher: a.is_primary_teacher || false,
         periods_per_week:   a.periods_per_week   || 1,
+        education_level:    a.education_level    || '',
       }))
     );
   }, [teacher]);
@@ -324,8 +406,6 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
     const { name, value, type } = e.target;
     const newValue =
       type === 'checkbox' ? (e.target as HTMLInputElement).checked : value;
-
-    if (name === 'level') setCurrentAssignments([]);
 
     setFormData((prev: EditTeacherFormData) => ({ ...prev, [name]: newValue }));
   };
@@ -444,10 +524,27 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
     ${themeClasses.inputBg} ${themeClasses.inputFocus} ${themeClasses.textPrimary}`;
 
   const isTeaching = formData.staff_type === 'teaching';
-  // Always show subject assignment for teaching staff — schools use subject
-  // teachers across all levels (Nursery → SSS). The admin controls which
-  // subjects are assigned; no level restriction is applied here.
-  const isSubjectTeacherModel = isTeaching;
+
+  // Per-level subject-teacher flags from the tenant's settings.
+  const levelSubjectTeacherMap: Record<string, boolean> = {
+    NURSERY:          teachingModel.nursery_use_subject_teachers,
+    PRIMARY:          teachingModel.primary_use_subject_teachers,
+    JUNIOR_SECONDARY: teachingModel.junior_secondary_use_subject_teachers,
+    SENIOR_SECONDARY: teachingModel.senior_secondary_use_subject_teachers,
+  };
+  // Levels this teacher spans that use subject teachers → show assignment rows.
+  const subjectTeacherLevels = teacherLevels.filter((lv) => levelSubjectTeacherMap[lv] ?? true);
+  // Levels that use class teachers → show informational note only.
+  const classTeacherOnlyLevels = teacherLevels.filter((lv) => !(levelSubjectTeacherMap[lv] ?? true));
+
+  // Show the classroom-assignment section when:
+  //   • staff is teaching AND
+  //   • at least one of the teacher's levels uses subject teachers, OR
+  //   • the teacher has no known levels (fall back to showing it — tenant may
+  //     have all levels set to subject teachers, which is the common case).
+  const isSubjectTeacherModel = isTeaching && (
+    subjectTeacherLevels.length > 0 || teacherLevels.length === 0
+  );
   const totalPages = Math.ceil(subjectTotalCount / PAGE_SIZE);
   const rangeStart = (subjectPage - 1) * PAGE_SIZE + 1;
   const rangeEnd   = Math.min(subjectPage * PAGE_SIZE, subjectTotalCount);
@@ -731,12 +828,21 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
       {/* ── Classroom Assignments (subject-teacher model only) ─────────────── */}
       {isSubjectTeacherModel && (
         <div>
+          {/* Info note for levels that use class-teacher model */}
+          {classTeacherOnlyLevels.length > 0 && (
+            <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+              <span className="font-medium">Note:</span>{' '}
+              {classTeacherOnlyLevels.map((lv) => LEVEL_LABELS[lv] ?? lv).join(', ')} use{classTeacherOnlyLevels.length === 1 ? 's' : ''} the
+              class-teacher model — no per-subject classroom assignments are needed for those level{classTeacherOnlyLevels.length === 1 ? '' : 's'}.
+            </div>
+          )}
+
           <div className="flex items-center justify-between mb-3">
             <label className={`block text-sm font-medium ${themeClasses.textSecondary}`}>
               Classroom Assignments
-              {classroomOptions.length > 0 && (
+              {allClassroomOptions.length > 0 && (
                 <span className="ml-1 text-xs text-gray-400 font-normal">
-                  ({classroomOptions.length} classrooms{activeLevelFilter !== 'ALL' ? ` for ${LEVEL_LABELS[activeLevelFilter] ?? activeLevelFilter}` : ''})
+                  ({allClassroomOptions.length} classroom{allClassroomOptions.length !== 1 ? 's' : ''} across all levels)
                 </span>
               )}
             </label>
@@ -755,103 +861,156 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
             </div>
           ) : (
             <div className="space-y-3">
-              {currentAssignments.map((assignment, index) => (
-                <div key={assignment.id} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                  <div className="flex items-center justify-between mb-3">
-                    <h4 className="text-sm font-medium text-gray-700">
-                      Assignment {index + 1}
-                    </h4>
-                    <button
-                      type="button"
-                      onClick={() => removeAssignment(assignment.id)}
-                      className="text-sm text-red-500 hover:text-red-700 transition-colors"
-                    >
-                      Remove
-                    </button>
-                  </div>
+              {currentAssignments.map((assignment, index) => {
+                // Derive the education level for this row (seeded from API or
+                // inferred from the selected classroom) for the badge display.
+                const rowLevel =
+                  assignment.education_level ||
+                  allClassroomOptions.find(
+                    (c) => String(c.id) === String(assignment.classroom_id)
+                  )?.education_level ||
+                  null;
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Classroom
-                        {classroomsLoading && (
-                          <span className="ml-1 text-gray-400">(loading…)</span>
+                return (
+                  <div key={assignment.id} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-medium text-gray-700">
+                          Assignment {index + 1}
+                        </h4>
+                        {rowLevel && (
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                            {LEVEL_LABELS[rowLevel] ?? rowLevel}
+                          </span>
                         )}
-                      </label>
-                      <select
-                        value={assignment.classroom_id}
-                        onChange={(e) => updateAssignment(assignment.id, 'classroom_id', e.target.value)}
-                        className="w-full p-2 border border-gray-300 rounded text-sm"
-                        disabled={classroomsLoading}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeAssignment(assignment.id)}
+                        className="text-sm text-red-500 hover:text-red-700 transition-colors"
                       >
-                        <option value="">
-                          {classroomsLoading
-                            ? 'Loading…'
-                            : `Select classroom (${classroomOptions.length})`}
-                        </option>
-                        {classroomOptions.map((c) => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                      </select>
+                        Remove
+                      </button>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Subject
-                      </label>
-                      <select
-                        value={assignment.subject_id}
-                        onChange={(e) => updateAssignment(assignment.id, 'subject_id', e.target.value)}
-                        className="w-full p-2 border border-gray-300 rounded text-sm"
-                        disabled={subjectsLoading}
-                      >
-                        <option value="">Select subject</option>
-                        {subjectOptions.map((s) => (
-                          <option key={s.id} value={s.id}>{s.name}</option>
-                        ))}
-                      </select>
-                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          Classroom
+                          {allClassroomsLoading && (
+                            <span className="ml-1 text-gray-400">(loading…)</span>
+                          )}
+                        </label>
+                        <select
+                          value={assignment.classroom_id}
+                          onChange={(e) => {
+                            const cid = e.target.value;
+                            updateAssignment(assignment.id, 'classroom_id', cid);
+                            const cls = allClassroomOptions.find(
+                              (c) => String(c.id) === cid
+                            );
+                            if (cls?.education_level) {
+                              updateAssignment(
+                                assignment.id,
+                                'education_level',
+                                cls.education_level
+                              );
+                            }
+                          }}
+                          className="w-full p-2 border border-gray-300 rounded text-sm"
+                          disabled={allClassroomsLoading}
+                        >
+                          <option value="">
+                            {allClassroomsLoading
+                              ? 'Loading…'
+                              : `Select classroom (${allClassroomOptions.length})`}
+                          </option>
+                          {/* Group classrooms by level for easy navigation */}
+                          {Object.entries(
+                            allClassroomOptions.reduce<
+                              Record<string, typeof allClassroomOptions>
+                            >((groups, c) => {
+                              (groups[c.education_level] =
+                                groups[c.education_level] || []).push(c);
+                              return groups;
+                            }, {})
+                          ).map(([lv, classrooms]) => (
+                            <optgroup key={lv} label={LEVEL_LABELS[lv] ?? lv}>
+                              {classrooms.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ))}
+                        </select>
+                      </div>
 
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Periods/Week
-                      </label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="10"
-                        value={assignment.periods_per_week}
-                        onChange={(e) =>
-                          updateAssignment(
-                            assignment.id,
-                            'periods_per_week',
-                            parseInt(e.target.value) || 1
-                          )
-                        }
-                        className="w-full p-2 border border-gray-300 rounded text-sm"
-                      />
-                    </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          Subject
+                        </label>
+                        <select
+                          value={assignment.subject_id}
+                          onChange={(e) =>
+                            updateAssignment(assignment.id, 'subject_id', e.target.value)
+                          }
+                          className="w-full p-2 border border-gray-300 rounded text-sm"
+                        >
+                          <option value="">Select subject</option>
+                          {allTeacherSubjects.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                    <div className="flex items-center pt-5">
-                      <input
-                        type="checkbox"
-                        id={`primary-${assignment.id}`}
-                        checked={assignment.is_primary_teacher}
-                        onChange={(e) =>
-                          updateAssignment(assignment.id, 'is_primary_teacher', e.target.checked)
-                        }
-                        className="rounded mr-2"
-                      />
-                      <label
-                        htmlFor={`primary-${assignment.id}`}
-                        className="text-xs font-medium text-gray-600"
-                      >
-                        Primary Teacher
-                      </label>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          Periods/Week
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="10"
+                          value={assignment.periods_per_week}
+                          onChange={(e) =>
+                            updateAssignment(
+                              assignment.id,
+                              'periods_per_week',
+                              parseInt(e.target.value) || 1
+                            )
+                          }
+                          className="w-full p-2 border border-gray-300 rounded text-sm"
+                        />
+                      </div>
+
+                      <div className="flex items-center pt-5">
+                        <input
+                          type="checkbox"
+                          id={`primary-${assignment.id}`}
+                          checked={assignment.is_primary_teacher}
+                          onChange={(e) =>
+                            updateAssignment(
+                              assignment.id,
+                              'is_primary_teacher',
+                              e.target.checked
+                            )
+                          }
+                          className="rounded mr-2"
+                        />
+                        <label
+                          htmlFor={`primary-${assignment.id}`}
+                          className="text-xs font-medium text-gray-600"
+                        >
+                          Primary Teacher
+                        </label>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

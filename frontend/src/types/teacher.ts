@@ -342,9 +342,10 @@ export interface AssignmentRow {
   section_id: string;
   sectionOptions: Section[];
   // Secondary
- classroom_id: number | string;
+  classroom_id: number | string;
   subject_id: number | string;
   is_primary_teacher: boolean;
   periods_per_week: number;
+  education_level?: string; // derived from classroom; used for display badge only
 }
 

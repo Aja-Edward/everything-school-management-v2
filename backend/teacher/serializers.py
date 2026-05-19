@@ -630,59 +630,78 @@ class TeacherSerializer(serializers.ModelSerializer):
         return teacher
 
     def _create_classroom_assignments(self, teacher, assignments, subjects):
-        """Create classroom assignments using the new ClassroomTeacherAssignment model.
+        """Upsert classroom assignments for a teacher.
 
-        Also persists ``subjects`` to ``teacher.requested_subjects`` so that
+        Uses update_or_create so that assignments from other education levels
+        (not included in the current request) are preserved — critical for
+        teachers who span multiple levels (e.g. Primary + JSS + SSS).
+
+        Also persists ``subjects`` to ``teacher.subjects`` so that
         ``get_assigned_subjects`` can return them even before the teacher has
         been placed in a specific classroom (e.g. nursery/primary class-teacher
         model where no per-subject ClassroomTeacherAssignment is created yet).
         """
-        print(f"Creating classroom assignments for teacher {teacher.id}")
+        from django.db.models import Q
 
-        # Persist the subjects list directly on the teacher profile.
-        # This is the canonical store that get_assigned_subjects reads from
-        # when no classroom assignments exist yet.
+        print(f"Updating classroom assignments for teacher {teacher.id}")
+
         if subjects is not None:
             subject_objects = Subject.objects.filter(id__in=[int(s) for s in subjects if s])
             teacher.subjects.set(subject_objects)
             print(f"Set {subject_objects.count()} subjects for teacher {teacher.id}")
 
-        ClassroomTeacherAssignment.objects.filter(teacher=teacher).delete()
+        if assignments is None:
+            return
 
-        if assignments:
-            for assignment_data in assignments:
+        # Upsert each incoming assignment; track (classroom_id, subject_id) pairs
+        # so we can remove assignments the user explicitly deleted.
+        incoming_pairs: set = set()
+
+        for assignment_data in assignments:
+            try:
+                classroom_id = assignment_data.get("classroom_id")
+                subject_id = assignment_data.get("subject_id")
+                is_primary = assignment_data.get("is_primary_teacher", False)
+                periods_per_week = assignment_data.get("periods_per_week", 1)
+
+                if not classroom_id or not subject_id:
+                    print("Skipping assignment - missing classroom_id or subject_id")
+                    continue
+
                 try:
-                    classroom_id = assignment_data.get("classroom_id")
-                    subject_id = assignment_data.get("subject_id")
-                    is_primary = assignment_data.get("is_primary_teacher", False)
-                    periods_per_week = assignment_data.get("periods_per_week", 1)
+                    classroom = Classroom.objects.get(id=classroom_id)
+                    subject = Subject.objects.get(id=subject_id)
 
-                    if not classroom_id or not subject_id:
-                        print(
-                            "Skipping assignment - missing classroom_id or subject_id"
-                        )
-                        continue
+                    ClassroomTeacherAssignment.objects.update_or_create(
+                        classroom=classroom,
+                        subject=subject,
+                        defaults={
+                            "teacher": teacher,
+                            "is_primary_teacher": is_primary,
+                            "periods_per_week": periods_per_week,
+                        },
+                    )
+                    incoming_pairs.add((int(classroom_id), int(subject_id)))
+                    print(f"Upserted assignment: {teacher} - {subject} - {classroom}")
+                except (Classroom.DoesNotExist, Subject.DoesNotExist) as e:
+                    print(f"Skipping assignment - object not found: {e}")
+                    continue
 
-                    try:
-                        classroom = Classroom.objects.get(id=classroom_id)
-                        subject = Subject.objects.get(id=subject_id)
+            except Exception as e:
+                print(f"Error processing assignment: {e}")
+                import traceback
+                print(traceback.format_exc())
 
-                        ClassroomTeacherAssignment.objects.create(
-                            teacher=teacher,
-                            classroom=classroom,
-                            subject=subject,
-                            is_primary_teacher=is_primary,
-                            periods_per_week=periods_per_week,
-                        )
-                        print(
-                            f"Created assignment: {teacher} - {subject} - {classroom}"
-                        )
-                    except (Classroom.DoesNotExist, Subject.DoesNotExist) as e:
-                        print(f"Skipping assignment - object not found: {e}")
-                        continue
+        # Delete only the teacher's assignments that were explicitly removed
+        # (i.e. not present in the incoming list).
+        existing_qs = ClassroomTeacherAssignment.objects.filter(teacher=teacher)
+        if incoming_pairs:
+            keep_q = Q()
+            for (cid, sid) in incoming_pairs:
+                keep_q |= Q(classroom_id=cid, subject_id=sid)
+            deleted, _ = existing_qs.exclude(keep_q).delete()
+        else:
+            deleted, _ = existing_qs.delete()
 
-                except Exception as e:
-                    print(f"Error processing assignment: {e}")
-                    import traceback
-
-                    print(traceback.format_exc())
+        if deleted:
+            print(f"Removed {deleted} stale assignments for teacher {teacher.id}")
