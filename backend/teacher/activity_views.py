@@ -185,9 +185,22 @@ class StaffActivityLogViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         return qs.none()
 
     def get_serializer_class(self):
-        if self.action in ("create", "update", "partial_update"):
+        if self.action in ("update", "partial_update"):
             return StaffActivityLogCreateSerializer
         return StaffActivityLogSerializer
+
+    def create(self, request, *args, **kwargs):
+        """Use the write serializer for validation/save, read serializer for the response."""
+        write_ser = StaffActivityLogCreateSerializer(
+            data=request.data, context=self.get_serializer_context()
+        )
+        write_ser.is_valid(raise_exception=True)
+        self.perform_create(write_ser)
+        # Return the full read representation so the frontend gets all fields
+        read_ser = StaffActivityLogSerializer(
+            write_ser.instance, context=self.get_serializer_context()
+        )
+        return Response(read_ser.data, status=status.HTTP_201_CREATED)
 
     def perform_create(self, serializer):
         # Admins do not create activity logs — only staff members do.

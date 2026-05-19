@@ -18,7 +18,7 @@ const STATUS_CFG: Record<ActivityStatus, { label: string; color: string; icon: R
 };
 
 function StatusBadge({ status }: { status: ActivityStatus }) {
-  const cfg = STATUS_CFG[status];
+  const cfg = STATUS_CFG[status] ?? STATUS_CFG.pending;
   const Icon = cfg.icon;
   return (
     <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium border ${cfg.color}`}>
@@ -299,13 +299,11 @@ const StaffActivityLogPage: React.FC = () => {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const handleSaved = (log: StaffActivityLog) => {
-    setLogs(prev => {
-      const idx = prev.findIndex(l => l.id === log.id);
-      return idx >= 0 ? prev.map(l => l.id === log.id ? log : l) : [log, ...prev];
-    });
+  const handleSaved = (_log: StaffActivityLog) => {
     setShowForm(false);
     setEditLog(null);
+    // Reload the full list to ensure all fields (category_icon, status, etc.) are populated
+    loadData();
   };
 
   const handleDelete = async (log: StaffActivityLog) => {

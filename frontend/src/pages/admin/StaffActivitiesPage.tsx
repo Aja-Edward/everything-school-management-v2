@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  ClipboardList, CheckCircle, XCircle, Clock, Eye, Trash2,
-  Search, RefreshCw, ChevronDown, BarChart2, Settings,
-  Plus, X, Save, AlertCircle, Car, Wrench, Megaphone,
-  Shield, Baby, Layers, Filter,
+  ClipboardList, CheckCircle, XCircle, Clock, Eye,
+  Search, RefreshCw, BarChart2, Settings,
+  Plus, X,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import StaffActivitiesService, {
@@ -19,7 +18,7 @@ const STATUS_CFG: Record<ActivityStatus, { label: string; color: string; icon: R
 };
 
 function StatusBadge({ status }: { status: ActivityStatus }) {
-  const cfg = STATUS_CFG[status] || STATUS_CFG.pending;
+  const cfg = STATUS_CFG[status] ?? STATUS_CFG.pending;
   const Icon = cfg.icon;
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${cfg.color}`}>
@@ -27,12 +26,6 @@ function StatusBadge({ status }: { status: ActivityStatus }) {
     </span>
   );
 }
-
-const ICON_MAP: Record<string, React.ElementType> = {
-  '🚌': Car, '🔧': Wrench, '📣': Megaphone,
-  '🧹': Layers, '👶': Baby, '🔒': Shield,
-  '📋': ClipboardList,
-};
 
 function CategoryIcon({ icon, className = '' }: { icon: string; className?: string }) {
   return <span className={`text-xl ${className}`}>{icon || '📋'}</span>;
@@ -55,7 +48,7 @@ function LogDetailModal({ log, onClose, onReview }: {
 
   const handleReview = async (action: 'approve' | 'reject') => {
     setLoading(true);
-    try { await onReview(action, note); }
+    try { await Promise.resolve(onReview(action, note)); }
     finally { setLoading(false); }
   };
 
