@@ -10,6 +10,7 @@ import logging
 from django.utils import timezone
 from rest_framework import viewsets, filters, status
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
@@ -138,11 +139,28 @@ class StaffActivityCategoryViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         })
 
 
+def _get_teacher_for_user(user):
+    """
+    Return the Teacher record for a given user, or None.
+    Tries multiple lookup strategies so a missing record is surfaced clearly.
+    """
+    try:
+        return Teacher.objects.get(user=user)
+    except Teacher.DoesNotExist:
+        pass
+    # Fallback: look up by email (handles edge-case where OneToOne link is missing)
+    try:
+        return Teacher.objects.get(user__email=user.email)
+    except (Teacher.DoesNotExist, Teacher.MultipleObjectsReturned):
+        pass
+    return None
+
+
 class StaffActivityLogViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     """
     CRUD for staff activity logs.
-    - Staff users: see only their own logs, can create/edit pending logs.
-    - Admins: see all logs, can approve/reject.
+    - Staff users (teacher role): see only their own logs, can create/edit pending logs.
+    - Admins: see all logs, can approve/reject (cannot create on behalf of staff).
     """
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -159,15 +177,12 @@ class StaffActivityLogViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         qs = StaffActivityLog.objects.select_related(
             "teacher__user", "category", "reviewed_by"
         )
-        # Tenant filtering is handled by TenantFilterMixin
-        if not _is_admin(self.request.user):
-            # Staff see only their own logs
-            try:
-                teacher = Teacher.objects.get(user=self.request.user)
-                qs = qs.filter(teacher=teacher)
-            except Teacher.DoesNotExist:
-                return qs.none()
-        return qs
+        if _is_admin(self.request.user):
+            return qs   # admins see all (tenant filtered by TenantFilterMixin)
+        teacher = _get_teacher_for_user(self.request.user)
+        if teacher:
+            return qs.filter(teacher=teacher)
+        return qs.none()
 
     def get_serializer_class(self):
         if self.action in ("create", "update", "partial_update"):
@@ -175,12 +190,27 @@ class StaffActivityLogViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         return StaffActivityLogSerializer
 
     def perform_create(self, serializer):
+        # Admins do not create activity logs — only staff members do.
+        if _is_admin(self.request.user):
+            raise ValidationError(
+                "Admin accounts cannot create activity logs. Please log in as a staff member."
+            )
+
         tenant = getattr(self.request, "tenant", None)
-        try:
-            teacher = Teacher.objects.get(user=self.request.user)
-        except Teacher.DoesNotExist:
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("Only staff members can create activity logs.")
+        teacher = _get_teacher_for_user(self.request.user)
+
+        if not teacher:
+            logger.error(
+                "perform_create: no Teacher record found for user pk=%s email=%s role=%s",
+                self.request.user.pk,
+                self.request.user.email,
+                getattr(self.request.user, "role", "?"),
+            )
+            raise ValidationError(
+                "Your user account is not linked to a staff profile. "
+                "Please contact the administrator to verify your account setup."
+            )
+
         serializer.save(tenant=tenant, teacher=teacher, status=StaffActivityLog.STATUS_PENDING)
         logger.info(
             "Activity log created by %s (%s) — category: %s",
@@ -191,33 +221,26 @@ class StaffActivityLogViewSet(TenantFilterMixin, viewsets.ModelViewSet):
 
     def update(self, request, *args, **kwargs):
         instance = self.get_object()
-        # Staff can only edit their own PENDING logs
         if not _is_admin(request.user):
-            try:
-                teacher = Teacher.objects.get(user=request.user)
-            except Teacher.DoesNotExist:
-                return Response({"error": "Not a staff member."}, status=403)
+            teacher = _get_teacher_for_user(request.user)
+            if not teacher:
+                return Response({"error": "Staff profile not found."}, status=400)
             if instance.teacher != teacher:
                 return Response({"error": "You can only edit your own logs."}, status=403)
             if instance.status != StaffActivityLog.STATUS_PENDING:
-                return Response(
-                    {"error": "You can only edit logs that are still pending review."}, status=400
-                )
+                return Response({"error": "You can only edit logs that are still pending review."}, status=400)
         return super().update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         if not _is_admin(request.user):
-            try:
-                teacher = Teacher.objects.get(user=request.user)
-            except Teacher.DoesNotExist:
-                return Response({"error": "Not a staff member."}, status=403)
+            teacher = _get_teacher_for_user(request.user)
+            if not teacher:
+                return Response({"error": "Staff profile not found."}, status=400)
             if instance.teacher != teacher:
                 return Response({"error": "You can only delete your own logs."}, status=403)
             if instance.status != StaffActivityLog.STATUS_PENDING:
-                return Response(
-                    {"error": "You cannot delete a log that has already been reviewed."}, status=400
-                )
+                return Response({"error": "You cannot delete a reviewed log."}, status=400)
         return super().destroy(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"], url_path="review")
