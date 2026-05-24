@@ -17,6 +17,17 @@ from django.db import transaction
 logger = logging.getLogger(__name__)
 
 
+def _download_if_url(file_path: str, file_ext: str) -> str:
+    if not file_path.startswith("http"):
+        return file_path
+    import requests
+    import tempfile
+    response = requests.get(file_path, timeout=60)
+    response.raise_for_status()
+    tmp = tempfile.NamedTemporaryFile(suffix=file_ext, delete=False)
+    tmp.write(response.content)
+    tmp.close()
+    return tmp.name
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -25,7 +36,8 @@ logger = logging.getLogger(__name__)
 def _compute_age(dob):
     today = date.today()
     return (
-        today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+        today.year - dob.year -
+        ((today.month, today.day) < (dob.month, dob.day))
     )
 
 
@@ -40,7 +52,7 @@ def _validate_row(row_num, row, tenant_id):
     # ---- Required plain fields ----
     required = [
         "employee_id", "staff_type", "first_name", "last_name",
-        "email", "phone_number", "hire_date", 
+        "email", "phone_number", "hire_date",
         "qualification", "specialization",
     ]
     for field in required:
@@ -88,7 +100,8 @@ def _validate_row(row_num, row, tenant_id):
     if row.get("date_of_birth", "").strip():
         for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y"):
             try:
-                dob = datetime.strptime(row["date_of_birth"].strip(), fmt).date()
+                dob = datetime.strptime(
+                    row["date_of_birth"].strip(), fmt).date()
                 break
             except ValueError:
                 continue
@@ -167,7 +180,8 @@ def _resolve_education_levels(tenant, level_raw):
     if level_raw.strip().lower() == "all":
         return list(EducationLevel.objects.filter(tenant=tenant, is_active=True))
 
-    parts = [p.strip() for p in level_raw.replace(";", ",").split(",") if p.strip()]
+    parts = [p.strip() for p in level_raw.replace(
+        ";", ",").split(",") if p.strip()]
     matched = []
     for part in parts:
         q = EducationLevel.objects.filter(tenant=tenant, is_active=True)
@@ -307,7 +321,8 @@ def _parse_file(file_path, file_ext):
                 break
 
         if header_row_idx is None:
-            raise ValueError("Could not find header row. Check your file format.")
+            raise ValueError(
+                "Could not find header row. Check your file format.")
 
         raw_headers = [
             _normalise_header(str(h)) if h else "" for h in rows[header_row_idx]
@@ -324,7 +339,7 @@ def _parse_file(file_path, file_ext):
             return str(val).strip()
 
         result = []
-        for row in rows[header_row_idx + 1 :]:
+        for row in rows[header_row_idx + 1:]:
             if all(cell is None or str(cell).strip() == "" for cell in row):
                 continue
             padded_row = list(row) + [""] * (len(mapped_headers) - len(row))
@@ -341,14 +356,16 @@ def _parse_file(file_path, file_ext):
         return result
 
     else:
-        import csv, io
+        import csv
+        import io
 
         with open(file_path, newline="", encoding="utf-8-sig") as f:
             lines = f.readlines()
 
         header_line_idx = None
         for idx, line in enumerate(lines):
-            normalised = [_normalise_header(h) for h in line.strip().split(",")]
+            normalised = [_normalise_header(h)
+                          for h in line.strip().split(",")]
             if any(h in COLUMN_MAP for h in normalised):
                 header_line_idx = idx
                 break
@@ -418,7 +435,16 @@ def process_bulk_teacher_upload(
 
     try:
         tenant = Tenant.objects.get(pk=tenant_id)
-        rows = _parse_file(file_path, file_ext)
+        tmp_path = _download_if_url(file_path, file_ext)
+        try:
+            rows = _parse_file(tmp_path, file_ext)
+        finally:
+            if tmp_path != file_path:
+                import os
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
 
         total = len(rows)
         record.total_rows = total
@@ -474,7 +500,8 @@ def process_bulk_teacher_upload(
             record.processed_rows = i - 1
             record.imported_rows = len(imported)
             record.failed_rows = len(errors)
-            record.save(update_fields=["processed_rows", "imported_rows", "failed_rows"])
+            record.save(update_fields=[
+                        "processed_rows", "imported_rows", "failed_rows"])
 
         # Final status
         record.status = "completed"

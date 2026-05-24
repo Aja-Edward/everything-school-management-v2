@@ -134,14 +134,26 @@ def bulk_upload_parents(request):
             status=400,
         )
 
-    # Save to a temp location the Celery worker can read
-    upload_dir = os.path.join(tempfile.gettempdir(), "bulk_uploads")
-    os.makedirs(upload_dir, exist_ok=True)
-    safe_name = f"parent_bulk_{tenant.id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{ext}"
-    file_path = os.path.join(upload_dir, safe_name)
-    with open(file_path, "wb") as dest:
-        for chunk in file_obj.chunks():
-            dest.write(chunk)
+    # Upload to Cloudinary so the Celery worker (separate container) can access it
+    import cloudinary.uploader
+    import uuid as _uuid
+
+    file_obj.seek(0)  # ensure pointer is at start
+    try:
+        upload_result = cloudinary.uploader.upload(
+            file_obj,
+            resource_type="raw",
+            folder="bulk_uploads/parents",
+            public_id=f"parent_bulk_{tenant.id}_{_uuid.uuid4().hex}",
+            format=ext.lstrip("."),
+        )
+        file_url = upload_result["secure_url"]
+    except Exception as upload_err:
+        logger.error("Cloudinary upload failed: %s", upload_err)
+        return JsonResponse(
+            {"error": "File upload failed. Please try again."},
+            status=500,
+        )
 
     # Create tracking record
     from parent.models import BulkUploadRecord
@@ -149,19 +161,19 @@ def bulk_upload_parents(request):
         tenant=tenant,
         uploaded_by=user,
         original_filename=file_obj.name,
-        file_path=file_path,
+        file_path=file_url,   # store Cloudinary URL in file_path field
         file_ext=ext,
         status="pending",
     )
 
-    # Enqueue Celery task (falls back to synchronous if no broker is available)
+    # Enqueue Celery task
     from parent.tasks import process_bulk_parent_upload
     task_id = None
     try:
         task = process_bulk_parent_upload.delay(
             upload_record_id=record.pk,
             tenant_id=str(tenant.id),
-            file_path=file_path,
+            file_path=file_url,   # Cloudinary URL — accessible from any container
             file_ext=ext,
             uploaded_by_id=user.pk,
         )
@@ -170,17 +182,16 @@ def bulk_upload_parents(request):
         record.save(update_fields=["result_data"])
     except Exception as celery_err:
         logger.warning(
-            "Celery unavailable (%s). Running bulk parent upload synchronously.",
+            "Celery unavailable (%s). Running synchronously.",
             celery_err,
         )
         process_bulk_parent_upload(
             upload_record_id=record.pk,
             tenant_id=str(tenant.id),
-            file_path=file_path,
+            file_path=file_url,
             file_ext=ext,
             uploaded_by_id=user.pk,
         )
-
     return JsonResponse(
         {
             "upload_id": record.pk,
@@ -266,13 +277,17 @@ def download_upload_template(request):
 
     # (header, required, example, description)
     COLUMNS = [
-        ("Last Name*",            True,  "Adeyemi",            "Parent's surname / last name"),
+        ("Last Name*",            True,  "Adeyemi",
+         "Parent's surname / last name"),
         ("First Name*",           True,  "Fatima",             "Parent's first name"),
         ("Gender*",               True,  "F",                  "M or F"),
-        ("Phone Number*",         True,  "08012345678",        "Parent's phone — used to link to students"),
-        ("Email",                 False, "fatima@example.com", "Parent email (optional, auto-generated if blank)"),
+        ("Phone Number*",         True,  "08012345678",
+         "Parent's phone — used to link to students"),
+        ("Email",                 False, "fatima@example.com",
+         "Parent email (optional, auto-generated if blank)"),
         ("Address*",              True,  "12 Broad St, Lagos", "Home address"),
-        ("Parent/Guardian Role*", True,  "Father",             "Father / Mother / Guardian / Sponsor"),
+        ("Parent/Guardian Role*", True,  "Father",
+         "Father / Mother / Guardian / Sponsor"),
     ]
 
     headers = [col[0] for col in COLUMNS]
@@ -308,16 +323,17 @@ def _template_excel(headers, example, column_defs):
 
     REQUIRED_COLOR = "FFF2CC"
     OPTIONAL_COLOR = "FFFFFF"
-    HEADER_COLOR   = "305496"
-    HEADER_FONT    = Font(bold=True, color="FFFFFF", size=11)
-    EXAMPLE_FONT   = Font(italic=True, color="595959", size=10)
-    thin_border    = Border(
+    HEADER_COLOR = "305496"
+    HEADER_FONT = Font(bold=True, color="FFFFFF", size=11)
+    EXAMPLE_FONT = Font(italic=True, color="595959", size=10)
+    thin_border = Border(
         left=Side(style="thin"), right=Side(style="thin"),
         top=Side(style="thin"), bottom=Side(style="thin"),
     )
 
     # Title
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
+    ws.merge_cells(start_row=1, start_column=1,
+                   end_row=1, end_column=len(headers))
     title = ws.cell(row=1, column=1, value="PARENT BULK UPLOAD TEMPLATE")
     title.font = Font(size=14, bold=True, color="1F4E79")
     title.alignment = Alignment(horizontal="center")
@@ -333,16 +349,20 @@ def _template_excel(headers, example, column_defs):
         "• Upload PARENTS before uploading STUDENTS",
     ]
     for i, text in enumerate(instructions, start=2):
-        ws.merge_cells(start_row=i, start_column=1, end_row=i, end_column=len(headers))
+        ws.merge_cells(start_row=i, start_column=1,
+                       end_row=i, end_column=len(headers))
         cell = ws.cell(row=i, column=1, value=text)
         cell.font = Font(size=10, color="444444")
 
     start_row = len(instructions) + 3
 
     # Legend
-    ws.cell(row=start_row - 1, column=1, value="Legend:").font = Font(bold=True)
-    ws.cell(row=start_row - 1, column=2, value="Required").fill = PatternFill("solid", fgColor=REQUIRED_COLOR)
-    ws.cell(row=start_row - 1, column=3, value="Optional").fill = PatternFill("solid", fgColor=OPTIONAL_COLOR)
+    ws.cell(row=start_row - 1, column=1,
+            value="Legend:").font = Font(bold=True)
+    ws.cell(row=start_row - 1, column=2,
+            value="Required").fill = PatternFill("solid", fgColor=REQUIRED_COLOR)
+    ws.cell(row=start_row - 1, column=3,
+            value="Optional").fill = PatternFill("solid", fgColor=OPTIONAL_COLOR)
 
     # Header row
     for col_idx, header in enumerate(headers, 1):
@@ -354,11 +374,12 @@ def _template_excel(headers, example, column_defs):
 
     # Example row
     for col_idx, val in enumerate(example, 1):
-        col_def  = column_defs[col_idx - 1]
+        col_def = column_defs[col_idx - 1]
         required = col_def[1]
         cell = ws.cell(row=start_row + 1, column=col_idx, value=val)
         cell.font = EXAMPLE_FONT
-        cell.fill = PatternFill("solid", fgColor=REQUIRED_COLOR if required else OPTIONAL_COLOR)
+        cell.fill = PatternFill(
+            "solid", fgColor=REQUIRED_COLOR if required else OPTIONAL_COLOR)
         cell.border = thin_border
 
     # Column widths
@@ -379,8 +400,10 @@ def _template_excel(headers, example, column_defs):
 
     for row_idx, (header, required, ex, desc) in enumerate(column_defs, 2):
         guide.cell(row=row_idx, column=1, value=header).border = thin_border
-        req_cell = guide.cell(row=row_idx, column=2, value="Yes" if required else "No")
-        req_cell.font = Font(color="C00000" if required else "595959", bold=required)
+        req_cell = guide.cell(row=row_idx, column=2,
+                              value="Yes" if required else "No")
+        req_cell.font = Font(
+            color="C00000" if required else "595959", bold=required)
         req_cell.border = thin_border
         guide.cell(row=row_idx, column=3, value=ex).border = thin_border
         desc_cell = guide.cell(row=row_idx, column=4, value=desc)
@@ -502,7 +525,7 @@ def _export_excel(imported, record):
 
     HEADER_FONT = Font(bold=True, color="FFFFFF", size=11)
     HEADER_FILL = PatternFill("solid", fgColor="1F4E79")
-    PASS_FILL   = PatternFill("solid", fgColor="FFF2CC")
+    PASS_FILL = PatternFill("solid", fgColor="FFF2CC")
     thin = Border(
         left=Side(style="thin"), right=Side(style="thin"),
         top=Side(style="thin"), bottom=Side(style="thin"),
@@ -529,11 +552,16 @@ def _export_excel(imported, record):
 
     # Summary sheet
     summary = wb.create_sheet("Summary")
-    summary["A1"] = "Upload ID";    summary["B1"] = record.id
-    summary["A2"] = "File";         summary["B2"] = record.original_filename
-    summary["A3"] = "Imported";     summary["B3"] = record.imported_rows
-    summary["A4"] = "Skipped";      summary["B4"] = record.failed_rows
-    summary["A5"] = "Export Date";  summary["B5"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    summary["A1"] = "Upload ID"
+    summary["B1"] = record.id
+    summary["A2"] = "File"
+    summary["B2"] = record.original_filename
+    summary["A3"] = "Imported"
+    summary["B3"] = record.imported_rows
+    summary["A4"] = "Skipped"
+    summary["B4"] = record.failed_rows
+    summary["A5"] = "Export Date"
+    summary["B5"] = datetime.now().strftime("%Y-%m-%d %H:%M")
     summary["A7"] = "IMPORTANT"
     summary["A7"].font = Font(bold=True, color="C00000")
     summary["B7"] = "Passwords shown are initial. Parents should change them on first login."
@@ -572,11 +600,11 @@ def _export_pdf(imported, record):
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("Title", parent=styles["Title"],
                                  fontSize=18, spaceAfter=6, alignment=TA_CENTER)
-    sub_style   = ParagraphStyle("Sub", parent=styles["Normal"],
-                                 fontSize=10, spaceAfter=4, alignment=TA_CENTER,
-                                 textColor=colors.grey)
-    warn_style  = ParagraphStyle("Warn", parent=styles["Normal"],
-                                 fontSize=9, textColor=colors.HexColor("#C00000"))
+    sub_style = ParagraphStyle("Sub", parent=styles["Normal"],
+                               fontSize=10, spaceAfter=4, alignment=TA_CENTER,
+                               textColor=colors.grey)
+    warn_style = ParagraphStyle("Warn", parent=styles["Normal"],
+                                fontSize=9, textColor=colors.HexColor("#C00000"))
 
     elements = [
         Paragraph("Parent Login Credentials", title_style),
@@ -595,7 +623,7 @@ def _export_pdf(imported, record):
         Spacer(1, 6*mm),
     ]
 
-    NAVY  = colors.HexColor("#1F4E79")
+    NAVY = colors.HexColor("#1F4E79")
     AMBER = colors.HexColor("#FFF2CC")
     STRIPE = colors.HexColor("#F2F2F2")
 
@@ -614,7 +642,7 @@ def _export_pdf(imported, record):
         ("FONTSIZE",      (0, 1), (-1, -1), 8),
         ("TOPPADDING",    (0, 1), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 1), (-1, -1), 5),
-        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [colors.white, STRIPE]),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, STRIPE]),
         ("BACKGROUND",    (4, 1), (4, -1), AMBER),   # Password column
         ("FONTNAME",      (4, 1), (4, -1), "Courier"),
         ("GRID",          (0, 0), (-1, -1), 0.4, colors.HexColor("#CCCCCC")),
@@ -665,7 +693,8 @@ def download_error_report(request, upload_id):
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["Row Number", "First Name", "Last Name", "Phone", "Role", "Error Details"])
+    writer.writerow(["Row Number", "First Name", "Last Name",
+                    "Phone", "Role", "Error Details"])
     for err_entry in errors:
         data = err_entry.get("data", {})
         writer.writerow([

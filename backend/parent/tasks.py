@@ -27,9 +27,29 @@ EXAMPLE_PHONES = [
     "+234-800-000-0000",
 ]
 
+
+def _download_if_url(file_path: str, file_ext: str) -> str:
+    """
+    If file_path is a Cloudinary/HTTP URL, download it to a local
+    temp file and return that path. Otherwise return file_path as-is.
+    The caller is responsible for deleting the temp file.
+    """
+    if not file_path.startswith("http"):
+        return file_path
+
+    import requests
+    import tempfile
+    response = requests.get(file_path, timeout=60)
+    response.raise_for_status()
+    tmp = tempfile.NamedTemporaryFile(suffix=file_ext, delete=False)
+    tmp.write(response.content)
+    tmp.close()
+    return tmp.name
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_password(length=10):
     alphabet = string.ascii_letters + string.digits
@@ -209,14 +229,16 @@ def _parse_file(file_path, file_ext):
                 break
 
         if header_row_idx is None:
-            raise ValueError("Could not find header row. Check your file format.")
+            raise ValueError(
+                "Could not find header row. Check your file format.")
 
-        raw_headers = [_normalise_header(h) if h else "" for h in rows[header_row_idx]]
+        raw_headers = [_normalise_header(
+            h) if h else "" for h in rows[header_row_idx]]
         mapped_headers = [COLUMN_MAP.get(h, h) for h in raw_headers]
 
         result = []
         # Start from the row AFTER the header, skip the example/sample row too
-        data_rows = rows[header_row_idx + 1 :]
+        data_rows = rows[header_row_idx + 1:]
 
         def _cell_to_str(val):
             if val is None:
@@ -253,7 +275,8 @@ def _parse_file(file_path, file_ext):
             lines = f.readlines()
             header_line_idx = None
             for idx, line in enumerate(lines):
-                normalised = [_normalise_header(h) for h in line.strip().split(",")]
+                normalised = [_normalise_header(h)
+                              for h in line.strip().split(",")]
                 if any(h in COLUMN_MAP for h in normalised):
                     header_line_idx = idx
                     break
@@ -316,14 +339,24 @@ def process_bulk_parent_upload(
 
     try:
         tenant = Tenant.objects.get(pk=tenant_id)
-        rows   = _parse_file(file_path, file_ext)
-        total  = len(rows)
+        tmp_path = _download_if_url(file_path, file_ext)
+        try:
+            rows = _parse_file(tmp_path, file_ext)
+        finally:
+            # Clean up temp file if we downloaded from a URL
+            if tmp_path != file_path:
+                import os
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+        total = len(rows)
 
         record.total_rows = total
         record.save(update_fields=["total_rows"])
 
         imported = []
-        errors   = []
+        errors = []
 
         for i, raw_row in enumerate(rows, start=2):  # row 1 = header
             row_errors, cleaned = _validate_row(i, raw_row)
@@ -340,13 +373,14 @@ def process_bulk_parent_upload(
                     "errors": row_errors,
                 })
                 record.processed_rows = i - 1
-                record.failed_rows    = len(errors)
+                record.failed_rows = len(errors)
                 record.save(update_fields=["processed_rows", "failed_rows"])
                 continue
 
             try:
                 with transaction.atomic():
-                    parent, password, username, email = _create_parent(tenant, cleaned)
+                    parent, password, username, email = _create_parent(
+                        tenant, cleaned)
 
                 entry = {
                     "row":       i,
@@ -378,16 +412,17 @@ def process_bulk_parent_upload(
                 })
 
             record.processed_rows = i - 1
-            record.imported_rows  = len(imported)
-            record.failed_rows    = len(errors)
-            record.save(update_fields=["processed_rows", "imported_rows", "failed_rows"])
+            record.imported_rows = len(imported)
+            record.failed_rows = len(errors)
+            record.save(update_fields=[
+                        "processed_rows", "imported_rows", "failed_rows"])
 
         # Final save
-        record.status        = "completed"
+        record.status = "completed"
         record.processed_rows = total
-        record.imported_rows  = len(imported)
-        record.failed_rows    = len(errors)
-        record.result_data    = {
+        record.imported_rows = len(imported)
+        record.failed_rows = len(errors)
+        record.result_data = {
             "imported": imported,
             "errors":   errors,
             "summary": {
@@ -407,8 +442,9 @@ def process_bulk_parent_upload(
         )
 
     except Exception as exc:
-        logger.exception(f"Parent bulk upload task {upload_record_id} failed: {exc}")
-        record.status      = "failed"
+        logger.exception(
+            f"Parent bulk upload task {upload_record_id} failed: {exc}")
+        record.status = "failed"
         record.result_data = {"error": str(exc)}
         record.save(update_fields=["status", "result_data"])
         raise
@@ -422,7 +458,7 @@ def _notify_admin(user_id, imported, skipped, total):
     try:
         from users.models import CustomUser
         from utils.email import send_email_via_brevo
-        user    = CustomUser.objects.get(pk=user_id)
+        user = CustomUser.objects.get(pk=user_id)
         subject = "Bulk Parent Upload Complete"
         html = f"""
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">

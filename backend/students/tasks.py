@@ -18,9 +18,27 @@ from django.db import transaction
 logger = logging.getLogger(__name__)
 
 
+def _download_if_url(file_path: str, file_ext: str) -> str:
+    """
+    If file_path is a Cloudinary/HTTP URL, download it to a local
+    temp file and return that path. Otherwise return file_path as-is.
+    The caller is responsible for deleting the temp file.
+    """
+    if not file_path.startswith("http"):
+        return file_path
+
+    import requests
+    import tempfile
+    response = requests.get(file_path, timeout=60)
+    response.raise_for_status()
+    tmp = tempfile.NamedTemporaryFile(suffix=file_ext, delete=False)
+    tmp.write(response.content)
+    tmp.close()
+    return tmp.name
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_password(length=10):
     alphabet = string.ascii_letters + string.digits
@@ -30,7 +48,8 @@ def _make_password(length=10):
 def _compute_age(dob):
     today = date.today()
     return (
-        today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+        today.year - dob.year -
+        ((today.month, today.day) < (dob.month, dob.day))
     )
 
 
@@ -69,7 +88,8 @@ def _resolve_classroom(tenant_id, classroom_str, academic_session_id=None):
     class_obj = _resolve_class(tenant_id, class_name)
     if not class_obj:
         return None, None
-    section_obj = _resolve_section(tenant_id, class_obj, section_name, academic_session_id)
+    section_obj = _resolve_section(
+        tenant_id, class_obj, section_name, academic_session_id)
     return class_obj, section_obj
 
 
@@ -142,7 +162,8 @@ def _validate_row(row_num, row, tenant_id, academic_session_id=None):
 
     # Classroom can be provided as a single 'classroom' field or as separate class_code + section_name
     has_classroom = bool(row.get("classroom", "").strip())
-    has_legacy = bool(row.get("class_code", "").strip()) and bool(row.get("section_name", "").strip())
+    has_legacy = bool(row.get("class_code", "").strip()) and bool(
+        row.get("section_name", "").strip())
     if not has_classroom and not has_legacy:
         errors.append(f"Row {row_num}: 'classroom' is required.")
 
@@ -154,7 +175,8 @@ def _validate_row(row_num, row, tenant_id, academic_session_id=None):
     gender_raw = row["gender"].strip().lower()
     gender = gender_map.get(gender_raw)
     if not gender:
-        errors.append(f"Row {row_num}: Invalid gender '{row['gender']}'. Use M or F.")
+        errors.append(
+            f"Row {row_num}: Invalid gender '{row['gender']}'. Use M or F.")
 
     # ---- Date of birth ----
     from datetime import datetime
@@ -166,18 +188,21 @@ def _validate_row(row_num, row, tenant_id, academic_session_id=None):
         except ValueError:
             continue
     if not dob:
-        errors.append(f"Row {row_num}: Invalid date_of_birth '{row['date_of_birth']}'. Use YYYY-MM-DD.")
+        errors.append(
+            f"Row {row_num}: Invalid date_of_birth '{row['date_of_birth']}'. Use YYYY-MM-DD.")
 
     # ---- Admission date ----
     admission_date = None
     for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y", "%Y-%m-%d %H:%M:%S"):
         try:
-            admission_date = datetime.strptime(row["admission_date"].strip(), fmt).date()
+            admission_date = datetime.strptime(
+                row["admission_date"].strip(), fmt).date()
             break
         except ValueError:
             continue
     if not admission_date:
-        errors.append(f"Row {row_num}: Invalid admission_date '{row['admission_date']}'.")
+        errors.append(
+            f"Row {row_num}: Invalid admission_date '{row['admission_date']}'.")
 
     if errors:
         return errors, None
@@ -447,7 +472,8 @@ def _parse_file(file_path, file_ext):
                 break
 
         if header_row_idx is None:
-            raise ValueError("Could not find header row. Check your file format.")
+            raise ValueError(
+                "Could not find header row. Check your file format.")
 
         raw_headers = [
             _normalise_header(str(h)) if h else "" for h in rows[header_row_idx]
@@ -464,7 +490,7 @@ def _parse_file(file_path, file_ext):
             return str(val).strip()
 
         result = []
-        for row in rows[header_row_idx + 1 :]:
+        for row in rows[header_row_idx + 1:]:
             if all(cell is None or str(cell).strip() == "" for cell in row):
                 continue
             padded_row = list(row) + [""] * (len(mapped_headers) - len(row))
@@ -481,14 +507,16 @@ def _parse_file(file_path, file_ext):
         return result
 
     else:
-        import csv, io
+        import csv
+        import io
 
         with open(file_path, newline="", encoding="utf-8-sig") as f:
             lines = f.readlines()
 
         header_line_idx = None
         for idx, line in enumerate(lines):
-            normalised = [_normalise_header(h) for h in line.strip().split(",")]
+            normalised = [_normalise_header(h)
+                          for h in line.strip().split(",")]
             if any(h in COLUMN_MAP for h in normalised):
                 header_line_idx = idx
                 break
@@ -558,7 +586,17 @@ def process_bulk_student_upload(
 
     try:
         tenant = Tenant.objects.get(pk=tenant_id)
-        rows = _parse_file(file_path, file_ext)
+        tmp_path = _download_if_url(file_path, file_ext)
+        try:
+            rows = _parse_file(tmp_path, file_ext)
+        finally:
+            # Clean up temp file if we downloaded from a URL
+            if tmp_path != file_path:
+                import os
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
 
         total = len(rows)
         record.total_rows = total
@@ -617,7 +655,8 @@ def process_bulk_student_upload(
             record.processed_rows = i - 1
             record.imported_rows = len(imported)
             record.failed_rows = len(errors)
-            record.save(update_fields=["processed_rows", "imported_rows", "failed_rows"])
+            record.save(update_fields=[
+                        "processed_rows", "imported_rows", "failed_rows"])
 
         # Final status
         record.status = "completed"

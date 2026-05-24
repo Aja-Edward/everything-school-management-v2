@@ -38,6 +38,7 @@ ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 # Helper: get tenant from request
 # ---------------------------------------------------------------------------
 
+
 def _get_tenant(request):
     return getattr(request, "tenant", None)
 
@@ -75,16 +76,23 @@ def bulk_upload_teachers(request):
             status=400,
         )
 
-    academic_session_id = request.data.get("academic_session") or None
+   # Upload to Cloudinary so the Celery worker (separate container) can access it
+    import cloudinary.uploader
+    import uuid as _uuid
 
-    # Save to a temp location the Celery worker can read
-    upload_dir = os.path.join(tempfile.gettempdir(), "bulk_uploads")
-    os.makedirs(upload_dir, exist_ok=True)
-    safe_name = f"bulk_{tenant.id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{ext}"
-    file_path = os.path.join(upload_dir, safe_name)
-    with open(file_path, "wb") as dest:
-        for chunk in file_obj.chunks():
-            dest.write(chunk)
+    file_obj.seek(0)
+    try:
+        upload_result = cloudinary.uploader.upload(
+            file_obj,
+            resource_type="raw",
+            folder="bulk_uploads/teachers",
+            public_id=f"teacher_bulk_{tenant.id}_{_uuid.uuid4().hex}",
+            format=ext.lstrip("."),
+        )
+        file_url = upload_result["secure_url"]
+    except Exception as upload_err:
+        logger.error("Cloudinary upload failed: %s", upload_err)
+        return Response({"error": "File upload failed. Please try again."}, status=500)
 
     # Create tracking record
     from teacher.models import BulkUploadRecord
@@ -92,33 +100,32 @@ def bulk_upload_teachers(request):
         tenant=tenant,
         uploaded_by=request.user,
         original_filename=file_obj.name,
-        file_path=file_path,
+        file_path=file_url,   # store Cloudinary URL in file_path field
         file_ext=ext,
         status="pending",
     )
 
-    # Enqueue Celery task (falls back to synchronous if no broker is available)
+    # Enqueue Celery task
     from teacher.tasks import process_bulk_teacher_upload
     task_id = None
     try:
         task = process_bulk_teacher_upload.delay(
             upload_record_id=record.pk,
             tenant_id=str(tenant.id),
-            file_path=file_path,
+            file_path=file_url,   # Cloudinary URL — accessible from any container
             file_ext=ext,
             uploaded_by_id=request.user.pk,
         )
         task_id = task.id
     except Exception as celery_err:
-        # Celery / broker unavailable — run synchronously so the upload still works.
         logger.warning(
-            "Celery unavailable (%s). Running bulk teacher upload synchronously.",
+            "Celery unavailable (%s). Running synchronously.",
             celery_err,
         )
         process_bulk_teacher_upload(
             upload_record_id=record.pk,
             tenant_id=str(tenant.id),
-            file_path=file_path,
+            file_path=file_url,
             file_ext=ext,
             uploaded_by_id=request.user.pk,
         )
@@ -224,7 +231,8 @@ def _jwt_auth(request):
     # Try cookie fallback
     from django.conf import settings as django_settings
 
-    raw_token = request.COOKIES.get(getattr(django_settings, "AUTH_COOKIE_ACCESS", ""))
+    raw_token = request.COOKIES.get(
+        getattr(django_settings, "AUTH_COOKIE_ACCESS", ""))
     if raw_token:
         try:
             jwt_auth = JWTAuthentication()
@@ -282,18 +290,23 @@ def download_upload_template(request):
             pass
 
     COLUMNS = [
-        ("Employee ID*", True, "EMP001", "School-assigned employee ID (must be unique)"),
+        ("Employee ID*", True, "EMP001",
+         "School-assigned employee ID (must be unique)"),
         ("First Name*", True, "Adeola", "Teacher's first name"),
         ("Last Name*", True, "Johnson", "Teacher's last name"),
         ("Email*", True, "adeola.johnson@school.com", "Unique email address"),
         ("Phone Number*", True, "08012345678", "Contact phone number"),
-        ("Staff Type*", True, "Teaching", "Teaching or Non-Teaching — select from dropdown"),
+        ("Staff Type*", True, "Teaching",
+         "Teaching or Non-Teaching — select from dropdown"),
         ("Level", False, level_example, level_hint),
-        ("Qualification*", True, "B.A. Education", "Educational qualification (e.g., B.A., M.Sc.)"),
+        ("Qualification*", True, "B.A. Education",
+         "Educational qualification (e.g., B.A., M.Sc.)"),
         ("Specialization*", True, "Mathematics", "Subject specialization"),
         ("Date of Birth", False, "1990-05-15", "Format: YYYY-MM-DD (optional)"),
-        ("Hire Date*", True, "2022-09-01", "Employment hire date — Format: YYYY-MM-DD"),
-        ("Address", False, "45 Lagos Street, Lagos", "Residential address (optional)"),
+        ("Hire Date*", True, "2022-09-01",
+         "Employment hire date — Format: YYYY-MM-DD"),
+        ("Address", False, "45 Lagos Street, Lagos",
+         "Residential address (optional)"),
         ("Is Active", False, "TRUE", "TRUE or FALSE. Defaults to TRUE."),
         (
             "Profile Picture URL",
@@ -378,7 +391,8 @@ def _template_excel(headers, example, column_defs, tenant=None):
     )
 
     # ---- Title ----
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
+    ws.merge_cells(start_row=1, start_column=1,
+                   end_row=1, end_column=len(headers))
     title_cell = ws.cell(row=1, column=1, value="TEACHER BULK UPLOAD TEMPLATE")
     title_cell.font = Font(size=14, bold=True, color="1F4E79")
     title_cell.alignment = Alignment(horizontal="center")
@@ -397,14 +411,16 @@ def _template_excel(headers, example, column_defs, tenant=None):
         "• Hire Date format: YYYY-MM-DD",
     ]
     for i, text in enumerate(instructions, start=2):
-        ws.merge_cells(start_row=i, start_column=1, end_row=i, end_column=len(headers))
+        ws.merge_cells(start_row=i, start_column=1,
+                       end_row=i, end_column=len(headers))
         cell = ws.cell(row=i, column=1, value=text)
         cell.font = Font(size=10, color="444444")
 
     start_row = len(instructions) + 3
 
     # ---- Legend ----
-    ws.cell(row=start_row - 1, column=1, value="Legend:").font = Font(bold=True)
+    ws.cell(row=start_row - 1, column=1,
+            value="Legend:").font = Font(bold=True)
     ws.cell(row=start_row - 1, column=2, value="Required").fill = PatternFill(
         "solid", fgColor=REQUIRED_COLOR
     )
@@ -422,7 +438,8 @@ def _template_excel(headers, example, column_defs, tenant=None):
 
     # ---- Example row ----
     for col_idx, val in enumerate(example, 1):
-        col_def = column_defs[col_idx - 1] if col_idx - 1 < len(column_defs) else None
+        col_def = column_defs[col_idx - 1] if col_idx - \
+            1 < len(column_defs) else None
         required = col_def[1] if col_def else False
         cell = ws.cell(row=start_row + 1, column=col_idx, value=val)
         cell.font = EXAMPLE_FONT
@@ -474,8 +491,10 @@ def _template_excel(headers, example, column_defs, tenant=None):
 
     for row_idx, (header, required, ex, desc) in enumerate(column_defs, 2):
         guide.cell(row=row_idx, column=1, value=header).border = thin_border
-        req_cell = guide.cell(row=row_idx, column=2, value="Yes" if required else "No")
-        req_cell.font = Font(color="C00000" if required else "595959", bold=required)
+        req_cell = guide.cell(row=row_idx, column=2,
+                              value="Yes" if required else "No")
+        req_cell.font = Font(
+            color="C00000" if required else "595959", bold=required)
         req_cell.border = thin_border
         guide.cell(row=row_idx, column=3, value=ex).border = thin_border
         desc_cell = guide.cell(row=row_idx, column=4, value=desc)
@@ -607,10 +626,10 @@ def _export_excel(imported, record):
     ws = wb.active
     ws.title = "Teacher Credentials"
 
-    HEADER_FONT  = Font(bold=True, color="FFFFFF", size=11)
-    HEADER_FILL  = PatternFill("solid", fgColor="1F4E79")
-    PASS_FILL    = PatternFill("solid", fgColor="FFF2CC")
-    thin         = Border(
+    HEADER_FONT = Font(bold=True, color="FFFFFF", size=11)
+    HEADER_FILL = PatternFill("solid", fgColor="1F4E79")
+    PASS_FILL = PatternFill("solid", fgColor="FFF2CC")
+    thin = Border(
         left=Side(style="thin"), right=Side(style="thin"),
         top=Side(style="thin"), bottom=Side(style="thin"),
     )
@@ -735,8 +754,8 @@ def _export_pdf(imported, record):
 
     # Table — 6 columns, widths fitted for A4 landscape (267 mm usable)
     # Employee ID | Full Name | Email | Username | Password | Level(s)
-    NAVY   = colors.HexColor("#1F4E79")
-    AMBER  = colors.HexColor("#FFF2CC")
+    NAVY = colors.HexColor("#1F4E79")
+    AMBER = colors.HexColor("#FFF2CC")
     STRIPE = colors.HexColor("#F2F2F2")
 
     table_data = [CRED_HEADERS]
@@ -759,7 +778,7 @@ def _export_pdf(imported, record):
         ("FONTSIZE",      (0, 1), (-1, -1), 8),
         ("TOPPADDING",    (0, 1), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 1), (-1, -1), 5),
-        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [colors.white, STRIPE]),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, STRIPE]),
         # Password column (index 4) highlight
         ("BACKGROUND",    (4, 1), (4, -1), AMBER),
         ("FONTNAME",      (4, 1), (4, -1), "Courier"),
@@ -826,7 +845,8 @@ def download_error_report(request, upload_id):
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["Row Number", "First Name", "Last Name", "Reg Number", "Class", "Section", "Error Details"])
+    writer.writerow(["Row Number", "First Name", "Last Name",
+                    "Reg Number", "Class", "Section", "Error Details"])
     for err in errors:
         data = err.get("data", {})
         writer.writerow([
