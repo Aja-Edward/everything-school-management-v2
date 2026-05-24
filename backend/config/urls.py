@@ -12,6 +12,41 @@ from .views import force_migrate
 from .views import force_migrate, check_database_schema
 from authentication.views import create_first_superuser
 
+
+# config/urls.py - add this temporarily
+from django.http import JsonResponse
+
+
+def debug_celery(request):
+    import os
+    result = {
+        "REDIS_URL_set": bool(os.environ.get("REDIS_URL")),
+        "REDIS_URL_prefix": os.environ.get("REDIS_URL", "")[:20],
+        "CELERY_WORKER_AVAILABLE": os.environ.get("CELERY_WORKER_AVAILABLE"),
+    }
+
+    # Test Redis connection
+    try:
+        import redis
+        r = redis.from_url(os.environ.get("REDIS_URL", ""))
+        r.ping()
+        result["redis_ping"] = "success"
+    except Exception as e:
+        result["redis_ping"] = f"FAILED: {str(e)}"
+
+    # Test Celery config
+    try:
+        from celery import current_app
+        result["celery_broker"] = current_app.conf.broker_url[:20]
+        result["celery_always_eager"] = current_app.conf.task_always_eager
+    except Exception as e:
+        result["celery_config_error"] = str(e)
+
+    return JsonResponse(result)
+
+
+# Add to urlpatterns:
+# path("debug/celery/", debug_celery),
 urlpatterns = [
     # ===== API ROOT =====
     path("health/", health_check, name="health"),
@@ -21,7 +56,8 @@ urlpatterns = [
     # ===== AUTHENTICATION ROUTES =====
     # Django Rest Auth routes (MAIN AUTHENTICATION)
     path("api/dj-rest-auth/", include("dj_rest_auth.urls")),
-    path("api/dj-rest-auth/registration/", include("dj_rest_auth.registration.urls")),
+    path("api/dj-rest-auth/registration/",
+         include("dj_rest_auth.registration.urls")),
     # Social login routes
     path("api/dj-rest-auth/google/", GoogleLogin.as_view(), name="google_login"),
     # Custom authentication routes
@@ -31,7 +67,8 @@ urlpatterns = [
     # Social provider routes (if needed for direct provider integration)
     path("api/auth/google/", include("allauth.socialaccount.providers.google.urls")),
     path(
-        "api/auth/facebook/", include("allauth.socialaccount.providers.facebook.urls")
+        "api/auth/facebook/", include(
+            "allauth.socialaccount.providers.facebook.urls")
     ),
     # ===== CORE ACADEMIC MANAGEMENT =====
     path("api/dashboard/", include("dashboard.urls")),
@@ -73,8 +110,10 @@ urlpatterns = [
 
 # ===== STATIC/MEDIA FILES (Development) =====
 if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+    urlpatterns += static(settings.MEDIA_URL,
+                          document_root=settings.MEDIA_ROOT)
+    urlpatterns += static(settings.STATIC_URL,
+                          document_root=settings.STATIC_ROOT)
 
 # ===== DEBUG TOOLBAR (Development) =====
 if settings.DEBUG and "debug_toolbar" in settings.INSTALLED_APPS:
