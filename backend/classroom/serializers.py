@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
+
 from django.utils import timezone
 from academics.models import AcademicSession, Term
 
@@ -31,7 +32,8 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "first_name", "last_name", "full_name"]
+        fields = ["id", "username", "email",
+                  "first_name", "last_name", "full_name"]
         read_only_fields = ["id"]
 
     def get_full_name(self, obj):
@@ -86,7 +88,8 @@ class SectionSerializer(serializers.ModelSerializer):
     education_level_display = serializers.CharField(
         source="class_grade.education_level.name", read_only=True, allow_null=True
     )
-    classroom_name = serializers.CharField(source="class_grade.name", read_only=True)
+    classroom_name = serializers.CharField(
+        source="class_grade.name", read_only=True)
     classroom_count = serializers.SerializerMethodField()
 
     class Meta:
@@ -115,7 +118,8 @@ class SectionSerializer(serializers.ModelSerializer):
 class AcademicSessionSerializer(serializers.ModelSerializer):
     term_count = serializers.SerializerMethodField()
     classroom_count = serializers.SerializerMethodField()
-    is_current_session = serializers.BooleanField(source="is_current", read_only=True)
+    is_current_session = serializers.BooleanField(
+        source="is_current", read_only=True)
 
     class Meta:
         model = AcademicSession
@@ -141,7 +145,8 @@ class AcademicSessionSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         if data["start_date"] >= data["end_date"]:
-            raise serializers.ValidationError("End date must be after start date.")
+            raise serializers.ValidationError(
+                "End date must be after start date.")
         return data
 
 
@@ -149,7 +154,8 @@ class TermSerializer(serializers.ModelSerializer):
     academic_session_name = serializers.CharField(
         source="academic_session.name", read_only=True
     )
-    name_display = serializers.CharField(source="get_name_display", read_only=True)
+    name_display = serializers.CharField(
+        source="get_name_display", read_only=True)
     classroom_count = serializers.SerializerMethodField()
 
     class Meta:
@@ -174,7 +180,8 @@ class TermSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         if data["start_date"] >= data["end_date"]:
-            raise serializers.ValidationError("End date must be after start date.")
+            raise serializers.ValidationError(
+                "End date must be after start date.")
         return data
 
 
@@ -257,7 +264,8 @@ class StreamSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "stream_type_legacy"]
+        read_only_fields = ["id", "created_at",
+                            "updated_at", "stream_type_legacy"]
 
     def get_student_count(self, obj):
         return (
@@ -403,7 +411,8 @@ class StudentSerializer(serializers.ModelSerializer):
             "is_active",
             "current_classroom",
         ]
-        read_only_fields = ["id", "admission_date", "education_level", "classroom"]
+        read_only_fields = ["id", "admission_date",
+                            "education_level", "classroom"]
 
     def get_age(self, obj):
         return obj.age
@@ -441,7 +450,8 @@ class StudentSerializer(serializers.ModelSerializer):
             .exclude(pk=self.instance.pk if self.instance else None)
             .exists()
         ):
-            raise serializers.ValidationError("Registration number must be unique.")
+            raise serializers.ValidationError(
+                "Registration number must be unique.")
         return value
 
 
@@ -519,8 +529,10 @@ class ClassroomTeacherAssignmentSerializer(serializers.ModelSerializer):
     teacher_name = serializers.CharField(
         source="teacher.user.full_name", read_only=True
     )
-    teacher_email = serializers.CharField(source="teacher.user.email", read_only=True)
-    teacher_phone = serializers.CharField(source="teacher.phone_number", read_only=True)
+    teacher_email = serializers.CharField(
+        source="teacher.user.email", read_only=True)
+    teacher_phone = serializers.CharField(
+        source="teacher.phone_number", read_only=True)
     teacher_employee_id = serializers.CharField(
         source="teacher.employee_id", read_only=True
     )
@@ -562,7 +574,8 @@ class ClassroomTeacherAssignmentSerializer(serializers.ModelSerializer):
             "is_active",
             "created_at",
         ]
-        read_only_fields = ["id", "created_at", "classroom", "teacher", "subject"]
+        read_only_fields = ["id", "created_at",
+                            "classroom", "teacher", "subject"]
 
     # ClassroomTeacherAssignmentSerializer.get_education_level
 
@@ -599,7 +612,8 @@ class ClassroomTeacherAssignmentSerializer(serializers.ModelSerializer):
         if "classroom_id" in validated_data:
             classroom_id = validated_data.pop("classroom_id")
             try:
-                validated_data["classroom"] = Classroom.objects.get(id=classroom_id)
+                validated_data["classroom"] = Classroom.objects.get(
+                    id=classroom_id)
             except Classroom.DoesNotExist:
                 raise serializers.ValidationError(
                     f"Classroom with id {classroom_id} does not exist"
@@ -634,7 +648,8 @@ class ClassroomTeacherAssignmentSerializer(serializers.ModelSerializer):
 
 class StudentEnrollmentSerializer(serializers.ModelSerializer):
     student_id = serializers.IntegerField(source="student.id", read_only=True)
-    full_name = serializers.CharField(source="student.user.full_name", read_only=True)
+    full_name = serializers.CharField(
+        source="student.user.full_name", read_only=True)
     student_stream = serializers.CharField(
         source="student.stream.name", read_only=True, allow_null=True
     )
@@ -724,7 +739,8 @@ class ClassScheduleSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         if data["start_time"] >= data["end_time"]:
-            raise serializers.ValidationError("End time must be after start time.")
+            raise serializers.ValidationError(
+                "End time must be after start time.")
         return data
 
 
@@ -748,7 +764,8 @@ class ClassroomSerializer(serializers.ModelSerializer):
     academic_session_name = serializers.CharField(
         source="academic_session.name", read_only=True
     )
-    term_name = serializers.CharField(source="term.get_name_display", read_only=True)
+    term_name = serializers.CharField(
+        source="term.get_name_display", read_only=True)
     class_teacher_name = serializers.CharField(
         source="class_teacher.user.get_full_name", read_only=True
     )
@@ -824,9 +841,11 @@ class ClassroomSerializer(serializers.ModelSerializer):
 
     def validate_max_capacity(self, value):
         if value < 1:
-            raise serializers.ValidationError("Maximum capacity must be at least 1.")
+            raise serializers.ValidationError(
+                "Maximum capacity must be at least 1.")
         if value > 100:
-            raise serializers.ValidationError("Maximum capacity cannot exceed 100.")
+            raise serializers.ValidationError(
+                "Maximum capacity cannot exceed 100.")
         return value
 
 
@@ -908,7 +927,8 @@ class SectionSimpleSerializer(serializers.ModelSerializer):
 
 
 class TeacherSimpleSerializer(serializers.ModelSerializer):
-    full_name = serializers.CharField(source="user.get_full_name", read_only=True)
+    full_name = serializers.CharField(
+        source="user.get_full_name", read_only=True)
 
     class Meta:
         model = Teacher

@@ -96,12 +96,22 @@ interface ClassStatistics {
   total_students?: number;
 }
 
+const CONDUCT_CHOICES = ['Excellent', 'Very Good', 'Good', 'Fair', 'Poor'] as const;
+type ConductRating = typeof CONDUCT_CHOICES[number] | '';
+
 interface PhysicalDevelopment {
+  // Height & Weight (all levels that show physical development)
   height_beginning?: number;
   height_end?: number;
   weight_beginning?: number;
   weight_end?: number;
   nurse_comment?: string;
+  // Development & Conduct (Nursery only — saved to NurseryTermReport)
+  physical_development?: ConductRating;
+  health?: ConductRating;
+  cleanliness?: ConductRating;
+  general_conduct?: ConductRating;
+  physical_development_comment?: string;
 }
 
 interface ResultRecordingFormProps {
@@ -859,13 +869,24 @@ const ResultRecordingForm = ({
           teacher_remark: editResult.teacher_remark ?? extractedRemarks,
         });
 
-        if (editResult.physical_development || editResult.height_beginning) {
+        if (
+          editResult.physical_development ||
+          editResult.height_beginning ||
+          editResult.health ||
+          editResult.cleanliness ||
+          editResult.general_conduct
+        ) {
           setPhysicalDevelopment({
-            height_beginning: editResult.physical_development?.height_beginning ?? editResult.height_beginning ?? 0,
-            height_end:       editResult.physical_development?.height_end       ?? editResult.height_end       ?? 0,
-            weight_beginning: editResult.physical_development?.weight_beginning ?? editResult.weight_beginning ?? 0,
-            weight_end:       editResult.physical_development?.weight_end       ?? editResult.weight_end       ?? 0,
-            nurse_comment:    editResult.physical_development?.nurse_comment    ?? editResult.nurse_comment    ?? '',
+            height_beginning:             editResult.height_beginning ?? 0,
+            height_end:                   editResult.height_end       ?? 0,
+            weight_beginning:             editResult.weight_beginning ?? 0,
+            weight_end:                   editResult.weight_end       ?? 0,
+            nurse_comment:                editResult.nurse_comment    ?? '',
+            physical_development:         editResult.physical_development         ?? '',
+            health:                       editResult.health                       ?? '',
+            cleanliness:                  editResult.cleanliness                  ?? '',
+            general_conduct:              editResult.general_conduct              ?? '',
+            physical_development_comment: editResult.physical_development_comment ?? '',
           });
         }
       } else {
@@ -1080,6 +1101,10 @@ const ResultRecordingForm = ({
         ...(gsId != null ? { grading_system: gsId } : {}),
       };
 
+      // Resolve the student ID for the term-report upsert below.
+      const studentIdForTermReport = formData.student;
+      const examSessionIdForTermReport = formData.exam_session;
+
       if (editResult) {
         const candidates = [editResult?.id, editResult?.pk, editResult?.result_id, editResult?.result?.id];
         const finalId = candidates.map(v => (v != null ? Number(v) : NaN)).find(n => Number.isFinite(n) && n > 0);
@@ -1103,6 +1128,43 @@ const ResultRecordingForm = ({
             exam_session: formData.exam_session,
           });
           toast.success('Result recorded successfully!');
+        }
+      }
+
+      // ── Save Development & Conduct + Height & Weight to the term report ──
+      // These fields live on NurseryTermReport (not NurseryResult), so they need
+      // a separate API call. We upsert by student+exam_session.
+      const termReportData: Record<string, unknown> = {};
+      if (physicalDevelopment.physical_development !== undefined && physicalDevelopment.physical_development !== '')
+        termReportData.physical_development = physicalDevelopment.physical_development;
+      if (physicalDevelopment.health !== undefined && physicalDevelopment.health !== '')
+        termReportData.health = physicalDevelopment.health;
+      if (physicalDevelopment.cleanliness !== undefined && physicalDevelopment.cleanliness !== '')
+        termReportData.cleanliness = physicalDevelopment.cleanliness;
+      if (physicalDevelopment.general_conduct !== undefined && physicalDevelopment.general_conduct !== '')
+        termReportData.general_conduct = physicalDevelopment.general_conduct;
+      if (physicalDevelopment.physical_development_comment !== undefined)
+        termReportData.physical_development_comment = physicalDevelopment.physical_development_comment;
+      if (physicalDevelopment.height_beginning)
+        termReportData.height_beginning = physicalDevelopment.height_beginning;
+      if (physicalDevelopment.height_end)
+        termReportData.height_end = physicalDevelopment.height_end;
+      if (physicalDevelopment.weight_beginning)
+        termReportData.weight_beginning = physicalDevelopment.weight_beginning;
+      if (physicalDevelopment.weight_end)
+        termReportData.weight_end = physicalDevelopment.weight_end;
+
+      if (Object.keys(termReportData).length > 0 && studentIdForTermReport && examSessionIdForTermReport) {
+        try {
+          await ResultService.upsertNurseryTermReportFields(
+            studentIdForTermReport,
+            examSessionIdForTermReport,
+            termReportData
+          );
+        } catch (trErr) {
+          // Non-fatal: academic result is already saved; show a warning rather than failing.
+          console.error('Failed to save term report fields:', trErr);
+          toast.error('Academic result saved, but development/height data could not be saved. Please try again.');
         }
       }
 
@@ -1606,45 +1668,112 @@ const ResultRecordingForm = ({
     );
   };
 
-  const renderPhysicalDevelopment = (physical: PhysicalDevelopment, onUpdate: (field: keyof PhysicalDevelopment, value: string | number) => void) => {
+  const renderPhysicalDevelopment = (
+    physical: PhysicalDevelopment,
+    onUpdate: (field: keyof PhysicalDevelopment, value: string | number) => void
+  ) => {
     const structure = getAssessmentStructure(selectedEducationLevel, activeScoringConfig);
     if (!structure.showPhysicalDevelopment) return null;
 
+    const isNursery = effectiveLevel === 'NURSERY';
+
+    const conductRows: { label: string; field: keyof PhysicalDevelopment }[] = [
+      { label: 'Physical Development', field: 'physical_development' },
+      { label: 'Health',               field: 'health' },
+      { label: 'Cleanliness',          field: 'cleanliness' },
+      { label: 'General Conduct',      field: 'general_conduct' },
+    ];
+
     return (
-      <div className="space-y-4">
-        <h4 className="text-lg font-medium text-gray-900 dark:text-white flex items-center">
-          <Users className="w-5 h-5 mr-2" />
-          Physical Development
-        </h4>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[
-            { label: 'Height (Beginning) - cm', field: 'height_beginning' as const, step: '1' },
-            { label: 'Height (End) - cm',       field: 'height_end'       as const, step: '1' },
-            { label: 'Weight (Beginning) - kg', field: 'weight_beginning' as const, step: '0.1' },
-            { label: 'Weight (End) - kg',       field: 'weight_end'       as const, step: '0.1' },
-          ].map(({ label, field, step }) => (
-            <div key={field}>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{label}</label>
-              <input
-                type="number"
-                min="0"
-                step={step}
-                value={physical[field] || ''}
-                onChange={(e) => onUpdate(field, parseFloat(e.target.value) || 0)}
+      <div className="space-y-6">
+
+        {/* ── Development & Conduct (Nursery only) ─────────────────────── */}
+        {isNursery && (
+          <div className="space-y-4">
+            <h4 className="text-lg font-medium text-gray-900 dark:text-white flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              Development &amp; Conduct
+            </h4>
+            <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">
+              Rate each area. These are saved per term to the student's report card.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {conductRows.map(({ label, field }) => (
+                <div key={field}>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {label}
+                  </label>
+                  <select
+                    value={(physical[field] as string) || ''}
+                    onChange={(e) => onUpdate(field, e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white bg-white dark:bg-gray-700"
+                  >
+                    <option value="">— Select rating —</option>
+                    {CONDUCT_CHOICES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Development Comment
+                </label>
+                <textarea
+                  value={physical.physical_development_comment || ''}
+                  onChange={(e) => onUpdate('physical_development_comment', e.target.value)}
+                  rows={2}
+                  placeholder="Optional comment on the student's development and conduct..."
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Height & Weight ───────────────────────────────────────────── */}
+        <div className="space-y-4">
+          <h4 className="text-lg font-medium text-gray-900 dark:text-white flex items-center gap-2">
+            <Users className="w-5 h-5" />
+            Height &amp; Weight
+          </h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {([
+              { label: 'Height — Beginning (cm)', field: 'height_beginning' as const, step: '1' },
+              { label: 'Height — End (cm)',        field: 'height_end'       as const, step: '1' },
+              { label: 'Weight — Beginning (kg)',  field: 'weight_beginning' as const, step: '0.1' },
+              { label: 'Weight — End (kg)',         field: 'weight_end'       as const, step: '0.1' },
+            ] as { label: string; field: 'height_beginning' | 'height_end' | 'weight_beginning' | 'weight_end'; step: string }[]).map(
+              ({ label, field, step }) => (
+                <div key={field}>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {label}
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step={step}
+                    value={physical[field] || ''}
+                    onChange={(e) => onUpdate(field, parseFloat(e.target.value) || 0)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+              )
+            )}
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Nurse's Comment
+              </label>
+              <textarea
+                value={physical.nurse_comment || ''}
+                onChange={(e) => onUpdate('nurse_comment', e.target.value)}
+                rows={2}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
               />
             </div>
-          ))}
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Nurse's Comment</label>
-            <textarea
-              value={physical.nurse_comment || ''}
-              onChange={(e) => onUpdate('nurse_comment', e.target.value)}
-              rows={2}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-            />
           </div>
         </div>
+
       </div>
     );
   };

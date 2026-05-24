@@ -5,6 +5,7 @@ import TeacherDashboardService from '@/services/TeacherDashboardService';
 import ResultService from '@/services/ResultService';
 import type { EducationLevelType, SubjectResultParams } from '@/services/ResultService';
 import ResultCreateTab from '@/components/dashboards/teacher/ResultCreateTab';
+import NurseryDevelopmentRecordingForm from '@/components/dashboards/teacher/NurseryDevelopmentRecordingForm';
 import useResultActionsManager from '@/components/dashboards/teacher/ResultActionsManager';
 import ComponentScoreRecordingModal from '@/components/dashboards/teacher/ComponentScoreRecordingModal';
 import { toast } from 'react-toastify';
@@ -18,7 +19,7 @@ import {
 import {
   Plus, Edit, Trash2, Eye, CheckCircle, AlertCircle, RefreshCw,
   Search, X, FileText, Filter, TrendingUp, Award, Calendar,
-  GraduationCap, Grid, List,
+  GraduationCap, Grid, List, Users,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -93,7 +94,7 @@ const TeacherResults: React.FC = () => {
   const [filterTerm, setFilterTerm]                 = useState<'FIRST' | 'SECOND' | 'THIRD' | 'SESSION'>('FIRST');
   const [filterSession, setFilterSession]           = useState<string>('');
   const [showFilters, setShowFilters]               = useState(false);
-  const [activeTab, setActiveTab]                   = useState<'results' | 'record'>('results');
+  const [activeTab, setActiveTab]                   = useState<'results' | 'record' | 'development'>('results');
   const [viewMode, setViewMode]                     = useState<ViewMode>('table');
   const [showComponentModal, setShowComponentModal] = useState(false);
   const [isMobile, setIsMobile]                     = useState(false);
@@ -520,6 +521,45 @@ const TeacherResults: React.FC = () => {
     </TeacherDashboardLayout>
   );
 
+  // Nursery classrooms this teacher has assignments for — used to show the
+  // Development & Conduct tab and to populate its class selector.
+  const nurseryClassrooms = Array.from(
+    new Map(
+      (teacherAssignments as any[])
+        .filter(a => {
+          const lv = a.education_level || deriveLevel(a.classroom_name || '');
+          return lv === 'NURSERY';
+        })
+        .filter(a => a.classroom_id)
+        .map(a => [a.classroom_id, { id: a.classroom_id as number, name: a.classroom_name as string }])
+    ).values()
+  );
+
+  if (activeTab === 'development') return (
+    <TeacherDashboardLayout>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-6">
+        <div className="max-w-6xl mx-auto bg-white rounded-xl shadow-lg p-4 md:p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Development &amp; Conduct</h2>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Record physical development ratings and height / weight for each Nursery learner.
+              </p>
+            </div>
+            <button onClick={() => setActiveTab('results')}
+              className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-2">
+              <X className="w-4 h-4" /> Close
+            </button>
+          </div>
+          <NurseryDevelopmentRecordingForm
+            onClose={() => setActiveTab('results')}
+            nurseryClassrooms={nurseryClassrooms}
+          />
+        </div>
+      </div>
+    </TeacherDashboardLayout>
+  );
+
   if (activeTab === 'record') return (
     <TeacherDashboardLayout>
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-6">
@@ -590,6 +630,16 @@ const TeacherResults: React.FC = () => {
                 <GraduationCap className="w-4 h-4" />
                 <span className="hidden sm:inline">Record by Component</span>
               </button>
+              {nurseryClassrooms.length > 0 && (
+                <button
+                  onClick={() => setActiveTab('development')}
+                  className="px-3 md:px-4 py-2 bg-white border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50 flex items-center gap-1.5 text-sm font-medium transition-colors"
+                  title="Record Development & Conduct and Height/Weight for Nursery learners"
+                >
+                  <Users className="w-4 h-4" />
+                  <span className="hidden sm:inline">Development &amp; Conduct</span>
+                </button>
+              )}
               <button onClick={() => setActiveTab('record')}
                 className="px-3 md:px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-lg flex items-center gap-1.5 text-sm font-medium">
                 <Plus className="w-4 h-4" />

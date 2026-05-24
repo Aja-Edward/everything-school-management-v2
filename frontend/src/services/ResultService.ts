@@ -839,6 +839,36 @@ class ResultService {
     return api.delete(this.termReportEndpoint(level, reportId));
   }
 
+  /**
+   * Upsert physical-development / height-weight fields on a Nursery term report.
+   * Looks up the term report by (student, exam_session). If none exists yet it
+   * creates one — teachers record these fields before an admin approves/publishes,
+   * so we can't rely on the term report being created automatically.
+   */
+  async upsertNurseryTermReportFields(
+    studentId: string | number,
+    examSessionId: string | number,
+    data: Record<string, unknown>
+  ): Promise<void> {
+    const endpoint = this.termReportEndpoint('NURSERY');
+    const params = new URLSearchParams({
+      student: String(studentId),
+      exam_session: String(examSessionId),
+    });
+    const res: any = await api.get(`${endpoint}?${params}`);
+    const existing: any[] = res?.results ?? (Array.isArray(res) ? res : []);
+
+    if (existing.length > 0) {
+      await api.patch(this.termReportEndpoint('NURSERY', String(existing[0].id)), data);
+    } else {
+      await api.post(endpoint, {
+        student: studentId,
+        exam_session: examSessionId,
+        ...data,
+      });
+    }
+  }
+
   // ── SESSION REPORTS ─────────────────────────────────────────────────────────
 
   async getSessionReports<T extends SessionReport>(
