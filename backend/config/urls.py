@@ -46,7 +46,7 @@ def debug_celery(request):
 
 
 # Add to urlpatterns:
-# path("debug/celery/", debug_celery),
+path("debug/celery/", debug_celery),
 urlpatterns = [
     # ===== API ROOT =====
     path("health/", health_check, name="health"),
