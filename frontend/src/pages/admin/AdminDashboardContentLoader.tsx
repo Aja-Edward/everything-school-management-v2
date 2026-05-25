@@ -63,31 +63,45 @@ const AdminDashboardContentLoader = () => {
       // Fetch list data in parallel.
       // Classrooms are fetched directly (not from optimizedData.classrooms) because
       // the optimized endpoint returns lightweight objects without student_enrollments.
+      // Helper: fetch all pages of a paginated endpoint
+      const fetchAllPages = async (url: string): Promise<any[]> => {
+        let results: any[] = [];
+        let nextUrl: string | null = url;
+        while (nextUrl) {
+          const res: any = await api.get(nextUrl);
+          const page = Array.isArray(res) ? res : (res.results ?? []);
+          results = [...results, ...page];
+          nextUrl = res?.next
+            ? res.next.replace(/^https?:\/\/[^/]+/, '')
+            : null;
+        }
+        return results;
+      };
+
       const [parentsRes, studentsRes, teachersRes, classroomsRes] = await Promise.allSettled([
-        api.get('/api/parents/', { limit: 100 }),
-        api.get('/api/students/students/', { limit: 100 }),
-        api.get('/api/teachers/teachers/', { limit: 100 }),
-        api.get('/api/classrooms/classrooms/', { limit: 200 }),
+        fetchAllPages('/api/parents/'),
+        fetchAllPages('/api/students/students/'),
+        fetchAllPages('/api/teachers/teachers/'),
+        fetchAllPages('/api/classrooms/classrooms/'),
       ]);
       if (!isMounted.current) return;
 
       // ─── Process list responses ───────────────────────────────────────────
 
       const processedParents: Parent[] = parentsRes.status === 'fulfilled'
-        ? (parentsRes.value.results ?? parentsRes.value ?? [])
+        ? parentsRes.value
         : [];
 
       const processedStudents: Student[] = studentsRes.status === 'fulfilled'
-        ? (studentsRes.value.results ?? studentsRes.value ?? [])
+        ? studentsRes.value
         : [];
 
       const processedTeachers: Teacher[] = teachersRes.status === 'fulfilled'
-        ? (teachersRes.value.results ?? teachersRes.value ?? [])
+        ? teachersRes.value
         : [];
 
-      // Prefer full classroom data; fall back to optimized payload if call failed
       const processedClassrooms: Classroom[] = classroomsRes.status === 'fulfilled'
-        ? (classroomsRes.value.results ?? classroomsRes.value ?? optimizedData.classrooms)
+        ? (classroomsRes.value.length > 0 ? classroomsRes.value : optimizedData.classrooms)
         : optimizedData.classrooms;
 
       // ─── Transform to DashboardStats ─────────────────────────────────────
