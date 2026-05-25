@@ -30,6 +30,13 @@ const ParentListNew: React.FC = () => {
   const [toggleLoading,    setToggleLoading]    = useState<number | null>(null);
   const [viewMode,         setViewMode]         = useState<'cards' | 'list'>('cards');
 
+  // Pagination
+  const [currentPage,      setCurrentPage]      = useState(1);
+  const [totalCount,       setTotalCount]       = useState(0);
+  const[pageSize] = useState(20);
+  const totalPages = Math.ceil(totalCount / pageSize);
+  
+
   // Credential popup
   const [showCredentialModal, setShowCredentialModal] = useState(false);
   const [parentUsername,      setParentUsername]      = useState<string | null>(null);
@@ -41,71 +48,79 @@ const ParentListNew: React.FC = () => {
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
-  const fetchParents = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await ParentService.getParents();
-      const parentsArray = Array.isArray(response) ? response : [];
+  const fetchParents = async (page = 1) => {
+  try {
+    setLoading(true);
+    setError(null);
+    const response: any = await api.get(
+      `/api/parents/?page=${page}&page_size=${pageSize}`
+    );
 
-      const sanitizedParents = parentsArray.map((parent) => {
-        const userData =
-          parent.user && typeof parent.user === 'object'
-            ? (parent.user as any)
-            : {};
-        return {
-          ...parent,
-          user:            userData.email      || parent.user            || '',
-          user_first_name: userData.first_name || parent.user_first_name || '',
-          user_last_name:  userData.last_name  || parent.user_last_name  || '',
-          parent_contact:  parent.parent_contact  || '',
-          parent_address:  parent.parent_address  || '',
-          students:        Array.isArray(parent.students) ? parent.students : [],
-          is_active:       Boolean(parent.is_active),
-        };
-      });
+    const parentsArray = Array.isArray(response)
+      ? response
+      : Array.isArray(response.results)
+      ? response.results
+      : [];
 
-      setParents(sanitizedParents);
-      setFilteredParents(sanitizedParents);
-    } catch (err) {
-      console.error('Error fetching parents:', err);
-      setError('Failed to load parents. Please try again.');
-      setParents([]);
-      setFilteredParents([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const count = response?.count ?? parentsArray.length;
+    setTotalCount(count);
 
-  useEffect(() => { fetchParents(); }, []);
+    const sanitizedParents = parentsArray.map((parent: any) => {
+      const userData =
+        parent.user && typeof parent.user === 'object' ? parent.user : {};
+      return {
+        ...parent,
+        user:            userData.email      || parent.user            || '',
+        user_first_name: userData.first_name || parent.user_first_name || '',
+        user_last_name:  userData.last_name  || parent.user_last_name  || '',
+        parent_contact:  parent.parent_contact  || '',
+        parent_address:  parent.parent_address  || '',
+        students:        Array.isArray(parent.students) ? parent.students : [],
+        is_active:       Boolean(parent.is_active),
+      };
+    });
 
+    setParents(sanitizedParents);
+    setFilteredParents(sanitizedParents);
+    setCurrentPage(page);
+  } catch (err) {
+    console.error('Error fetching parents:', err);
+    setError('Failed to load parents. Please try again.');
+    setParents([]);
+    setFilteredParents([]);
+  } finally {
+    setLoading(false);
+  }
+};
+
+useEffect(() => { fetchParents(1); }, []);
   // ── Filter ─────────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    const filtered = parents.filter((parent) => {
-      const email     = typeof parent.user === 'string' ? parent.user : '';
-      const firstName = parent.user_first_name || '';
-      const lastName  = parent.user_last_name  || '';
+  const filtered = parents.filter((parent) => {
+    const email     = typeof parent.user === 'string' ? parent.user : '';
+    const firstName = parent.user_first_name || '';
+    const lastName  = parent.user_last_name  || '';
 
-      const matchesSearch =
-        email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        lastName.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch =
+      email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      lastName.toLowerCase().includes(searchTerm.toLowerCase());
 
-      const matchesStream =
-        streamFilter === 'all' ||
-        parent.students.some((c) => c.stream_name === streamFilter);
+    const matchesStream =
+      streamFilter === 'all' ||
+      parent.students.some((c) => c.stream_name === streamFilter);
 
-      const matchesLevel =
-        educationLevelFilter === 'all' ||
-        parent.students.some(
-          (c) => c.education_level_display === educationLevelFilter
-        );
+    const matchesLevel =
+      educationLevelFilter === 'all' ||
+      parent.students.some(
+        (c) => c.education_level_display === educationLevelFilter
+      );
 
-      return matchesSearch && matchesStream && matchesLevel;
-    });
-    setFilteredParents(filtered);
-  }, [searchTerm, parents, streamFilter, educationLevelFilter]);
+    return matchesSearch && matchesStream && matchesLevel;
+  });
+  setFilteredParents(filtered);
+}, [searchTerm, parents, streamFilter, educationLevelFilter]);
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
@@ -153,51 +168,48 @@ const ParentListNew: React.FC = () => {
   const handleDelete = (parentId: number) => setShowDeleteConfirm(parentId);
 
   const confirmDelete = async () => {
-    if (!showDeleteConfirm) return;
-    try {
-      await ParentService.deleteParent(showDeleteConfirm);
-      setParents((prev) => prev.filter((p) => p.id !== showDeleteConfirm));
-      toast.success('Parent deleted successfully!');
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to delete parent');
-    } finally {
-      setShowDeleteConfirm(null);
-    }
-  };
-
+  if (!showDeleteConfirm) return;
+  try {
+    await ParentService.deleteParent(showDeleteConfirm);
+    toast.success('Parent deleted successfully!');
+    const remainingOnPage = parents.length - 1;
+    const newPage = remainingOnPage === 0 && currentPage > 1
+      ? currentPage - 1
+      : currentPage;
+    await fetchParents(newPage);
+  } catch (err: any) {
+    toast.error(err.response?.data?.message || 'Failed to delete parent');
+  } finally {
+    setShowDeleteConfirm(null);
+  }
+};
   const handleSave = async (formData: CreateParentData | UpdateParentData) => {
-    try {
-      if (modalMode === 'create') {
-        const newParent = await ParentService.createParent(
-          formData as CreateParentData
-        );
-        toast.success('Parent created successfully!');
-        if (newParent.parent_username && newParent.parent_password) {
-          setParentUsername(newParent.parent_username);
-          setParentPassword(newParent.parent_password);
-          setShowCredentialModal(true);
-        }
-        await fetchParents();
-      } else if (modalMode === 'edit' && selectedParent) {
-        await ParentService.updateParent(
-          selectedParent.id,
-          formData as UpdateParentData
-        );
-        toast.success('Parent updated successfully!');
-        await fetchParents();
+  try {
+    if (modalMode === 'create') {
+      const newParent = await ParentService.createParent(
+        formData as CreateParentData
+      );
+      toast.success('Parent created successfully!');
+      if (newParent.parent_username && newParent.parent_password) {
+        setParentUsername(newParent.parent_username);
+        setParentPassword(newParent.parent_password);
+        setShowCredentialModal(true);
       }
-      setShowModal(false);
-      setSelectedParent(null);
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to save parent');
+      await fetchParents(1); // go to page 1 to see new parent
+    } else if (modalMode === 'edit' && selectedParent) {
+      await ParentService.updateParent(
+        selectedParent.id,
+        formData as UpdateParentData
+      );
+      toast.success('Parent updated successfully!');
+      await fetchParents(currentPage); // stay on current page
     }
-  };
-
-  const closeModal = () => {
     setShowModal(false);
     setSelectedParent(null);
-  };
-
+  } catch (err: any) {
+    toast.error(err.response?.data?.message || 'Failed to save parent');
+  }
+};
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   const statusColor = (isActive: boolean) =>
@@ -222,7 +234,7 @@ const ParentListNew: React.FC = () => {
         <div className="text-center">
           <p className="text-red-600 text-xl mb-4">{error}</p>
           <button
-            onClick={fetchParents}
+            onClick={() => fetchParents()}
             className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
           >
             Retry
@@ -232,6 +244,10 @@ const ParentListNew: React.FC = () => {
     );
   }
 
+  const closeModal = () => {
+    setShowModal(false);
+    setSelectedParent(null);
+  };
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -308,8 +324,8 @@ const ParentListNew: React.FC = () => {
               </select>
 
               <span className="text-sm text-gray-500">
-                {filteredParents.length} of {parents.length} parents
-              </span>
+              {filteredParents.length} shown · {totalCount} total
+            </span>
             </div>
           </div>
         </div>
@@ -545,7 +561,7 @@ const ParentListNew: React.FC = () => {
         )}
 
         {/* ── Empty state ── */}
-        {filteredParents.length === 0 && (
+        {filteredParents.length === 0 && !loading && (
           <div className="text-center py-12">
             <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No parents found</h3>
@@ -563,8 +579,21 @@ const ParentListNew: React.FC = () => {
               </button>
             )}
           </div>
-        )}
+        
+       )}
+
+        {/* ── Pagination ── */}
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalCount={totalCount}
+          pageSize={pageSize}
+          onPageChange={(page) => fetchParents(page)}
+        />
+
       </div>
+
+      {/* ── Delete confirmation ── */}
 
       {/* ── Delete confirmation ── */}
       {showDeleteConfirm && (
@@ -940,6 +969,96 @@ const ParentModal: React.FC<ParentModalProps> = ({ parent, mode, onSave, onClose
             </button>
           </div>
         </form>
+        
+      </div>
+    
+    </div>
+  );
+};
+
+interface PaginationProps {
+  currentPage: number;
+  totalPages: number;
+  totalCount: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+}
+
+const Pagination: React.FC<PaginationProps> = ({
+  currentPage, totalPages, totalCount, pageSize, onPageChange,
+}) => {
+  if (totalPages <= 1) return null;
+
+  const startItem = (currentPage - 1) * pageSize + 1;
+  const endItem   = Math.min(currentPage * pageSize, totalCount);
+
+  // Build page number array with ellipsis
+  const getPageNumbers = () => {
+    const pages: (number | '...')[] = [];
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    pages.push(1);
+    if (currentPage > 3) pages.push('...');
+    for (
+      let i = Math.max(2, currentPage - 1);
+      i <= Math.min(totalPages - 1, currentPage + 1);
+      i++
+    ) {
+      pages.push(i);
+    }
+    if (currentPage < totalPages - 2) pages.push('...');
+    pages.push(totalPages);
+    return pages;
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow-lg px-6 py-4 mt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+      <p className="text-sm text-gray-600">
+        Showing <span className="font-medium">{startItem}</span>–
+        <span className="font-medium">{endItem}</span> of{' '}
+        <span className="font-medium">{totalCount}</span> parents
+      </p>
+
+      <div className="flex items-center gap-1">
+        {/* Previous */}
+        <button
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+          className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          ← Prev
+        </button>
+
+        {/* Page numbers */}
+        {getPageNumbers().map((page, idx) =>
+          page === '...' ? (
+            <span key={`ellipsis-${idx}`} className="px-2 py-1.5 text-gray-400 text-sm">
+              …
+            </span>
+          ) : (
+            <button
+              key={page}
+              onClick={() => onPageChange(page as number)}
+              className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${
+                page === currentPage
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              {page}
+            </button>
+          )
+        )}
+
+        {/* Next */}
+        <button
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
+          className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          Next →
+        </button>
       </div>
     </div>
   );
