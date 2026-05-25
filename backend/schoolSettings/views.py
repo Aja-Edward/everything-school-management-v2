@@ -220,10 +220,12 @@ class SchoolSettingsDetail(APIView):
                 return Response(cached_data)
 
             # Get or create TenantSettings
-            tenant_settings, created = TenantSettings.objects.get_or_create(tenant=tenant)
+            tenant_settings, created = TenantSettings.objects.get_or_create(
+                tenant=tenant)
 
             # Build response data
-            response_data = self._build_settings_response(tenant, tenant_settings)
+            response_data = self._build_settings_response(
+                tenant, tenant_settings)
 
             # Cache the response
             cache.set(cache_key, response_data, 300)  # 5 minutes
@@ -250,7 +252,8 @@ class SchoolSettingsDetail(APIView):
                 )
 
             # Get or create TenantSettings
-            tenant_settings, created = TenantSettings.objects.get_or_create(tenant=tenant)
+            tenant_settings, created = TenantSettings.objects.get_or_create(
+                tenant=tenant)
 
             data = request.data.copy()
 
@@ -344,13 +347,15 @@ class SchoolSettingsDetail(APIView):
                         updated_fields.append(model_field)
 
             if updated_fields:
-                tenant_settings.save(update_fields=updated_fields + ['updated_at'])
+                tenant_settings.save(
+                    update_fields=updated_fields + ['updated_at'])
 
             # Clear cache
             cache.delete(f"tenant_settings_{tenant.id}")
 
             # Build and return response
-            response_data = self._build_settings_response(tenant, tenant_settings)
+            response_data = self._build_settings_response(
+                tenant, tenant_settings)
 
             return Response(response_data)
 
@@ -360,6 +365,11 @@ class SchoolSettingsDetail(APIView):
                 {"error": f"Failed to update settings: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    @transaction.atomic
+    def patch(self, request):
+        """Partial update — delegates to put() since we handle partial updates there already."""
+        return self.put(request)
 
 
 User = get_user_model()
@@ -423,7 +433,8 @@ def update_user_role(request):
             user_role.is_active = True
             user_role.assigned_by = request.user
             user_role.assigned_at = timezone.now()
-            user_role.save(update_fields=["is_active", "assigned_by", "assigned_at"])
+            user_role.save(
+                update_fields=["is_active", "assigned_by", "assigned_at"])
 
     return Response(
         {
@@ -531,7 +542,8 @@ def upload_logo(request):
 
             with transaction.atomic():
                 # Get or create TenantSettings
-                tenant_settings, created = TenantSettings.objects.get_or_create(tenant=tenant)
+                tenant_settings, created = TenantSettings.objects.get_or_create(
+                    tenant=tenant)
                 tenant_settings.logo = logo_url
                 tenant_settings.save(update_fields=["logo", "updated_at"])
 
@@ -550,7 +562,8 @@ def upload_logo(request):
             )
 
         except Exception as db_error:
-            logger.error(f"Database save failed: {str(db_error)}", exc_info=True)
+            logger.error(
+                f"Database save failed: {str(db_error)}", exc_info=True)
             return Response(
                 {"error": f"Failed to save logo URL: {str(db_error)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -660,7 +673,8 @@ def upload_favicon(request):
 
             with transaction.atomic():
                 # Get or create TenantSettings
-                tenant_settings, created = TenantSettings.objects.get_or_create(tenant=tenant)
+                tenant_settings, created = TenantSettings.objects.get_or_create(
+                    tenant=tenant)
                 logger.info(
                     f"🔍 About to save favicon URL (length: {len(favicon_url)})"
                 )
@@ -684,7 +698,8 @@ def upload_favicon(request):
             )
 
         except Exception as db_error:
-            logger.error(f"❌ Database save failed: {str(db_error)}", exc_info=True)
+            logger.error(
+                f"❌ Database save failed: {str(db_error)}", exc_info=True)
             logger.error(f"❌ Favicon URL that failed: {favicon_url}")
             logger.error(f"❌ Favicon URL length: {len(favicon_url)}")
 
@@ -850,7 +865,8 @@ def test_email_connection(request):
                     )
             except Exception as e:
                 return Response(
-                    {"success": False, "message": f"Brevo connection error: {str(e)}"}
+                    {"success": False,
+                        "message": f"Brevo connection error: {str(e)}"}
                 )
 
         else:
@@ -860,7 +876,8 @@ def test_email_connection(request):
 
     except Exception as e:
         return Response(
-            {"success": False, "message": f"Failed to test email connection: {str(e)}"},
+            {"success": False,
+                "message": f"Failed to test email connection: {str(e)}"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
@@ -893,7 +910,8 @@ def test_sms_connection(request):
 
     except Exception as e:
         return Response(
-            {"success": False, "message": f"Failed to test SMS connection: {str(e)}"},
+            {"success": False,
+                "message": f"Failed to test SMS connection: {str(e)}"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
@@ -916,7 +934,8 @@ class CommunicationSettingsDetail(APIView):
                 )
 
             # ✅ Scoped to tenant
-            settings, _ = CommunicationSettings.objects.get_or_create(tenant=tenant)
+            settings, _ = CommunicationSettings.objects.get_or_create(
+                tenant=tenant)
             serializer = CommunicationSettingsSerializer(settings)
             return Response(serializer.data)
         except Exception as e:
@@ -934,7 +953,8 @@ class CommunicationSettingsDetail(APIView):
                 )
 
             # ✅ Scoped to tenant
-            settings, _ = CommunicationSettings.objects.get_or_create(tenant=tenant)
+            settings, _ = CommunicationSettings.objects.get_or_create(
+                tenant=tenant)
 
             data = request.data.copy()
             data.pop("id", None)
@@ -988,7 +1008,8 @@ def test_brevo_connection(request):
                     return Response(
                         {"success": False, "message": "No tenant found."}, status=400
                     )
-                settings, _ = CommunicationSettings.objects.get_or_create(tenant=tenant)
+                settings, _ = CommunicationSettings.objects.get_or_create(
+                    tenant=tenant)
                 settings.brevo_api_key = api_key
                 settings.brevo_sender_email = sender_email
                 settings.brevo_configured = True
@@ -1019,12 +1040,14 @@ def test_brevo_connection(request):
             )
         except Exception as e:
             return Response(
-                {"success": False, "message": f"Brevo connection error: {str(e)}"}
+                {"success": False,
+                    "message": f"Brevo connection error: {str(e)}"}
             )
 
     except Exception as e:
         return Response(
-            {"success": False, "message": f"Failed to test Brevo connection: {str(e)}"},
+            {"success": False,
+                "message": f"Failed to test Brevo connection: {str(e)}"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
@@ -1062,7 +1085,8 @@ def test_twilio_connection(request):
                 return Response(
                     {"success": False, "message": "No tenant found."}, status=400
                 )
-            settings, _ = CommunicationSettings.objects.get_or_create(tenant=tenant)
+            settings, _ = CommunicationSettings.objects.get_or_create(
+                tenant=tenant)
 
             settings.twilio_account_sid = account_sid
             settings.twilio_auth_token = auth_token
@@ -1132,7 +1156,8 @@ def send_test_email(request):
         # Send to the admin's email
         to_email = request.user.email
 
-        status_code, response = send_email_via_brevo(subject, html_content, to_email)
+        status_code, response = send_email_via_brevo(
+            subject, html_content, to_email)
 
         if status_code in [200, 201]:
             return Response(
@@ -1148,7 +1173,8 @@ def send_test_email(request):
 
     except Exception as e:
         return Response(
-            {"success": False, "message": f"Failed to send test email: {str(e)}"},
+            {"success": False,
+                "message": f"Failed to send test email: {str(e)}"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
@@ -1180,7 +1206,8 @@ def send_test_sms(request):
         from twilio.base.exceptions import TwilioRestException
 
         # Create Twilio client
-        client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
+        client = Client(settings.twilio_account_sid,
+                        settings.twilio_auth_token)
 
         # Prepare message content
         message_body = f"Test SMS from School Management System. Sent at {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}"
@@ -1220,7 +1247,8 @@ def send_test_sms(request):
         )
     except Exception as e:
         return Response(
-            {"success": False, "message": f"Failed to send test SMS: {str(e)}"},
+            {"success": False,
+                "message": f"Failed to send test SMS: {str(e)}"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
@@ -1245,7 +1273,8 @@ class PermissionViewSet(viewsets.ModelViewSet):
         if module:
             queryset = queryset.filter(module=module)
 
-        permission_type = self.request.query_params.get("permission_type", None)
+        permission_type = self.request.query_params.get(
+            "permission_type", None)
         if permission_type:
             queryset = queryset.filter(permission_type=permission_type)
 
@@ -1378,7 +1407,8 @@ class RoleViewSet(viewsets.ModelViewSet):
                     )
 
             return Response(
-                {"role": role.name, "user_count": len(user_data), "users": user_data}
+                {"role": role.name, "user_count": len(
+                    user_data), "users": user_data}
             )
 
         except Exception as e:
@@ -1644,7 +1674,8 @@ class LandingPageView(APIView):
         if not tenant:
             return Response({"detail": "Tenant not found."}, status=404)
         landing = self._get_or_create_landing(tenant)
-        serializer = TenantLandingPageUpdateSerializer(landing, data=request.data, partial=True)
+        serializer = TenantLandingPageUpdateSerializer(
+            landing, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(TenantLandingPageSerializer(landing).data)
