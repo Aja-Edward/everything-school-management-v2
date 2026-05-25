@@ -104,7 +104,8 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
             try:
                 parent = self.get_queryset().get(pk=pk)
             except ParentProfile.DoesNotExist:
-                raise NotFound("Parent profile not found or you don't have access.")
+                raise NotFound(
+                    "Parent profile not found or you don't have access.")
         else:
             # If no pk, return current user's parent profile
             try:
@@ -130,7 +131,8 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
             try:
                 parent = self.get_queryset().get(id=parent_id)
             except ParentProfile.DoesNotExist:
-                raise NotFound("Parent profile not found or you don't have access.")
+                raise NotFound(
+                    "Parent profile not found or you don't have access.")
         else:
             # Parent viewing their own dashboard
             try:
@@ -145,7 +147,13 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
         from students.models import Student
 
         students_qs = Student.objects.filter(id__in=[s.id for s in students])
-        students_filtered = self.apply_section_filters(students_qs)
+
+        # Only apply section filtering for staff/admins, not for parents viewing their own children
+        user = request.user
+        if hasattr(user, 'parent_profile') and not user.is_staff:
+            students_filtered = students_qs  # Parents see their own children directly
+        else:
+            students_filtered = self.apply_section_filters(students_qs)
 
         dashboard_data = []
 
@@ -161,7 +169,7 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
 
             avg_score = (
                 StudentResult.objects.filter(student=student).aggregate(
-                    avg=Avg("score")
+                    avg=Avg("percentage")
                 )["avg"]
                 or 0
             )
@@ -173,15 +181,13 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
             ]
 
             recent_results = StudentResult.objects.filter(student=student).order_by(
-                "-exam__exam_date"
+                "-created_at"
             )[:5]
             result_list = [
                 {
-                    "subject": getattr(
-                        getattr(res.exam, "subject", None), "name", "N/A"
-                    ),
-                    "score": res.score,
-                    "exam_date": str(getattr(res.exam, "exam_date", None)),
+                    "subject": res.subject.name if res.subject else "N/A",
+                    "score": res.percentage,
+                    "exam_date": str(res.exam_session) if res.exam_session else None,
                 }
                 for res in recent_results
             ]
@@ -206,7 +212,8 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
         try:
             parent = self.get_queryset().get(pk=pk)
         except ParentProfile.DoesNotExist:
-            raise NotFound("Parent profile not found or you don't have access.")
+            raise NotFound(
+                "Parent profile not found or you don't have access.")
 
         parent.user.is_active = True
         parent.user.save()
@@ -218,7 +225,8 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
         try:
             parent = self.get_queryset().get(pk=pk)
         except ParentProfile.DoesNotExist:
-            raise NotFound("Parent profile not found or you don't have access.")
+            raise NotFound(
+                "Parent profile not found or you don't have access.")
 
         parent.user.is_active = False
         parent.user.save()
@@ -233,7 +241,8 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
         try:
             parent = self.get_queryset().get(pk=pk)
         except ParentProfile.DoesNotExist:
-            raise NotFound("Parent profile not found or you don't have access.")
+            raise NotFound(
+                "Parent profile not found or you don't have access.")
 
         # Use the student creation serializer with existing_parent_id
         from students.serializers import StudentCreateSerializer
@@ -296,7 +305,8 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
         try:
             parent = self.get_queryset().get(pk=pk)
         except ParentProfile.DoesNotExist:
-            raise NotFound("Parent profile not found or you don't have access.")
+            raise NotFound(
+                "Parent profile not found or you don't have access.")
 
         student_id = request.data.get("student_id")
         if not student_id:
@@ -373,7 +383,8 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
 
         all_student_ids = []
         for parent in queryset:
-            all_student_ids.extend(parent.students.values_list("id", flat=True))
+            all_student_ids.extend(
+                parent.students.values_list("id", flat=True))
 
         students = Student.objects.filter(id__in=all_student_ids)
         # Apply section filtering to students

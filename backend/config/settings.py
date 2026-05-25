@@ -24,7 +24,8 @@ if ENV == "prod":
     # Production: Use PROD_DATABASE_URL for Supabase
     DATABASE_URL = os.getenv("PROD_DATABASE_URL")
     if not DATABASE_URL:
-        raise ValueError("Missing PROD_DATABASE_URL for production environment")
+        raise ValueError(
+            "Missing PROD_DATABASE_URL for production environment")
 
     DATABASES = {
         "default": dj_database_url.parse(
@@ -92,7 +93,8 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 # Cloudflare for SaaS — handles SSL and routing for all tenant custom domains
 CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "")
 CLOUDFLARE_ZONE_ID = os.getenv("CLOUDFLARE_ZONE_ID", "")
-CLOUDFLARE_ORIGIN_SERVER = os.getenv("CLOUDFLARE_ORIGIN_SERVER", "www.nuventacloud.com")
+CLOUDFLARE_ORIGIN_SERVER = os.getenv(
+    "CLOUDFLARE_ORIGIN_SERVER", "www.nuventacloud.com")
 
 # Vercel — kept for legacy/fallback but superseded by Cloudflare for SaaS
 VERCEL_API_TOKEN = os.getenv("VERCEL_API_TOKEN", "")
@@ -107,7 +109,8 @@ ALLOWED_HOSTS = [
 ]
 _extra_hosts = os.getenv("ALLOWED_HOSTS", "")
 if _extra_hosts:
-    ALLOWED_HOSTS += [h.strip().strip('"').strip("'") for h in _extra_hosts.split(",") if h.strip()]
+    ALLOWED_HOSTS += [h.strip().strip('"').strip("'")
+                      for h in _extra_hosts.split(",") if h.strip()]
 
 # In production, accept any host — verified custom domains are all routed here
 # and Django is behind Render's reverse proxy (SECURE_PROXY_SSL_HEADER is set below).
@@ -115,7 +118,8 @@ if not DEBUG:
     ALLOWED_HOSTS = ["*"]
 # Production security settingsay
 if not DEBUG:
-    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")  # CRITICAL for Render
+    SECURE_PROXY_SSL_HEADER = (
+        "HTTP_X_FORWARDED_PROTO", "https")  # CRITICAL for Render
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
@@ -247,7 +251,8 @@ SESSION_COOKIE_SECURE = not DEBUG  # True in production
 # ============================================
 
 # CSRF cookie settings for cross-subdomain support
-CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read CSRF token (needed for API calls)
+# Allow JavaScript to read CSRF token (needed for API calls)
+CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_SAMESITE = "Lax"  # Allow CSRF cookie on same-site requests
 CSRF_USE_SESSIONS = False  # Use cookie-based CSRF, not session-based
 
@@ -260,6 +265,7 @@ if DEBUG:
 # CORS SETTINGS (CRITICAL FIX)
 # ============================================
 
+
 def _parse_origins(env_var, default):
     raw = os.getenv(env_var, default)
     # Normalise: treat newlines and spaces as separators alongside commas
@@ -270,18 +276,23 @@ def _parse_origins(env_var, default):
         if o and "://" in o
     ]
 
+
 CSRF_TRUSTED_ORIGINS = _parse_origins(
     "CSRF_TRUSTED_ORIGINS",
     "http://localhost:3000,http://localhost:5173,http://localhost:5174,"
     "http://bay-school.localhost:5173,"
     "https://www.nuventacloud.com,"
     "https://nuventacloud.com,"
-    "https://everything-school-management-v2.vercel.app",
+    "https://everything-school-management-v2.vercel.app,"
+    "https://www.kebiinternationalacademy.com,"
+    "https://kebiinternationalacademy.com",
 )
 
 CORS_ALLOWED_ORIGINS = _parse_origins(
     "CORS_ALLOWED_ORIGINS",
-    "http://localhost:3000,http://localhost:5173,http://localhost:5174",
+    "http://localhost:3000,http://localhost:5173,http://localhost:5174,"
+    "https://www.kebiinternationalacademy.com,"
+    "https://kebiinternationalacademy.com",
 )
 
 
@@ -317,7 +328,8 @@ CELERY_TIMEZONE = "Africa/Lagos"
 # worker service is running. Set CELERY_WORKER_AVAILABLE=true in your Render
 # environment variables only after you have added a Background Worker service
 # with the command: celery -A config worker --loglevel=info
-_WORKER_AVAILABLE = os.environ.get("CELERY_WORKER_AVAILABLE", "").lower() == "true"
+_WORKER_AVAILABLE = os.environ.get(
+    "CELERY_WORKER_AVAILABLE", "").lower() == "true"
 CELERY_TASK_ALWAYS_EAGER = not _WORKER_AVAILABLE
 # Keep False always: task failures are recorded in BulkUploadRecord.status,
 # no need to propagate exceptions through .delay() into the view.
@@ -516,9 +528,11 @@ AUTH_COOKIE_REFRESH = "refresh_token"
 # Development: Cookies won't work cross-origin over HTTP, so we also return tokens in body
 AUTH_COOKIE_HTTP_ONLY = True  # Prevents JavaScript access (XSS protection)
 AUTH_COOKIE_SECURE = not DEBUG  # Only send over HTTPS in production
-AUTH_COOKIE_SAMESITE = "None" if not DEBUG else "Lax"  # None for cross-origin in production
+# None for cross-origin in production
+AUTH_COOKIE_SAMESITE = "None" if not DEBUG else "Lax"
 AUTH_COOKIE_PATH = "/"
-AUTH_COOKIE_DOMAIN = ".localhost" if DEBUG else os.getenv("COOKIE_DOMAIN", None)
+AUTH_COOKIE_DOMAIN = ".localhost" if DEBUG else os.getenv(
+    "COOKIE_DOMAIN", None)
 
 # Access token cookie max age (in seconds) - matches ACCESS_TOKEN_LIFETIME
 AUTH_COOKIE_ACCESS_MAX_AGE = 60 * 60  # 1 hour
@@ -625,7 +639,8 @@ REST_AUTH_REGISTER_SERIALIZERS = {
 
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "edwardaja750@gmail.com")
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "your-brevo-smtp-password")
+EMAIL_HOST_PASSWORD = os.getenv(
+    "EMAIL_HOST_PASSWORD", "your-brevo-smtp-password")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "edwardaja750@gmail.com")
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "your-brevo-api-key-here")
 
