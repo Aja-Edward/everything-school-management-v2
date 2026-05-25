@@ -4,7 +4,6 @@ import {
   Users,
   GraduationCap,
   UserCheck,
-  BookOpen,
   School,
   Clock,
   FileText,
