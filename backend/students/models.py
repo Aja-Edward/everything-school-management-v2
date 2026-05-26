@@ -347,7 +347,7 @@ class ResultCheckToken(TenantMixin, models.Model):
             return f"{hours} hour{'s' if hours != 1 else ''}"
 
     def __str__(self):
-        return f"Result Token - {self.student.username} - {self.school_term}"
+        return f"Result Token - {self.student.user.username} - {self.school_term}"
 
 # ========================================
 # BULK UPLOAD RECORD MODEL

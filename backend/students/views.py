@@ -1,3 +1,46 @@
+from django.contrib.auth import get_user_model
+import logging
+from .serializers import ResultTokenSerializer
+import random
+import string
+from academics.models import AcademicCalendar, Term
+from events.models import Event
+from schoolSettings.models import SchoolAnnouncement
+from result.models import StudentResult
+from attendance.models import Attendance
+from .serializers import (
+    StudentScheduleSerializer,
+    StudentWeeklyScheduleSerializer,
+    StudentDailyScheduleSerializer,
+    StudentDetailSerializer,
+    StudentListSerializer,
+    StudentCreateSerializer,
+    ResultTokenSerializer,
+)
+from academics.models import EducationLevel
+from .models import Student, ResultCheckToken
+from django.utils import timezone
+from datetime import date, timedelta, datetime, time
+import csv
+from django_filters.rest_framework import DjangoFilterBackend
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
+from classroom.models import (
+    ClassSchedule,
+    Classroom,
+    Section,
+    GradeLevel,
+    Stream,
+    Class,
+)
+from django.db.models import Avg, Count, Q
+from utils.pagination import LargeResultsPagination
+from tenants.mixins import TenantFilterMixin
+from utils.section_filtering import SectionFilterMixin, AutoSectionFilterMixin
+from schoolSettings.permissions import (
+    HasStudentsPermission,
+    HasStudentsPermissionOrReadOnly,
+)
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework import viewsets, status, filters
 from rest_framework.response import Response
@@ -19,50 +62,7 @@ class IsPlatformAdmin(BasePermission):
             request.user.is_superuser
             or (hasattr(request.user, "role") and request.user.role.upper() == "SUPERADMIN")
         )
-from django.contrib.auth import get_user_model
-from schoolSettings.permissions import (
-    HasStudentsPermission,
-    HasStudentsPermissionOrReadOnly,
-)
-from utils.section_filtering import SectionFilterMixin, AutoSectionFilterMixin
-from tenants.mixins import TenantFilterMixin
-from utils.pagination import LargeResultsPagination
-from django.db.models import Avg, Count, Q
-from classroom.models import (
-    ClassSchedule,
-    Classroom,
-    Section,
-    GradeLevel,
-    Stream,
-    Class,
-)
-from django.shortcuts import get_object_or_404
-from django.http import HttpResponse
-from django_filters.rest_framework import DjangoFilterBackend
-import csv
-from datetime import date, timedelta, datetime, time
-from django.utils import timezone
-from .models import Student, ResultCheckToken
-from academics.models import EducationLevel
-from .serializers import (
-    StudentScheduleSerializer,
-    StudentWeeklyScheduleSerializer,
-    StudentDailyScheduleSerializer,
-    StudentDetailSerializer,
-    StudentListSerializer,
-    StudentCreateSerializer,
-    ResultTokenSerializer,
-)
-from attendance.models import Attendance
-from result.models import StudentResult
-from schoolSettings.models import SchoolAnnouncement
-from events.models import Event
-from academics.models import AcademicCalendar, Term
-import string
-import random
 
-from .serializers import ResultTokenSerializer
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +192,6 @@ def generate_result_tokens(request):
         Student.objects.filter(tenant=tenant, is_active=True)
         .select_related("user")
     )
-    student_users = [s.user for s in tenant_students if s.user]
 
     created_count = 0
     updated_count = 0
@@ -205,25 +204,27 @@ def generate_result_tokens(request):
             datetime.combine(school_term.end_date, time.max)
         )
 
-    for student_user in student_users:
+    for student in tenant_students:
         try:
             token_string = generate_human_readable_token()
 
             max_retries = 10
             retries = 0
             while (
-                ResultCheckToken.objects.filter(token=token_string).exists()
+                ResultCheckToken.objects.filter(
+                    tenant=tenant, token=token_string).exists()
                 and retries < max_retries
             ):
                 token_string = generate_human_readable_token()
                 retries += 1
 
             if retries >= max_retries:
-                raise Exception("Failed to generate unique token after 10 attempts")
+                raise Exception(
+                    "Failed to generate unique token after 10 attempts")
 
             token_obj, created = ResultCheckToken.objects.update_or_create(
                 tenant=tenant,
-                student=student_user,
+                student=student,          # ← Student instance ✓
                 school_term=school_term,
                 defaults={
                     "token": token_string,
@@ -240,8 +241,8 @@ def generate_result_tokens(request):
 
         except Exception as e:
             errors.append({
-                "student_id": student_user.id,
-                "username": student_user.username,
+                "student_id": student.id,
+                "username": student.user.username,  # ← through user ✓
                 "error": str(e),
             })
 
@@ -293,7 +294,8 @@ def get_my_classroom_for_result(request):
     education_level = None
     if student.student_class and student.student_class.education_level:
         el = student.student_class.education_level
-        education_level = getattr(el, "level_type", None) or getattr(el, "code", None) or str(el)
+        education_level = getattr(el, "level_type", None) or getattr(
+            el, "code", None) or str(el)
 
     # Try to find the Classroom record via the student's section
     classroom_data = None
@@ -334,7 +336,8 @@ def get_student_result_token(request):
     Student endpoint to retrieve their result token for the current/active school term.
     """
     student = request.user
-    current_term = Term.objects.filter(is_current=True).first()
+    tenant = getattr(request, "tenant", None)
+    current_term = Term.objects.filter(is_current=True, tenant=tenant).first()
 
     if not current_term:
         return Response(
@@ -345,10 +348,14 @@ def get_student_result_token(request):
             },
             status=status.HTTP_404_NOT_FOUND,
         )
+    try:
+        student_profile = Student.objects.get(user=request.user)
+    except Student.DoesNotExist:
+        return Response({"error": "Student profile not found", "has_token": False}, status=status.HTTP_404_NOT_FOUND)
 
     try:
         token_obj = ResultCheckToken.objects.get(
-            student=student, school_term=current_term
+            student=student_profile, school_term=current_term
         )
     except ResultCheckToken.DoesNotExist:
         return Response(
@@ -381,16 +388,6 @@ def get_student_result_token(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def verify_result_token(request):
-    """
-    Verify a result token and return student information.
-
-    Security model:
-    - Token is looked up by string first (to give a clear "not found" error).
-    - Token must belong to the logged-in student — prevents one student using
-      another student's token.
-    - Tokens are NOT marked as used, so students can re-check results as many
-      times as needed until the token expires.
-    """
     token_string = request.data.get("token", "").strip().upper()
 
     if not token_string:
@@ -399,22 +396,23 @@ def verify_result_token(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    # Step 1 — does this token exist at all?
+    tenant = getattr(request, "tenant", None)
+    if not tenant:
+        return Response({"error": "Tenant not found."}, status=400)
+    # Step 1 — does this token exist?
     try:
         token_obj = ResultCheckToken.objects.select_related(
-            "student", "school_term"
-        ).get(token=token_string)
+            "student__user", "school_term"
+        ).get(token=token_string, tenant=tenant)
     except ResultCheckToken.DoesNotExist:
         return Response(
-            {
-                "error": "Token not found. Please check the token and try again.",
-                "is_valid": False,
-            },
+            {"error": "Token not found. Please check the token and try again.",
+                "is_valid": False},
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    # Step 2 — does this token belong to the student who is logged in?
-    if token_obj.student_id != request.user.pk:
+    # Step 2 — does this token belong to the logged-in student?
+    if token_obj.student.user_id != request.user.pk:  # ← compare via user FK
         return Response(
             {
                 "error": "This token does not belong to your account. "
@@ -424,7 +422,7 @@ def verify_result_token(request):
             status=status.HTTP_403_FORBIDDEN,
         )
 
-    # Step 3 — is the token still valid (not expired)?
+    # Step 3 — is the token still valid?
     if timezone.now() > token_obj.expires_at:
         return Response(
             {
@@ -435,34 +433,10 @@ def verify_result_token(request):
             status=status.HTTP_403_FORBIDDEN,
         )
 
-    # Tokens are NOT marked as used — students can re-check their results freely.
-
-    student = None
-    try:
-        student = Student.objects.select_related(
-            "user", "student_class", "section", "stream"
-        ).get(user=token_obj.student)
-    except Student.DoesNotExist:
-        pass
-
-    student_name = None
-    if student and hasattr(student, "full_name") and student.full_name:
-        student_name = student.full_name
-    else:
-        name_parts = []
-        if token_obj.student.first_name:
-            name_parts.append(token_obj.student.first_name)
-        if token_obj.student.last_name:
-            name_parts.append(token_obj.student.last_name)
-        student_name = (
-            " ".join(name_parts) if name_parts else token_obj.student.username
-        )
-
-    # Use the @property which returns level_type string
-    education_level = student.education_level if student else ""
-
-    # Use the @property which computes classroom display string
-    current_class = student.classroom if student else None
+    # token_obj.student IS the Student — no second lookup needed
+    student = token_obj.student
+    education_level = student.education_level
+    current_class = student.classroom
 
     return Response(
         {
@@ -470,8 +444,8 @@ def verify_result_token(request):
             "message": "Token verified successfully",
             "school_term": token_obj.school_term.name,
             "expires_at": token_obj.expires_at.isoformat(),
-            "student_id": token_obj.student.id,
-            "student_name": student_name,
+            "student_id": student.id,
+            "student_name": student.full_name,
             "education_level": education_level,
             "current_class": current_class,
         },
@@ -494,7 +468,8 @@ def get_all_result_tokens(request):
         )
 
     try:
-        school_term = Term.objects.select_related("tenant").get(id=school_term_id)
+        school_term = Term.objects.select_related(
+            "tenant").get(id=school_term_id)
     except Term.DoesNotExist:
         return Response(
             {"error": f"School term with id {school_term_id} not found"},
@@ -514,38 +489,32 @@ def get_all_result_tokens(request):
             )
 
     tokens = (
-        ResultCheckToken.objects.filter(school_term=school_term)
-        .select_related("student")
-        .order_by("student__username")
+        ResultCheckToken.objects.filter(
+            school_term=school_term, tenant=school_term.tenant)
+        # ← through student
+        .select_related("student__user", "student__student_class", "student__section")
+        .order_by("student__user__username")  # ← fix #1: was student__username
     )
 
     token_data = []
     for token in tokens:
-        name_parts = []
-        if token.student.first_name:
-            name_parts.append(token.student.first_name)
-        if token.student.middle_name:
-            name_parts.append(token.student.middle_name)
-        if token.student.last_name:
-            name_parts.append(token.student.last_name)
+        user = token.student.user
 
-        student_name = " ".join(name_parts) if name_parts else token.student.username
+        name_parts = []
+        if user.first_name:
+            name_parts.append(user.first_name)
+        if hasattr(user, "middle_name") and user.middle_name:
+            name_parts.append(user.middle_name)
+        if user.last_name:
+            name_parts.append(user.last_name)
+
+        student_name = " ".join(
+            name_parts) if name_parts else user.username
 
         # Try to get student_class via Student model
-        student_class = ""
-        try:
-            student_profile = Student.objects.select_related("student_class").get(
-                user=token.student
-            )
-            # Use the computed classroom property which returns display string
-            student_class = student_profile.classroom or ""
-        except Student.DoesNotExist:
-            pass
-
-        # Check if valid
+        student_class = token.student.classroom or ""
         is_valid = not token.is_used and token.expires_at > timezone.now()
 
-        # Get status
         if token.is_used:
             status_text = "Used"
         elif token.expires_at <= timezone.now():
@@ -553,18 +522,16 @@ def get_all_result_tokens(request):
         else:
             status_text = "Active"
 
-        token_data.append(
-            {
-                "id": token.id,
-                "student_name": student_name,
-                "username": token.student.username,
-                "student_class": student_class,
-                "token": token.token,
-                "expires_at": token.expires_at.isoformat(),
-                "is_valid": is_valid,
-                "status": status_text,
-            }
-        )
+        token_data.append({
+            "id": token.id,
+            "student_name": student_name,
+            "username": user.username,          # ← through user
+            "student_class": student_class,
+            "token": token.token,
+            "expires_at": token.expires_at.isoformat(),
+            "is_valid": is_valid,
+            "status": status_text,
+        })
 
     # Calculate statistics
     total = len(token_data)
@@ -595,7 +562,8 @@ def delete_expired_tokens(request):
     """
     Admin endpoint to delete expired result tokens.
     """
-    expired_tokens = ResultCheckToken.objects.filter(expires_at__lt=timezone.now())
+    expired_tokens = ResultCheckToken.objects.filter(
+        expires_at__lt=timezone.now())
     count = expired_tokens.count()
 
     # Get breakdown by term before deleting
@@ -635,7 +603,8 @@ def delete_all_tokens_for_term(request):
         )
 
     try:
-        school_term = Term.objects.select_related("tenant").get(id=school_term_id)
+        school_term = Term.objects.select_related(
+            "tenant").get(id=school_term_id)
     except Term.DoesNotExist:
         return Response(
             {"error": f"School term with id {school_term_id} not found"},
@@ -719,9 +688,11 @@ def get_student_schedule_entries(student):
                     )
                     return schedule_qs
                 else:
-                    logger.info(f"✗ No active schedules found for matched classrooms")
+                    logger.info(
+                        f"✗ No active schedules found for matched classrooms")
             else:
-                logger.info(f"✗ No classrooms found matching student's FK data")
+                logger.info(
+                    f"✗ No classrooms found matching student's FK data")
 
         except Exception as e:
             logger.error(f"✗ Error in FK-based schedule lookup: {str(e)}")
@@ -751,7 +722,8 @@ def get_student_schedule_entries(student):
                     )
                     return schedule_qs
             else:
-                logger.info(f"✗ No classroom found with name: {student.classroom}")
+                logger.info(
+                    f"✗ No classroom found with name: {student.classroom}")
 
         except Exception as e:
             logger.error(f"✗ Error in classroom property fallback: {str(e)}")
@@ -931,7 +903,8 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             logger.info(f"🏢 Tenant from request: {tenant}")
             if tenant:
                 queryset = queryset.filter(tenant_id=tenant.id)
-                logger.info(f"📊 After tenant filter: {queryset.count()} students")
+                logger.info(
+                    f"📊 After tenant filter: {queryset.count()} students")
 
             # Add performance optimizations - FIXED: Use correct FK names
             queryset = queryset.select_related(
@@ -1036,7 +1009,8 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                 )
                 .get(pk=pk)
             )
-            serializer = StudentDetailSerializer(student, context={"request": request})
+            serializer = StudentDetailSerializer(
+                student, context={"request": request})
             return Response(serializer.data)
         except Student.DoesNotExist:
             return Response(
@@ -1112,8 +1086,10 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             schedule_by_day = group_schedule_by_day(serializer.data)
 
             total_periods = len(serializer.data)
-            unique_subjects = set(entry["subject_name"] for entry in serializer.data)
-            unique_teachers = set(entry["teacher_name"] for entry in serializer.data)
+            unique_subjects = set(entry["subject_name"]
+                                  for entry in serializer.data)
+            unique_teachers = set(entry["teacher_name"]
+                                  for entry in serializer.data)
 
             days_with_classes = sum(
                 1 for _, periods in schedule_by_day.items() if periods
@@ -1293,8 +1269,10 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         schedule_by_day = group_schedule_by_day(serializer.data)
 
         total_periods = len(serializer.data)
-        unique_subjects = set(entry["subject_name"] for entry in serializer.data)
-        unique_teachers = set(entry["teacher_name"] for entry in serializer.data)
+        unique_subjects = set(entry["subject_name"]
+                              for entry in serializer.data)
+        unique_teachers = set(entry["teacher_name"]
+                              for entry in serializer.data)
 
         days_with_classes = sum(
             1 for day, periods in schedule_by_day.items() if periods
@@ -1357,7 +1335,8 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         )
 
         for i, period in enumerate(sorted_periods):
-            start_time = datetime.strptime(period["start_time"], "%H:%M:%S").time()
+            start_time = datetime.strptime(
+                period["start_time"], "%H:%M:%S").time()
             end_time = datetime.strptime(period["end_time"], "%H:%M:%S").time()
 
             if start_time <= current_time <= end_time:
@@ -1388,7 +1367,8 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             student = get_student_from_user(request.user)
         except Student.DoesNotExist:
             return Response(
-                {"error": "User is not a student", "username": request.user.username},
+                {"error": "User is not a student",
+                    "username": request.user.username},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1400,7 +1380,8 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             student=student, status="P"
         ).count()
         attendance_rate = (
-            (present_attendance / total_attendance * 100) if total_attendance > 0 else 0
+            (present_attendance / total_attendance *
+             100) if total_attendance > 0 else 0
         )
 
         # Get recent attendance (last 30 days)
@@ -1497,7 +1478,8 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                         else None
                     ),
                     "end_date": (
-                        event.end_date.strftime("%Y-%m-%d") if event.end_date else None
+                        event.end_date.strftime(
+                            "%Y-%m-%d") if event.end_date else None
                     ),
                     "days_until": (
                         (event.start_date.date() - today).days
@@ -1522,7 +1504,8 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                     "type": event.event_type,
                     "start_date": event.start_date.strftime("%Y-%m-%d"),
                     "end_date": (
-                        event.end_date.strftime("%Y-%m-%d") if event.end_date else None
+                        event.end_date.strftime(
+                            "%Y-%m-%d") if event.end_date else None
                     ),
                     "location": event.location,
                     "days_until": (event.start_date - today).days,
@@ -1585,7 +1568,8 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
 
         try:
             student = get_student_from_user(request.user)
-            serializer = StudentDetailSerializer(student, context={"request": request})
+            serializer = StudentDetailSerializer(
+                student, context={"request": request})
             profile_data = serializer.data
 
             profile_data.update(
@@ -1638,9 +1622,12 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         student = serializer.save()
-        student_password = getattr(serializer, "_generated_student_password", None)
-        student_username = getattr(serializer, "_generated_student_username", None)
-        parent_password = getattr(serializer, "_generated_parent_password", None)
+        student_password = getattr(
+            serializer, "_generated_student_password", None)
+        student_username = getattr(
+            serializer, "_generated_student_username", None)
+        parent_password = getattr(
+            serializer, "_generated_parent_password", None)
         headers = self.get_success_headers(serializer.data)
 
         return Response(
