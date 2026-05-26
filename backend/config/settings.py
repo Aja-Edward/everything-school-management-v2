@@ -165,6 +165,7 @@ INSTALLED_APPS = [
     "messaging",
     "debug_toolbar",
     "utils",
+    "common",
     "userprofile.apps.UserprofileConfig",
     "students.apps.StudentsConfig",
     "dashboard",

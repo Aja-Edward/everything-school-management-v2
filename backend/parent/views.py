@@ -2,12 +2,13 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.exceptions import NotFound
-from rest_framework.permissions import AllowAny
-from django.db.models import Avg, Q
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 import logging
-
+from django.db.models import Avg, Count, Q
+from .models import ParentStudentRelationship
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError
 from utils.section_filtering import AutoSectionFilterMixin
 from tenants.mixins import TenantFilterMixin
 from utils.pagination import StandardResultsPagination
@@ -51,21 +52,11 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
             and not user.is_staff
             and not user.is_superuser
         ):
-            try:
-                parent = ParentProfile.objects.get(user=user)
-                queryset = queryset.filter(id=parent.id)
-            except ParentProfile.DoesNotExist:
-                queryset = queryset.none()
-
-        logger.info(
-            f"[ParentViewSet] Queryset count for {user.username}: {queryset.count()}"
-        )
+            queryset = queryset.filter(user=user)
 
         return queryset.select_related("user")
 
-    @action(
-        detail=False, methods=["get"], url_path="search", permission_classes=[AllowAny]
-    )
+    @action(detail=False, methods=["get"], url_path="search")
     def search(self, request):
         """Search parents by name, username, or email - respects section filtering."""
         query = request.query_params.get("q", "")
@@ -141,12 +132,13 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
                 raise NotFound("Parent profile not found.")
 
         # Get students - use mixin's filtering for section admins
-        students = parent.students.all()
+        students = parent.students.filter(tenant=request.tenant)
 
         # Apply section filtering to students
         from students.models import Student
 
-        students_qs = Student.objects.filter(id__in=[s.id for s in students])
+        students_qs = Student.objects.filter(
+            id__in=students.values_list("id", flat=True))
 
         # Only apply section filtering for staff/admins, not for parents viewing their own children
         user = request.user
@@ -155,10 +147,12 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
         else:
             students_filtered = self.apply_section_filters(students_qs)
 
+        tenant = request.tenant
         dashboard_data = []
 
         for student in students_filtered:
-            attendance_records = Attendance.objects.filter(student=student)
+            attendance_records = Attendance.objects.filter(
+                student=student, tenant=tenant)
             total_attendance = attendance_records.count()
             present_count = attendance_records.filter(status="present").count()
             attendance_percentage = (
@@ -168,7 +162,7 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
             )
 
             avg_score = (
-                StudentResult.objects.filter(student=student).aggregate(
+                StudentResult.objects.filter(student=student, tenant=tenant).aggregate(
                     avg=Avg("percentage")
                 )["avg"]
                 or 0
@@ -180,7 +174,7 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
                 for att in recent_attendance
             ]
 
-            recent_results = StudentResult.objects.filter(student=student).order_by(
+            recent_results = StudentResult.objects.filter(student=student, tenant=tenant).order_by(
                 "-created_at"
             )[:5]
             result_list = [
@@ -317,7 +311,7 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
         try:
             from students.models import Student
 
-            student = Student.objects.get(id=student_id)
+            student = Student.objects.get(id=student_id, tenant=request.tenant)
         except Student.DoesNotExist:
             return Response(
                 {"error": "Student not found"}, status=status.HTTP_404_NOT_FOUND
@@ -348,15 +342,30 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
                 )
 
         # Check if student is already linked to this parent
-        if parent.students.filter(id=student_id).exists():
+        if parent.students.filter(id=student_id, tenant=request.tenant).exists():
             return Response(
                 {"error": "Student is already linked to this parent"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Link student to parent
-        parent.students.add(student)
-
+        try:
+            relationship = ParentStudentRelationship(
+                parent=parent,
+                student=student,
+                tenant=request.tenant,
+                relationship=request.data.get("relationship", "Guardian"),
+                is_primary_contact=request.data.get(
+                    "is_primary_contact", False),
+            )
+            relationship.full_clean()
+            relationship.save()
+        except DjangoValidationError as e:
+            return Response({"error": e.message_dict}, status=status.HTTP_400_BAD_REQUEST)
+        except IntegrityError:
+            return Response(
+                {"error": "Student is already linked to this parent or a primary contact conflict exists."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(
             {
                 "status": "existing student linked to parent",
@@ -381,12 +390,15 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
         # Count students linked to these parents
         from students.models import Student
 
-        all_student_ids = []
-        for parent in queryset:
-            all_student_ids.extend(
-                parent.students.values_list("id", flat=True))
+        all_student_ids = (
+            ParentStudentRelationship.objects
+            .filter(parent__in=queryset, tenant=request.tenant)
+            .values_list("student_id", flat=True)
+            .distinct()
+        )
 
-        students = Student.objects.filter(id__in=all_student_ids)
+        students = Student.objects.filter(
+            id__in=all_student_ids,  tenant=request.tenant)
         # Apply section filtering to students
         students = self.apply_section_filters(students)
 
@@ -397,7 +409,7 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
                 "inactive_parents": inactive_parents,
                 "total_students_linked": students.count(),
                 "parents_with_multiple_children": queryset.annotate(
-                    child_count=Q("students")
+                    child_count=Count("students")
                 )
                 .filter(child_count__gt=1)
                 .count(),

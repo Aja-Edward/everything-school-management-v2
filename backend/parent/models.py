@@ -3,6 +3,7 @@ from django.db import models
 from tenants.models import TenantMixin
 from users.models import CustomUser
 from students.models import Student
+from common.models import AbstractBulkUploadRecord
 
 
 class Message(TenantMixin, models.Model):
@@ -20,6 +21,16 @@ class Message(TenantMixin, models.Model):
     def __str__(self):
         return f"From {self.sender} to {self.recipient}: {self.subject}"
 
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        errors = {}
+        if hasattr(self.sender, "tenant") and self.sender.tenant != self.tenant:
+            errors["sender"] = "Sender does not belong to this tenant."
+        if hasattr(self.recipient, "tenant") and self.recipient.tenant != self.tenant:
+            errors["recipient"] = "Recipient does not belong to this tenant."
+        if errors:
+            raise ValidationError(errors)
+
 
 class ParentStudentRelationship(TenantMixin, models.Model):
     parent = models.ForeignKey('ParentProfile', on_delete=models.CASCADE)
@@ -34,6 +45,23 @@ class ParentStudentRelationship(TenantMixin, models.Model):
 
     class Meta:
         unique_together = [('tenant', 'parent', 'student')]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "student"],
+                condition=models.Q(is_primary_contact=True),
+                name="unique_primary_contact_per_student_per_tenant",
+            )
+        ]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        errors = {}
+        if self.parent.tenant_id != self.tenant_id:
+            errors["parent"] = "Parent profile belongs to a different tenant."
+        if self.student.tenant_id != self.tenant_id:
+            errors["student"] = "Student belongs to a different tenant."
+        if errors:
+            raise ValidationError(errors)
 
     def __str__(self):
         return f"{self.parent} - {self.student} ({self.relationship})"
@@ -46,8 +74,10 @@ class ParentProfile(TenantMixin, models.Model):
         related_name="parent_profile",
         limit_choices_to={"role": "parent"},
     )
-    phone = models.CharField(max_length=20, blank=True, null=True, help_text="Parent's phone number")
-    address = models.CharField(max_length=255, blank=True, null=True, help_text="Parent's address")
+    phone = models.CharField(max_length=20, blank=True,
+                             null=True, help_text="Parent's phone number")
+    address = models.CharField(
+        max_length=255, blank=True, null=True, help_text="Parent's address")
     students = models.ManyToManyField(
         'students.Student',
         through='ParentStudentRelationship',
@@ -64,63 +94,38 @@ class ParentProfile(TenantMixin, models.Model):
     class Meta:
         verbose_name = "Parent Profile"
         verbose_name_plural = "Parent Profiles"
+        unique_together = [("tenant", "user")]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if getattr(self.user, "tenant_id", None) != self.tenant_id:
+            raise ValidationError(
+                "The selected user does not belong to this tenant.")
+
+    def get_students(self):
+        """Always use this instead of .students.all() — ensures tenant scope."""
+        return self.students.filter(tenant=self.tenant)
+
+    def get_primary_contact_relationships(self):
+        return self.parentstudentrelationship_set.filter(
+            tenant=self.tenant, is_primary_contact=True
+        )
 
 
-class BulkUploadRecord(TenantMixin, models.Model):
-    """
-    Tracks state and results of a single bulk parent upload job.
-    Created immediately when the file is accepted; updated by the Celery task.
-    """
+class BulkUploadRecord(AbstractBulkUploadRecord):
 
-    STATUS_CHOICES = (
-        ("pending", "Pending"),
-        ("processing", "Processing"),
-        ("completed", "Completed"),
-        ("failed", "Failed"),
-    )
+    class Meta(AbstractBulkUploadRecord.Meta):
+        verbose_name = "Parent Bulk Upload Record"
+        verbose_name_plural = "Parent Bulk Upload Records"
+        indexes = [
+            models.Index(fields=["tenant", "status"]),
+            models.Index(fields=["tenant", "uploaded_by"]),
+        ]
 
     uploaded_by = models.ForeignKey(
         "users.CustomUser",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="parent_bulk_uploads",
+        related_name="parent_bulk_uploads",    # ← concrete related_name here
     )
-    original_filename = models.CharField(max_length=255)
-    file_path = models.CharField(max_length=500)  # absolute path on server
-    file_ext = models.CharField(max_length=10)  # '.csv' | '.xlsx'
-
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
-
-    total_rows = models.IntegerField(default=0)
-    processed_rows = models.IntegerField(default=0)
-    imported_rows = models.IntegerField(default=0)
-    failed_rows = models.IntegerField(default=0)
-
-    # Full result JSON: { imported: [...], errors: [...], summary: {...} }
-    result_data = models.JSONField(default=dict, blank=True)
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ["-created_at"]
-        verbose_name = "Bulk Upload Record"
-        verbose_name_plural = "Bulk Upload Records"
-        indexes = [
-            models.Index(fields=["tenant", "status"]),
-            models.Index(fields=["tenant", "uploaded_by"]),
-        ]
-
-    def __str__(self):
-        return f"Bulk Upload {self.id} — {self.status} ({self.imported_rows}/{self.total_rows})"
-
-    @property
-    def progress_percent(self):
-        if not self.total_rows:
-            return 0
-        return round((self.processed_rows / self.total_rows) * 100)
-
-    @property
-    def is_done(self):
-        return self.status in ("completed", "failed")

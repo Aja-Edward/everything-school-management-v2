@@ -7,6 +7,7 @@ from users.models import CustomUser
 from tenants.models import TenantMixin
 import string
 from .constants import GENDER_CHOICES, EDUCATION_LEVEL_CHOICES, CLASS_CHOICES
+from common.models import AbstractBulkUploadRecord
 
 
 # ========================================
@@ -122,15 +123,42 @@ class Student(TenantMixin, models.Model):
     )
 
     class Meta:
-        ordering = ["student_class__order", "section__name", "user__first_name"]
+        ordering = ["student_class__order",
+                    "section__name", "user__first_name"]
         verbose_name = "Student"
         verbose_name_plural = "Students"
-        unique_together = ["tenant", "registration_number"]
+        unique_together = ["tenant", "registration_number"],
+        ["tenant", "user"],
         indexes = [
             models.Index(fields=["tenant", "student_class", "section"]),
             models.Index(fields=["tenant", "is_active"]),
             models.Index(fields=["tenant", "student_class"]),
         ]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        errors = {}
+
+        if getattr(self.user, "tenant_id", None) != self.tenant_id:
+            errors["user"] = "The selected user does not belong to this tenant."
+
+        if self.student_class_id and self.student_class.tenant_id != self.tenant_id:
+            errors["student_class"] = "The selected class does not belong to this tenant."
+
+        if self.section_id and self.section.tenant_id != self.tenant_id:
+            errors["section"] = "The selected section does not belong to this tenant."
+
+        if self.stream_id and self.stream.tenant_id != self.tenant_id:
+            errors["stream"] = "The selected stream does not belong to this tenant."
+
+        if self.section_id and self.student_class_id:
+            if self.section.class_grade_id != self.student_class_id:
+                errors["section"] = (
+                    f"Section '{self.section}' does not belong to class '{self.student_class}'."
+                )
+
+        if errors:
+            raise ValidationError(errors)
 
     def __str__(self):
         if not self.student_class:
@@ -228,14 +256,6 @@ class Student(TenantMixin, models.Model):
         return self.classroom
 
     def save(self, *args, **kwargs):
-        if (
-            self.section
-            and self.student_class
-            and self.section.class_grade != self.student_class
-        ):
-            raise ValueError(
-                f"Section {self.section} does not belong to class {self.student_class}"
-            )
         super().save(*args, **kwargs)
 
 
@@ -250,7 +270,7 @@ class ResultCheckToken(TenantMixin, models.Model):
     """Token for result portal access - one per student per term"""
 
     student = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="result_tokens"
+        "students.Student", on_delete=models.CASCADE, related_name="result_tokens"
     )
     token = models.CharField(max_length=64, db_index=True)
     school_term = models.ForeignKey("academics.Term", on_delete=models.CASCADE)
@@ -260,44 +280,49 @@ class ResultCheckToken(TenantMixin, models.Model):
     used_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        unique_together = [("tenant", "student", "school_term"), ("tenant", "token")]
+        unique_together = [
+            ("tenant", "student", "school_term"), ("tenant", "token")]
         indexes = [
             models.Index(fields=["tenant", "token"]),
             models.Index(fields=["expires_at"]),
             models.Index(fields=["is_used"]),
         ]
 
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        errors = {}
+
+        if self.student_id and self.student.tenant_id != self.tenant_id:
+            errors["student"] = "Student does not belong to this tenant."
+
+        if self.school_term_id and self.school_term.tenant_id != self.tenant_id:
+            errors["school_term"] = "Term does not belong to this tenant."
+
+        if errors:
+            raise ValidationError(errors)
+
+    def _generate_unique_token(self):
+        """Generate a human-readable token unique within this tenant — format: ABC-123-XYZ-456"""
+        chars = string.ascii_uppercase + string.digits
+        for _ in range(10):
+            parts = ["".join(secrets.choice(chars)
+                             for _ in range(3)) for _ in range(4)]
+            token = "-".join(parts)
+            if not ResultCheckToken.objects.filter(tenant=self.tenant, token=token).exists():
+                return token
+        # Fallback if 10 attempts all collide (astronomically unlikely)
+        import uuid
+        return str(uuid.uuid4())[:15].upper().replace("-", "")
+
     def save(self, *args, **kwargs):
         if not self.token:
-            self.token = self.generate_readable_token()
-        if not self.expires_at and self.school_term:
+            self.token = self._generate_unique_token()
+        if not self.expires_at and self.school_term_id:
             from datetime import datetime, time
-
             self.expires_at = timezone.make_aware(
                 datetime.combine(self.school_term.end_date, time.max)
             )
         super().save(*args, **kwargs)
-
-    @staticmethod
-    def generate_readable_token():
-        """Generate human-readable token in format: ABC-123-XYZ-456"""
-        chars = string.ascii_uppercase + string.digits
-        parts = []
-        for _ in range(4):
-            part = "".join(secrets.choice(chars) for _ in range(3))
-            parts.append(part)
-
-        token = "-".join(parts)
-
-        for _ in range(10):
-            if not ResultCheckToken.objects.filter(token=token).exists():
-                return token
-            parts = ["".join(secrets.choice(chars) for _ in range(3)) for _ in range(4)]
-            token = "-".join(parts)
-
-        import uuid
-
-        return str(uuid.uuid4())[:15].upper().replace("-", "")
 
     def is_valid(self):
         return not self.is_used and timezone.now() <= self.expires_at
@@ -328,61 +353,21 @@ class ResultCheckToken(TenantMixin, models.Model):
 # BULK UPLOAD RECORD MODEL
 # ========================================
 
-class BulkUploadRecord(TenantMixin, models.Model):
-    """
-    Tracks state and results of a single bulk student upload job.
-    Created immediately when the file is accepted; updated by the Celery task.
-    """
 
-    STATUS_CHOICES = (
-        ("pending", "Pending"),
-        ("processing", "Processing"),
-        ("completed", "Completed"),
-        ("failed", "Failed"),
-    )
+class BulkUploadRecord(AbstractBulkUploadRecord):
+
+    class Meta(AbstractBulkUploadRecord.Meta):
+        verbose_name = "Student Bulk Upload Record"
+        verbose_name_plural = "Student Bulk Upload Records"
+        indexes = [
+            models.Index(fields=["tenant", "status"]),
+            models.Index(fields=["tenant", "uploaded_by"]),
+        ]
 
     uploaded_by = models.ForeignKey(
         "users.CustomUser",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="student_bulk_uploads",
+        related_name="student_bulk_uploads",   # ← concrete related_name here
     )
-    original_filename = models.CharField(max_length=255)
-    file_path = models.CharField(max_length=500)  # absolute path on server
-    file_ext = models.CharField(max_length=10)  # '.csv' | '.xlsx'
-
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
-
-    total_rows = models.IntegerField(default=0)
-    processed_rows = models.IntegerField(default=0)
-    imported_rows = models.IntegerField(default=0)
-    failed_rows = models.IntegerField(default=0)
-
-    # Full result JSON: { imported: [...], errors: [...], summary: {...} }
-    result_data = models.JSONField(default=dict, blank=True)
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ["-created_at"]
-        verbose_name = "Bulk Upload Record"
-        verbose_name_plural = "Bulk Upload Records"
-        indexes = [
-            models.Index(fields=["tenant", "status"]),
-            models.Index(fields=["tenant", "uploaded_by"]),
-        ]
-
-    def __str__(self):
-        return f"Bulk Upload {self.id} — {self.status} ({self.imported_rows}/{self.total_rows})"
-
-    @property
-    def progress_percent(self):
-        if not self.total_rows:
-            return 0
-        return round((self.processed_rows / self.total_rows) * 100)
-
-    @property
-    def is_done(self):
-        return self.status in ("completed", "failed")
