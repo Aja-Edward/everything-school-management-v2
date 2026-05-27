@@ -127,8 +127,10 @@ class Student(TenantMixin, models.Model):
                     "section__name", "user__first_name"]
         verbose_name = "Student"
         verbose_name_plural = "Students"
-        unique_together = ["tenant", "registration_number"],
-        ["tenant", "user"],
+        unique_together = [
+            ("tenant", "registration_number"),
+            ("tenant", "user"),
+        ]
         indexes = [
             models.Index(fields=["tenant", "student_class", "section"]),
             models.Index(fields=["tenant", "is_active"]),
@@ -256,6 +258,7 @@ class Student(TenantMixin, models.Model):
         return self.classroom
 
     def save(self, *args, **kwargs):
+        self.full_clean()
         super().save(*args, **kwargs)
 
 
@@ -315,6 +318,7 @@ class ResultCheckToken(TenantMixin, models.Model):
         return str(uuid.uuid4())[:15].upper().replace("-", "")
 
     def save(self, *args, **kwargs):
+        self.full_clean()
         if not self.token:
             self.token = self._generate_unique_token()
         if not self.expires_at and self.school_term_id:
