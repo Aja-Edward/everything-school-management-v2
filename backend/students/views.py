@@ -281,12 +281,13 @@ def get_my_classroom_for_result(request):
     GET /api/students/my-classroom/
     """
     try:
+        tenant = getattr(request, "tenant", None)
         student = Student.objects.select_related(
             "user",
             "student_class",
             "student_class__education_level",
             "section",
-        ).get(user=request.user)
+        ).get(user=request.user, tenant=tenant)
     except Student.DoesNotExist:
         return Response({"classroom": None, "education_level": None})
 
@@ -355,7 +356,7 @@ def get_student_result_token(request):
 
     try:
         token_obj = ResultCheckToken.objects.get(
-            student=student_profile, school_term=current_term
+            student=student_profile, school_term=current_term, tenant=tenant,
         )
     except ResultCheckToken.DoesNotExist:
         return Response(
@@ -570,7 +571,8 @@ def delete_expired_tokens(request):
     from django.db.models import Count
 
     breakdown = list(
-        expired_tokens.values("school_term__name").annotate(count=Count("id"))
+        expired_tokens.values(
+            "tenant__name", "school_term__name").annotate(count=Count("id"))
     )
 
     expired_tokens.delete()
@@ -669,7 +671,8 @@ def get_student_schedule_entries(student):
                 classroom_filters &= Q(stream=student.stream)
 
             # Find matching classrooms
-            classrooms = Classroom.objects.filter(classroom_filters)
+            classrooms = Classroom.objects.filter(
+                classroom_filters, tenant=student.tenant)
 
             if classrooms.exists():
                 # Get schedules for these classrooms
@@ -703,7 +706,7 @@ def get_student_schedule_entries(student):
         try:
             # Try exact match on classroom name
             classroom = Classroom.objects.filter(
-                name__iexact=student.classroom.strip()
+                name__iexact=student.classroom.strip(), tenant=student.tenant
             ).first()
 
             if classroom:
@@ -1432,7 +1435,9 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         recent_activities = recent_activities[:5]
 
         # Get announcements
+        tenant = getattr(request, "tenant", None)
         all_announcements = SchoolAnnouncement.objects.filter(
+            tenant=tenant,
             is_active=True,
             start_date__lte=timezone.now(),
             end_date__gte=timezone.now(),
@@ -1460,6 +1465,7 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
 
         # Get upcoming events
         upcoming_events = Event.objects.filter(
+            tenant=tenant,
             is_active=True, is_published=True, start_date__gte=timezone.now()
         ).order_by("start_date")[:5]
 
@@ -1491,7 +1497,7 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
 
         # Get academic calendar
         academic_calendar = AcademicCalendar.objects.filter(
-            is_active=True, start_date__gte=today
+            tenant=tenant, is_active=True, start_date__gte=today
         ).order_by("start_date")[:10]
 
         calendar_data = []
