@@ -127,17 +127,28 @@ def _resolve_stream(tenant_id, stream_code):
     ).first()
 
 
-def _resolve_parent(tenant_id, phone):
-    """
-    Look up existing ParentProfile by phone within the tenant.
-    Returns ParentProfile or None.
-    """
-    from parent.models import ParentProfile
+def _normalise_phone(phone: str) -> list[str]:
+    """Generate candidate formats for a Nigerian phone number."""
+    p = phone.strip().lstrip("+").lstrip("0")
+    # p is now the bare 10-digit number e.g. '8034988839'
+    return [
+        p,             # 8034988839
+        "0" + p,       # 08034988839
+        "234" + p,     # 2348034988839
+        "+234" + p,    # +2348034988839
+    ]
 
-    return ParentProfile.objects.filter(
-        tenant_id=tenant_id,
-        phone=phone.strip(),
-    ).first()
+
+def _resolve_parent(tenant_id, phone):
+    from parent.models import ParentProfile
+    for candidate in _normalise_phone(phone):
+        profile = ParentProfile.objects.filter(
+            tenant_id=tenant_id,
+            phone=candidate,
+        ).first()
+        if profile:
+            return profile
+    return None
 
 
 def _normalise_date_str(raw: str) -> str:
