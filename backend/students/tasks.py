@@ -140,12 +140,37 @@ def _resolve_parent(tenant_id, phone):
     ).first()
 
 
+def _normalise_date_str(raw: str) -> str:
+    """
+    Detect and fix YYYY-DD-MM → YYYY-MM-DD.
+    Only corrects when the second segment is unambiguously > 12
+    (i.e., impossible as a month). Ambiguous dates (both segments ≤ 12)
+    are left unchanged and assumed to be YYYY-MM-DD.
+    """
+    raw = raw.strip()
+    parts = raw.replace("/", "-").split("-")
+    if len(parts) == 3 and len(parts[0]) == 4:
+        # Looks like YYYY-??-??
+        try:
+            second = int(parts[1])
+            third = int(parts[2])
+            if second > 12 and third <= 12:
+                # Day and month are swapped — fix it
+                return f"{parts[0]}-{parts[2]}-{parts[1]}"
+        except ValueError:
+            pass
+    return raw
+
+
 def _validate_row(row_num, row, tenant_id, academic_session_id=None):
     """
     Validate a single CSV/Excel row dict.
     Returns (errors: list[str], cleaned: dict | None).
     cleaned is None when there are blocking errors.
     """
+    if not any(str(v).strip() for v in row.values()):
+        return ["__skip__"], None
+
     errors = []
 
     # ---- Required plain fields ----
@@ -153,7 +178,7 @@ def _validate_row(row_num, row, tenant_id, academic_session_id=None):
         "first_name", "last_name", "gender",
         "date_of_birth",
         "parent_phone", "parent_guardian_name", "parent_guardian_role",
-        "address", "place_of_birth", "lga",
+        "address",
         "admission_date", "year_admitted",
     ]
     for field in required:
@@ -181,9 +206,10 @@ def _validate_row(row_num, row, tenant_id, academic_session_id=None):
     # ---- Date of birth ----
     from datetime import datetime
     dob = None
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y", "%Y-%m-%d %H:%M:%S"):
+    dob_raw = _normalise_date_str(row["date_of_birth"])
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y"):
         try:
-            dob = datetime.strptime(row["date_of_birth"].strip(), fmt).date()
+            dob = datetime.strptime(dob_raw, fmt).date()
             break
         except ValueError:
             continue
@@ -193,10 +219,10 @@ def _validate_row(row_num, row, tenant_id, academic_session_id=None):
 
     # ---- Admission date ----
     admission_date = None
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y", "%Y-%m-%d %H:%M:%S"):
+    adm_raw = _normalise_date_str(row["admission_date"])
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y"):
         try:
-            admission_date = datetime.strptime(
-                row["admission_date"].strip(), fmt).date()
+            admission_date = datetime.strptime(adm_raw, fmt).date()
             break
         except ValueError:
             continue
@@ -307,7 +333,7 @@ def _validate_row(row_num, row, tenant_id, academic_session_id=None):
         "parent_guardian_name": row["parent_guardian_name"].strip(),
         "parent_guardian_role": row["parent_guardian_role"].strip(),
         "address": row["address"].strip(),
-        "place_of_birth": row["place_of_birth"].strip(),
+        "place_of_birth": row.get("place_of_birth", "").strip() or None,
         "state_of_origin": row.get("state_of_origin", "").strip() or None,
         "lga_of_origin": row.get("lga_of_origin", "").strip() or None,
         "lga_of_residence": row.get("lga_of_residence", "").strip() or None,
@@ -359,6 +385,7 @@ def _create_student_from_cleaned(tenant, cleaned):
         role="student",
         password=password,
         is_active=cleaned["is_active"],
+        tenant=tenant,
     )
 
     student = Student.objects.create(
@@ -383,6 +410,7 @@ def _create_student_from_cleaned(tenant, cleaned):
         special_requirements=cleaned["special_requirements"],
         profile_picture=cleaned["profile_picture"],
         is_active=cleaned["is_active"],
+        admission_date=cleaned["admission_date"],
     )
 
     # Link parent
@@ -420,6 +448,7 @@ COLUMN_MAP = {
     "state": "state_of_origin",
     "lga of residence": "lga_of_residence",
     "lga of origin": "lga_of_origin",
+    "lga": "lga_of_origin",
     "blood group": "blood_group",
     "place of birth": "place_of_birth",
     "education level": "class_code",
@@ -609,6 +638,8 @@ def process_bulk_student_upload(
             row_errors, cleaned = _validate_row(
                 i, raw_row, tenant_id, academic_session_id
             )
+            if row_errors == ["__skip__"]:
+                continue
             if row_errors:
                 errors.append({
                     "row": i,

@@ -44,7 +44,7 @@ class Student(TenantMixin, models.Model):
         help_text="Specific section assignment (e.g., 'A', 'B')",
     )
 
-    admission_date = models.DateField(auto_now_add=True)
+    admission_date = models.DateField(null=True, blank=True)
 
     registration_number = models.CharField(
         max_length=20,
