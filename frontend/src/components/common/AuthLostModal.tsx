@@ -2,14 +2,15 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogIn, X, Clock } from 'lucide-react';
 import { useDesign } from '@/contexts/DesignContext';
-import { useSettings } from '@/contexts/SettingsContext';
 import { useTenant } from '@/contexts/TenantContext';
-import { getAbsoluteUrl } from '@/utils/urlUtils';
+
 
 interface AuthLostModalProps {
   isOpen: boolean;
   onClose?: () => void;
   message?: string;
+  logoUrl?: string;       // ← add these
+  schoolName?: string;
 }
 
 const PLATFORM_LOGO = '/nuventa-favicon.png';
@@ -29,10 +30,11 @@ const AuthLostModal: React.FC<AuthLostModalProps> = ({
   isOpen,
   onClose,
   message = 'Your session has expired. Please log in again to continue.',
+   logoUrl,      // ← use prop
+  schoolName,   // ← use prop
 }) => {
   const navigate = useNavigate();
   const { settings: design } = useDesign();
-  const { settings } = useSettings();
   const { tenant } = useTenant();
 
   const [hovered, setHovered] = useState(false);
@@ -41,8 +43,8 @@ const AuthLostModal: React.FC<AuthLostModalProps> = ({
   const hoverColor   = darkenHex(primaryColor, 12);
 
   // Tenant-aware branding — falls back to platform defaults when no tenant
-  const logoUrl  = getAbsoluteUrl(settings?.logo) || PLATFORM_LOGO;
-  const orgName  = settings?.school_name || (tenant?.name) || PLATFORM_NAME;
+ const resolvedLogo = logoUrl || PLATFORM_LOGO;
+  const resolvedName = schoolName || tenant?.name || PLATFORM_NAME;
 
   const handleReLogin = () => {
     if (onClose) onClose();
@@ -82,13 +84,13 @@ const AuthLostModal: React.FC<AuthLostModalProps> = ({
           {/* Tenant logo + name */}
           <div className="flex flex-col items-center mb-5">
             <img
-              src={logoUrl}
-              alt={orgName}
+              src={resolvedLogo}
+              alt={resolvedName}
               className="w-14 h-14 object-contain rounded-xl mb-2"
               onError={e => { (e.target as HTMLImageElement).src = PLATFORM_LOGO; }}
             />
             <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 text-center">
-              {orgName}
+              {resolvedName}
             </span>
           </div>
 

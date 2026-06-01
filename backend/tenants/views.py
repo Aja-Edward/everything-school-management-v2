@@ -1,4 +1,6 @@
 # tenants/views.py
+from datetime import timedelta
+
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -9,6 +11,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
 from django.db.models import Sum, Q
+from authentication.utils import get_tenant_session_timeout
 from django.utils import timezone
 from django.conf import settings
 from django.conf import settings as django_settings
@@ -339,11 +342,14 @@ class SetupTokenExchangeView(APIView):
         # Get the user and tenant
         user = setup_token.user
         tenant = setup_token.tenant
-
+        timeout_minutes = get_tenant_session_timeout(user)
         # Generate JWT tokens
         refresh = RefreshToken.for_user(user)
         access_token = refresh.access_token
-
+        access_token.set_exp(
+            from_time=timezone.now(),
+            lifetime=timedelta(minutes=timeout_minutes)
+        )
         # Add custom claims to access token
         access_token['id'] = user.id
         access_token['email'] = user.email
@@ -354,6 +360,7 @@ class SetupTokenExchangeView(APIView):
         # Build response data
         response_data = {
             'message': 'Authentication successful',
+            "session_timeout_minutes": timeout_minutes,
             'user': {
                 'id': user.id,
                 'email': user.email,
@@ -377,9 +384,11 @@ class SetupTokenExchangeView(APIView):
         response = Response(response_data)
 
         # Set tokens in httpOnly cookies (works in production with HTTPS)
-        set_auth_cookies(response, str(access_token), str(refresh))
+        set_auth_cookies(response, str(access_token), str(
+            refresh), max_age_minutes=timeout_minutes)
 
-        logger.info(f"Setup token exchanged for user {user.email}, tenant {tenant.slug}")
+        logger.info(
+            f"Setup token exchanged for user {user.email}, tenant {tenant.slug}")
         return response
 
 
@@ -439,7 +448,8 @@ class TenantViewSet(viewsets.ModelViewSet):
 
         # Get invoice stats
         invoices = TenantInvoice.objects.filter(tenant=tenant)
-        total_invoiced = invoices.aggregate(total=Sum('total_amount'))['total'] or 0
+        total_invoiced = invoices.aggregate(
+            total=Sum('total_amount'))['total'] or 0
         total_paid = invoices.aggregate(total=Sum('amount_paid'))['total'] or 0
         total_outstanding = total_invoiced - total_paid
 
@@ -470,7 +480,8 @@ class CurrentTenantView(APIView):
         except Exception:
             settings_data = None
         return Response(
-            {"tenant": TenantSerializer(tenant).data, "settings": settings_data}
+            {"tenant": TenantSerializer(
+                tenant).data, "settings": settings_data}
         )
 
 
@@ -491,18 +502,21 @@ class ServiceManagementViewSet(viewsets.ViewSet):
 
     def list(self, request):
         """Get available services and their status for current tenant."""
-        logger.info(f"ServiceManagementViewSet.list called by user: {request.user}, tenant: {getattr(request, 'tenant', None)}")
+        logger.info(
+            f"ServiceManagementViewSet.list called by user: {request.user}, tenant: {getattr(request, 'tenant', None)}")
         tenant = getattr(request, 'tenant', None)
         if not tenant:
             logger.warning(f"No tenant context for user {request.user}")
             return Response({'error': 'No tenant context'}, status=400)
 
         enabled_services = set(
-            tenant.services.filter(is_enabled=True).values_list('service', flat=True)
+            tenant.services.filter(is_enabled=True).values_list(
+                'service', flat=True)
         )
 
         # Get pricing for all services
-        pricing = {p.service: p for p in ServicePricing.objects.filter(is_active=True)}
+        pricing = {
+            p.service: p for p in ServicePricing.objects.filter(is_active=True)}
 
         services = []
         for service_code, service_name in TenantService.SERVICE_CHOICES:
@@ -612,7 +626,8 @@ def _cf_request(method: str, path: str, body: dict | None = None) -> dict | None
     """Make an authenticated request to the Cloudflare API. Returns parsed JSON or None."""
     token = getattr(settings, 'CLOUDFLARE_API_TOKEN', '')
     if not token:
-        logger_cf.warning("CLOUDFLARE_API_TOKEN not set — skipping Cloudflare domain sync")
+        logger_cf.warning(
+            "CLOUDFLARE_API_TOKEN not set — skipping Cloudflare domain sync")
         return None
     try:
         data = _json.dumps(body).encode() if body else None
@@ -629,7 +644,8 @@ def _cf_request(method: str, path: str, body: dict | None = None) -> dict | None
             return _json.loads(resp.read())
     except urllib.error.HTTPError as e:
         body_text = e.read().decode(errors="replace")
-        logger_cf.error("Cloudflare API %s %s → HTTP %s: %s", method, path, e.code, body_text)
+        logger_cf.error("Cloudflare API %s %s → HTTP %s: %s",
+                        method, path, e.code, body_text)
         return None
     except Exception as e:
         logger_cf.error("Cloudflare API %s %s → %s", method, path, e)
@@ -644,11 +660,13 @@ def _register_cloudflare_hostname(domain: str, tenant=None) -> None:
     """
     zone_id = getattr(settings, 'CLOUDFLARE_ZONE_ID', '')
     if not zone_id:
-        logger_cf.warning("CLOUDFLARE_ZONE_ID not set — skipping Cloudflare domain registration")
+        logger_cf.warning(
+            "CLOUDFLARE_ZONE_ID not set — skipping Cloudflare domain registration")
         return
 
     for d in [domain, f"www.{domain}"]:
-        origin_server = getattr(settings, 'CLOUDFLARE_ORIGIN_SERVER', 'www.nuventacloud.com')
+        origin_server = getattr(
+            settings, 'CLOUDFLARE_ORIGIN_SERVER', 'www.nuventacloud.com')
         result = _cf_request(
             "POST",
             f"/zones/{zone_id}/custom_hostnames",
@@ -664,14 +682,16 @@ def _register_cloudflare_hostname(domain: str, tenant=None) -> None:
         )
         if result and result.get("success"):
             cf_id = result.get("result", {}).get("id")
-            logger_cf.info("Cloudflare: registered custom hostname %s → %s", d, cf_id)
+            logger_cf.info(
+                "Cloudflare: registered custom hostname %s → %s", d, cf_id)
             # Store apex hostname ID on tenant for deletion
             if cf_id and tenant and d == domain:
                 tenant.cloudflare_hostname_id = cf_id
                 tenant.save(update_fields=["cloudflare_hostname_id"])
         else:
             errors = result.get("errors") if result else "no response"
-            logger_cf.error("Cloudflare: failed to register %s — %s", d, errors)
+            logger_cf.error(
+                "Cloudflare: failed to register %s — %s", d, errors)
 
 
 def _remove_cloudflare_hostname(domain: str, hostname_id: str | None = None) -> None:
@@ -688,7 +708,8 @@ def _remove_cloudflare_hostname(domain: str, hostname_id: str | None = None) -> 
         logger_cf.info("Cloudflare: removed custom hostname ID %s", cf_id)
 
     def lookup_and_delete(hostname: str) -> None:
-        result = _cf_request("GET", f"/zones/{zone_id}/custom_hostnames?hostname={hostname}")
+        result = _cf_request(
+            "GET", f"/zones/{zone_id}/custom_hostnames?hostname={hostname}")
         if result and result.get("success"):
             for item in result.get("result", []):
                 delete_by_id(item["id"])
@@ -715,7 +736,8 @@ class DomainManagementViewSet(viewsets.ViewSet):
         if not tenant:
             return Response({'error': 'No tenant context'}, status=400)
 
-        settings_obj, created = TenantSettings.objects.get_or_create(tenant=tenant)
+        settings_obj, created = TenantSettings.objects.get_or_create(
+            tenant=tenant)
 
         if request.method == "PATCH":
             serializer = self.get_serializer(
@@ -769,7 +791,8 @@ class DomainManagementViewSet(viewsets.ViewSet):
         tenant.domain_verification_token = verification_token
         tenant.save()
 
-        platform_domain = getattr(settings, "PLATFORM_DOMAIN", "nuventacloud.com")
+        platform_domain = getattr(
+            settings, "PLATFORM_DOMAIN", "nuventacloud.com")
         platform_ip = getattr(settings, 'PLATFORM_IP', '0.0.0.0')
 
         return Response({
@@ -850,7 +873,8 @@ class DomainManagementViewSet(viewsets.ViewSet):
 
         # Remove from Cloudflare for SaaS before clearing the DB record
         if tenant.custom_domain and tenant.custom_domain_verified:
-            _remove_cloudflare_hostname(tenant.custom_domain, tenant.cloudflare_hostname_id)
+            _remove_cloudflare_hostname(
+                tenant.custom_domain, tenant.cloudflare_hostname_id)
 
         tenant.custom_domain = None
         tenant.custom_domain_verified = False
@@ -909,7 +933,8 @@ class TenantSettingsViewSet(viewsets.ModelViewSet):
             )
 
         # Validate file type
-        allowed_types = ["image/jpeg", "image/png", "image/svg+xml", "image/webp"]
+        allowed_types = ["image/jpeg", "image/png",
+                         "image/svg+xml", "image/webp"]
         if logo_file.content_type not in allowed_types:
             return Response(
                 {"error": "Invalid file type. Allowed: JPG, PNG, SVG, WEBP"},
@@ -927,7 +952,8 @@ class TenantSettingsViewSet(viewsets.ModelViewSet):
                 if not tenant:
                     from tenants.models import TenantUser
 
-                    tenant_user = TenantUser.objects.filter(user=request.user).first()
+                    tenant_user = TenantUser.objects.filter(
+                        user=request.user).first()
                     if tenant_user:
                         tenant = tenant_user.tenant
 
@@ -1033,7 +1059,8 @@ class TenantSettingsViewSet(viewsets.ModelViewSet):
                 if not tenant:
                     from tenants.models import TenantUser
 
-                    tenant_user = TenantUser.objects.filter(user=request.user).first()
+                    tenant_user = TenantUser.objects.filter(
+                        user=request.user).first()
                     if tenant_user:
                         tenant = tenant_user.tenant
 
@@ -1154,8 +1181,10 @@ class TenantSettingsViewSet(viewsets.ModelViewSet):
             logger.error("TenantSettings.current: No tenant context found")
             return Response({'error': 'No tenant context'}, status=400)
 
-        settings_obj, created = TenantSettings.objects.get_or_create(tenant=tenant)
-        logger.info(f"TenantSettings.current: tenant={tenant.slug}, created={created}")
+        settings_obj, created = TenantSettings.objects.get_or_create(
+            tenant=tenant)
+        logger.info(
+            f"TenantSettings.current: tenant={tenant.slug}, created={created}")
 
         if request.method == 'PATCH':
             logger.warning(
@@ -1175,10 +1204,12 @@ class TenantSettingsViewSet(viewsets.ModelViewSet):
                 settings_obj.tenant.refresh_from_db()
                 return Response(TenantSettingsSerializer(settings_obj).data)
 
-            logger.error(f"TenantSettings PATCH validation errors: {serializer.errors}")
+            logger.error(
+                f"TenantSettings PATCH validation errors: {serializer.errors}")
             return Response(serializer.errors, status=400)
 
-        logger.info(f"TenantSettings GET: Returning settings for {tenant.slug}")
+        logger.info(
+            f"TenantSettings GET: Returning settings for {tenant.slug}")
         return Response(TenantSettingsSerializer(settings_obj).data)
 
 
@@ -1367,7 +1398,8 @@ class TenantPaymentViewSet(viewsets.ModelViewSet):
                 },
                 json={
                     'email': tenant.owner_email,
-                    'amount': int(invoice.balance_due * 100),  # Paystack uses kobo
+                    # Paystack uses kobo
+                    'amount': int(invoice.balance_due * 100),
                     'reference': reference,
                     'callback_url': callback_url,
                     'metadata': {
@@ -1470,7 +1502,8 @@ class TenantPaymentViewSet(viewsets.ModelViewSet):
         payment.status = 'confirmed'
         payment.confirmed_by = request.user
         payment.confirmed_at = timezone.now()
-        payment.confirmation_notes = request.data.get('notes', payment.confirmation_notes)
+        payment.confirmation_notes = request.data.get(
+            'notes', payment.confirmation_notes)
         payment.save()
 
         # Update invoice
@@ -1493,7 +1526,8 @@ class TenantPaymentViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Can only reject pending payments'}, status=400)
 
         payment.status = 'failed'
-        payment.confirmation_notes = request.data.get('reason', 'Payment rejected')
+        payment.confirmation_notes = request.data.get(
+            'reason', 'Payment rejected')
         payment.save()
 
         return Response({
@@ -1570,7 +1604,8 @@ class TenantInvitationViewSet(viewsets.ModelViewSet):
             invitation_url = f"http://{tenant.slug}.localhost:{frontend_port}/accept-invitation?token={invitation.token}"
         else:
             # Production: use actual domain
-            platform_domain = getattr(settings, "PLATFORM_DOMAIN", "nuventacloud.com")
+            platform_domain = getattr(
+                settings, "PLATFORM_DOMAIN", "nuventacloud.com")
             invitation_url = f"https://{tenant.slug}.{platform_domain}/accept-invitation?token={invitation.token}"
 
         # Create email content
@@ -1614,13 +1649,15 @@ class TenantInvitationViewSet(viewsets.ModelViewSet):
             )
 
             if status_code in [200, 201]:
-                logger.info(f"Invitation resent to {invitation.email} for tenant {tenant.slug}")
+                logger.info(
+                    f"Invitation resent to {invitation.email} for tenant {tenant.slug}")
                 return Response({
                     'message': 'Invitation resent successfully',
                     'invitation': TenantInvitationSerializer(invitation).data
                 })
             else:
-                logger.warning(f"Email sending returned status {status_code}: {response_text}")
+                logger.warning(
+                    f"Email sending returned status {status_code}: {response_text}")
                 # Still return success since invitation was regenerated
                 return Response({
                     'message': 'Invitation regenerated, but email delivery may have failed',

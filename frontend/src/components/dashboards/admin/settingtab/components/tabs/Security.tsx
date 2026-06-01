@@ -53,27 +53,24 @@ const Security: React.FC<SecurityProps> = ({ settings, onSettingsUpdate }) => {
 
   // Initialize settings from props
   useEffect(() => {
-    if (settings?.security) {
-      setSecuritySettings({
-        twoFactorAuth: settings.security.twoFactorAuth ?? true,
-        passwordPolicy: {
-          minLength: settings.security.passwordPolicy?.minLength ?? 8,
-          requireUppercase: settings.security.passwordPolicy?.requireUppercase ?? true,
-          requireLowercase: settings.security.passwordPolicy?.requireLowercase ?? true,
-          requireNumbers: settings.security.passwordPolicy?.requireNumbers ?? true,
-          requireSpecialChars: settings.security.passwordPolicy?.requireSpecialChars ?? true,
-          passwordExpiry: settings.security.passwordPolicy?.passwordExpiry ?? 90
-        },
-        sessionTimeout: settings.security.sessionTimeout ?? 30,
-        maxLoginAttempts: settings.security.maxLoginAttempts ?? 5,
-        lockoutDuration: settings.security.lockoutDuration ?? 15,
-        ipWhitelist: settings.security.ipWhitelist ?? [],
-        auditLogging: settings.security.auditLogging ?? true,
-        dataEncryption: settings.security.dataEncryption ?? true
-      });
-      setIpWhitelist(settings.security.ipWhitelist ?? []);
-    }
-  }, [settings]);
+  if (settings) {
+    console.log("Security component settings:", settings);
+    setSecuritySettings(prev => ({
+      ...prev,
+      sessionTimeout: settings.security?.sessionTimeout ?? 30,
+      maxLoginAttempts: settings.security?.maxLoginAttempts ?? 5,
+      lockoutDuration: settings.security?.lockoutDuration ?? 15,
+      passwordPolicy: {
+        ...prev.passwordPolicy,
+        minLength: settings.security?.passwordPolicy?.minLength ?? 8,
+        requireNumbers: settings.security?.passwordPolicy?.requireNumbers ?? true,
+        requireSpecialChars: settings.security?.passwordPolicy?.requireSpecialChars ?? false,
+        requireUppercase: settings.security?.passwordPolicy?.requireUppercase ?? false,
+        passwordExpiry: settings.security?.passwordPolicy?.passwordExpiry ?? 90,
+      },
+    }));
+  }
+}, [settings]);
 
   const updateSecuritySetting = (field: string, value: any) => {
     setSecuritySettings(prev => ({ ...prev, [field]: value }));
@@ -109,7 +106,20 @@ const Security: React.FC<SecurityProps> = ({ settings, onSettingsUpdate }) => {
     setIsSaving(true);
     try {
       await onSettingsUpdate({
-        security: securitySettings
+        security: {
+          sessionTimeout: securitySettings.sessionTimeout,
+          maxLoginAttempts: securitySettings.maxLoginAttempts,
+          lockoutDuration: securitySettings.lockoutDuration,
+          passwordPolicy: {
+            minLength: securitySettings.passwordPolicy.minLength,
+            requireUppercase: securitySettings.passwordPolicy.requireUppercase,
+            requireNumbers: securitySettings.passwordPolicy.requireNumbers,
+            requireSpecialChars:
+              securitySettings.passwordPolicy.requireSpecialChars,
+            passwordExpiry:
+              securitySettings.passwordPolicy.passwordExpiry,
+          },
+        },
       });
       setHasChanges(false);
     } catch (error) {

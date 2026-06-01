@@ -31,7 +31,8 @@ class CookieJWTAuthentication(JWTAuthentication):
         raw_token = request.COOKIES.get(settings.AUTH_COOKIE_ACCESS)
 
         logger.warning(f"🍪 All cookies: {list(request.COOKIES.keys())}")
-        logger.warning(f"🍪 Looking for cookie: '{settings.AUTH_COOKIE_ACCESS}'")
+        logger.warning(
+            f"🍪 Looking for cookie: '{settings.AUTH_COOKIE_ACCESS}'")
         logger.warning(f"🍪 Found token: {bool(raw_token)}")
 
         if raw_token is None:
@@ -41,7 +42,8 @@ class CookieJWTAuthentication(JWTAuthentication):
         try:
             validated_token = self.get_validated_token(raw_token)
             user = self.get_user(validated_token)
-            logger.debug(f"Cookie authentication successful for user: {user.email}")
+            logger.debug(
+                f"Cookie authentication successful for user: {user.email}")
             return (user, validated_token)
         except (InvalidToken, TokenError) as e:
             logger.debug(f"Cookie token validation failed: {e}")
@@ -49,7 +51,7 @@ class CookieJWTAuthentication(JWTAuthentication):
             return super().authenticate(request)
 
 
-def set_auth_cookies(response, access_token: str, refresh_token: str = None):
+def set_auth_cookies(response, access_token: str, refresh_token: str = None, max_age_minutes: int = 60):
     """
     Set JWT tokens as httpOnly cookies on the response.
 
@@ -57,12 +59,15 @@ def set_auth_cookies(response, access_token: str, refresh_token: str = None):
         response: Django/DRF response object
         access_token: JWT access token string
         refresh_token: JWT refresh token string (optional)
+        max_age_minutes: Maximum age of the cookies in minutes
     """
+    access_max_age = max_age_minutes * 60
+    refresh_max_age = max_age_minutes * 60 * 24
     # Set access token cookie
     response.set_cookie(
         key=settings.AUTH_COOKIE_ACCESS,
         value=access_token,
-        max_age=settings.AUTH_COOKIE_ACCESS_MAX_AGE,
+        max_age=access_max_age,
         expires=None,
         path=settings.AUTH_COOKIE_PATH,
         domain=settings.AUTH_COOKIE_DOMAIN,
@@ -76,7 +81,7 @@ def set_auth_cookies(response, access_token: str, refresh_token: str = None):
         response.set_cookie(
             key=settings.AUTH_COOKIE_REFRESH,
             value=refresh_token,
-            max_age=settings.AUTH_COOKIE_REFRESH_MAX_AGE,
+            max_age=refresh_max_age,
             expires=None,
             path=settings.AUTH_COOKIE_PATH,
             domain=settings.AUTH_COOKIE_DOMAIN,

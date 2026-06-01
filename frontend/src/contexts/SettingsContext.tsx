@@ -11,20 +11,18 @@ import React, { createContext, useContext, useState, useEffect, useCallback, Rea
 import SettingsService, { SchoolSettings, Classroom } from '@/services/SettingsService';
 import { useAuth } from '@/hooks/useAuth';
 import { useTenant } from '@/contexts/TenantContext';
+import { useSessionTimer } from '@/hooks/useSessionTimer';
 
 
 // ── Context shape ─────────────────────────────────────────────────────────────
 
 interface SettingsContextType {
-  // ── existing settings ──────────────────────────────────────────────────────
   settings: SchoolSettings | null;
   loading: boolean;
   error: string | null;
   setError: (error: string | null) => void;
   refreshSettings: () => Promise<void>;
   updateSettings: (newSettings: Partial<SchoolSettings>) => Promise<void>;
-
-  // ── classroom capacity ─────────────────────────────────────────────────────
   classrooms: Classroom[];
   classroomsLoading: boolean;
   classroomsError: string | null;
@@ -55,6 +53,7 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [settings, setSettings] = useState<SchoolSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
 
   // ── Classroom state ───────────────────────────────────────────────────────
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
@@ -128,6 +127,7 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
   const { user, isLoading: authLoading } = useAuth();
   const { tenant, isLoading: tenantLoading } = useTenant();
 
+
   useEffect(() => {
     // Wait for tenant to resolve (critical on custom domains where a
     // by-domain lookup must complete before tenantSlug is in localStorage)
@@ -151,6 +151,32 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     return () => window.removeEventListener('settings-updated' as any, handleExternalUpdate);
   }, [authLoading, user, tenant, fetchSettings, fetchClassrooms, tenantLoading]);
 
+  
+   
+   // ── Session timeout ───────────────────────────────────────────────────────
+const handleSessionLogout = useCallback(() => {
+  // Dispatch event — AuthLostProvider listens for this
+  window.dispatchEvent(
+    new CustomEvent('session:timeout', {
+      detail: { message: 'Your session expired due to inactivity. Please log in again.' }
+    })
+  );
+}, []);
+
+const handleSessionWarning = useCallback((secondsRemaining: number) => {
+  window.dispatchEvent(
+    new CustomEvent('session-timeout-warning', {
+      detail: { secondsRemaining, minutes: Math.ceil(secondsRemaining / 60) }
+    })
+  );
+}, []);
+
+useSessionTimer({
+  timeoutMinutes: settings?.security?.sessionTimeout ?? 30,
+  onLogout: handleSessionLogout,
+  onWarning: handleSessionWarning,
+  enabled: !!user && !authLoading && !!settings,
+});
   // ── Context value ─────────────────────────────────────────────────────────
   const value: SettingsContextType = {
     // school settings

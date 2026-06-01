@@ -199,19 +199,22 @@ SITE_ID = 1
 # ============================================
 
 MIDDLEWARE = [
-    "corsheaders.middleware.CorsMiddleware",  # FIRST
+    "corsheaders.middleware.CorsMiddleware",          # 1. CORS first, always
     "django.middleware.security.SecurityMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",  # Before auth
+    # 2. Sessions early (auth needs it)
+    "django.contrib.sessions.middleware.SessionMiddleware",
     "debug_toolbar.middleware.DebugToolbarMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",  # Before tenant
+    # 3. Auth (needs session)
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
     "allauth.account.middleware.AccountMiddleware",
-    "tenants.middleware.TenantMiddleware",  # AFTER auth
+    "tenants.middleware.TenantMiddleware",             # 4. Tenant (needs auth)
+    # 5. ← HERE (needs both auth + tenant)
+    "middleware.session_timeout.SessionTimeoutMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
-
 # ============================================
 # TENANT MIDDLEWARE - PUBLIC PATHS
 # ============================================

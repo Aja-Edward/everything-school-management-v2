@@ -206,6 +206,7 @@ class SettingsService {
       if (settings.chatSystem !== undefined) backendSettings.chat_system = settings.chatSystem;
       
 
+      console.log('📤 Sending to backend:', backendSettings);
       
       const response = await api.patch('/tenants/settings/current/', backendSettings);
       console.log('✅ Backend response:', response);
@@ -433,7 +434,7 @@ class SettingsService {
           requireSpecialChars: response.password_require_symbols ?? false,
           passwordExpiry: response.password_expiration_days ?? 90
         },
-        sessionTimeout: response.session_timeout_minutes ?? 30,
+        sessionTimeout: response.session_timeout_minutes ?? 240,
         maxLoginAttempts: response.max_login_attempts ?? 5,
         lockoutDuration: response.account_lock_duration_minutes ?? 15,
         ipWhitelist: [],

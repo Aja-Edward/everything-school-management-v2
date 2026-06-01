@@ -1,3 +1,21 @@
+from .cookie_auth import set_auth_cookies, clear_auth_cookies, refresh_access_token_from_cookie
+from .serializers import (
+    RegisterSerializer,
+    VerifyAccountSerializer,
+    ResendVerificationSerializer,
+    CustomTokenObtainPairSerializer,
+    SimpleLoginSerializer,
+)
+from .supabase_backend import SupabaseJWTAuthentication
+from rest_framework.decorators import authentication_classes
+from django.db import transaction
+import secrets
+from utils import generate_unique_username, generate_temp_password
+import json
+import logging
+import string
+import random
+from datetime import timedelta
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
@@ -32,25 +50,8 @@ from dj_rest_auth.registration.views import SocialLoginView
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 
-from datetime import timedelta
-import random
-import string
-import logging
-import json
-from utils import generate_unique_username, generate_temp_password
-import secrets
-from django.db import transaction
-from rest_framework.decorators import authentication_classes
-from .supabase_backend import SupabaseJWTAuthentication
+from authentication.utils import get_tenant_session_timeout
 
-from .serializers import (
-    RegisterSerializer,
-    VerifyAccountSerializer,
-    ResendVerificationSerializer,
-    CustomTokenObtainPairSerializer,
-    SimpleLoginSerializer,
-)
-from .cookie_auth import set_auth_cookies, clear_auth_cookies, refresh_access_token_from_cookie
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -100,11 +101,11 @@ class VerifyAccountView(APIView):
     @method_decorator(
         ratelimit(key="post:email", rate="10/15m", method="POST", block=True)
     )
-
     def post(self, request):
         serializer = VerifyAccountSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.validated_data["user"]
+            timeout_minutes = get_tenant_session_timeout(user)
             user_username = serializer.validated_data.get("user_username")
             user_password = serializer.validated_data.get("user_password")
             parent_username = serializer.validated_data.get("parent_username")
@@ -113,6 +114,11 @@ class VerifyAccountView(APIView):
             # Generate JWT tokens for automatic login
             refresh = RefreshToken.for_user(user)
             access_token = refresh.access_token
+
+            access_token.set_exp(
+                from_time=timezone.now(),
+                lifetime=timedelta(minutes=timeout_minutes)
+            )
 
             # Add custom claims to the token
             access_token["id"] = user.id
@@ -127,11 +133,13 @@ class VerifyAccountView(APIView):
                     f"✅ Stored tenant {user.tenant.id} in session during account verification for user {user.email}"
                 )
             else:
-                logger.warning(f"⚠️ User {user.email} has no tenant during verification")
+                logger.warning(
+                    f"⚠️ User {user.email} has no tenant during verification")
 
             # AFTER
             response_data = {
                 "message": "Account verified successfully. You are now logged in.",
+                "session_timeout_minutes": timeout_minutes,
                 "user": {
                     "id": user.id,
                     "email": user.email,
@@ -155,7 +163,8 @@ class VerifyAccountView(APIView):
                 }
 
             response = Response(response_data, status=status.HTTP_200_OK)
-            set_auth_cookies(response, str(access_token), str(refresh))
+            set_auth_cookies(response, str(access_token), str(
+                refresh), max_age_minutes=timeout_minutes)
             return response
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -169,11 +178,14 @@ class ResendVerificationView(APIView):
     def post(self, request):
         serializer = ResendVerificationSerializer(data=request.data)
         if serializer.is_valid():
-            verification_code = serializer.resend_code(serializer.validated_data)  # type: ignore
+            verification_code = serializer.resend_code(
+                serializer.validated_data)  # type: ignore
             return Response(
                 {
-                    "message": f"Verification code sent successfully via {serializer.validated_data['verification_method']}",  # type: ignore
-                    "email": serializer.validated_data["email"],  # type: ignore
+                    # type: ignore
+                    "message": f"Verification code sent successfully via {serializer.validated_data['verification_method']}",
+                    # type: ignore
+                    "email": serializer.validated_data["email"],
                 },
                 status=status.HTTP_200_OK,
             )
@@ -207,7 +219,8 @@ class CustomTokenObtainPairView(TokenObtainPairView):
         access = serializer.validated_data.get("access")
         refresh = serializer.validated_data.get("refresh")
 
-        response = Response(serializer.validated_data, status=status.HTTP_200_OK)
+        response = Response(serializer.validated_data,
+                            status=status.HTTP_200_OK)
 
         if access and refresh:
             set_auth_cookies(response, access, refresh)
@@ -225,17 +238,22 @@ class SimpleLoginView(APIView):
     permission_classes = [AllowAny]
 
     @method_decorator(ratelimit(key="ip", rate="5/m", method="POST", block=True))
-
     def post(self, request):
         serializer = SimpleLoginSerializer(
             data=request.data, context={"request": request}
         )
         if serializer.is_valid():
             user = serializer.validated_data["user"]
+            timeout_minutes = get_tenant_session_timeout(user)
 
             # Generate JWT tokens
             refresh = RefreshToken.for_user(user)
             access_token = refresh.access_token
+
+            access_token.set_exp(
+                from_time=timezone.now(),
+                lifetime=timedelta(minutes=timeout_minutes)
+            )
 
             # Add custom claims
             access_token["id"] = user.id
@@ -257,6 +275,7 @@ class SimpleLoginView(APIView):
             # Build response data
             response_data = {
                 "message": "Login successful",
+                "session_timeout_minutes": timeout_minutes,
                 "user": {
                     "id": user.id,
                     "email": user.email,
@@ -292,7 +311,8 @@ class SimpleLoginView(APIView):
             response = Response(response_data, status=status.HTTP_200_OK)
 
             # Set tokens in httpOnly cookies (works in production with HTTPS)
-            set_auth_cookies(response, str(access_token), str(refresh))
+            set_auth_cookies(response, str(access_token), str(
+                refresh), max_age_minutes=timeout_minutes)
 
             logger.info(f"User {user.email} logged in successfully")
             return response
@@ -367,7 +387,8 @@ def jwt_login_view(request):
     if serializer.is_valid():
         access = serializer.validated_data.get("access")
         refresh = serializer.validated_data.get("refresh")
-        response = Response(serializer.validated_data, status=status.HTTP_200_OK)
+        response = Response(serializer.validated_data,
+                            status=status.HTTP_200_OK)
         if access and refresh:
             set_auth_cookies(response, access, refresh)
         return response
@@ -381,13 +402,20 @@ def simple_login_view(request):
 
     **FIXED**: Now stores tenant in session for TenantMiddleware
     """
-    serializer = SimpleLoginSerializer(data=request.data, context={"request": request})
+    serializer = SimpleLoginSerializer(
+        data=request.data, context={"request": request})
     if serializer.is_valid():
         user = serializer.validated_data["user"]
+        timeout_minutes = get_tenant_session_timeout(user)
 
         # Generate JWT tokens
         refresh = RefreshToken.for_user(user)
         access = refresh.access_token
+
+        access.set_exp(
+            from_time=timezone.now(),
+            lifetime=timedelta(minutes=timeout_minutes)
+        )
 
         # Add custom claims
         access["id"] = user.id
@@ -409,6 +437,7 @@ def simple_login_view(request):
         # In SimpleLoginView.post() — update the user dict in response_data
         response_data = {
             "message": "Login successful",
+            "session_timeout_minutes": timeout_minutes,
             "user": {
                 "id": user.id,
                 "email": user.email,
@@ -442,7 +471,8 @@ def simple_login_view(request):
         response = Response(response_data, status=status.HTTP_200_OK)
 
         # Set tokens in httpOnly cookies
-        set_auth_cookies(response, str(access), str(refresh))
+        set_auth_cookies(response, str(access), str(
+            refresh), max_age_minutes=timeout_minutes)
         return response
 
     return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
@@ -647,7 +677,8 @@ def list_admins(request):
             "nursery_admin",
         ]
 
-        admins = User.objects.filter(role__in=admin_roles).order_by("-date_joined")
+        admins = User.objects.filter(
+            role__in=admin_roles).order_by("-date_joined")
 
         admin_list = []
         for admin in admins:
@@ -691,7 +722,8 @@ def logout_view(request):
     **FIXED**: Now also clears tenant from session
     """
     # Try to get refresh token from cookie first, then from request body
-    refresh_token = request.COOKIES.get(settings.AUTH_COOKIE_REFRESH) or request.data.get("refresh")
+    refresh_token = request.COOKIES.get(
+        settings.AUTH_COOKIE_REFRESH) or request.data.get("refresh")
 
     response = Response(
         {"message": "Successfully logged out."}, status=status.HTTP_200_OK
@@ -817,7 +849,8 @@ class CheckVerificationStatusView(APIView):
 
         except Exception as e:
             return Response(
-                {"error": "Failed to check verification status", "detail": str(e)},
+                {"error": "Failed to check verification status",
+                    "detail": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -844,7 +877,8 @@ class CheckVerificationStatusView(APIView):
 
         except Exception as e:
             return Response(
-                {"error": "Failed to check verification status", "detail": str(e)},
+                {"error": "Failed to check verification status",
+                    "detail": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -948,7 +982,8 @@ def debug_token(request):
                 "user_email": user.email if user.is_authenticated else None,
                 "auth_header_present": bool(auth_header),
                 "auth_header_format": (
-                    auth_header[:20] + "..." if len(auth_header) > 20 else auth_header
+                    auth_header[:20] +
+                    "..." if len(auth_header) > 20 else auth_header
                 ),
             }
         )
@@ -991,14 +1026,21 @@ def verify_account(request):
     serializer = VerifyAccountSerializer(data=request.data)
     if serializer.is_valid():
         user = serializer.validated_data["user"]  # type: ignore
+        timeout_minutes = get_tenant_session_timeout(user)
 
         # Auto-login after verification
         refresh = RefreshToken.for_user(user)
         access_token = refresh.access_token
 
+        access_token.set_exp(
+            from_time=timezone.now(),
+            lifetime=timedelta(minutes=timeout_minutes)
+        )
+
         # AFTER
         response_data = {
             "message": "Account verified and logged in successfully.",
+            "session_timeout_minutes": timeout_minutes,
             "user": {
                 "id": user.id,
                 "email": user.email,
@@ -1013,7 +1055,8 @@ def verify_account(request):
             response_data["refresh"] = str(refresh)
 
         response = Response(response_data, status=status.HTTP_200_OK)
-        set_auth_cookies(response, str(access_token), str(refresh))
+        set_auth_cookies(response, str(access_token), str(
+            refresh), max_age_minutes=timeout_minutes)
         return response
     return JsonResponse(serializer.errors, status=400)
 
@@ -1025,7 +1068,8 @@ def resend_verification(request):
     """Alternative function-based resend verification view"""
     serializer = ResendVerificationSerializer(data=request.data)
     if serializer.is_valid():
-        verification_code = serializer.resend_code(serializer.validated_data)  # type: ignore
+        verification_code = serializer.resend_code(
+            serializer.validated_data)  # type: ignore
         return JsonResponse(
             {
                 "message": "Verification code resent successfully.",
@@ -1099,6 +1143,7 @@ def verify_account_view(request):
     serializer = VerifyAccountSerializer(data=request.data)
     if serializer.is_valid():
         user = serializer.validated_data["user"]
+        timeout_minutes = get_tenant_session_timeout(user)
         # Unpack optional credential fields safely
         user_username = serializer.validated_data.get("user_username")
         user_password = serializer.validated_data.get("user_password")
@@ -1107,6 +1152,11 @@ def verify_account_view(request):
 
         refresh = RefreshToken.for_user(user)
         access_token = refresh.access_token
+
+        access_token.set_exp(
+            from_time=timezone.now(),
+            lifetime=timedelta(minutes=timeout_minutes)
+        )
         access_token["id"] = user.id
         access_token["email"] = user.email
         access_token["role"] = user.role
@@ -1114,6 +1164,7 @@ def verify_account_view(request):
 
         response_data = {
             "message": "Account verified successfully. You are now logged in.",
+            "session_timeout_minutes": timeout_minutes,
             "user": {
                 "id": user.id,
                 "email": user.email,
@@ -1137,7 +1188,8 @@ def verify_account_view(request):
             }
 
         response = Response(response_data, status=status.HTTP_200_OK)
-        set_auth_cookies(response, str(access_token), str(refresh))
+        set_auth_cookies(response, str(access_token), str(
+            refresh), max_age_minutes=timeout_minutes)
         return response
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1149,10 +1201,12 @@ def resend_verification_view(request):
     """Function-based resend verification view (alternative name for resend_verification)"""
     serializer = ResendVerificationSerializer(data=request.data)
     if serializer.is_valid():
-        verification_code = serializer.resend_code(serializer.validated_data)  # type: ignore
+        verification_code = serializer.resend_code(
+            serializer.validated_data)  # type: ignore
         return Response(
             {
-                "message": f"Verification code sent successfully via {serializer.validated_data['verification_method']}",  # type: ignore
+                # type: ignore
+                "message": f"Verification code sent successfully via {serializer.validated_data['verification_method']}",
                 "email": serializer.validated_data["email"],  # type: ignore
             },
             status=status.HTTP_200_OK,

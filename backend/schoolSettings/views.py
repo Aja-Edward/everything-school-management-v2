@@ -307,9 +307,14 @@ class SchoolSettingsDetail(APIView):
 
                 # Security & Authentication
                 "email_verification_required": "require_email_verification",
+
                 "session_timeout": "session_timeout_minutes",
+                "session_timeout_minutes": "session_timeout_minutes",
+
                 "max_login_attempts": "max_login_attempts",
+
                 "account_lock_duration": "account_lock_duration_minutes",
+                "account_lock_duration_minutes": "account_lock_duration_minutes",
 
                 # Password Policy
                 "password_min_length": "password_min_length",
