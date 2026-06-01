@@ -687,7 +687,7 @@ const StudentListEnhanced: React.FC = () => {
             ))}
           </div>
         )}
-        <div className='flex items-center justisfy-center w-full'>
+     
           <div className="flex items-center justify-between mt-6">
           <button
             disabled={currentPage === 1}
@@ -709,7 +709,7 @@ const StudentListEnhanced: React.FC = () => {
             Next
           </button>
         </div>
-        </div>
+       
         
       </div>
 
