@@ -80,7 +80,7 @@ const StudentListEnhanced: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
  
-  const pageSize = 2;
+  const pageSize = 20;
   const totalPages = Math.ceil(totalCount /pageSize);
 
   const [students, setStudents] = useState<Student[]>([]);
