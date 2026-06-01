@@ -174,9 +174,10 @@ class LessonViewSet(viewsets.ModelViewSet):
 
             enrollments = StudentEnrollment.objects.filter(
                 student=student, is_active=True
-            ).select_related("classroom", "classroom__section__grade_level")
+            ).select_related("classroom", "classroom__section__class_grade")
 
-            enrolled_classrooms = [enrollment.classroom for enrollment in enrollments]
+            enrolled_classrooms = [
+                enrollment.classroom for enrollment in enrollments]
 
             return (
                 "student",
@@ -197,7 +198,8 @@ class LessonViewSet(viewsets.ModelViewSet):
                 parent=parent, is_active=True
             ).select_related("student")
 
-            children = [rel.student for rel in relationships if rel.student.is_active]
+            children = [
+                rel.student for rel in relationships if rel.student.is_active]
 
             from students.models import StudentEnrollment
 
@@ -207,7 +209,7 @@ class LessonViewSet(viewsets.ModelViewSet):
             for child in children:
                 child_enrollments = StudentEnrollment.objects.filter(
                     student=child, is_active=True
-                ).select_related("classroom", "classroom__section__grade_level")
+                ).select_related("classroom", "classroom__section__class_grade")
 
                 children_enrollments.extend(child_enrollments)
                 children_classrooms.extend(
@@ -234,7 +236,7 @@ class LessonViewSet(viewsets.ModelViewSet):
         """
         queryset = Lesson.objects.select_related(
             "teacher__user",
-            "classroom__section__grade_level",
+            "classroom__section__class_grade",
             "subject",
             "created_by",
             "last_modified_by",
@@ -252,7 +254,7 @@ class LessonViewSet(viewsets.ModelViewSet):
             education_levels = additional_info.get("education_levels", [])
             if education_levels:
                 queryset = queryset.filter(
-                    classroom__section__grade_level__education_level__in=education_levels
+                    classroom__section__class_grade__education_level__in=education_levels
                 )
                 logger.info(
                     f"Section admin {self.request.user.username} "
@@ -276,7 +278,8 @@ class LessonViewSet(viewsets.ModelViewSet):
             )
 
         elif role == "student":
-            enrolled_classrooms = additional_info.get("enrolled_classrooms", [])
+            enrolled_classrooms = additional_info.get(
+                "enrolled_classrooms", [])
             if enrolled_classrooms:
                 queryset = queryset.filter(classroom__in=enrolled_classrooms)
                 logger.info(
@@ -290,7 +293,8 @@ class LessonViewSet(viewsets.ModelViewSet):
                 )
 
         elif role == "parent":
-            children_classrooms = additional_info.get("children_classrooms", [])
+            children_classrooms = additional_info.get(
+                "children_classrooms", [])
             if children_classrooms:
                 queryset = queryset.filter(classroom__in=children_classrooms)
                 logger.info(
@@ -329,9 +333,11 @@ class LessonViewSet(viewsets.ModelViewSet):
                 elif date_filter == "this_week":
                     week_start = today - timedelta(days=today.weekday())
                     week_end = week_start + timedelta(days=6)
-                    queryset = queryset.filter(date__range=[week_start, week_end])
+                    queryset = queryset.filter(
+                        date__range=[week_start, week_end])
                 elif date_filter == "next_week":
-                    next_week_start = today + timedelta(days=7 - today.weekday())
+                    next_week_start = today + \
+                        timedelta(days=7 - today.weekday())
                     next_week_end = next_week_start + timedelta(days=6)
                     queryset = queryset.filter(
                         date__range=[next_week_start, next_week_end]
@@ -344,7 +350,8 @@ class LessonViewSet(viewsets.ModelViewSet):
             status_filter = self.request.query_params.get("status_filter")
             if status_filter:
                 if status_filter == "active":
-                    queryset = queryset.filter(status__in=["scheduled", "in_progress"])
+                    queryset = queryset.filter(
+                        status__in=["scheduled", "in_progress"])
                 elif status_filter == "completed":
                     queryset = queryset.filter(status="completed")
                 elif status_filter == "cancelled":
@@ -364,7 +371,8 @@ class LessonViewSet(viewsets.ModelViewSet):
 
             stream_filter = self.request.query_params.get("stream_filter")
             if stream_filter:
-                queryset = queryset.filter(classroom__stream__name=stream_filter)
+                queryset = queryset.filter(
+                    classroom__stream__name=stream_filter)
 
         return queryset
 
@@ -376,10 +384,8 @@ class LessonViewSet(viewsets.ModelViewSet):
             return True
         elif role == "section_admin":
             education_levels = additional_info.get("education_levels", [])
-            if hasattr(lesson, "classroom") and hasattr(lesson.classroom, "section"):
-                lesson_education_level = (
-                    lesson.classroom.section.grade_level.education_level
-                )
+            if hasattr(lesson, "classroom") and lesson.classroom and lesson.classroom.section:
+                lesson_education_level = lesson.classroom.section.class_grade.education_level
                 return lesson_education_level in education_levels
             return False
         elif role == "teacher" and lesson.teacher == instance:
@@ -414,7 +420,8 @@ class LessonViewSet(viewsets.ModelViewSet):
         if not self.can_modify_lesson(lesson):
             from rest_framework.exceptions import PermissionDenied
 
-            raise PermissionDenied("You can only modify lessons you have access to")
+            raise PermissionDenied(
+                "You can only modify lessons you have access to")
 
         with transaction.atomic():
             old_status = serializer.instance.status
@@ -429,7 +436,8 @@ class LessonViewSet(viewsets.ModelViewSet):
         if not self.can_modify_lesson(instance):
             from rest_framework.exceptions import PermissionDenied
 
-            raise PermissionDenied("You can only delete lessons you have access to")
+            raise PermissionDenied(
+                "You can only delete lessons you have access to")
 
         try:
             logger.info(
@@ -453,7 +461,8 @@ class LessonViewSet(viewsets.ModelViewSet):
 
         if lesson.start_lesson():
             serializer = self.get_serializer(lesson)
-            logger.info(f"Lesson '{lesson.title}' started by {request.user.username}")
+            logger.info(
+                f"Lesson '{lesson.title}' started by {request.user.username}")
             return Response(
                 {"message": "Lesson started successfully", "lesson": serializer.data}
             )
@@ -475,9 +484,11 @@ class LessonViewSet(viewsets.ModelViewSet):
 
         if lesson.complete_lesson():
             serializer = self.get_serializer(lesson)
-            logger.info(f"Lesson '{lesson.title}' completed by {request.user.username}")
+            logger.info(
+                f"Lesson '{lesson.title}' completed by {request.user.username}")
             return Response(
-                {"message": "Lesson completed successfully", "lesson": serializer.data}
+                {"message": "Lesson completed successfully",
+                    "lesson": serializer.data}
             )
 
         return Response(
@@ -503,7 +514,8 @@ class LessonViewSet(viewsets.ModelViewSet):
 
         lesson.status = "cancelled"
         lesson.save()
-        logger.info(f"Lesson '{lesson.title}' cancelled by {request.user.username}")
+        logger.info(
+            f"Lesson '{lesson.title}' cancelled by {request.user.username}")
         serializer = self.get_serializer(lesson)
         return Response(
             {"message": "Lesson cancelled successfully", "lesson": serializer.data}
@@ -645,8 +657,10 @@ class LessonViewSet(viewsets.ModelViewSet):
             or 0
         )
 
-        lessons_by_type = queryset.values("lesson_type").annotate(count=Count("id"))
-        lessons_by_status = queryset.values("status").annotate(count=Count("id"))
+        lessons_by_type = queryset.values(
+            "lesson_type").annotate(count=Count("id"))
+        lessons_by_status = queryset.values(
+            "status").annotate(count=Count("id"))
 
         today = timezone.now().date()
         week_from_now = today + timedelta(days=7)
@@ -828,7 +842,8 @@ class LessonViewSet(viewsets.ModelViewSet):
         if subject_id:
             assignments = assignments.filter(subject_id=subject_id)
 
-        classrooms = sorted({a.classroom for a in assignments}, key=lambda c: c.name)
+        classrooms = sorted(
+            {a.classroom for a in assignments}, key=lambda c: c.name)
         if not classrooms:
             classrooms = list(Classroom.objects.filter(is_active=True))
 
@@ -879,7 +894,8 @@ class LessonViewSet(viewsets.ModelViewSet):
             report_data = lesson.generate_lesson_report()
             from django.http import JsonResponse
 
-            response = JsonResponse(report_data, json_dumps_params={"indent": 2})
+            response = JsonResponse(
+                report_data, json_dumps_params={"indent": 2})
             response["Content-Disposition"] = (
                 f'attachment; filename="lesson_report_{lesson.id}_{lesson.date}.json"'
             )
@@ -901,7 +917,8 @@ class LessonViewSet(viewsets.ModelViewSet):
             return Response(
                 {
                     "count": getattr(
-                        lesson, "enrolled_students_count", len(enrolled_students)
+                        lesson, "enrolled_students_count", len(
+                            enrolled_students)
                     ),
                     "students": serializer.data,
                 }
@@ -918,7 +935,8 @@ class LessonAttendanceViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     filterset_fields = ["lesson_id", "student_id", "status"]
-    search_fields = ["student__user__first_name", "student__user__last_name", "notes"]
+    search_fields = ["student__user__first_name",
+                     "student__user__last_name", "notes"]
 
     def _get_section_education_levels(self, user):
         """Helper method to get education levels based on user's section/role"""
@@ -948,7 +966,8 @@ class LessonAttendanceViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """Filter attendance records based on user role"""
-        queryset = LessonAttendance.objects.select_related("lesson", "student__user")
+        queryset = LessonAttendance.objects.select_related(
+            "lesson", "student__user")
 
         user = self.request.user
 
@@ -962,7 +981,7 @@ class LessonAttendanceViewSet(viewsets.ModelViewSet):
             if not education_levels:
                 return queryset.none()
             return queryset.filter(
-                lesson__classroom__section__grade_level__education_level__in=education_levels
+                lesson__classroom__section__class_grade__education_level__in=education_levels
             )
 
         # Regular Admin/Staff - see all
@@ -1052,7 +1071,7 @@ class LessonResourceViewSet(viewsets.ModelViewSet):
             if not education_levels:
                 return queryset.none()
             return queryset.filter(
-                lesson__classroom__section__grade_level__education_level__in=education_levels
+                lesson__classroom__section__class_grade__education_level__in=education_levels
             )
 
         # Regular Admin/Staff - see all
@@ -1082,7 +1101,8 @@ class LessonResourceViewSet(viewsets.ModelViewSet):
         # Parent - see resources for their children's classrooms
         try:
             parent = Parent.objects.get(user=user)
-            relationships = StudentParentRelationship.objects.filter(parent=parent)
+            relationships = StudentParentRelationship.objects.filter(
+                parent=parent)
             children = [rel.student for rel in relationships]
             classrooms = []
             for child in children:
@@ -1156,7 +1176,7 @@ class LessonAssessmentViewSet(viewsets.ModelViewSet):
             if not education_levels:
                 return queryset.none()
             return queryset.filter(
-                lesson__classroom__section__grade_level__education_level__in=education_levels
+                lesson__classroom__section__class_grade__education_level__in=education_levels
             )
 
         # Regular Admin/Staff - see all
@@ -1186,7 +1206,8 @@ class LessonAssessmentViewSet(viewsets.ModelViewSet):
         # Parent - see assessments for their children's classrooms
         try:
             parent = Parent.objects.get(user=user)
-            relationships = StudentParentRelationship.objects.filter(parent=parent)
+            relationships = StudentParentRelationship.objects.filter(
+                parent=parent)
             children = [rel.student for rel in relationships]
             classrooms = []
             for child in children:

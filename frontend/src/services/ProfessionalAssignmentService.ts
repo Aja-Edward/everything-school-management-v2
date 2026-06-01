@@ -84,8 +84,8 @@ function toFormData(data: Record<string, unknown>): FormData {
 // ---------------------------------------------------------------------------
 
 class ProfessionalAssignmentService {
-  private baseUrl = '/api/results/professional-assignment';
-  private headTeacherUrl = '/api/results/head-teacher-assignment';
+  private baseUrl = '/results/professional-assignment';
+  private headTeacherUrl = '/results/head-teacher-assignment';
 
   // ── Teacher methods ────────────────────────────────────────────────────────
 
