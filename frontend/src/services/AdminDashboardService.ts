@@ -141,7 +141,7 @@ export interface EnhancedDashboardStats {
 }
 
 // Cache configuration
-const CACHE_TTL = 60000; // 1 minute cache
+const CACHE_TTL = 5 * 60 * 1000;// 5 minute cache
 
 // In-memory cache
 let dashboardCache: {
@@ -506,8 +506,6 @@ export const fetchEnhancedStats = async (forceRefresh = false): Promise<Enhanced
 const fetchEnhancedStatsData = async (): Promise<EnhancedDashboardStats> => {
   try {
     const data = await api.get('/api/dashboard/admin/enhanced-stats/');
-    
-    console.log('✅ Got enhanced stats from API', data);
     return data as EnhancedDashboardStats;
   } catch (error: any) {
     console.error('❌ Failed to fetch enhanced stats:', error);

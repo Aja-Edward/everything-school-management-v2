@@ -74,7 +74,9 @@ export const useAuthLost = () => {
     const checkSession = async () => {
       try {
         const result = await api.checkAuthStatus();
+         console.log('🔍 Session check:', result.authenticated, new Date().toLocaleTimeString());
         if (!result.authenticated) {
+          console.warn('❌ Triggering logout at:', new Date().toLocaleTimeString());
           handleAuthLost('Your session has expired. Please log in again.');
         }
       } catch {
@@ -87,6 +89,8 @@ export const useAuthLost = () => {
     const interval = setInterval(checkSession, 4 * 60 * 1000);
     return () => clearInterval(interval);
   }, [isAuthenticated, handleAuthLost]);
+
+  
 
   return {
     isAuthLost,

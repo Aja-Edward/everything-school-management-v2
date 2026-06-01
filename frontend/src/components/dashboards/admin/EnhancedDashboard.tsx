@@ -112,7 +112,11 @@ const EnhancedDashboard: React.FC<EnhancedDashboardProps> = ({
     };
 
     loadEnhancedStats();
-    const interval = setInterval(loadEnhancedStats, 120000);
+    const interval = setInterval(() => {
+  if (!document.hidden) {
+    loadEnhancedStats();
+  }
+}, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
