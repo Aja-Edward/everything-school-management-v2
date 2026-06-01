@@ -79,7 +79,7 @@ const resolveEducationLevelDisplay = (student: Student): string => {
 const StudentListEnhanced: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const pageSize = 50;
+  const pageSize = 20;
 
   const [students, setStudents] = useState<Student[]>([]);
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
