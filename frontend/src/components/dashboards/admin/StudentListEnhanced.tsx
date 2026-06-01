@@ -78,8 +78,10 @@ const resolveEducationLevelDisplay = (student: Student): string => {
 
 const StudentListEnhanced: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const pageSize = 20;
+  const [totalCount, setTotalCount] = useState(0);
+ 
+  const pageSize = 2;
+  const totalPages = Math.ceil(totalCount /pageSize);
 
   const [students, setStudents] = useState<Student[]>([]);
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
@@ -122,8 +124,7 @@ const StudentListEnhanced: React.FC = () => {
     const studentsArray = response.results ?? [];
     setStudents(studentsArray);
     setFilteredStudents(studentsArray);
-    setTotalPages(Math.ceil((response.count ?? 0) / pageSize));
-
+    setTotalCount(response.count ?? studentsArray.length);
   } catch (err) {
     console.error('Error fetching students:', err);
     setError('Failed to load students. Please try again.');
@@ -266,7 +267,7 @@ const StudentListEnhanced: React.FC = () => {
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Students</h1>
             <p className="text-sm text-gray-500 mt-1">
-              {filteredStudents.length} of {students.length} students
+              {filteredStudents.length} of {totalCount} students
             </p>
           </div>
 
@@ -687,32 +688,78 @@ const StudentListEnhanced: React.FC = () => {
             ))}
           </div>
         )}
-     
-          <div className="flex items-center justify-between mt-6">
-          <button
-            disabled={currentPage === 1}
-            onClick={() => setCurrentPage(p => p - 1)}
-            className="px-3 py-2 border rounded"
-          >
-            Previous
-          </button>
+     {totalPages > 1 && (
+            <div className="flex items-center justify-between bg-white rounded-xl border border-gray-200 px-4 py-3">
+              <p className="text-sm text-gray-500">
+                Showing {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, totalPages)} of {totalCount} students
+              </p>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  «
+                </button>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Prev
+                </button>
 
-          <span>
-            Page {currentPage} of {totalPages}
-          </span>
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((page) =>
+                    page === 1 ||
+                    page === totalPages ||
+                    Math.abs(page - currentPage) <= 1
+                  )
+                  .reduce<(number | string)[]>((acc, page, idx, arr) => {
+                    if (idx > 0 && (page as number) - (arr[idx - 1] as number) > 1) {
+                      acc.push('...');
+                    }
+                    acc.push(page);
+                    return acc;
+                  }, [])
+                  .map((page, idx) =>
+                    page === '...' ? (
+                      <span key={`ellipsis-${idx}`} className="px-2 py-1.5 text-sm text-gray-400">
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page as number)}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                          currentPage === page
+                            ? 'bg-gray-900 text-white'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    )
+                  )}
 
-          <button
-            disabled={currentPage === totalPages}
-            onClick={() => setCurrentPage(p => p + 1)}
-            className="px-3 py-2 border rounded"
-          >
-            Next
-          </button>
-        </div>
-       
-        
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+                <button
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  »
+                </button>
+              </div>
+            </div>
+          )}
       </div>
-
       {/* ---- Empty State ---- */}
       {filteredStudents.length === 0 && !loading && (
         <div className="text-center py-16">
