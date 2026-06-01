@@ -42,6 +42,7 @@ function useDebounce<T>(value: T, delay: number): T {
   return debouncedValue;
 }
 
+
 const EDUCATION_LEVEL_CHOICES: { value: EducationLevelType; label: string }[] = [
   { value: 'NURSERY', label: 'Nursery' },
   { value: 'PRIMARY', label: 'Primary' },
@@ -76,6 +77,10 @@ const resolveEducationLevelDisplay = (student: Student): string => {
 // ============================================================================
 
 const StudentListEnhanced: React.FC = () => {
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const pageSize = 50;
+
   const [students, setStudents] = useState<Student[]>([]);
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -105,26 +110,34 @@ const StudentListEnhanced: React.FC = () => {
   }, []);
 
   const fetchStudents = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await StudentService.getStudents();
-      const studentsArray = Array.isArray(response) ? response : [];
-      setStudents(studentsArray);
-      setFilteredStudents(studentsArray);
-    } catch (err) {
-      console.error('Error fetching students:', err);
-      setError('Failed to load students. Please try again.');
-      setStudents([]);
-      setFilteredStudents([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  try {
+    setLoading(true);
+    setError(null);
+
+    const response = await StudentService.getStudents({
+      page: currentPage,
+      page_size: pageSize,
+    });
+
+    const studentsArray = response.results ?? [];
+    setStudents(studentsArray);
+    setFilteredStudents(studentsArray);
+    setTotalPages(Math.ceil((response.count ?? 0) / pageSize));
+
+  } catch (err) {
+    console.error('Error fetching students:', err);
+    setError('Failed to load students. Please try again.');
+    setStudents([]);
+    setFilteredStudents([]);
+  } finally {
+    setLoading(false);
+  }
+}, [currentPage, pageSize]);
+
 
   useEffect(() => {
-    fetchStudents();
-  }, [fetchStudents]);
+  fetchStudents();
+}, [fetchStudents]);
 
   // ---- Filtering ----
   useEffect(() => {
@@ -674,6 +687,27 @@ const StudentListEnhanced: React.FC = () => {
             ))}
           </div>
         )}
+        <div className="flex items-center justify-between mt-6">
+          <button
+            disabled={currentPage === 1}
+            onClick={() => setCurrentPage(p => p - 1)}
+            className="px-3 py-2 border rounded"
+          >
+            Previous
+          </button>
+
+          <span>
+            Page {currentPage} of {totalPages}
+          </span>
+
+          <button
+            disabled={currentPage === totalPages}
+            onClick={() => setCurrentPage(p => p + 1)}
+            className="px-3 py-2 border rounded"
+          >
+            Next
+          </button>
+        </div>
       </div>
 
       {/* ---- Empty State ---- */}

@@ -38,7 +38,7 @@ const Security: React.FC<SecurityProps> = ({ settings, onSettingsUpdate }) => {
       requireSpecialChars: true,
       passwordExpiry: 90
     },
-    sessionTimeout: 30,
+    sessionTimeout: 240,
     maxLoginAttempts: 5,
     lockoutDuration: 15,
     ipWhitelist: [] as string[],

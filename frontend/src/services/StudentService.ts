@@ -506,19 +506,32 @@ class StudentService {
   // BASIC CRUD
   // --------------------------------------------------------------------------
 
-  async getStudents(params?: StudentFilters): Promise<Student[]> {
-    try {
-      const response = await api.get('/api/students/students/', params);
-      console.log('Fetched students:', response || response.results);
-      return response.results || response;
+  // async getStudents(params?: StudentFilters): Promise<Student[]> {
+  //   try {
+  //     const response = await api.get('/api/students/students/', params);
+  //     console.log('Fetched students:', response || response.results);
+  //     return response.results || response;
       
-    } catch (error) {
-      console.error('Error fetching students:', error);
-      throw error;
-    }
+  //   } catch (error) {
+  //     console.error('Error fetching students:', error);
+  //     throw error;
+  //   }
     
-  }
+  // }
 
+
+  async getStudents(params?: StudentFilters) {
+  try {
+    const response = await api.get('/api/students/students/', params);
+
+    console.log('FULL RESPONSE:', response);
+
+    return response;
+  } catch (error) {
+    console.error('Error fetching students:', error);
+    throw error;
+  }
+}
   async toggleStudentStatus(id: number): Promise<Student> {
   try {
     return await api.patch(`/api/students/students/${id}/toggle-active/`, {});

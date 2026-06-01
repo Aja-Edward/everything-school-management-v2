@@ -1,11 +1,11 @@
 
-import StudentList from '@/components/dashboards/student/StudentList'
+import StudentsComponent  from '@/components/dashboards/student/StudentList'
 
 const Allstudents = () => {
   return (
     <div>
         
-        <StudentList />
+        <StudentsComponent />
     </div>
   )
 }
