@@ -58,6 +58,7 @@ export const AuthLostProvider: React.FC<AuthLostProviderProps> = ({ children }) 
         message={authLostMessage}
         logoUrl={logoUrl}
         schoolName={schoolName}
+       primaryColor={settings?.primaryColor}
       />
     </AuthLostContext.Provider>
   );

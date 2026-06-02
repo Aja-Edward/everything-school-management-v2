@@ -11,6 +11,7 @@ interface AuthLostModalProps {
   message?: string;
   logoUrl?: string;       // ← add these
   schoolName?: string;
+  primaryColor?: string;
 }
 
 const PLATFORM_LOGO = '/nuventa-favicon.png';
@@ -32,6 +33,7 @@ const AuthLostModal: React.FC<AuthLostModalProps> = ({
   message = 'Your session has expired. Please log in again to continue.',
    logoUrl,      // ← use prop
   schoolName,   // ← use prop
+  primaryColor: customPrimaryColor, // ← use prop
 }) => {
   const navigate = useNavigate();
   const { settings: design } = useDesign();
@@ -39,7 +41,10 @@ const AuthLostModal: React.FC<AuthLostModalProps> = ({
 
   const [hovered, setHovered] = useState(false);
 
-  const primaryColor = design?.primary_color || DEFAULT_COLOR;
+  const primaryColor =
+    customPrimaryColor ||
+    design?.primary_color ||  // ← add this field if your tenant object has it
+    DEFAULT_COLOR;
   const hoverColor   = darkenHex(primaryColor, 12);
 
   // Tenant-aware branding — falls back to platform defaults when no tenant

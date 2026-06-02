@@ -1,7 +1,14 @@
 /**
- * Attendance Service
+ * AttendanceService
  *
- * Manages attendance tracking including daily attendance, statistics, and CSV import/export.
+ * All changes from review
+ * ──────────────────────
+ * #2  bulkUpsert       — single POST to /bulk-upsert/ with { created, updated, records }
+ * #3  getStats         — delegates to /stats/ endpoint (server-side aggregation)
+ * #6  bulkCreateWithResults — returns { succeeded, failed } for partial-success handling
+ * #8  date-keyed cache — avoids redundant fetches within the same browser session
+ * #9  pagination guard — warns and auto-pages when page_size cap is hit
+ * #10 downloadPDF      — calls server /export-pdf/ (WeasyPrint) instead of jsPDF
  */
 
 import api from './api';
@@ -10,54 +17,82 @@ import api from './api';
 // TYPE DEFINITIONS
 // ============================================================================
 
-export type AttendanceStatusCode = 'P' | 'A' | 'L' | 'E';
+export type AttendanceStatusCode  = 'P' | 'A' | 'L' | 'E';
 export type AttendanceStatusLabel = 'present' | 'absent' | 'late' | 'excused';
+export type AttendanceSession     = 'morning' | 'afternoon';
 
 export interface AttendanceRecord {
   id: number;
   date: string;
+  session: AttendanceSession;
+  session_display?: string;
   student: number | null;
-  student_name?: string | null;       // ← must exist
+  student_name?: string | null;
   teacher: number | null;
-  teacher_name?: string | null;       // ← must exist
+  teacher_name?: string | null;
   section: number | null;
-  section_name?: string | null;       // ← ADD THIS — was missing
+  section_name?: string | null;
   status: AttendanceStatusCode;
-  status_display?: string;
-  time_in?: string | null;            // ← must exist
-  time_out?: string | null;           // ← must exist
+  time_in?: string | null;
+  time_out?: string | null;
+  marked_late?: boolean;
+  back_fill_reason?: string;
+  created_at?: string;
+  updated_at?: string;
   student_stream?: number | null;
-  student_stream_name?: string | null; // ← must exist
+  student_stream_name?: string | null;
   student_stream_type?: string | null;
   student_education_level?: string | null;
   student_education_level_display?: string | null;
   student_class_display?: string | null;
-  created_at?: string;
-  updated_at?: string;
 }
 
 export interface CreateAttendanceData {
   date: string;
+  session?: AttendanceSession;
   student: number;
   teacher?: number | null;
   section: number;
   status: AttendanceStatusCode;
-  time_in?: string;
-  time_out?: string;
+  time_in?: string | null;
+  time_out?: string | null;
+  back_fill_reason?: string;
 }
 
 export type UpdateAttendanceData = Partial<CreateAttendanceData>;
+
+export interface BulkUpsertItem {
+  student: number;
+  section: number;
+  date: string;
+  session?: AttendanceSession;
+  status: AttendanceStatusCode;
+  teacher?: number | null;
+  time_in?: string | null;
+  time_out?: string | null;
+  back_fill_reason?: string;
+}
+
+export interface BulkUpsertResponse {
+  created: number;
+  updated: number;
+  records: AttendanceRecord[];
+}
+
+/** Returned by bulkCreateWithResults — FIX #6 */
+export interface BulkOperationResult {
+  succeeded: AttendanceRecord[];
+  failed: Array<{ item: CreateAttendanceData; error: string }>;
+}
 
 export interface AttendanceFilters {
   date?: string;
   start_date?: string;
   end_date?: string;
-  date__gte?: string;
-  date__lte?: string;
   student?: number;
   teacher?: number;
-  limit?: number;
   section?: number;
+  session?: AttendanceSession;
   status?: AttendanceStatusCode;
   search?: string;
   ordering?: string;
@@ -65,6 +100,7 @@ export interface AttendanceFilters {
   page_size?: number;
 }
 
+/** Shape returned by the /stats/ endpoint — FIX #3 */
 export interface AttendanceStatistics {
   total_records: number;
   present_count: number;
@@ -72,16 +108,12 @@ export interface AttendanceStatistics {
   late_count: number;
   excused_count: number;
   attendance_rate: number;
-  by_date?: Record<string, number>;
-  by_student?: Record<number, {
-    present: number;
-    absent: number;
-    late: number;
-    excused: number;
-  }>;
+  session_breakdown: {
+    morning:   Record<AttendanceStatusCode, number>;
+    afternoon: Record<AttendanceStatusCode, number>;
+  };
 }
 
-// ── Paginated response shape from DRF ────────────────────────────────────────
 interface PaginatedResponse<T> {
   count: number;
   next: string | null;
@@ -89,11 +121,12 @@ interface PaginatedResponse<T> {
   results: T[];
 }
 
-// ── Strongly-typed status maps ────────────────────────────────────────────────
+// ── Status maps ───────────────────────────────────────────────────────────────
+
 export const AttendanceStatusMap: Record<AttendanceStatusLabel, AttendanceStatusCode> = {
   present: 'P',
-  absent: 'A',
-  late: 'L',
+  absent:  'A',
+  late:    'L',
   excused: 'E',
 };
 
@@ -104,34 +137,18 @@ export const AttendanceCodeToStatusMap: Record<AttendanceStatusCode, AttendanceS
   E: 'excused',
 };
 
-/** Safely convert a raw backend code string to a typed status label. */
 export function toStatusLabel(code: string): AttendanceStatusLabel {
   return AttendanceCodeToStatusMap[code as AttendanceStatusCode] ?? 'absent';
 }
 
-/** Safely convert a label string to a typed status code. */
 export function toStatusCode(label: string): AttendanceStatusCode {
   return AttendanceStatusMap[label as AttendanceStatusLabel] ?? 'A';
-}
-
-// ── Lesson-attendance backend shape (used by LessonAttendanceDashboard) ───────
-export interface AttendanceRecordBackend {
-  id: number;
-  date: string;
-  student: number | null;
-  teacher: number | null;
-  section: number | null;
-  /** Raw backend code — intentionally `string` to handle unknown values gracefully */
-  status: string;
-  time_in?: string | null;
-  time_out?: string | null;
 }
 
 // ============================================================================
 // HELPERS
 // ============================================================================
 
-/** Build a URLSearchParams string from a filter object, omitting null/undefined. */
 function buildQuery(params?: Record<string, unknown>): string {
   if (!params) return '';
   const qs = new URLSearchParams();
@@ -142,26 +159,66 @@ function buildQuery(params?: Record<string, unknown>): string {
   return str ? `?${str}` : '';
 }
 
-/** Download a Blob as a named file. */
 function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
+  const a   = document.createElement('a');
   a.href = url;
   a.download = filename;
   a.style.display = 'none';
   document.body.appendChild(a);
   a.click();
-  setTimeout(() => {
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, 100);
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
 }
 
-/** Unwrap DRF paginated or plain-array responses. */
 function unwrapList<T>(response: PaginatedResponse<T> | T[]): T[] {
   if (Array.isArray(response)) return response;
   return response.results ?? [];
 }
+
+// ============================================================================
+// DATE-KEYED SESSION CACHE — FIX #8
+// ============================================================================
+
+/**
+ * In-memory cache keyed by `${sectionId}|${date}|${session}`.
+ * Avoids re-fetching when the teacher switches dates back and forth
+ * within the same browser session. Cleared on explicit refresh or
+ * when the component unmounts via invalidate().
+ */
+
+type CacheKey = string;
+
+class AttendanceCache {
+  private store = new Map<CacheKey, { data: AttendanceRecord[]; ts: number }>();
+  private TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+  key(sectionId: number, date: string, session?: AttendanceSession): CacheKey {
+    return `${sectionId}|${date}|${session ?? 'all'}`;
+  }
+
+  get(k: CacheKey): AttendanceRecord[] | null {
+    const entry = this.store.get(k);
+    if (!entry) return null;
+    if (Date.now() - entry.ts > this.TTL_MS) { this.store.delete(k); return null; }
+    return entry.data;
+  }
+
+  set(k: CacheKey, data: AttendanceRecord[]): void {
+    this.store.set(k, { data, ts: Date.now() });
+  }
+
+  invalidate(k: CacheKey): void { this.store.delete(k); }
+
+  invalidateSection(sectionId: number): void {
+    for (const key of this.store.keys()) {
+      if (key.startsWith(`${sectionId}|`)) this.store.delete(key);
+    }
+  }
+
+  clear(): void { this.store.clear(); }
+}
+
+export const attendanceCache = new AttendanceCache();
 
 // ============================================================================
 // ATTENDANCE SERVICE
@@ -171,207 +228,234 @@ class AttendanceService {
 
   // ── CRUD ───────────────────────────────────────────────────────────────────
 
-  /** Fetch all attendance records, unwrapping pagination automatically. */
   async getAttendanceRecords(params?: AttendanceFilters): Promise<AttendanceRecord[]> {
-    try {
-      console.log('🔍 AttendanceService: Fetching records with params:', params);
-      const response = await api.get('/api/attendance/attendance/', params);
-      const records = unwrapList<AttendanceRecord>(response);
-      console.log(`✅ AttendanceService: ${records.length} records fetched`);
-      return records;
-    } catch (error) {
-      console.error('❌ AttendanceService: Error fetching records:', error);
-      throw error;
-    }
+    const response = await api.get('/api/attendance/attendance/', params);
+    return unwrapList<AttendanceRecord>(response);
   }
 
-  /** Fetch a single attendance record by ID. */
+  /**
+   * Fetch all pages when a result set might exceed page_size. — FIX #9
+   * Use this for student year-view and any unbounded queries.
+   */
+  async getAllAttendanceRecords(params?: AttendanceFilters): Promise<AttendanceRecord[]> {
+    const PAGE_SIZE = 500;
+    const firstPage = await api.get('/api/attendance/attendance/', {
+      ...params,
+      page_size: PAGE_SIZE,
+      page: 1,
+    }) as PaginatedResponse<AttendanceRecord>;
+
+    if (Array.isArray(firstPage)) return firstPage;
+
+    const results = [...firstPage.results];
+    const totalPages = Math.ceil(firstPage.count / PAGE_SIZE);
+
+    if (totalPages > 1) {
+      const rest = await Promise.all(
+        Array.from({ length: totalPages - 1 }, (_, i) =>
+          api.get('/api/attendance/attendance/', {
+            ...params,
+            page_size: PAGE_SIZE,
+            page: i + 2,
+          }) as Promise<PaginatedResponse<AttendanceRecord>>
+        )
+      );
+      rest.forEach(p => results.push(...(p.results ?? [])));
+    }
+
+    if (totalPages > 5) {
+      console.warn(
+        `[AttendanceService] Fetched ${results.length} records across ${totalPages} pages. ` +
+        'Consider adding tighter date filters to reduce response size.'
+      );
+    }
+
+    return results;
+  }
+
   async getAttendanceRecord(id: number): Promise<AttendanceRecord> {
-    try {
-      return await api.get(`/api/attendance/attendance/${id}/`);
-    } catch (error) {
-      console.error(`❌ AttendanceService: Error fetching record ${id}:`, error);
-      throw error;
-    }
+    return api.get(`/api/attendance/attendance/${id}/`);
   }
 
-  /** Create a new attendance record. */
   async createAttendanceRecord(data: CreateAttendanceData): Promise<AttendanceRecord> {
-    try {
-      return await api.post('/api/attendance/attendance/', data);
-    } catch (error) {
-      console.error('❌ AttendanceService: Error creating record:', error);
-      throw error;
-    }
+    return api.post('/api/attendance/attendance/', data);
   }
 
-  /** Partially update an attendance record. */
   async updateAttendanceRecord(id: number, data: UpdateAttendanceData): Promise<AttendanceRecord> {
-    try {
-      return await api.patch(`/api/attendance/attendance/${id}/`, data);
-    } catch (error) {
-      console.error(`❌ AttendanceService: Error updating record ${id}:`, error);
-      throw error;
-    }
+    return api.patch(`/api/attendance/attendance/${id}/`, data);
   }
 
-  /** Delete an attendance record. */
   async deleteAttendanceRecord(id: number): Promise<void> {
-    try {
-      await api.delete(`/api/attendance/attendance/${id}/`);
-    } catch (error) {
-      console.error(`❌ AttendanceService: Error deleting record ${id}:`, error);
-      throw error;
-    }
+    await api.delete(`/api/attendance/attendance/${id}/`);
   }
 
-  // ── BULK OPERATIONS ────────────────────────────────────────────────────────
+  // ── FIX #2 — Bulk upsert ──────────────────────────────────────────────────
 
-  /** Create multiple records in parallel. */
-  async bulkCreateAttendance(records: CreateAttendanceData[]): Promise<AttendanceRecord[]> {
-    try {
-      return await Promise.all(records.map(r => this.createAttendanceRecord(r)));
-    } catch (error) {
-      console.error('❌ AttendanceService: Error bulk creating records:', error);
-      throw error;
-    }
+  /**
+   * Send up to 500 records in a single atomic request.
+   * The backend will create or update each record based on
+   * (tenant, student, section, date, session).
+   *
+   * Also invalidates the cache for the affected sections.
+   */
+  async bulkUpsert(records: BulkUpsertItem[]): Promise<BulkUpsertResponse> {
+    const response = await api.post('/api/attendance/attendance/bulk-upsert/', { records });
+
+    // Invalidate cache for every section touched by this upsert
+    const sectionIds = new Set(records.map(r => r.section));
+    sectionIds.forEach(id => attendanceCache.invalidateSection(id));
+
+    return response as BulkUpsertResponse;
   }
 
-  /** Update multiple records in parallel. */
-  async bulkUpdateAttendance(
-    updates: Array<{ id: number; data: UpdateAttendanceData }>
+  // ── FIX #6 — Partial success bulk create ─────────────────────────────────
+
+  /**
+   * Fire individual creates concurrently; collect successes and failures
+   * instead of aborting on first error.
+   *
+   * Use bulkUpsert() for the common teacher flow (it is atomic and faster).
+   * Use this only when you genuinely need per-record error detail and
+   * don't need atomicity.
+   */
+  async bulkCreateWithResults(records: CreateAttendanceData[]): Promise<BulkOperationResult> {
+    const settled = await Promise.allSettled(
+      records.map(r => this.createAttendanceRecord(r))
+    );
+
+    const result: BulkOperationResult = { succeeded: [], failed: [] };
+
+    settled.forEach((outcome, i) => {
+      if (outcome.status === 'fulfilled') {
+        result.succeeded.push(outcome.value);
+      } else {
+        result.failed.push({
+          item:  records[i],
+          error: outcome.reason?.message ?? String(outcome.reason),
+        });
+      }
+    });
+
+    return result;
+  }
+
+  // ── FIX #3 — Server-side statistics ──────────────────────────────────────
+
+  /**
+   * Fetch pre-aggregated statistics from the backend.
+   * Supports all the same filter params as getAttendanceRecords.
+   * No client-side counting; a single DB query does the work.
+   */
+  async getStats(params?: AttendanceFilters): Promise<AttendanceStatistics> {
+    return api.get('/api/attendance/attendance/stats/', params);
+  }
+
+  // ── Cached section+date fetch — FIX #8 ───────────────────────────────────
+
+  /**
+   * Fetch attendance for a section on a date, with 5-minute in-memory cache.
+   * Designed for the teacher attendance-marking view.
+   *
+   * Pass forceRefresh=true to bypass the cache (e.g. after a save).
+   */
+  async getSectionDateAttendance(
+    sectionId: number,
+    date: string,
+    session?: AttendanceSession,
+    forceRefresh = false,
   ): Promise<AttendanceRecord[]> {
-    try {
-      return await Promise.all(updates.map(({ id, data }) => this.updateAttendanceRecord(id, data)));
-    } catch (error) {
-      console.error('❌ AttendanceService: Error bulk updating records:', error);
-      throw error;
+    const key = attendanceCache.key(sectionId, date, session);
+
+    if (!forceRefresh) {
+      const cached = attendanceCache.get(key);
+      if (cached) return cached;
     }
+
+    const params: AttendanceFilters = { section: sectionId, date };
+    if (session) params.session = session;
+
+    const records = await this.getAttendanceRecords(params);
+    attendanceCache.set(key, records);
+    return records;
   }
 
-  // ── FILTERED QUERIES ───────────────────────────────────────────────────────
+  // ── Filtered helpers ───────────────────────────────────────────────────────
 
-  async getStudentAttendance(studentId: number, params?: AttendanceFilters): Promise<AttendanceRecord[]> {
-    return this.getAttendanceRecords({ ...params, student: studentId });
+  async getStudentAttendance(studentId: number, params?: AttendanceFilters) {
+    return this.getAllAttendanceRecords({ ...params, student: studentId });
   }
 
-  async getAttendanceByDate(date: string, params?: AttendanceFilters): Promise<AttendanceRecord[]> {
+  async getAttendanceByDate(date: string, params?: AttendanceFilters) {
     return this.getAttendanceRecords({ ...params, date });
   }
 
-  async getAttendanceByDateRange(
-    startDate: string,
-    endDate: string,
-    params?: AttendanceFilters
-  ): Promise<AttendanceRecord[]> {
-    return this.getAttendanceRecords({ ...params, start_date: startDate, end_date: endDate });
+  async getAttendanceByDateRange(start: string, end: string, params?: AttendanceFilters) {
+    return this.getAllAttendanceRecords({ ...params, start_date: start, end_date: end });
   }
 
-  async getSectionAttendance(sectionId: number, params?: AttendanceFilters): Promise<AttendanceRecord[]> {
+  async getSectionAttendance(sectionId: number, params?: AttendanceFilters) {
     return this.getAttendanceRecords({ ...params, section: sectionId });
   }
 
-  async getTeacherAttendance(teacherId: number, params?: AttendanceFilters): Promise<AttendanceRecord[]> {
-    return this.getAttendanceRecords({ ...params, teacher: teacherId });
-  }
-
-  async getAttendanceByStatus(
-    status: AttendanceStatusCode,
-    params?: AttendanceFilters
-  ): Promise<AttendanceRecord[]> {
-    return this.getAttendanceRecords({ ...params, status });
-  }
-
-  // ── IMPORT / EXPORT ────────────────────────────────────────────────────────
+  // ── Import ────────────────────────────────────────────────────────────────
 
   /**
-   * Import attendance records from a CSV file.
-   * Expected CSV columns: student, teacher, section, date, status
+   * Upload a CSV file for server-side import.
+   *
+   * @param partial  When true, valid rows are imported even if some rows fail.
+   *                 The response includes { imported, skipped, errors }.
    */
-  async importFromCSV(file: File): Promise<{ message: string }> {
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
+  async importFromCSV(
+    file: File,
+    partial = false,
+  ): Promise<{ message: string; imported: number; skipped: number; errors: unknown[] }> {
+    const formData = new FormData();
+    formData.append('file', file);
 
-      const response = await fetch('/api/attendance/attendance/import-csv/', {
-        method: 'POST',
-        body: formData,
-        credentials: 'include',
-      });
+    const url = `/api/attendance/attendance/import-csv/${partial ? '?partial=true' : ''}`;
+    const response = await fetch(url, {
+      method:      'POST',
+      body:        formData,
+      credentials: 'include',
+    });
 
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({ detail: 'Import failed' }));
-        throw new Error(err.error ?? err.detail ?? `HTTP ${response.status}`);
-      }
-
-      return response.json();
-    } catch (error) {
-      console.error('❌ AttendanceService: Error importing CSV:', error);
-      throw error;
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ detail: 'Import failed' }));
+      throw new Error(err.error ?? err.detail ?? `HTTP ${response.status}`);
     }
+
+    return response.json();
   }
 
-  /**
-   * Fetch attendance records as a CSV Blob from the backend export endpoint.
-   */
+  // ── Export ────────────────────────────────────────────────────────────────
+
   async exportToCSV(params?: AttendanceFilters): Promise<Blob> {
-    try {
-      const url = `/api/attendance/attendance/export-csv/${buildQuery(params as Record<string, unknown>)}`;
-      const response = await fetch(url, { method: 'GET', credentials: 'include' });
-
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return response.blob();
-    } catch (error) {
-      console.error('❌ AttendanceService: Error exporting CSV:', error);
-      throw error;
-    }
+    const url = `/api/attendance/attendance/export-csv/${buildQuery(params as Record<string, unknown>)}`;
+    const response = await fetch(url, { method: 'GET', credentials: 'include' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.blob();
   }
 
-  /** Fetch and immediately download the CSV export. */
-  async downloadCSV(
-    params?: AttendanceFilters,
-    filename = 'attendance.csv'
-  ): Promise<void> {
+  async downloadCSV(params?: AttendanceFilters, filename = 'attendance.csv'): Promise<void> {
     const blob = await this.exportToCSV(params);
     downloadBlob(blob, filename);
   }
 
-  // ── STATISTICS ─────────────────────────────────────────────────────────────
-
   /**
-   * Calculate attendance statistics client-side.
-   * For large datasets, prefer a dedicated backend endpoint.
+   * FIX #10 — Download a WeasyPrint PDF from the backend.
+   * The server renders the full report template; no client-side PDF generation.
    */
-  async calculateStatistics(params?: AttendanceFilters): Promise<AttendanceStatistics> {
-    try {
-      const records = await this.getAttendanceRecords(params);
+  async downloadPDF(params?: AttendanceFilters, filename = 'attendance_report.pdf'): Promise<void> {
+    const url = `/api/attendance/attendance/export-pdf/${buildQuery(params as Record<string, unknown>)}`;
+    const response = await fetch(url, { method: 'GET', credentials: 'include' });
 
-      const stats: AttendanceStatistics = {
-        total_records: records.length,
-        present_count: 0,
-        absent_count: 0,
-        late_count: 0,
-        excused_count: 0,
-        attendance_rate: 0,
-      };
-
-      for (const record of records) {
-        if (record.status === 'P') stats.present_count++;
-        else if (record.status === 'A') stats.absent_count++;
-        else if (record.status === 'L') stats.late_count++;
-        else if (record.status === 'E') stats.excused_count++;
-      }
-
-      if (stats.total_records > 0) {
-        stats.attendance_rate =
-          ((stats.present_count + stats.late_count + stats.excused_count) / stats.total_records) * 100;
-      }
-
-      return stats;
-    } catch (error) {
-      console.error('❌ AttendanceService: Error calculating statistics:', error);
-      throw error;
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'PDF export failed' }));
+      throw new Error(err.error ?? `HTTP ${response.status}`);
     }
+
+    const blob = await response.blob();
+    downloadBlob(blob, filename);
   }
 }
 
@@ -382,59 +466,15 @@ class AttendanceService {
 export const attendanceService = new AttendanceService();
 export default attendanceService;
 
-// ── Lesson-attendance helpers (used by LessonAttendanceDashboard) ─────────────
+// ── Named helpers (for clean imports in components) ───────────────────────────
 
-export async function getLessonAttendance(params?: { date?: string }) {
-  return attendanceService.getAttendanceRecords(params);
-}
-
-export async function addLessonAttendance(
-  data: Pick<CreateAttendanceData, 'status' | 'date'>
-): Promise<AttendanceRecord> {
-  // student & section are required by the backend; callers must pass them via a full CreateAttendanceData.
-  // This shim preserves the existing call-sites — extend as needed.
-  return attendanceService.createAttendanceRecord(data as CreateAttendanceData);
-}
-
-export async function updateLessonAttendance(
-  id: number,
-  data: UpdateAttendanceData
-): Promise<AttendanceRecord> {
-  return attendanceService.updateAttendanceRecord(id, data);
-}
-
-export async function deleteLessonAttendance(id: number): Promise<void> {
-  return attendanceService.deleteAttendanceRecord(id);
-}
-
-// ── Legacy named exports (deprecated — use attendanceService.* instead) ────────
-
-/** @deprecated Use attendanceService.getAttendanceRecords() */
-export async function getAttendance(params?: AttendanceFilters) {
-  return attendanceService.getAttendanceRecords(params);
-}
-
-/** @deprecated Use attendanceService.createAttendanceRecord() */
-export async function addAttendance(data: CreateAttendanceData) {
-  return attendanceService.createAttendanceRecord(data);
-}
-
-/** @deprecated Use attendanceService.updateAttendanceRecord() */
-export async function updateAttendance(id: number, data: UpdateAttendanceData) {
-  return attendanceService.updateAttendanceRecord(id, data);
-}
-
-/** @deprecated Use attendanceService.deleteAttendanceRecord() */
-export async function deleteAttendance(id: number) {
-  return attendanceService.deleteAttendanceRecord(id);
-}
-
-/** @deprecated Use attendanceService.importFromCSV() */
-export async function importAttendanceFromCSV(file: File) {
-  return attendanceService.importFromCSV(file);
-}
-
-/** @deprecated Use attendanceService.exportToCSV() */
-export async function exportAttendanceToCSV(params?: AttendanceFilters) {
-  return attendanceService.exportToCSV(params);
-}
+export const getAttendance         = (p?: AttendanceFilters)           => attendanceService.getAttendanceRecords(p);
+export const getAllAttendance      = (p?: AttendanceFilters)           => attendanceService.getAllAttendanceRecords(p);
+export const addAttendance         = (d: CreateAttendanceData)         => attendanceService.createAttendanceRecord(d);
+export const updateAttendance      = (id: number, d: UpdateAttendanceData) => attendanceService.updateAttendanceRecord(id, d);
+export const deleteAttendance      = (id: number)                      => attendanceService.deleteAttendanceRecord(id);
+export const bulkUpsertAttendance  = (r: BulkUpsertItem[])             => attendanceService.bulkUpsert(r);
+export const getAttendanceStats    = (p?: AttendanceFilters)           => attendanceService.getStats(p);
+export const getSectionDateAttendance = (
+  sId: number, date: string, session?: AttendanceSession, force?: boolean
+) => attendanceService.getSectionDateAttendance(sId, date, session, force);
