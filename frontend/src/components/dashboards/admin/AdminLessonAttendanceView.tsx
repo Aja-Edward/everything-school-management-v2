@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Search, Plus, Edit, Trash2, Users, Calendar, Download, Eye, FileText, FileSpreadsheet, File } from 'lucide-react';
 import {
-  getLessonAttendance,
-  addLessonAttendance,
-  updateLessonAttendance,
-  deleteLessonAttendance,
+
   AttendanceStatusMap,
   AttendanceRecord,
   AttendanceCodeToStatusMap,
 } from '@/services/AttendanceService';
+import {
+    getLessonAttendance,
+  addLessonAttendance,
+  updateLessonAttendance,
+  deleteLessonAttendance,
+} from '@/services/LessonService'
 
 interface LessonAttendanceRecord {
   id: number;
@@ -337,24 +340,24 @@ const LessonAttendanceDashboard = () => {
   };
 
   const handleSave = async (formData: Omit<LessonAttendanceRecord, 'id' | 'date'> & { date?: string }) => {
-    setLoading(true); setError(null);
-    try {
-      if (editingRecord) {
-        await updateLessonAttendance(editingRecord.id, {
-          status: AttendanceStatusMap[formData.status as keyof typeof AttendanceStatusMap],
-        });
-        setAttendanceRecords(prev => prev.map(r => r.id === editingRecord.id ? { ...r, ...formData } : r));
-      } else {
-        const newRec = await addLessonAttendance({
-          status: AttendanceStatusMap[formData.status as keyof typeof AttendanceStatusMap],
-          date: filters.date,
-        });
-        setAttendanceRecords(prev => [...prev, { ...formData, id: newRec.id, date: filters.date } as LessonAttendanceRecord]);
-      }
-      setShowModal(false);
-    } catch { setError('Failed to save record'); }
-    finally { setLoading(false); }
-  };
+  setLoading(true); setError(null);
+  try {
+    if (editingRecord) {
+      await updateLessonAttendance(editingRecord.id, {
+        status: formData.status,  // ← pass directly, no mapping needed
+      });
+      setAttendanceRecords(prev => prev.map(r => r.id === editingRecord.id ? { ...r, ...formData } : r));
+    } else {
+      const newRec = await addLessonAttendance({
+        status: formData.status,  // ← same here
+        date: filters.date,
+      });
+      setAttendanceRecords(prev => [...prev, { ...formData, id: newRec.id, date: filters.date } as LessonAttendanceRecord]);
+    }
+    setShowModal(false);
+  } catch { setError('Failed to save record'); }
+  finally { setLoading(false); }
+};
 
   const getStatusColor = (status: string) => ({
     present: 'bg-green-100 text-green-800',

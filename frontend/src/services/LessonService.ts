@@ -78,6 +78,40 @@ export interface Lesson {
   classroom_stream_type?: string;
 }
 
+
+// AttendanceRecord type (what the API returns)
+export interface AttendanceRecord {
+  id: number;
+  student: number | null;
+  teacher: number | null;
+  student_name?: string;
+  teacher_name?: string;
+  student_education_level_display?: string;
+  student_class_display?: string;
+  section_name?: string;
+  student_stream_name?: string;
+  date: string;
+  status: string;
+  time_in?: string;
+  time_out?: string;
+}
+
+// Maps between display status and API code
+export const AttendanceStatusMap = {
+  present: 'P',
+  absent: 'A',
+  late: 'L',
+  excused: 'E',
+  sick: 'S',
+} as const;
+
+export const AttendanceCodeToStatusMap = {
+  P: 'present',
+  A: 'absent',
+  L: 'late',
+  E: 'excused',
+  S: 'sick',
+} as const;
 export interface LessonCreateData {
   title: string;
   description?: string;
@@ -555,6 +589,7 @@ export interface LessonAttendanceRecordBackend {
   status: 'present' | 'absent' | 'late' | 'excused' | 'sick';
   arrival_time: string | null;
   notes: string;
+  date: string;
 }
 
 export async function getLessonAttendance(params?: Record<string, any>) {
