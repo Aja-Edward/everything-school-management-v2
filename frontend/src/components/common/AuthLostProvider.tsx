@@ -25,6 +25,7 @@ interface AuthLostProviderProps {
 }
 
 export const AuthLostProvider: React.FC<AuthLostProviderProps> = ({ children }) => {
+
   const { isAuthLost, authLostMessage, showAuthLost, hideAuthLost, handleAuthLost } = useAuthLost();
 
   const { settings } = useSettings();

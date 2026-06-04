@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogIn, X, Clock } from 'lucide-react';
-import { useDesign } from '@/contexts/DesignContext';
 import { useTenant } from '@/contexts/TenantContext';
 
 
@@ -36,15 +35,13 @@ const AuthLostModal: React.FC<AuthLostModalProps> = ({
   primaryColor: customPrimaryColor, // ← use prop
 }) => {
   const navigate = useNavigate();
-  const { settings: design } = useDesign();
+
   const { tenant } = useTenant();
 
   const [hovered, setHovered] = useState(false);
 
   const primaryColor =
-    customPrimaryColor ||
-    design?.primary_color ||  // ← add this field if your tenant object has it
-    DEFAULT_COLOR;
+    customPrimaryColor || DEFAULT_COLOR;
   const hoverColor   = darkenHex(primaryColor, 12);
 
   // Tenant-aware branding — falls back to platform defaults when no tenant
