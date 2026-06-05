@@ -83,6 +83,7 @@ const ClassroomManagement: React.FC<ClassroomManagementProps> = () => {
   deleteTeacherAssignment,
   loadSections,
   loadClassrooms, 
+  loadTeachers,
   loadTerms,
 } = useClassroom();
   
@@ -651,6 +652,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                             onClick={() => {
                               setSelectedClassroom(classroom);
                               resetAssignmentForm();
+                              loadTeachers();
                               setShowAssignTeacherModal(true);
                             }}
                             className="p-2 bg-green-50 hover:bg-green-100 text-green-700 rounded-lg transition-colors"

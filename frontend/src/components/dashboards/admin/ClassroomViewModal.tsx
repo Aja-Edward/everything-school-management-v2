@@ -10,6 +10,7 @@ import { Classroom, Teacher } from '@/types/classroomtypes';
 import { useStudentEnrollment, useClassroomList, useClassroom } from '@/contexts/ClassroomContext';
 import TimetableTab from './TimeTable';
 import academicSettingsService, { type TeachingModelSettings } from '@/services/AcademicSettingsService';
+import { toast } from 'react-hot-toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -81,6 +82,8 @@ const ClassroomViewModal: React.FC<ClassroomViewModalProps> = ({
 
   // ── Form Teacher state ─────────────────────────────────────────────────────
   const [isEditingFormTeacher, setIsEditingFormTeacher] = useState(false);
+  const [teacherSearch, setTeacherSearch] = useState('');
+  const [teacherDropdownOpen, setTeacherDropdownOpen] = useState(false);
   const [selectedTeacherId, setSelectedTeacherId] = useState<number | ''>('');
   const [savingFormTeacher, setSavingFormTeacher] = useState(false);
   const [formTeacherSaveStatus, setFormTeacherSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -140,7 +143,7 @@ const ClassroomViewModal: React.FC<ClassroomViewModalProps> = ({
       setSelectedCoTeacherId('');
       fetchStudents();
     }
-  }, [isOpen, classroom?.id]);
+  }, [isOpen, classroom?.id, fetchStudents]);
 
   // ── Transfer handler ───────────────────────────────────────────────────────
   const handleTransfer = async () => {
@@ -199,30 +202,38 @@ const ClassroomViewModal: React.FC<ClassroomViewModalProps> = ({
     }
   };
 
+const filteredTeachers = teachers
+  .filter(t => t.is_active)
+  .filter(t => {
+    if (!teacherSearch.trim()) return true;
+    const q = teacherSearch.toLowerCase();
+    const name = (t.full_name || `${t.first_name} ${t.last_name}`).toLowerCase();
+    return name.includes(q) || t.employee_id?.toLowerCase().includes(q);
+  });
+
   const handleRemoveCoTeacher = async (teacherId: number) => {
     if (!classroom) return;
     await removeCoTeacher(classroom.id, { teacher_id: teacherId });
   };
 
   const handlePromoteToFormTeacher = async (coTeacherId: number) => {
-    if (!classroom) return;
-    setPromotingTeacherId(coTeacherId);
-    try {
-      const oldFormTeacherId = classroom.class_teacher;
-      await updateClassroom(classroom.id, { class_teacher: coTeacherId });
-      // Move old form teacher to co-teachers if there was one
-      if (oldFormTeacherId && oldFormTeacherId !== coTeacherId) {
-        await addCoTeacher(classroom.id, { teacher_id: oldFormTeacherId });
-      }
-      // Remove new form teacher from co-teachers list
-      await removeCoTeacher(classroom.id, { teacher_id: coTeacherId });
-    } finally {
-      setPromotingTeacherId(null);
+  if (!classroom) return;
+  setPromotingTeacherId(coTeacherId);
+  try {
+    const oldFormTeacherId = classroom.class_teacher;
+    await updateClassroom(classroom.id, { class_teacher: coTeacherId });
+    if (oldFormTeacherId && oldFormTeacherId !== coTeacherId) {
+      await addCoTeacher(classroom.id, { teacher_id: oldFormTeacherId });
     }
-  };
+    await removeCoTeacher(classroom.id, { teacher_id: coTeacherId });
+  } catch (err: any) {
+    toast.error(err?.message || 'Failed to promote teacher');
+  } finally {
+    setPromotingTeacherId(null); // ← was already here but no catch, so errors left spinner stuck
+  }
+};
 
   if (!isOpen || !classroom) return null;
-    console.log('education_level raw value:', JSON.stringify(classroom.education_level));
   const filteredStudents = students.filter(s =>
     s.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     s.registration_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -997,6 +1008,8 @@ const previewTeacher = selectedTeacherId !== ''
                           setIsEditingFormTeacher(true);
                           setSelectedTeacherId(classroom.class_teacher ?? '');
                           setFormTeacherSaveStatus('idle');
+                          setTeacherSearch('');          
+                          setTeacherDropdownOpen(false); 
                         }}
                         className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider uppercase text-gray-500 hover:text-gray-900 transition-colors"
                       >
@@ -1161,29 +1174,104 @@ const previewTeacher = selectedTeacherId !== ''
                         <label className="block text-xs font-bold text-gray-500 mb-2 tracking-wide uppercase">
                           Select Teacher
                         </label>
-                        <div className="relative">
-                          <select
-                            value={selectedTeacherId}
-                            onChange={e => setSelectedTeacherId(e.target.value === '' ? '' : Number(e.target.value))}
-                            className="w-full appearance-none px-4 py-3 pr-10 rounded-xl border border-gray-200 text-sm text-gray-700 bg-white outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-900/5 cursor-pointer transition-all"
-                          >
-                            <option value="">— Remove / Unassign —</option>
-                            {teachers
-                              .filter(t => t.is_active)
-                              .map(t => (
-                                <option key={t.id} value={t.id}>
-                                  {t.full_name || `${t.first_name} ${t.last_name}`} · {t.employee_id}
-                                  {t.id === classroom.class_teacher ? ' (current)' : ''}
-                                </option>
-                              ))
-                            }
-                          </select>
-                          <ChevronDown size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+
+                        {/* Search input */}
+                        <div className="relative mb-2">
+                          <Search size={13} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" />
+                          <input
+                            type="text"
+                            placeholder="Search by name or ID…"
+                            value={teacherSearch}
+                            onChange={e => {
+                              setTeacherSearch(e.target.value);
+                              setTeacherDropdownOpen(true);
+                            }}
+                            onFocus={() => setTeacherDropdownOpen(true)}
+                            className="w-full pl-9 pr-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-700 bg-white outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-900/5 transition-all"
+                          />
+                          {teacherSearch && (
+                            <button
+                              onClick={() => { setTeacherSearch(''); setTeacherDropdownOpen(true); }}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-600"
+                            >
+                              <XCircle size={14} />
+                            </button>
+                          )}
                         </div>
+
+                        {/* Dropdown list */}
+                        {teacherDropdownOpen && (
+                          <div className="border border-gray-200 rounded-xl overflow-hidden shadow-lg bg-white max-h-56 overflow-y-auto">
+                            {/* Unassign option */}
+                            <button
+                              onClick={() => {
+                                setSelectedTeacherId('');
+                                setTeacherSearch('');
+                                setTeacherDropdownOpen(false);
+                              }}
+                              className={`w-full text-left px-4 py-3 text-sm transition-colors border-b border-gray-50 ${
+                                selectedTeacherId === ''
+                                  ? 'bg-gray-900 text-white'
+                                  : 'text-gray-400 hover:bg-gray-50'
+                              }`}
+                            >
+                              — Remove / Unassign —
+                            </button>
+
+                            {filteredTeachers.length === 0 ? (
+                              <p className="px-4 py-3 text-sm text-gray-300 text-center">No teachers match your search</p>
+                            ) : (
+                              filteredTeachers.map(t => {
+                                const name = t.full_name || `${t.first_name} ${t.last_name}`;
+                                const isCurrent = t.id === classroom.class_teacher;
+                                const isSelected = selectedTeacherId === t.id;
+                                return (
+                                  <button
+                                    key={t.id}
+                                    onClick={() => {
+                                      setSelectedTeacherId(t.id);
+                                      setTeacherSearch(name);
+                                      setTeacherDropdownOpen(false);
+                                    }}
+                                    className={`w-full text-left px-4 py-3 text-sm transition-colors flex items-center justify-between gap-3 ${
+                                      isSelected
+                                        ? 'bg-gray-900 text-white'
+                                        : 'hover:bg-gray-50 text-gray-700'
+                                    }`}
+                                  >
+                                    <span>
+                                      {name}
+                                      <span className={`ml-2 font-mono text-[11px] ${isSelected ? 'text-gray-400' : 'text-gray-300'}`}>
+                                        {t.employee_id}
+                                      </span>
+                                    </span>
+                                    {isCurrent && (
+                                      <span className={`text-[9px] font-bold tracking-wider uppercase px-2 py-0.5 rounded-full flex-shrink-0 ${
+                                        isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-400'
+                                      }`}>
+                                        Current
+                                      </span>
+                                    )}
+                                  </button>
+                                );
+                              })
+                            )}
+                          </div>
+                        )}
+
+                        {/* Click-outside to close */}
+                        {teacherDropdownOpen && (
+                          <div className="fixed inset-0 z-10" onClick={() => setTeacherDropdownOpen(false)} />
+                        )}
+
                         <p className="text-[11px] text-gray-300 mt-1.5">
+                          Search by name or employee ID. Select "Remove" to unassign.
+                        </p>
+                      </div>                        <p className="text-[11px] text-gray-300 mt-1.5">
                           Only active teachers are shown. Select "Remove" to unassign the current {formTeacherLabel.toLowerCase()}.
                         </p>
                       </div>
+                      <div>
 
                       {previewTeacher && (
                         <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-gray-50 border border-gray-100">
@@ -1206,6 +1294,8 @@ const previewTeacher = selectedTeacherId !== ''
                             setIsEditingFormTeacher(false);
                             setSelectedTeacherId(classroom.class_teacher ?? '');
                             setFormTeacherSaveStatus('idle');
+                            setTeacherSearch('');         
+                            setTeacherDropdownOpen(false); 
                           }}
                           className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-bold text-gray-500 hover:bg-gray-50 transition-all"
                         >

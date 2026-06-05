@@ -254,9 +254,9 @@ class ClassroomService {
   // PEOPLE
   // ============================================================================
 
-  async getAllTeachers() {
-    return api.get('/api/teachers/teachers/');
-  }
+  async getAllTeachers(params?: { page?: number }) {
+  return api.get('/api/teachers/teachers/', params );
+}
 
   async getAllSubjects() {
     return api.get('/api/subjects/');

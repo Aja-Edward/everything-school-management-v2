@@ -421,16 +421,30 @@ export const ClassroomProvider: React.FC<{ children: ReactNode }> = ({ children 
   // ============================================================================
 
   const loadTeachers = useCallback(async () => {
-    setLoadingKey('teachers', true);
-    try {
-      const res = await classroomService.getAllTeachers();
-      setTeachers(toArray<Teacher>(res));
-    } catch (err: any) {
-      handleError(err, 'Failed to load teachers');
-    } finally {
-      setLoadingKey('teachers', false);
+  setLoadingKey('teachers', true);
+  try {
+    // Page through all results until `next` is null
+    let allTeachers: Teacher[] = [];
+    let page = 1;
+    
+    while (true) {
+      const res = await classroomService.getAllTeachers({ page });
+      const pageResults = toArray<Teacher>(res);
+      allTeachers = [...allTeachers, ...pageResults];
+      
+      // Stop when there's no next page
+      // Handles both DRF { next, results } and plain array responses
+      if (!res?.next || pageResults.length === 0) break;
+      page++;
     }
-  }, []);
+    
+    setTeachers(allTeachers);
+  } catch (err: any) {
+    handleError(err, 'Failed to load teachers');
+  } finally {
+    setLoadingKey('teachers', false);
+  }
+}, []);
 
   const loadSubjects = useCallback(async () => {
     setLoadingKey('subjects', true);
