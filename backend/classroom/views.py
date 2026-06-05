@@ -69,6 +69,7 @@ _SUBJECT_TEACHER_DEFAULTS = {
     "SENIOR_SECONDARY": True,
 }
 
+
 def _uses_subject_teachers(tenant, level_type: str) -> bool:
     """
     Return True if the given education level uses the subject-teacher model for
@@ -108,7 +109,8 @@ class GradeLevelViewSet(
         filters.OrderingFilter,
     ]
     filterset_fields = ["education_level", "is_active"]
-    search_fields = ["name", "education_level__name"]  # ✅ FK traversal for search
+    # ✅ FK traversal for search
+    search_fields = ["name", "education_level__name"]
     ordering_fields = ["order", "name"]
 
     def get_queryset(self):
@@ -599,7 +601,8 @@ class StreamViewSet(TenantFilterMixin, viewsets.ModelViewSet):
 
             logger.error(f"Stream create error: {traceback.format_exc()}")
             # Also log what tenant resolved to
-            logger.error(f"Request tenant: {getattr(request, 'tenant', 'NOT SET')}")
+            logger.error(
+                f"Request tenant: {getattr(request, 'tenant', 'NOT SET')}")
             logger.error(f"Request headers: {dict(request.headers)}")
             return Response(
                 {"error": str(e), "type": type(e).__name__},
@@ -626,7 +629,8 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
         filters.OrderingFilter,
     ]
     # UPDATED: Add stream to filterset
-    filterset_fields = ["section", "stream", "academic_session", "term", "is_active"]
+    filterset_fields = ["section", "stream", "academic_session", "term", "is_active"
+                        "section__class_grade__education_level__level_type", ]
     search_fields = ["name", "room_number"]
     ordering_fields = ["name"]
 
@@ -677,7 +681,8 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
 
             students = [enrollment.student for enrollment in enrollments]
 
-            logger.info(f"✅ Found {len(students)} students via StudentEnrollment")
+            logger.info(
+                f"✅ Found {len(students)} students via StudentEnrollment")
 
             from students.serializers import StudentListSerializer
 
@@ -689,7 +694,8 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                 {"error": "Classroom not found"}, status=status.HTTP_404_NOT_FOUND
             )
         except Exception as e:
-            logger.error(f"Error fetching classroom students: {str(e)}", exc_info=True)
+            logger.error(
+                f"Error fetching classroom students: {str(e)}", exc_info=True)
             return Response(
                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
@@ -698,7 +704,8 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
     def teachers(self, request, pk=None):
         classroom = self.get_object()
         assignments = getattr(classroom, "active_assignments", [])
-        serializer = ClassroomTeacherAssignmentSerializer(assignments, many=True)
+        serializer = ClassroomTeacherAssignmentSerializer(
+            assignments, many=True)
         return Response(serializer.data)
 
     @action(detail=True, methods=["get"])
@@ -765,7 +772,8 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
 
         # By education level
         nursery_count = queryset.filter(
-            section__class_grade__education_level__level_type="NURSERY"  # adjust to your EducationLevel field name
+            # adjust to your EducationLevel field name
+            section__class_grade__education_level__level_type="NURSERY"
         ).count()
         primary_count = queryset.filter(
             section__class_grade__education_level__level_type="PRIMARY"
@@ -1136,7 +1144,8 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                 status=status.HTTP_404_NOT_FOUND,
             )
         except Exception as e:
-            logger.error(f"Error transferring student: {str(e)}", exc_info=True)
+            logger.error(
+                f"Error transferring student: {str(e)}", exc_info=True)
             return Response(
                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
@@ -1165,7 +1174,8 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
 
         current_enrollment = classroom.current_enrollment
         classroom.max_capacity = max_capacity
-        classroom.save(update_fields=["max_capacity"])  # ✅ only writes this one column
+        # ✅ only writes this one column
+        classroom.save(update_fields=["max_capacity"])
 
         return Response(
             {
@@ -1353,7 +1363,8 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                     target_classroom.save(update_fields=["class_teacher"])
 
         except Exception as e:
-            logger.error(f"Error transferring teacher: {str(e)}", exc_info=True)
+            logger.error(
+                f"Error transferring teacher: {str(e)}", exc_info=True)
             return Response(
                 {"error": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1524,7 +1535,8 @@ class StudentEnrollmentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewse
         stream_types = StreamType.objects.filter(is_active=True)
 
         for stream_type in stream_types:
-            enrollments = queryset.filter(student__stream__stream_type_new=stream_type)
+            enrollments = queryset.filter(
+                student__stream__stream_type_new=stream_type)
 
             by_stream_type.append(
                 {
@@ -1693,8 +1705,10 @@ class ClassScheduleViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.M
         weekly_data = {}
 
         for day in days:
-            day_schedules = queryset.filter(day_of_week=day).order_by("start_time")
-            weekly_data[day] = self.get_serializer(day_schedules, many=True).data
+            day_schedules = queryset.filter(
+                day_of_week=day).order_by("start_time")
+            weekly_data[day] = self.get_serializer(
+                day_schedules, many=True).data
 
         return Response(weekly_data)
 
@@ -1829,7 +1843,8 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
     ]
     # UPDATED: Add stream filter
     filterset_fields = ["is_active", "stream", "student_class"]
-    search_fields = ["user__first_name", "user__last_name", "registration_number"]
+    search_fields = ["user__first_name",
+                     "user__last_name", "registration_number"]
     ordering_fields = ["user__first_name", "user__last_name"]
 
     def get_queryset(self):
@@ -1898,7 +1913,8 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             return Response({"message": "Student not currently enrolled"})
 
         schedules = (
-            ClassSchedule.objects.filter(classroom=enrollment.classroom, is_active=True)
+            ClassSchedule.objects.filter(
+                classroom=enrollment.classroom, is_active=True)
             .select_related("subject", "teacher__user")
             .order_by("day_of_week", "start_time")
         )
@@ -2060,7 +2076,8 @@ class SubjectAnalyticsViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewset
     queryset = Subject.objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = SubjectSerializer
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate subject analytics
+    # PERFORMANCE: Paginate subject analytics
+    pagination_class = StandardResultsPagination
 
     def get_queryset(self):
         # Let mixin handle section filtering
@@ -2077,7 +2094,8 @@ class SubjectManagementViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewse
     queryset = Subject.objects.all()
     permission_classes = [IsAdminUser]
     serializer_class = SubjectSerializer
-    pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate subject management
+    # PERFORMANCE: Paginate subject management
+    pagination_class = StandardResultsPagination
 
     def get_queryset(self):
         # Let mixin handle section filtering
@@ -2188,9 +2206,11 @@ class SubjectByEducationLevelView(APIView):
         ).prefetch_related("grade_levels", "prerequisites")
 
         # Additional filters
-        active_only = request.query_params.get("active_only", "true").lower() == "true"
+        active_only = request.query_params.get(
+            "active_only", "true").lower() == "true"
         include_discontinued = (
-            request.query_params.get("include_discontinued", "false").lower() == "true"
+            request.query_params.get(
+                "include_discontinued", "false").lower() == "true"
         )
 
         if active_only:
@@ -2204,7 +2224,8 @@ class SubjectByEducationLevelView(APIView):
         if nursery_level and level == "NURSERY":
             valid_nursery_levels = [code for code, _ in NURSERY_LEVELS]
             if nursery_level in valid_nursery_levels:
-                queryset = queryset.filter(nursery_levels__contains=[nursery_level])
+                queryset = queryset.filter(
+                    nursery_levels__contains=[nursery_level])
 
         # SS subject type filter
         ss_type = request.query_params.get("ss_type")
@@ -2253,7 +2274,8 @@ class SubjectByEducationLevelView(APIView):
         }
 
         if level == "NURSERY":
-            response_data["nursery_breakdown"] = self._get_nursery_breakdown(queryset)
+            response_data["nursery_breakdown"] = self._get_nursery_breakdown(
+                queryset)
         elif level == "SENIOR_SECONDARY":
             response_data["ss_breakdown"] = self._get_ss_breakdown(queryset)
 
@@ -2262,7 +2284,8 @@ class SubjectByEducationLevelView(APIView):
     def _get_nursery_breakdown(self, queryset):
         breakdown = {}
         for level_code, level_name in NURSERY_LEVELS:
-            level_subjects = queryset.filter(nursery_levels__contains=[level_code])
+            level_subjects = queryset.filter(
+                nursery_levels__contains=[level_code])
             breakdown[level_code] = {
                 "name": level_name,
                 "count": level_subjects.count(),
@@ -2334,7 +2357,8 @@ class SubjectQuickSearchView(APIView):
         # Apply additional filters
         education_level = request.query_params.get("education_level")
         if education_level:
-            queryset = queryset.filter(education_levels__contains=[education_level])
+            queryset = queryset.filter(
+                education_levels__contains=[education_level])
 
         category = request.query_params.get("category")
         if category:
@@ -2614,7 +2638,8 @@ def system_info(request):
         # Get database statistics
         total_subjects = Subject.objects.count()
         active_subjects = Subject.objects.filter(is_active=True).count()
-        discontinued_subjects = Subject.objects.filter(is_discontinued=True).count()
+        discontinued_subjects = Subject.objects.filter(
+            is_discontinued=True).count()
 
         # Education level statistics
         education_stats = {}
@@ -2630,7 +2655,8 @@ def system_info(request):
             count = Subject.objects.filter(
                 category=category_code, is_active=True
             ).count()
-            category_stats[category_code] = {"name": category_name, "count": count}
+            category_stats[category_code] = {
+                "name": category_name, "count": count}
 
         return Response(
             {

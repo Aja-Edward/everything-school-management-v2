@@ -159,9 +159,9 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
     setSelectedClassroomId(0);
     import('@/services/api').then(({ default: api }) => {
       const params = new URLSearchParams({
-        section__grade_level__education_level: selectedLevel,
-        limit: '200', offset: '0',
-      });
+      section__class_grade__education_level__level_type: selectedLevel,
+      limit: '200', offset: '0',
+    });
       api.get(`/classrooms/classrooms/?${params}`)
         .then((data: any) => {
           const results: any[] = Array.isArray(data) ? data : (data?.results ?? []);
