@@ -629,8 +629,8 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
         filters.OrderingFilter,
     ]
     # UPDATED: Add stream to filterset
-    filterset_fields = ["section", "stream", "academic_session", "term",
-                        "is_active", "section__class_grade__education_level__level_type", ]
+    filterset_fields = ["section", "stream",
+                        "academic_session", "term", "is_active"]
     search_fields = ["name", "room_number"]
     ordering_fields = ["name"]
 
