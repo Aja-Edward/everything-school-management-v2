@@ -14,6 +14,7 @@ from django.db.models import Prefetch
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 import logging
+import django_filters
 
 from utils.section_filtering import AutoSectionFilterMixin
 from tenants.mixins import TenantFilterMixin
@@ -610,6 +611,18 @@ class StreamViewSet(TenantFilterMixin, viewsets.ModelViewSet):
             )
 
 
+class ClassroomFilter(django_filters.FilterSet):
+    education_level = django_filters.CharFilter(
+        field_name='section__class_grade__education_level__level_type',
+        lookup_expr='exact'
+    )
+
+    class Meta:
+        model = Classroom
+        fields = ['section', 'stream', 'academic_session',
+                  'term', 'is_active', 'education_level']
+
+
 class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
     """
     ViewSet for Classroom model with automatic section filtering
@@ -629,8 +642,7 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
         filters.OrderingFilter,
     ]
     # UPDATED: Add stream to filterset
-    filterset_fields = ["section", "stream",
-                        "academic_session", "term", "is_active"]
+    filterset_class = ClassroomFilter
     search_fields = ["name", "room_number"]
     ordering_fields = ["name"]
 
