@@ -159,9 +159,9 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
     setSelectedClassroomId(0);
     import('@/services/api').then(({ default: api }) => {
       const params = new URLSearchParams({
-      education_level: selectedLevel,   // ← matches the FilterSet field name above
-      limit: '200', offset: '0',
-    });
+        section__grade_level__education_level: selectedLevel,
+        limit: '200', offset: '0',
+      });
       api.get(`/classrooms/classrooms/?${params}`)
         .then((data: any) => {
           const results: any[] = Array.isArray(data) ? data : (data?.results ?? []);
@@ -180,16 +180,14 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
     if (!educationLevel) { setAssessmentComponents([]); return; }
     ResultService.getAssessmentComponents({ is_active: true, page_size: 50 })
       .then(all => {
-         console.log('Raw components from API:', all); 
-         console.log('Education level:', educationLevel);
+        
         // Filter components to match the effective education level
-        // AFTER - correct: only match the currently selected/active education level
         const filtered = all.filter(c => {
           const levelType = c.education_level_detail?.level_type;
-          if (!levelType) return false; // ignore components with no level
-          return levelType === educationLevel;  // ONLY match the exact current level
+          if (!levelType) return c.is_active !== false;
+          // Exact match: component level matches the selected/derived education level
+          return levelType === educationLevel || teacherEducationLevels.has(levelType);
         });
-        console.log('Filtered components:', filtered);   
         setAssessmentComponents(filtered.sort((a, b) => a.display_order - b.display_order));
       })
       .catch(() => setAssessmentComponents([]))
