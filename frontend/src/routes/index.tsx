@@ -162,22 +162,24 @@ const LazyWrapper = ({ children }: { children: React.ReactNode }) => (
 
 // Root layout with providers
 const RootLayout = () => (
-  <DesignProvider>
-    <GlobalThemeProvider>
-      <AuthProvider>
-        <SettingsProvider>
-          <AuthLostProvider>
-            <ThemeProvider>
-              <FaviconUpdater />
-              <TitleManager />
-              <MetaTagManager />
-              <ErrorBoundary>
-                <Outlet />
-              </ErrorBoundary>
-            </ThemeProvider>
-          </AuthLostProvider>
-        </SettingsProvider>
-      </AuthProvider>
+  <DesignProvider>              {/* ← must be OUTSIDE GlobalThemeProvider */}
+    <GlobalThemeProvider>       {/* ← calls useDesign(), so needs DesignProvider above */}
+      <TenantProvider>
+        <AuthProvider>
+          <SettingsProvider>
+            <AuthLostProvider>
+              <ThemeProvider>
+                <FaviconUpdater />  
+                <TitleManager />
+                <MetaTagManager />
+                <ErrorBoundary>
+                  <Outlet />
+                </ErrorBoundary>
+              </ThemeProvider>
+            </AuthLostProvider>
+          </SettingsProvider>
+        </AuthProvider>
+      </TenantProvider>
     </GlobalThemeProvider>
   </DesignProvider>
 );
