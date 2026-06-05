@@ -180,6 +180,8 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
     if (!educationLevel) { setAssessmentComponents([]); return; }
     ResultService.getAssessmentComponents({ is_active: true, page_size: 50 })
       .then(all => {
+         console.log('Raw components from API:', all); 
+         console.log('Education level:', educationLevel);
         // Filter components to match the effective education level
         const filtered = all.filter(c => {
           const levelType = c.education_level_detail?.level_type;
@@ -187,6 +189,7 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
           // Exact match: component level matches the selected/derived education level
           return levelType === educationLevel || teacherEducationLevels.has(levelType);
         });
+        console.log('Filtered components:', filtered);   
         setAssessmentComponents(filtered.sort((a, b) => a.display_order - b.display_order));
       })
       .catch(() => setAssessmentComponents([]))
