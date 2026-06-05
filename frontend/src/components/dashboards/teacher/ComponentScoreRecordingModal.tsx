@@ -500,7 +500,7 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
       <div className="flex-1 min-h-0 overflow-auto bg-gray-50">
 
         {/* Not ready */}
-        {!canLoad && (
+        {!canLoad && students.length === 0 && !loadingStudents && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
             <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-white border border-gray-200">
               <Info size={24} className="text-gray-300" />
@@ -510,7 +510,7 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
         )}
 
         {/* Loading */}
-        {canLoad && loadingStudents && (
+        {loadingStudents && (
           <div className="flex items-center justify-center h-full gap-3">
             <div className="w-5 h-5 rounded-full border-2 border-indigo-200 border-t-indigo-600 animate-spin" />
             <span className="text-sm text-gray-400">Loading students…</span>
@@ -518,7 +518,7 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
         )}
 
         {/* No students */}
-        {canLoad && !loadingStudents && students.length === 0 && (
+        {!loadingStudents && canLoad && students.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-3">
             <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-white border border-gray-200">
               <Users size={24} className="text-gray-300" />
@@ -528,7 +528,7 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
         )}
 
         {/* No components */}
-        {canLoad && !loadingStudents && students.length > 0 && assessmentComponents.length === 0 && (
+        {!loadingStudents && students.length > 0 && assessmentComponents.length === 0 &&  (
           <div className="flex flex-col items-center justify-center h-full gap-3">
             <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-white border border-gray-200">
               <ClipboardList size={24} className="text-gray-300" />
@@ -538,7 +538,7 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
         )}
 
         {/* ── MAIN TABLE ── */}
-        {canLoad && !loadingStudents && students.length > 0 && assessmentComponents.length > 0 && (
+       {!loadingStudents && students.length > 0 && assessmentComponents.length > 0 && (
           <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
             <colgroup>
               {/* # */}
