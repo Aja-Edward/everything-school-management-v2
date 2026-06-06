@@ -17,6 +17,7 @@ import MetaTagManager from '@/components/MetaTagManager';
 import { lazy, Suspense } from 'react';
 import Navbar from '@/components/home/Nav';
 import Footer from '@/components/home/Footer';
+import TeacherDashboardRoute from './../pages/teacher/TeacherDashboardRoute';
 
 
 // Loading component
@@ -433,7 +434,7 @@ export const router = createBrowserRouter([
         children: [
           {
             path: 'dashboard',
-            element: <LazyWrapper><TeacherDashboard /></LazyWrapper>,
+            element: <TeacherDashboardRoute />,
           },
           {
             path: 'activity-log',

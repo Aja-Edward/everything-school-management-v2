@@ -143,12 +143,6 @@ const TeacherResults: React.FC = () => {
         }));
         
       });
-      console.log('RAW assignments:', JSON.stringify(assignments.map(a => ({
-      classroom_name: a.classroom_name,
-      classroom_id: a.classroom_id,
-      education_level: a.education_level,
-      subject_name: a.subject_name,
-    })), null, 2));
       // ── Fallback: use teacher's M2M assigned subjects when no classroom
       //    assignments exist (subject-teacher model — no fixed classroom) ────────
       if (assignments.length === 0) {
