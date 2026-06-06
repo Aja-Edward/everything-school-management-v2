@@ -89,6 +89,9 @@ export interface AttendanceFilters {
   date?: string;
   start_date?: string;
   end_date?: string;
+  date__gte?: string;
+  date__lte?: string;
+  limit?: number;
   student?: number;
   teacher?: number;
   section?: number;

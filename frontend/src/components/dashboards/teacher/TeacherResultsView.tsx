@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import TeacherDashboardLayout from '@/components/layouts/TeacherDashboardLayout';
 import TeacherDashboardService from '@/services/TeacherDashboardService';
+import TeacherService from '@/services/TeacherService';
 import ResultService from '@/services/ResultService';
 import type { EducationLevelType, SubjectResultParams } from '@/services/ResultService';
 import ResultCreateTab from '@/components/dashboards/teacher/ResultCreateTab';
@@ -63,12 +64,16 @@ const toServiceLevel = (level: EducationLevel): EducationLevelType => {
 
 /** Derive education level from a classroom name when the API doesn't supply it */
 const deriveLevel = (className: string): EducationLevel | undefined => {
-  if (!className) return undefined;
   const u = className.toUpperCase();
-  if (u.includes('JSS') || u.includes('JUNIOR'))   return 'JUNIOR_SECONDARY';
-  if (u.includes('SSS') || u.includes('SENIOR'))   return 'SENIOR_SECONDARY';
-  if (u.includes('PRIMARY') || /\bP\s*\d/.test(u)) return 'PRIMARY';
-  if (u.includes('NURSERY') || u.includes('KG') || u.includes('KINDERGARTEN')) return 'NURSERY';
+  if (u.includes('JSS') || u.includes('JUNIOR'))                           return 'JUNIOR_SECONDARY';
+  if (u.includes('SSS') || u.includes('SENIOR'))                           return 'SENIOR_SECONDARY';
+  if (u.includes('PRIMARY') || /\bP\s*\d/.test(u))                        return 'PRIMARY';
+  if (
+    u.includes('NURSERY') || u.includes('KG')   ||
+    u.includes('KINDERGARTEN') || u.includes('PRESCHOOL') ||
+    u.includes('PRE-SCHOOL') || u.includes('PRE SCHOOL') ||
+    u.includes('CRÈCHE')    || u.includes('CRECHE')
+  ) return 'NURSERY';
   return undefined;
 };
 
@@ -136,8 +141,14 @@ const TeacherResults: React.FC = () => {
           periods_per_week: a.periods_per_week || 0,
           is_primary_teacher: a.is_primary_teacher || a.is_class_teacher || false,
         }));
+        
       });
-
+      console.log('RAW assignments:', JSON.stringify(assignments.map(a => ({
+      classroom_name: a.classroom_name,
+      classroom_id: a.classroom_id,
+      education_level: a.education_level,
+      subject_name: a.subject_name,
+    })), null, 2));
       // ── Fallback: use teacher's M2M assigned subjects when no classroom
       //    assignments exist (subject-teacher model — no fixed classroom) ────────
       if (assignments.length === 0) {

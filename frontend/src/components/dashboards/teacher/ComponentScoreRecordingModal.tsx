@@ -192,12 +192,12 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
       .then(all => {
         console.log('Raw components from API:', all);
         const filtered = all.filter(c => {
-          const levelType = c.education_level_detail?.level_type;
-          // Keep components that match the current level, or those with no
-          // level restriction (school-wide components).
-          if (!levelType) return c.is_active !== false;
-          return levelType === educationLevel;
-        });
+        const levelType = c.education_level_detail?.level_type;
+        // No level set → treat as universal, include it
+        if (!levelType) return true;
+        // Match the selected level exactly
+        return levelType === educationLevel;
+      });
         setAssessmentComponents(filtered.sort((a, b) => a.display_order - b.display_order));
       })
       .catch(() => setAssessmentComponents([]));
@@ -605,7 +605,8 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
             <tbody>
               {students.map((student, idx) => {
                 const isEven = idx % 2 === 0;
-                const isFullyComplete = assessmentComponents.every(c => (student.existingScores[c.id] ?? 0) > 0);
+                const isFullyComplete = assessmentComponents.length > 0 &&
+  assessmentComponents.every(c => (student.existingScores[c.id] ?? 0) > 0);
 
                 return (
                   <tr
