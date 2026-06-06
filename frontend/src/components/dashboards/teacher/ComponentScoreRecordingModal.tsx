@@ -35,22 +35,26 @@ interface Props {
   assignments: Assignment[];
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-// Education level display labels
 const LEVEL_LABELS: Record<string, string> = {
-  NURSERY: 'Nursery', PRIMARY: 'Primary',
-  JUNIOR_SECONDARY: 'Junior Secondary', SENIOR_SECONDARY: 'Senior Secondary',
+  NURSERY: 'Nursery',
+  PRIMARY: 'Primary',
+  JUNIOR_SECONDARY: 'Junior Secondary',
+  SENIOR_SECONDARY: 'Senior Secondary',
 };
+
+const ALL_LEVELS = ['NURSERY', 'PRIMARY', 'JUNIOR_SECONDARY', 'SENIOR_SECONDARY'];
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignments }) => {
 
   // ── Selectors ──────────────────────────────────────────────────────────────
-  const [selectedSubjectId,      setSelectedSubjectId]      = useState<number>(0);
-  const [selectedClassroomId,    setSelectedClassroomId]    = useState<number>(0);
-  const [selectedSessionId,      setSelectedSessionId]      = useState<string>('');
-  // For subject-teacher mode: teacher picks level first, then any class
-  const [selectedLevel,          setSelectedLevel]          = useState<string>('');
+  const [selectedSubjectId,   setSelectedSubjectId]   = useState<number>(0);
+  const [selectedClassroomId, setSelectedClassroomId] = useState<number>(0);
+  const [selectedSessionId,   setSelectedSessionId]   = useState<string>('');
+  const [selectedLevel,       setSelectedLevel]       = useState<string>('');
 
   // ── Reference data ─────────────────────────────────────────────────────────
   const [examSessions,         setExamSessions]         = useState<ExamSession[]>([]);
@@ -59,142 +63,150 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
   const [allClassesForLevel,   setAllClassesForLevel]   = useState<{id:number;name:string}[]>([]);
   const [loadingClasses,       setLoadingClasses]       = useState(false);
 
-  // scoreInputs keyed as `${studentId}:${componentId}`
   const [scoreInputs,      setScoreInputs]      = useState<Record<string, string>>({});
-  const [validationErrors, setValidationErrors]  = useState<Record<string, string>>({});
-  const [loadingStudents,  setLoadingStudents]   = useState(false);
-  const [saving,           setSaving]            = useState(false);
-  const [saveMsg,          setSaveMsg]           = useState<{ ok: boolean; text: string } | null>(null);
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [loadingStudents,  setLoadingStudents]  = useState(false);
+  const [saving,           setSaving]           = useState(false);
+  const [saveMsg,          setSaveMsg]          = useState<{ ok: boolean; text: string } | null>(null);
 
   // ── Mode detection ─────────────────────────────────────────────────────────
-  // "Subject teacher mode": assignments exist but have no classroom_id (virtual),
-  // OR there are simply no assignments at all.
-  const isSubjectTeacherMode = useMemo(
-    () => assignments.length === 0 || assignments.every(a => !a.classroom_id),
-    [assignments]
-  );
+  //
+  // FIX: The school adopted subject teaching at ALL levels. This means teachers
+  // always need to pick a level → subject → classroom. We never rely on
+  // classroom_id being present in assignments to drive the class list; instead
+  // we always fetch classrooms from the API for the selected level.
+  //
+  // The only distinction now is whether we can pre-populate "available levels"
+  // from the teacher's assignment records (preferred) or fall back to showing
+  // all four system levels (when assignments carry no education_level data).
 
-  // ── Derived ────────────────────────────────────────────────────────────────
-
-  // In subject-teacher mode, filter subjects by the selected level (from education_levels JSON)
-  const subjects = useMemo(() => {
-    const seen = new Set<number>();
-    return assignments
-      .filter(a => {
-        if (seen.has(a.subject_id)) return false;
-        seen.add(a.subject_id);
-        // In subject-teacher mode, filter by selected level if set
-        if (isSubjectTeacherMode && selectedLevel && a.education_level) {
-          return a.education_level === selectedLevel;
-        }
-        return true;
-      });
-  }, [assignments, isSubjectTeacherMode, selectedLevel]);
-
-  // Available levels from the teacher's subjects
+  // Levels this teacher is actually assigned to (from assignment metadata).
   const teacherLevels = useMemo(() => {
     const levels = new Set<string>();
-    assignments.forEach(a => { if (a.education_level) levels.add(a.education_level); });
+    assignments.forEach(a => {
+      if (a.education_level) levels.add(a.education_level);
+    });
     return Array.from(levels);
   }, [assignments]);
 
-  // In classroom mode: classrooms come from assignments; in subject mode: from allClassesForLevel
-  const classroomsForSubject = useMemo(() => {
-    if (isSubjectTeacherMode) return allClassesForLevel;
-    return assignments
-      .filter(a => a.subject_id === selectedSubjectId && a.classroom_id)
-      .map(a => ({ id: a.classroom_id!, name: a.classroom_name }));
-  }, [assignments, isSubjectTeacherMode, selectedSubjectId, allClassesForLevel]);
+  // The list of levels shown in the Level dropdown.
+  // Fall back to all four if assignments carry no level metadata.
+  const availableLevels = teacherLevels.length > 0 ? teacherLevels : ALL_LEVELS;
 
-  // The effective education level for API calls
+  // Subjects for the currently selected level.
+  // In the old code this tried to filter by classroom_id which broke when IDs
+  // were missing. Now we only filter by education_level.
+  const subjects = useMemo(() => {
+    if (!selectedLevel) return [];
+    const seen = new Set<number>();
+    return assignments.filter(a => {
+      if (seen.has(a.subject_id)) return false;
+      seen.add(a.subject_id);
+      // If assignment carries level metadata, honour it; otherwise show all
+      // subjects (teacher manually picked the level, so trust their choice).
+      if (a.education_level) return a.education_level === selectedLevel;
+      return true;
+    });
+  }, [assignments, selectedLevel]);
+
+  // The effective education level for API calls — always driven by the dropdown.
   const educationLevel = useMemo((): EducationLevelType | undefined => {
-    if (isSubjectTeacherMode) return selectedLevel as EducationLevelType || undefined;
-    const a = assignments.find(
-      a => a.subject_id === selectedSubjectId && a.classroom_id === selectedClassroomId
-    );
-    return a?.education_level as EducationLevelType | undefined;
-  }, [assignments, isSubjectTeacherMode, selectedSubjectId, selectedClassroomId, selectedLevel]);
+    return selectedLevel as EducationLevelType || undefined;
+  }, [selectedLevel]);
 
-  const teacherEducationLevels = useMemo(() => {
-    const levels = new Set<string>();
-    assignments.forEach(a => { if (a.education_level) levels.add(a.education_level); });
-    return levels;
-  }, [assignments]);
-
-  const canLoad = !!selectedClassroomId && !!selectedSessionId && !!selectedSubjectId;
+  // canLoad: all three selectors must be set.
+  const canLoad = !!selectedClassroomId && !!selectedSessionId && !!selectedSubjectId && !!selectedLevel;
 
   // ── Effects ────────────────────────────────────────────────────────────────
 
+  // Load exam sessions once on open.
   useEffect(() => {
     if (!open) return;
     ResultService.getExamSessions().then(setExamSessions).catch(() => {});
   }, [open]);
 
+  // Reset state when modal opens.
   useEffect(() => {
     if (!open) return;
-    setSelectedSubjectId(subjects[0]?.subject_id ?? 0);
     setScoreInputs({});
     setSaveMsg(null);
+    setStudents([]);
+    setSelectedSubjectId(0);
     setSelectedClassroomId(0);
-    // Auto-select the only level if teacher has exactly one
-    if (isSubjectTeacherMode && teacherLevels.length === 1) {
-      setSelectedLevel(teacherLevels[0]);
+    setSelectedSessionId('');
+
+    // Auto-select level when the teacher has exactly one.
+    if (availableLevels.length === 1) {
+      setSelectedLevel(availableLevels[0]);
+    } else {
+      setSelectedLevel('');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  // When level changes → reset downstream selections and fetch classrooms.
   useEffect(() => {
-    if (!isSubjectTeacherMode) {
-      setSelectedClassroomId(classroomsForSubject[0]?.id ?? 0);
-    }
-  }, [selectedSubjectId, isSubjectTeacherMode]);
-
-  // Fetch ALL classrooms for the selected level (subject-teacher mode)
-  useEffect(() => {
-    if (!isSubjectTeacherMode || !selectedLevel) {
-      setAllClassesForLevel([]);
-      return;
-    }
-    setLoadingClasses(true);
+    setSelectedSubjectId(0);
     setSelectedClassroomId(0);
+    setStudents([]);
+    setScoreInputs({});
+    setAllClassesForLevel([]);
+
+    if (!selectedLevel) return;
+
+    setLoadingClasses(true);
     import('@/services/api').then(({ default: api }) => {
       const params = new URLSearchParams({
         section__grade_level__education_level: selectedLevel,
-        limit: '200', offset: '0',
+        limit: '200',
+        offset: '0',
       });
       api.get(`/classrooms/classrooms/?${params}`)
         .then((data: any) => {
           const results: any[] = Array.isArray(data) ? data : (data?.results ?? []);
-          setAllClassesForLevel(results.map((c: any) => ({
-            id: c.id,
-            name: c.name || `${c.grade_level_name || ''} ${c.section_name || ''}`.trim(),
-          })));
+          setAllClassesForLevel(
+            results.map((c: any) => ({
+              id: c.id,
+              name: c.name || `${c.grade_level_name || ''} ${c.section_name || ''}`.trim(),
+            }))
+          );
         })
         .catch(() => setAllClassesForLevel([]))
         .finally(() => setLoadingClasses(false));
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSubjectTeacherMode, selectedLevel]);
+  }, [selectedLevel]);
 
+  // When subject changes → reset classroom if it's no longer relevant.
+  // (We keep the classroom list intact — teacher picks freely.)
+  useEffect(() => {
+    setSelectedClassroomId(0);
+    setStudents([]);
+    setScoreInputs({});
+  }, [selectedSubjectId]);
+
+  // Load assessment components whenever the resolved education level changes.
   useEffect(() => {
     if (!educationLevel) { setAssessmentComponents([]); return; }
+
     ResultService.getAssessmentComponents({ is_active: true, page_size: 50 })
       .then(all => {
-        
-        // Filter components to match the effective education level
+        console.log('Raw components from API:', all);
         const filtered = all.filter(c => {
           const levelType = c.education_level_detail?.level_type;
+          // Keep components that match the current level, or those with no
+          // level restriction (school-wide components).
           if (!levelType) return c.is_active !== false;
-          // Exact match: component level matches the selected/derived education level
-          return levelType === educationLevel || teacherEducationLevels.has(levelType);
+          return levelType === educationLevel;
         });
         setAssessmentComponents(filtered.sort((a, b) => a.display_order - b.display_order));
       })
-      .catch(() => setAssessmentComponents([]))
-  }, [educationLevel, teacherEducationLevels]);
+      .catch(() => setAssessmentComponents([]));
+  }, [educationLevel]);
 
+  // Load students & existing scores whenever the three selectors are all set.
   const loadStudentsAndScores = useCallback(async () => {
     if (!selectedClassroomId || !selectedSessionId || !selectedSubjectId || !educationLevel) return;
+
     setLoadingStudents(true);
     try {
       const studentsRaw: any[] = await ClassroomService.getClassroomStudents(selectedClassroomId)
@@ -232,7 +244,6 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
 
       setStudents(rows);
 
-      // Pre-fill inputs from existing scores
       const inputs: Record<string, string> = {};
       rows.forEach(row => {
         Object.entries(row.existingScores).forEach(([cid, score]) => {
@@ -247,7 +258,10 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
     }
   }, [selectedClassroomId, selectedSessionId, selectedSubjectId, educationLevel]);
 
-  useEffect(() => { loadStudentsAndScores(); }, [loadStudentsAndScores]);
+  useEffect(() => {
+    if (canLoad) loadStudentsAndScores();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canLoad, loadStudentsAndScores]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
@@ -341,11 +355,10 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
             </div>
             <div>
               <h2 className="text-sm font-bold text-gray-900 leading-tight">Record Component Scores</h2>
-              <p className="text-xs text-gray-400 mt-0.5">All components shown per student — fill any score and save</p>
+              <p className="text-xs text-gray-400 mt-0.5">Select level → subject → class → session, then fill scores</p>
             </div>
           </div>
 
-          {/* Right side: summary chips + close */}
           <div className="flex items-center gap-3">
             {students.length > 0 && (
               <>
@@ -370,45 +383,39 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
           </div>
         </div>
 
-        {/* Controls row */}
+        {/* Controls row — always: Level → Subject → Class → Session */}
         <div className="flex items-end gap-4 px-6 py-3 flex-wrap">
 
-          {/* ── Subject-teacher mode: Level first, then class ── */}
-          {isSubjectTeacherMode && (
-            <div className="flex-1 min-w-[160px] max-w-[200px]">
-              <label className="block text-[10px] font-bold text-indigo-500 uppercase tracking-wider mb-1">
-                1. Education Level
-              </label>
-              <div className="relative">
-                <select
-                  value={selectedLevel}
-                  onChange={e => { setSelectedLevel(e.target.value); setSelectedSubjectId(0); setSelectedClassroomId(0); }}
-                  className="w-full h-8 border border-indigo-200 rounded-lg pl-3 pr-8 text-xs font-medium text-gray-800 bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 appearance-none cursor-pointer"
-                >
-                  <option value="">Select level…</option>
-                  {/* If teacher has known levels, show those; else show all */}
-                  {(teacherLevels.length > 0
-                    ? teacherLevels
-                    : ['NURSERY', 'PRIMARY', 'JUNIOR_SECONDARY', 'SENIOR_SECONDARY']
-                  ).map(lv => (
-                    <option key={lv} value={lv}>{LEVEL_LABELS[lv] ?? lv}</option>
-                  ))}
-                </select>
-                <ChevronDown size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-indigo-400 pointer-events-none" />
-              </div>
+          {/* 1. Education Level */}
+          <div className="flex-1 min-w-[160px] max-w-[200px]">
+            <label className="block text-[10px] font-bold text-indigo-500 uppercase tracking-wider mb-1">
+              1. Education Level
+            </label>
+            <div className="relative">
+              <select
+                value={selectedLevel}
+                onChange={e => setSelectedLevel(e.target.value)}
+                className="w-full h-8 border border-indigo-200 rounded-lg pl-3 pr-8 text-xs font-medium text-gray-800 bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 appearance-none cursor-pointer"
+              >
+                <option value="">Select level…</option>
+                {availableLevels.map(lv => (
+                  <option key={lv} value={lv}>{LEVEL_LABELS[lv] ?? lv}</option>
+                ))}
+              </select>
+              <ChevronDown size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-indigo-400 pointer-events-none" />
             </div>
-          )}
+          </div>
 
-          {/* Subject */}
+          {/* 2. Subject */}
           <div className="flex-1 min-w-[160px] max-w-[220px]">
             <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
-              {isSubjectTeacherMode ? '2. Subject' : 'Subject'}
+              2. Subject
             </label>
             <div className="relative">
               <select
                 value={selectedSubjectId}
                 onChange={e => setSelectedSubjectId(Number(e.target.value))}
-                disabled={isSubjectTeacherMode && !selectedLevel}
+                disabled={!selectedLevel || subjects.length === 0}
                 className="w-full h-8 border border-gray-200 rounded-lg pl-3 pr-8 text-xs font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 appearance-none cursor-pointer disabled:opacity-40"
               >
                 <option value={0}>Select subject…</option>
@@ -422,21 +429,21 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
             </div>
           </div>
 
-          {/* Class */}
-          <div className="flex-1 min-w-[140px] max-w-[200px]">
+          {/* 3. Class — always from API, never from assignments */}
+          <div className="flex-1 min-w-[140px] max-w-[220px]">
             <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
-              {isSubjectTeacherMode ? '3. Class' : 'Class'}
+              3. Class
               {loadingClasses && <span className="ml-1 text-indigo-400">Loading…</span>}
             </label>
             <div className="relative">
               <select
                 value={selectedClassroomId}
                 onChange={e => setSelectedClassroomId(Number(e.target.value))}
-                disabled={(!selectedSubjectId && !isSubjectTeacherMode) || (isSubjectTeacherMode && !selectedLevel) || loadingClasses}
+                disabled={!selectedLevel || loadingClasses}
                 className="w-full h-8 border border-gray-200 rounded-lg pl-3 pr-8 text-xs font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 appearance-none cursor-pointer disabled:opacity-40"
               >
                 <option value={0}>Select class…</option>
-                {classroomsForSubject.map(c => (
+                {allClassesForLevel.map(c => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
@@ -444,9 +451,11 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
             </div>
           </div>
 
-          {/* Exam Session */}
+          {/* 4. Exam Session */}
           <div className="flex-1 min-w-[160px] max-w-[220px]">
-            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Exam Session</label>
+            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+              4. Exam Session
+            </label>
             <div className="relative">
               <select
                 value={selectedSessionId}
@@ -501,12 +510,20 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
       <div className="flex-1 min-h-0 overflow-auto bg-gray-50">
 
         {/* Not ready */}
-        {!canLoad && students.length === 0 && !loadingStudents && (
+        {!canLoad && !loadingStudents && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
             <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-white border border-gray-200">
               <Info size={24} className="text-gray-300" />
             </div>
-            <p className="text-sm text-gray-400">Select a subject, class, and exam session to begin</p>
+            <p className="text-sm text-gray-400">
+              {!selectedLevel
+                ? 'Select an education level to begin'
+                : !selectedSubjectId
+                ? 'Now select a subject'
+                : !selectedClassroomId
+                ? 'Now select a class'
+                : 'Now select an exam session'}
+            </p>
           </div>
         )}
 
@@ -529,26 +546,23 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
         )}
 
         {/* No components */}
-        {!loadingStudents && students.length > 0 && assessmentComponents.length === 0 &&  (
+        {!loadingStudents && students.length > 0 && assessmentComponents.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-3">
             <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-white border border-gray-200">
               <ClipboardList size={24} className="text-gray-300" />
             </div>
             <p className="text-sm text-gray-400">No assessment components configured for this level</p>
+            <p className="text-xs text-gray-300">Check that components are active and linked to the correct education level</p>
           </div>
         )}
 
         {/* ── MAIN TABLE ── */}
-       {!loadingStudents && students.length > 0 && assessmentComponents.length > 0 && (
+        {!loadingStudents && students.length > 0 && assessmentComponents.length > 0 && (
           <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
             <colgroup>
-              {/* # */}
               <col style={{ width: '48px' }} />
-              {/* Student name */}
               <col style={{ width: '220px' }} />
-              {/* Adm No */}
               <col style={{ width: '110px' }} />
-              {/* One col per component */}
               {assessmentComponents.map(c => (
                 <col key={c.id} style={{ width: `${Math.max(90, Math.floor((window.innerWidth - 490) / assessmentComponents.length))}px` }} />
               ))}
@@ -602,7 +616,6 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
                       isFullyComplete ? 'border-l-2 border-l-emerald-400' : 'border-l-2 border-l-transparent'
                     }`}
                   >
-                    {/* Row number */}
                     <td className="py-2 px-2 text-center">
                       <span className={`text-[11px] font-bold tabular-nums rounded-md px-1.5 py-0.5 ${
                         isFullyComplete
@@ -613,7 +626,6 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
                       </span>
                     </td>
 
-                    {/* Student name */}
                     <td className="py-2 px-4">
                       <div className="flex items-center gap-2.5">
                         <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold ${
@@ -629,14 +641,12 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
                       </div>
                     </td>
 
-                    {/* Admission number */}
                     <td className="py-2 px-3">
                       <span className="text-[11px] font-mono text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded truncate block">
                         {student.admission_number}
                       </span>
                     </td>
 
-                    {/* Score input per component */}
                     {assessmentComponents.map(comp => {
                       const key      = `${student.id}:${comp.id}`;
                       const hasError = !!validationErrors[key];
@@ -695,7 +705,6 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
       {/* ── Footer ── */}
       <div className="flex-shrink-0 border-t border-gray-200 bg-white px-6 py-3 flex items-center justify-between gap-4">
 
-        {/* Left: legend */}
         <div className="flex items-center gap-4 text-xs text-gray-400">
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded bg-indigo-100 border border-indigo-200 inline-block" />
@@ -711,7 +720,6 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
           </span>
         </div>
 
-        {/* Center: save message */}
         <div className="flex-1 flex justify-center">
           {saveMsg && (
             <div className={`inline-flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-lg ${
@@ -725,7 +733,6 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
           )}
         </div>
 
-        {/* Right: actions */}
         <div className="flex items-center gap-3">
           <button
             onClick={onClose}
