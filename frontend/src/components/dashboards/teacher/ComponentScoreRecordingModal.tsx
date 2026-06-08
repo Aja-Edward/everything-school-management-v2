@@ -70,17 +70,6 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
   const [saveMsg,          setSaveMsg]          = useState<{ ok: boolean; text: string } | null>(null);
 
   // ── Mode detection ─────────────────────────────────────────────────────────
-  //
-  // FIX: The school adopted subject teaching at ALL levels. This means teachers
-  // always need to pick a level → subject → classroom. We never rely on
-  // classroom_id being present in assignments to drive the class list; instead
-  // we always fetch classrooms from the API for the selected level.
-  //
-  // The only distinction now is whether we can pre-populate "available levels"
-  // from the teacher's assignment records (preferred) or fall back to showing
-  // all four system levels (when assignments carry no education_level data).
-
-  // Levels this teacher is actually assigned to (from assignment metadata).
   const teacherLevels = useMemo(() => {
     const levels = new Set<string>();
     assignments.forEach(a => {
@@ -89,43 +78,32 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
     return Array.from(levels);
   }, [assignments]);
 
-  // The list of levels shown in the Level dropdown.
-  // Fall back to all four if assignments carry no level metadata.
   const availableLevels = teacherLevels.length > 0 ? teacherLevels : ALL_LEVELS;
 
-  // Subjects for the currently selected level.
-  // In the old code this tried to filter by classroom_id which broke when IDs
-  // were missing. Now we only filter by education_level.
   const subjects = useMemo(() => {
     if (!selectedLevel) return [];
     const seen = new Set<number>();
     return assignments.filter(a => {
       if (seen.has(a.subject_id)) return false;
       seen.add(a.subject_id);
-      // If assignment carries level metadata, honour it; otherwise show all
-      // subjects (teacher manually picked the level, so trust their choice).
       if (a.education_level) return a.education_level === selectedLevel;
       return true;
     });
   }, [assignments, selectedLevel]);
 
-  // The effective education level for API calls — always driven by the dropdown.
   const educationLevel = useMemo((): EducationLevelType | undefined => {
     return selectedLevel as EducationLevelType || undefined;
   }, [selectedLevel]);
 
-  // canLoad: all three selectors must be set.
   const canLoad = !!selectedClassroomId && !!selectedSessionId && !!selectedSubjectId && !!selectedLevel;
 
   // ── Effects ────────────────────────────────────────────────────────────────
 
-  // Load exam sessions once on open.
   useEffect(() => {
     if (!open) return;
     ResultService.getExamSessions().then(setExamSessions).catch(() => {});
   }, [open]);
 
-  // Reset state when modal opens.
   useEffect(() => {
     if (!open) return;
     setScoreInputs({});
@@ -134,8 +112,6 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
     setSelectedSubjectId(0);
     setSelectedClassroomId(0);
     setSelectedSessionId('');
-
-    // Auto-select level when the teacher has exactly one.
     if (availableLevels.length === 1) {
       setSelectedLevel(availableLevels[0]);
     } else {
@@ -144,7 +120,6 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // When level changes → reset downstream selections and fetch classrooms.
   useEffect(() => {
     setSelectedSubjectId(0);
     setSelectedClassroomId(0);
@@ -176,34 +151,27 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
     });
   }, [selectedLevel]);
 
-  // When subject changes → reset classroom if it's no longer relevant.
-  // (We keep the classroom list intact — teacher picks freely.)
   useEffect(() => {
     setSelectedClassroomId(0);
     setStudents([]);
     setScoreInputs({});
   }, [selectedSubjectId]);
 
-  // Load assessment components whenever the resolved education level changes.
   useEffect(() => {
     if (!educationLevel) { setAssessmentComponents([]); return; }
 
     ResultService.getAssessmentComponents({ is_active: true, page_size: 50 })
       .then(all => {
-        console.log('Raw components from API:', all);
         const filtered = all.filter(c => {
-        const levelType = c.education_level_detail?.level_type;
-        // No level set → treat as universal, include it
-        if (!levelType) return true;
-        // Match the selected level exactly
-        return levelType === educationLevel;
-      });
+          const levelType = c.education_level_detail?.level_type;
+          if (!levelType) return true;
+          return levelType === educationLevel;
+        });
         setAssessmentComponents(filtered.sort((a, b) => a.display_order - b.display_order));
       })
       .catch(() => setAssessmentComponents([]));
   }, [educationLevel]);
 
-  // Load students & existing scores whenever the three selectors are all set.
   const loadStudentsAndScores = useCallback(async () => {
     if (!selectedClassroomId || !selectedSessionId || !selectedSubjectId || !educationLevel) return;
 
@@ -348,29 +316,44 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
       <div className="flex-shrink-0 bg-white border-b border-gray-200">
 
         {/* Title row */}
-        <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-600">
-              <ClipboardList size={15} className="text-white" />
+        <div className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-3 border-b border-gray-100">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <div className="flex-shrink-0 flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-indigo-600">
+              <ClipboardList size={13} className="text-white" />
             </div>
-            <div>
-              <h2 className="text-sm font-bold text-gray-900 leading-tight">Record Component Scores</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Select level → subject → class → session, then fill scores</p>
+            <div className="min-w-0">
+              <h2 className="text-xs sm:text-sm font-bold text-gray-900 leading-tight truncate">
+                Record Component Scores
+              </h2>
+              <p className="hidden sm:block text-xs text-gray-400 mt-0.5">
+                Select level → subject → class → session, then fill scores
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
             {students.length > 0 && (
               <>
-                <div className="flex items-center gap-1.5 bg-gray-100 rounded-lg px-3 py-1.5">
-                  <Users size={12} className="text-gray-500" />
-                  <span className="text-xs font-semibold text-gray-600">{students.length} Students</span>
+                {/* On mobile: compact single badge; on desktop: two badges */}
+                <div className="flex items-center gap-1 sm:hidden">
+                  <div className="flex items-center gap-1 bg-emerald-50 rounded-lg px-2 py-1">
+                    <CheckCircle2 size={10} className="text-emerald-600" />
+                    <span className="text-[10px] font-semibold text-emerald-700">
+                      {completedStudents}/{students.length}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5 bg-emerald-50 rounded-lg px-3 py-1.5">
-                  <CheckCircle2 size={12} className="text-emerald-600" />
-                  <span className="text-xs font-semibold text-emerald-700">
-                    {completedStudents}/{students.length} Complete
-                  </span>
+                <div className="hidden sm:flex items-center gap-1.5 sm:gap-2">
+                  <div className="flex items-center gap-1.5 bg-gray-100 rounded-lg px-3 py-1.5">
+                    <Users size={12} className="text-gray-500" />
+                    <span className="text-xs font-semibold text-gray-600">{students.length} Students</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-emerald-50 rounded-lg px-3 py-1.5">
+                    <CheckCircle2 size={12} className="text-emerald-600" />
+                    <span className="text-xs font-semibold text-emerald-700">
+                      {completedStudents}/{students.length} Complete
+                    </span>
+                  </div>
                 </div>
               </>
             )}
@@ -383,381 +366,437 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
           </div>
         </div>
 
-        {/* Controls row — always: Level → Subject → Class → Session */}
-        <div className="flex items-end gap-4 px-6 py-3 flex-wrap">
+        {/* Controls row — responsive: 2×2 grid on mobile, single row on desktop */}
+        <div className="px-3 sm:px-6 py-3">
 
-          {/* 1. Education Level */}
-          <div className="flex-1 min-w-[160px] max-w-[200px]">
-            <label className="block text-[10px] font-bold text-indigo-500 uppercase tracking-wider mb-1">
-              1. Education Level
-            </label>
-            <div className="relative">
-              <select
-                value={selectedLevel}
-                onChange={e => setSelectedLevel(e.target.value)}
-                className="w-full h-8 border border-indigo-200 rounded-lg pl-3 pr-8 text-xs font-medium text-gray-800 bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 appearance-none cursor-pointer"
-              >
-                <option value="">Select level…</option>
-                {availableLevels.map(lv => (
-                  <option key={lv} value={lv}>{LEVEL_LABELS[lv] ?? lv}</option>
-                ))}
-              </select>
-              <ChevronDown size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-indigo-400 pointer-events-none" />
+          {/* Selector grid: stacks 2-col on mobile, single row flex on md+ */}
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end sm:gap-4">
+
+            {/* 1. Education Level */}
+            <div className="sm:flex-1 sm:min-w-[160px] sm:max-w-[200px]">
+              <label className="block text-[10px] font-bold text-indigo-500 uppercase tracking-wider mb-1">
+                1. Level
+              </label>
+              <div className="relative">
+                <select
+                  value={selectedLevel}
+                  onChange={e => setSelectedLevel(e.target.value)}
+                  className="w-full h-9 sm:h-8 border border-indigo-200 rounded-lg pl-2.5 sm:pl-3 pr-7 text-xs font-medium text-gray-800 bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 appearance-none cursor-pointer"
+                >
+                  <option value="">Select level…</option>
+                  {availableLevels.map(lv => (
+                    <option key={lv} value={lv}>{LEVEL_LABELS[lv] ?? lv}</option>
+                  ))}
+                </select>
+                <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-indigo-400 pointer-events-none" />
+              </div>
+            </div>
+
+            {/* 2. Subject */}
+            <div className="sm:flex-1 sm:min-w-[160px] sm:max-w-[220px]">
+              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                2. Subject
+              </label>
+              <div className="relative">
+                <select
+                  value={selectedSubjectId}
+                  onChange={e => setSelectedSubjectId(Number(e.target.value))}
+                  disabled={!selectedLevel || subjects.length === 0}
+                  className="w-full h-9 sm:h-8 border border-gray-200 rounded-lg pl-2.5 sm:pl-3 pr-7 text-xs font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 appearance-none cursor-pointer disabled:opacity-40"
+                >
+                  <option value={0}>Select subject…</option>
+                  {subjects.map(s => (
+                    <option key={s.subject_id} value={s.subject_id}>
+                      {s.subject_name} ({s.subject_code})
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              </div>
+            </div>
+
+            {/* 3. Class */}
+            <div className="sm:flex-1 sm:min-w-[140px] sm:max-w-[220px]">
+              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                3. Class
+                {loadingClasses && <span className="ml-1 text-indigo-400">Loading…</span>}
+              </label>
+              <div className="relative">
+                <select
+                  value={selectedClassroomId}
+                  onChange={e => setSelectedClassroomId(Number(e.target.value))}
+                  disabled={!selectedLevel || loadingClasses}
+                  className="w-full h-9 sm:h-8 border border-gray-200 rounded-lg pl-2.5 sm:pl-3 pr-7 text-xs font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 appearance-none cursor-pointer disabled:opacity-40"
+                >
+                  <option value={0}>Select class…</option>
+                  {allClassesForLevel.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+                <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              </div>
+            </div>
+
+            {/* 4. Exam Session */}
+            <div className="sm:flex-1 sm:min-w-[160px] sm:max-w-[220px]">
+              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                4. Session
+              </label>
+              <div className="relative">
+                <select
+                  value={selectedSessionId}
+                  onChange={e => setSelectedSessionId(e.target.value)}
+                  className="w-full h-9 sm:h-8 border border-gray-200 rounded-lg pl-2.5 sm:pl-3 pr-7 text-xs font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 appearance-none cursor-pointer"
+                >
+                  <option value="">Select session…</option>
+                  {examSessions.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              </div>
             </div>
           </div>
 
-          {/* 2. Subject */}
-          <div className="flex-1 min-w-[160px] max-w-[220px]">
-            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
-              2. Subject
-            </label>
-            <div className="relative">
-              <select
-                value={selectedSubjectId}
-                onChange={e => setSelectedSubjectId(Number(e.target.value))}
-                disabled={!selectedLevel || subjects.length === 0}
-                className="w-full h-8 border border-gray-200 rounded-lg pl-3 pr-8 text-xs font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 appearance-none cursor-pointer disabled:opacity-40"
-              >
-                <option value={0}>Select subject…</option>
-                {subjects.map(s => (
-                  <option key={s.subject_id} value={s.subject_id}>
-                    {s.subject_name} ({s.subject_code})
-                  </option>
-                ))}
-              </select>
-              <ChevronDown size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-            </div>
-          </div>
-
-          {/* 3. Class — always from API, never from assignments */}
-          <div className="flex-1 min-w-[140px] max-w-[220px]">
-            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
-              3. Class
-              {loadingClasses && <span className="ml-1 text-indigo-400">Loading…</span>}
-            </label>
-            <div className="relative">
-              <select
-                value={selectedClassroomId}
-                onChange={e => setSelectedClassroomId(Number(e.target.value))}
-                disabled={!selectedLevel || loadingClasses}
-                className="w-full h-8 border border-gray-200 rounded-lg pl-3 pr-8 text-xs font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 appearance-none cursor-pointer disabled:opacity-40"
-              >
-                <option value={0}>Select class…</option>
-                {allClassesForLevel.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-              <ChevronDown size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-            </div>
-          </div>
-
-          {/* 4. Exam Session */}
-          <div className="flex-1 min-w-[160px] max-w-[220px]">
-            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
-              4. Exam Session
-            </label>
-            <div className="relative">
-              <select
-                value={selectedSessionId}
-                onChange={e => setSelectedSessionId(e.target.value)}
-                className="w-full h-8 border border-gray-200 rounded-lg pl-3 pr-8 text-xs font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 appearance-none cursor-pointer"
-              >
-                <option value="">Select session…</option>
-                {examSessions.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-              <ChevronDown size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-            </div>
-          </div>
-
-          {/* Divider */}
-          <div className="h-8 w-px bg-gray-200 self-end mb-0.5" />
-
-          {/* Context chips */}
-          {selectedSubject && (
-            <div className="self-end mb-0.5 flex items-center gap-2 flex-wrap">
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2.5 py-1 rounded-full">
-                {selectedSubject.subject_name}
-              </span>
+          {/* Context chips + refresh — below grid on mobile */}
+          <div className="flex items-center justify-between mt-2.5 sm:mt-2">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {selectedSubject && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full">
+                  {selectedSubject.subject_name}
+                </span>
+              )}
               {selectedSession && (
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-700 bg-violet-50 border border-violet-100 px-2.5 py-1 rounded-full">
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-700 bg-violet-50 border border-violet-100 px-2 py-0.5 rounded-full">
                   {selectedSession.name}
                 </span>
               )}
               {assessmentComponents.length > 0 && (
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-gray-500 bg-gray-100 border border-gray-200 px-2.5 py-1 rounded-full">
+                <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-semibold text-gray-500 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-full">
                   {assessmentComponents.length} component{assessmentComponents.length !== 1 ? 's' : ''}
                 </span>
               )}
             </div>
-          )}
-
-          <div className="ml-auto self-end">
             <button
               onClick={loadStudentsAndScores}
               disabled={!canLoad || loadingStudents}
-              className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex-shrink-0"
             >
               <RefreshCw size={11} className={loadingStudents ? 'animate-spin' : ''} />
-              Refresh
+              <span className="hidden sm:inline">Refresh</span>
             </button>
           </div>
         </div>
       </div>
 
       {/* ── Table Area ── */}
-      <div className="flex-1 min-h-0 overflow-auto bg-gray-50">
+      {/*
+        KEY MOBILE FIX: The outer div clips overflow; the inner div scrolls horizontally.
+        The Name and Adm.No columns use `position: sticky` + `z-index` to stay fixed
+        while score columns scroll beneath them.
+      */}
+      <div className="flex-1 min-h-0 overflow-hidden bg-gray-50">
+        <div className="h-full overflow-auto">
 
-        {/* Not ready */}
-        {!canLoad && !loadingStudents && (
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
-            <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-white border border-gray-200">
-              <Info size={24} className="text-gray-300" />
+          {/* Not ready */}
+          {!canLoad && !loadingStudents && (
+            <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-4">
+              <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-white border border-gray-200">
+                <Info size={24} className="text-gray-300" />
+              </div>
+              <p className="text-sm text-gray-400">
+                {!selectedLevel
+                  ? 'Select an education level to begin'
+                  : !selectedSubjectId
+                  ? 'Now select a subject'
+                  : !selectedClassroomId
+                  ? 'Now select a class'
+                  : 'Now select an exam session'}
+              </p>
             </div>
-            <p className="text-sm text-gray-400">
-              {!selectedLevel
-                ? 'Select an education level to begin'
-                : !selectedSubjectId
-                ? 'Now select a subject'
-                : !selectedClassroomId
-                ? 'Now select a class'
-                : 'Now select an exam session'}
-            </p>
-          </div>
-        )}
+          )}
 
-        {/* Loading */}
-        {loadingStudents && (
-          <div className="flex items-center justify-center h-full gap-3">
-            <div className="w-5 h-5 rounded-full border-2 border-indigo-200 border-t-indigo-600 animate-spin" />
-            <span className="text-sm text-gray-400">Loading students…</span>
-          </div>
-        )}
-
-        {/* No students */}
-        {!loadingStudents && canLoad && students.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full gap-3">
-            <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-white border border-gray-200">
-              <Users size={24} className="text-gray-300" />
+          {/* Loading */}
+          {loadingStudents && (
+            <div className="flex items-center justify-center h-full gap-3">
+              <div className="w-5 h-5 rounded-full border-2 border-indigo-200 border-t-indigo-600 animate-spin" />
+              <span className="text-sm text-gray-400">Loading students…</span>
             </div>
-            <p className="text-sm text-gray-400">No students found in this class</p>
-          </div>
-        )}
+          )}
 
-        {/* No components */}
-        {!loadingStudents && students.length > 0 && assessmentComponents.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full gap-3">
-            <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-white border border-gray-200">
-              <ClipboardList size={24} className="text-gray-300" />
+          {/* No students */}
+          {!loadingStudents && canLoad && students.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full gap-3">
+              <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-white border border-gray-200">
+                <Users size={24} className="text-gray-300" />
+              </div>
+              <p className="text-sm text-gray-400">No students found in this class</p>
             </div>
-            <p className="text-sm text-gray-400">No assessment components configured for this level</p>
-            <p className="text-xs text-gray-300">Check that components are active and linked to the correct education level</p>
-          </div>
-        )}
+          )}
 
-        {/* ── MAIN TABLE ── */}
-        {!loadingStudents && students.length > 0 && assessmentComponents.length > 0 && (
-          <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
-            <colgroup>
-              <col style={{ width: '48px' }} />
-              <col style={{ width: '220px' }} />
-              <col style={{ width: '110px' }} />
-              {assessmentComponents.map(c => (
-                <col key={c.id} style={{ width: `${Math.max(90, Math.floor((window.innerWidth - 490) / assessmentComponents.length))}px` }} />
-              ))}
-            </colgroup>
+          {/* No components */}
+          {!loadingStudents && students.length > 0 && assessmentComponents.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full gap-3 px-4 text-center">
+              <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-white border border-gray-200">
+                <ClipboardList size={24} className="text-gray-300" />
+              </div>
+              <p className="text-sm text-gray-400">No assessment components configured for this level</p>
+              <p className="text-xs text-gray-300">Check that components are active and linked to the correct education level</p>
+            </div>
+          )}
 
-            <thead className="sticky top-0 z-20">
-              <tr className="bg-white border-b-2 border-gray-200">
-                <th className="text-center py-3 px-2">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">#</span>
-                </th>
-                <th className="text-left py-3 px-4">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Student Name</span>
-                </th>
-                <th className="text-left py-3 px-3">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Adm. No.</span>
-                </th>
-                {assessmentComponents.map(comp => (
-                  <th key={comp.id} className="text-center py-3 px-2">
-                    <div className={`inline-flex flex-col items-center px-2.5 py-1 rounded-lg ${
-                      comp.contributes_to_ca
-                        ? 'bg-indigo-50 border border-indigo-100'
-                        : 'bg-amber-50 border border-amber-100'
-                    }`}>
-                      <span className={`text-[10px] font-bold uppercase tracking-wide leading-tight ${
-                        comp.contributes_to_ca ? 'text-indigo-600' : 'text-amber-600'
-                      }`}>
-                        {comp.name}
-                      </span>
-                      <span className={`text-[9px] font-medium ${
-                        comp.contributes_to_ca ? 'text-indigo-400' : 'text-amber-400'
-                      }`}>
-                        /{comp.max_score} pts
-                      </span>
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
+          {/* ── MAIN TABLE ── */}
+          {!loadingStudents && students.length > 0 && assessmentComponents.length > 0 && (
+            /*
+              Horizontal scroll wrapper — fills the scrolling parent.
+              min-w-max forces the table to at least its natural width so
+              the sticky columns never collapse on very small screens.
+            */
+            <div className="min-w-max">
+              <table className="border-collapse w-full">
+                <colgroup>
+                  {/* # col — hidden on mobile to save space */}
+                  <col className="hidden sm:table-column" style={{ width: '48px' }} />
+                  {/* Name — sticky, wider on desktop */}
+                  <col style={{ width: '160px' }} />
+                  {/* Adm No — sticky on mobile too */}
+                  <col style={{ width: '90px' }} />
+                  {assessmentComponents.map(c => (
+                    <col key={c.id} style={{ width: '96px' }} />
+                  ))}
+                </colgroup>
 
-            <tbody>
-              {students.map((student, idx) => {
-                const isEven = idx % 2 === 0;
-                const isFullyComplete = assessmentComponents.length > 0 &&
-  assessmentComponents.every(c => (student.existingScores[c.id] ?? 0) > 0);
-
-                return (
-                  <tr
-                    key={student.id}
-                    className={`transition-colors ${
-                      isEven ? 'bg-white' : 'bg-gray-50/60'
-                    } hover:bg-indigo-50/30 ${
-                      isFullyComplete ? 'border-l-2 border-l-emerald-400' : 'border-l-2 border-l-transparent'
-                    }`}
-                  >
-                    <td className="py-2 px-2 text-center">
-                      <span className={`text-[11px] font-bold tabular-nums rounded-md px-1.5 py-0.5 ${
-                        isFullyComplete
-                          ? 'bg-emerald-100 text-emerald-600'
-                          : 'bg-gray-100 text-gray-400'
-                      }`}>
-                        {String(idx + 1).padStart(2, '0')}
-                      </span>
-                    </td>
-
-                    <td className="py-2 px-4">
-                      <div className="flex items-center gap-2.5">
-                        <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                          isFullyComplete
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : 'bg-indigo-100 text-indigo-600'
+                <thead className="sticky top-0 z-20">
+                  <tr className="bg-white border-b-2 border-gray-200">
+                    {/* # — hidden on mobile */}
+                    <th className="hidden sm:table-cell text-center py-3 px-2">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">#</span>
+                    </th>
+                    {/* Name — sticky */}
+                    <th
+                      className="text-left py-3 px-3 sm:px-4 bg-white"
+                      style={{ position: 'sticky', left: 0, zIndex: 10, boxShadow: '2px 0 4px -2px rgba(0,0,0,0.06)' }}
+                    >
+                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Student</span>
+                    </th>
+                    {/* Adm No — sticky on mobile */}
+                    <th
+                      className="text-left py-3 px-2 sm:px-3 bg-white"
+                      style={{ position: 'sticky', left: '160px', zIndex: 10, boxShadow: '2px 0 4px -2px rgba(0,0,0,0.06)' }}
+                    >
+                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Adm.</span>
+                    </th>
+                    {assessmentComponents.map(comp => (
+                      <th key={comp.id} className="text-center py-2.5 sm:py-3 px-1.5 sm:px-2">
+                        <div className={`inline-flex flex-col items-center px-1.5 sm:px-2.5 py-1 rounded-lg ${
+                          comp.contributes_to_ca
+                            ? 'bg-indigo-50 border border-indigo-100'
+                            : 'bg-amber-50 border border-amber-100'
                         }`}>
-                          {student.full_name.charAt(0).toUpperCase()}
+                          <span className={`text-[10px] font-bold uppercase tracking-wide leading-tight ${
+                            comp.contributes_to_ca ? 'text-indigo-600' : 'text-amber-600'
+                          }`}>
+                            {comp.name}
+                          </span>
+                          <span className={`text-[9px] font-medium ${
+                            comp.contributes_to_ca ? 'text-indigo-400' : 'text-amber-400'
+                          }`}>
+                            /{comp.max_score}
+                          </span>
                         </div>
-                        <span className="text-[13px] font-medium text-gray-800 truncate">
-                          {student.full_name}
-                        </span>
-                      </div>
-                    </td>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
 
-                    <td className="py-2 px-3">
-                      <span className="text-[11px] font-mono text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded truncate block">
-                        {student.admission_number}
-                      </span>
-                    </td>
+                <tbody>
+                  {students.map((student, idx) => {
+                    const isEven = idx % 2 === 0;
+                    const isFullyComplete = assessmentComponents.length > 0 &&
+                      assessmentComponents.every(c => (student.existingScores[c.id] ?? 0) > 0);
 
-                    {assessmentComponents.map(comp => {
-                      const key      = `${student.id}:${comp.id}`;
-                      const hasError = !!validationErrors[key];
-                      const existing = student.existingScores[comp.id];
-                      const hasExisting = existing !== undefined && existing > 0;
-                      const currentVal = scoreInputs[key];
-                      const isFilled = currentVal !== '' && currentVal !== undefined;
-                      const max = parseFloat(comp.max_score);
+                    return (
+                      <tr
+                        key={student.id}
+                        className={`transition-colors ${
+                          isEven ? 'bg-white' : 'bg-gray-50/60'
+                        } hover:bg-indigo-50/30 ${
+                          isFullyComplete ? 'border-l-2 border-l-emerald-400' : 'border-l-2 border-l-transparent'
+                        }`}
+                      >
+                        {/* # — hidden on mobile */}
+                        <td className="hidden sm:table-cell py-2 px-2 text-center">
+                          <span className={`text-[11px] font-bold tabular-nums rounded-md px-1.5 py-0.5 ${
+                            isFullyComplete
+                              ? 'bg-emerald-100 text-emerald-600'
+                              : 'bg-gray-100 text-gray-400'
+                          }`}>
+                            {String(idx + 1).padStart(2, '0')}
+                          </span>
+                        </td>
 
-                      return (
-                        <td key={comp.id} className="py-1.5 px-2 text-center">
-                          <div className="relative inline-flex flex-col items-center gap-0.5">
-                            <input
-                              type="number"
-                              min={0}
-                              max={max}
-                              step="0.5"
-                              value={currentVal ?? ''}
-                              onChange={e => handleScoreChange(student.id, comp.id, e.target.value)}
-                              onFocus={e => e.target.select()}
-                              placeholder={hasExisting ? String(existing) : '—'}
-                              className={`w-16 h-8 text-center rounded-lg text-[13px] font-bold tabular-nums transition-all focus:outline-none focus:ring-2 border ${
-                                hasError
-                                  ? 'border-red-300 bg-red-50 text-red-600 focus:ring-red-400/30 focus:border-red-400'
-                                  : isFilled
-                                    ? comp.contributes_to_ca
-                                      ? 'border-indigo-300 bg-indigo-50 text-indigo-700 focus:ring-indigo-400/30 focus:border-indigo-500'
-                                      : 'border-amber-300 bg-amber-50 text-amber-700 focus:ring-amber-400/30 focus:border-amber-500'
-                                    : hasExisting
-                                      ? 'border-emerald-200 bg-emerald-50/60 text-emerald-700 focus:ring-emerald-400/30 focus:border-emerald-400'
-                                      : 'border-gray-200 bg-white text-gray-700 focus:ring-indigo-400/30 focus:border-indigo-400'
-                              }`}
-                            />
-                            {hasError && (
-                              <span className="text-[9px] text-red-500 font-semibold leading-none">
-                                {validationErrors[key]}
-                              </span>
-                            )}
-                            {hasExisting && !isFilled && !hasError && (
-                              <span className="text-[9px] text-emerald-500 font-semibold leading-none">
-                                ✓ {existing}
-                              </span>
-                            )}
+                        {/* Name — sticky */}
+                        <td
+                          className={`py-2 px-3 sm:px-4 ${isEven ? 'bg-white' : 'bg-gray-50/60'}`}
+                          style={{ position: 'sticky', left: 0, zIndex: 5, boxShadow: '2px 0 4px -2px rgba(0,0,0,0.06)' }}
+                        >
+                          <div className="flex items-center gap-1.5 sm:gap-2.5">
+                            <div className={`flex-shrink-0 w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-[9px] sm:text-[10px] font-bold ${
+                              isFullyComplete
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-indigo-100 text-indigo-600'
+                            }`}>
+                              {student.full_name.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="text-[11px] sm:text-[13px] font-medium text-gray-800 truncate max-w-[100px] sm:max-w-none">
+                              {student.full_name}
+                            </span>
                           </div>
                         </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
 
-      {/* ── Footer ── */}
-      <div className="flex-shrink-0 border-t border-gray-200 bg-white px-6 py-3 flex items-center justify-between gap-4">
+                        {/* Adm No — sticky */}
+                        <td
+                          className={`py-2 px-2 sm:px-3 ${isEven ? 'bg-white' : 'bg-gray-50/60'}`}
+                          style={{ position: 'sticky', left: '160px', zIndex: 5, boxShadow: '2px 0 4px -2px rgba(0,0,0,0.06)' }}
+                        >
+                          <span className="text-[10px] sm:text-[11px] font-mono text-gray-400 bg-gray-100 px-1 sm:px-1.5 py-0.5 rounded truncate block max-w-[72px] sm:max-w-none">
+                            {student.admission_number}
+                          </span>
+                        </td>
 
-        <div className="flex items-center gap-4 text-xs text-gray-400">
-          <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded bg-indigo-100 border border-indigo-200 inline-block" />
-            CA Component
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded bg-amber-100 border border-amber-200 inline-block" />
-            Exam Component
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-2 border-l-2 border-emerald-400 h-3 inline-block" />
-            All scores filled
-          </span>
-        </div>
+                        {assessmentComponents.map(comp => {
+                          const key      = `${student.id}:${comp.id}`;
+                          const hasError = !!validationErrors[key];
+                          const existing = student.existingScores[comp.id];
+                          const hasExisting = existing !== undefined && existing > 0;
+                          const currentVal = scoreInputs[key];
+                          const isFilled = currentVal !== '' && currentVal !== undefined;
+                          const max = parseFloat(comp.max_score);
 
-        <div className="flex-1 flex justify-center">
-          {saveMsg && (
-            <div className={`inline-flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-lg ${
-              saveMsg.ok
-                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                : 'bg-red-50 text-red-600 border border-red-200'
-            }`}>
-              {saveMsg.ok ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
-              {saveMsg.text}
+                          return (
+                            <td key={comp.id} className="py-1.5 px-1.5 sm:px-2 text-center">
+                              <div className="relative inline-flex flex-col items-center gap-0.5">
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  min={0}
+                                  max={max}
+                                  step="0.5"
+                                  value={currentVal ?? ''}
+                                  onChange={e => handleScoreChange(student.id, comp.id, e.target.value)}
+                                  onFocus={e => e.target.select()}
+                                  placeholder={hasExisting ? String(existing) : '—'}
+                                  className={`w-14 sm:w-16 h-9 sm:h-8 text-center rounded-lg text-[12px] sm:text-[13px] font-bold tabular-nums transition-all focus:outline-none focus:ring-2 border ${
+                                    hasError
+                                      ? 'border-red-300 bg-red-50 text-red-600 focus:ring-red-400/30 focus:border-red-400'
+                                      : isFilled
+                                        ? comp.contributes_to_ca
+                                          ? 'border-indigo-300 bg-indigo-50 text-indigo-700 focus:ring-indigo-400/30 focus:border-indigo-500'
+                                          : 'border-amber-300 bg-amber-50 text-amber-700 focus:ring-amber-400/30 focus:border-amber-500'
+                                        : hasExisting
+                                          ? 'border-emerald-200 bg-emerald-50/60 text-emerald-700 focus:ring-emerald-400/30 focus:border-emerald-400'
+                                          : 'border-gray-200 bg-white text-gray-700 focus:ring-indigo-400/30 focus:border-indigo-400'
+                                  }`}
+                                />
+                                {hasError && (
+                                  <span className="text-[9px] text-red-500 font-semibold leading-none whitespace-nowrap">
+                                    {validationErrors[key]}
+                                  </span>
+                                )}
+                                {hasExisting && !isFilled && !hasError && (
+                                  <span className="text-[9px] text-emerald-500 font-semibold leading-none">
+                                    ✓ {existing}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
+      </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onClose}
-            className="h-9 px-4 rounded-lg text-sm font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition-all"
-          >
-            Close
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving || students.length === 0 || assessmentComponents.length === 0 || !canLoad}
-            className="inline-flex items-center gap-2 h-9 px-5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-lg text-sm font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm shadow-indigo-200"
-          >
-            {saving ? (
-              <>
-                <div className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                Saving…
-              </>
-            ) : (
-              <>
-                <Save size={13} />
-                Save All Scores
-              </>
+      {/* ── Footer ── */}
+      <div className="flex-shrink-0 border-t border-gray-200 bg-white px-3 sm:px-6 py-2.5 sm:py-3">
+
+        {/* Save message — full width on mobile, centred on desktop */}
+        {saveMsg && (
+          <div className={`flex items-center justify-center gap-2 text-xs font-semibold px-3 py-2 rounded-lg mb-2 sm:hidden ${
+            saveMsg.ok
+              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+              : 'bg-red-50 text-red-600 border border-red-200'
+          }`}>
+            {saveMsg.ok ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
+            {saveMsg.text}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-2 sm:gap-4">
+
+          {/* Legend — hidden on mobile */}
+          <div className="hidden sm:flex items-center gap-4 text-xs text-gray-400">
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded bg-indigo-100 border border-indigo-200 inline-block" />
+              CA Component
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded bg-amber-100 border border-amber-200 inline-block" />
+              Exam Component
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 border-l-2 border-emerald-400 h-3 inline-block" />
+              All scores filled
+            </span>
+          </div>
+
+          {/* Save message — desktop centred */}
+          <div className="hidden sm:flex flex-1 justify-center">
+            {saveMsg && (
+              <div className={`inline-flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-lg ${
+                saveMsg.ok
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  : 'bg-red-50 text-red-600 border border-red-200'
+              }`}>
+                {saveMsg.ok ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
+                {saveMsg.text}
+              </div>
             )}
-          </button>
+          </div>
+
+          {/* Buttons */}
+          <div className="flex items-center gap-2 sm:gap-3 ml-auto">
+            <button
+              onClick={onClose}
+              className="h-9 px-3 sm:px-4 rounded-lg text-xs sm:text-sm font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition-all"
+            >
+              Close
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving || students.length === 0 || assessmentComponents.length === 0 || !canLoad}
+              className="inline-flex items-center gap-1.5 sm:gap-2 h-9 px-3 sm:px-5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-lg text-xs sm:text-sm font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm shadow-indigo-200"
+            >
+              {saving ? (
+                <>
+                  <div className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  <span className="hidden sm:inline">Saving…</span>
+                  <span className="sm:hidden">Saving</span>
+                </>
+              ) : (
+                <>
+                  <Save size={12} />
+                  <span className="hidden sm:inline">Save All Scores</span>
+                  <span className="sm:hidden">Save</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>
