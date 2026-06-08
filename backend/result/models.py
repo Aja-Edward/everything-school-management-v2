@@ -90,7 +90,8 @@ _ADMIN_ROLES: frozenset[str] = frozenset(
     }
 )
 
-_DEFAULT_GRADE_THRESHOLDS = ((70, "A"), (60, "B"), (50, "C"), (45, "D"), (39, "E"))
+_DEFAULT_GRADE_THRESHOLDS = (
+    (70, "A"), (60, "B"), (50, "C"), (45, "D"), (39, "E"))
 
 
 def _default_grade(percentage: float) -> str:
@@ -127,7 +128,8 @@ class GradingSystem(TenantMixin, models.Model):
     grading_type = models.CharField(max_length=20, choices=GRADING_TYPES)
     description = models.TextField(blank=True)
     min_score = models.DecimalField(max_digits=5, decimal_places=2, default=0)
-    max_score = models.DecimalField(max_digits=5, decimal_places=2, default=100)
+    max_score = models.DecimalField(
+        max_digits=5, decimal_places=2, default=100)
     pass_mark = models.DecimalField(max_digits=5, decimal_places=2, default=40)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -183,7 +185,8 @@ class Grade(TenantMixin, models.Model):
 
     def clean(self):
         if self.min_score >= self.max_score:
-            raise ValidationError("Minimum score must be less than maximum score")
+            raise ValidationError(
+                "Minimum score must be less than maximum score")
 
 
 # ============================================================
@@ -245,7 +248,8 @@ class AssessmentComponent(TenantMixin, models.Model):
         db_table = "results_assessment_component"
         unique_together = [["tenant", "education_level", "code"]]
         ordering = ["display_order", "name"]
-        indexes = [models.Index(fields=["tenant", "education_level", "is_active"])]
+        indexes = [models.Index(
+            fields=["tenant", "education_level", "is_active"])]
 
     def __str__(self):
         return f"{self.name} (max {self.max_score}) — {self.education_level.name}"
@@ -697,7 +701,8 @@ class BaseResult(models.Model):
     # Subclasses set this to their ComponentScore FK name, e.g. "senior_result"
     RESULT_FK_NAME: str = ""
 
-    total_score = models.DecimalField(max_digits=7, decimal_places=2, default=0)
+    total_score = models.DecimalField(
+        max_digits=7, decimal_places=2, default=0)
     ca_total = models.DecimalField(max_digits=7, decimal_places=2, default=0)
     percentage = models.DecimalField(
         max_digits=5,
@@ -720,8 +725,10 @@ class BaseResult(models.Model):
     lowest_in_class = models.DecimalField(
         max_digits=5, decimal_places=2, default=0, null=True, blank=True
     )
-    subject_position = models.PositiveIntegerField(null=True, blank=True, db_index=True)
-    status = models.CharField(max_length=20, choices=_RESULT_STATUS, default="DRAFT")
+    subject_position = models.PositiveIntegerField(
+        null=True, blank=True, db_index=True)
+    status = models.CharField(
+        max_length=20, choices=_RESULT_STATUS, default="DRAFT")
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -747,8 +754,10 @@ class BaseResult(models.Model):
         self.ca_total = ca_sum
         self.total_score = total_sum
         gs = getattr(self, "grading_system", None)
-        max_score = Decimal(gs.max_score) if gs and gs.max_score else Decimal(100)
-        self.percentage = (total_sum / max_score * 100) if max_score > 0 else Decimal(0)
+        max_score = Decimal(
+            gs.max_score) if gs and gs.max_score else Decimal(100)
+        self.percentage = (total_sum / max_score *
+                           100) if max_score > 0 else Decimal(0)
 
     def determine_grade(self):
         """
@@ -825,7 +834,8 @@ class BaseResult(models.Model):
         Raises PermissionDenied if user is not authorised.
         """
         if not _is_admin(user):
-            raise PermissionDenied("Only admin-level users can bulk-approve results.")
+            raise PermissionDenied(
+                "Only admin-level users can bulk-approve results.")
         now = timezone.now()
         with transaction.atomic():
             return queryset.filter(status="DRAFT").update(
@@ -842,7 +852,8 @@ class BaseResult(models.Model):
         Only admin roles may call this.
         """
         if not _is_admin(user):
-            raise PermissionDenied("Only admin-level users can bulk-publish results.")
+            raise PermissionDenied(
+                "Only admin-level users can bulk-publish results.")
         now = timezone.now()
         with transaction.atomic():
             return queryset.filter(status="APPROVED").update(
@@ -911,11 +922,13 @@ class BaseResult(models.Model):
                 cs_rows,
                 update_conflicts=True,
                 update_fields=["score"],
-                unique_fields=[result_fk_field.replace("_id", ""), "component"],
+                unique_fields=[result_fk_field.replace(
+                    "_id", ""), "component"],
             )
             # Recalculate all affected result rows.
             affected_ids = {e["result_id"] for e in entries}
-            cls._bulk_recalculate_scores(cls.objects.filter(pk__in=affected_ids))
+            cls._bulk_recalculate_scores(
+                cls.objects.filter(pk__in=affected_ids))
         return len(cs_rows)
 
     @classmethod
@@ -958,9 +971,11 @@ class BaseResult(models.Model):
             result.total_score = totals[0]
             result.ca_total = totals[1]
             gs = result.grading_system
-            max_score = Decimal(gs.max_score) if gs and gs.max_score else Decimal(100)
+            max_score = Decimal(
+                gs.max_score) if gs and gs.max_score else Decimal(100)
             result.percentage = (
-                (result.total_score / max_score * 100) if max_score > 0 else Decimal(0)
+                (result.total_score / max_score *
+                 100) if max_score > 0 else Decimal(0)
             )
             # Reuse the in-memory determine_grade logic.
             result.determine_grade()
@@ -1099,7 +1114,8 @@ class BaseTermReport(models.Model):
         try:
             teacher = Teacher.objects.select_related("user").get(user=user)
             enrollment = (
-                StudentEnrollment.objects.filter(student=self.student, is_active=True)
+                StudentEnrollment.objects.filter(
+                    student=self.student, is_active=True)
                 .select_related("classroom__class_teacher")
                 .first()
             )
@@ -1138,14 +1154,16 @@ class BaseTermReport(models.Model):
     def approve(self, user):
         """Advance a DRAFT report to APPROVED (single-record)."""
         if not self.can_edit_head_teacher_remark(user):
-            raise PermissionDenied("Only admin-level users may approve reports.")
+            raise PermissionDenied(
+                "Only admin-level users may approve reports.")
         if self.status == "DRAFT":
             now = timezone.now()
             self.status = "APPROVED"
             self.approved_by = user  # subclasses must have this field
             self.approved_date = now
             self.save(
-                update_fields=["status", "approved_by", "approved_date", "updated_at"]
+                update_fields=["status", "approved_by",
+                               "approved_date", "updated_at"]
             )
 
     def publish(self, user=None):
@@ -1161,7 +1179,8 @@ class BaseTermReport(models.Model):
     def bulk_approve(cls, queryset, user):
         """Approve all DRAFT reports in *queryset* in a single UPDATE."""
         if not _is_admin(user):
-            raise PermissionDenied("Only admin-level users can bulk-approve reports.")
+            raise PermissionDenied(
+                "Only admin-level users can bulk-approve reports.")
         now = timezone.now()
         with transaction.atomic():
             return queryset.filter(status="DRAFT").update(
@@ -1175,7 +1194,8 @@ class BaseTermReport(models.Model):
     def bulk_publish(cls, queryset, user):
         """Publish all APPROVED reports in *queryset* in a single UPDATE."""
         if not _is_admin(user):
-            raise PermissionDenied("Only admin-level users can bulk-publish reports.")
+            raise PermissionDenied(
+                "Only admin-level users can bulk-publish reports.")
         now = timezone.now()
         with transaction.atomic():
             return queryset.filter(status="APPROVED").update(
@@ -1249,8 +1269,10 @@ class BaseTermReport(models.Model):
 class TermReportFields(models.Model):
     """Shared fields on all four term report models (except Nursery)."""
 
-    total_score = models.DecimalField(max_digits=8, decimal_places=2, default=0)
-    average_score = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    total_score = models.DecimalField(
+        max_digits=8, decimal_places=2, default=0)
+    average_score = models.DecimalField(
+        max_digits=5, decimal_places=2, default=0)
     overall_grade = models.CharField(max_length=5, blank=True)
     class_position = models.PositiveIntegerField(null=True, blank=True)
     total_students = models.PositiveIntegerField(default=0)
@@ -1272,7 +1294,8 @@ class TermReportFields(models.Model):
         related_name="+",  # each concrete model overrides via explicit FK
     )
     approved_date = models.DateTimeField(null=True, blank=True)
-    status = models.CharField(max_length=20, choices=_RESULT_STATUS, default="DRAFT")
+    status = models.CharField(
+        max_length=20, choices=_RESULT_STATUS, default="DRAFT")
     is_published = models.BooleanField(default=False)
     published_date = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1320,7 +1343,8 @@ class TermReportFields(models.Model):
                 .first()
             )
             gs = first.grading_system if first else None
-            self.overall_grade = self._grade_for_percentage(self.average_score, gs)
+            self.overall_grade = self._grade_for_percentage(
+                self.average_score, gs)
 
         self.save(
             update_fields=[
@@ -1346,15 +1370,18 @@ class TermReportFields(models.Model):
             .annotate(
                 _total=Sum(
                     "subject_results__total_score",
-                    filter=Q(subject_results__status__in=("APPROVED", "PUBLISHED")),
+                    filter=Q(subject_results__status__in=(
+                        "APPROVED", "PUBLISHED")),
                 ),
                 _avg=Avg(
                     "subject_results__percentage",
-                    filter=Q(subject_results__status__in=("APPROVED", "PUBLISHED")),
+                    filter=Q(subject_results__status__in=(
+                        "APPROVED", "PUBLISHED")),
                 ),
                 _count=Count(
                     "subject_results__id",
-                    filter=Q(subject_results__status__in=("APPROVED", "PUBLISHED")),
+                    filter=Q(subject_results__status__in=(
+                        "APPROVED", "PUBLISHED")),
                 ),
             )
             .values("pk", "_total", "_avg", "_count")
@@ -1362,7 +1389,8 @@ class TermReportFields(models.Model):
         agg_map = {row["pk"]: row for row in agg_qs}
 
         reports = list(
-            queryset.only("pk", "total_score", "average_score", "overall_grade")
+            queryset.only("pk", "total_score",
+                          "average_score", "overall_grade")
         )
         for r in reports:
             row = agg_map.get(r.pk, {})
@@ -1406,8 +1434,10 @@ class BaseSessionReport(BaseTermReport, models.Model):
             "class_position} dicts, one per completed term, ordered by term."
         ),
     )
-    overall_total = models.DecimalField(max_digits=8, decimal_places=2, default=0)
-    overall_average = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    overall_total = models.DecimalField(
+        max_digits=8, decimal_places=2, default=0)
+    overall_average = models.DecimalField(
+        max_digits=5, decimal_places=2, default=0)
     overall_grade = models.CharField(max_length=5, blank=True)
     overall_position = models.PositiveIntegerField(null=True, blank=True)
     total_students = models.PositiveIntegerField(default=0)
@@ -1426,7 +1456,8 @@ class BaseSessionReport(BaseTermReport, models.Model):
         related_name="+",
     )
     approved_date = models.DateTimeField(null=True, blank=True)
-    status = models.CharField(max_length=20, choices=_RESULT_STATUS, default="DRAFT")
+    status = models.CharField(
+        max_length=20, choices=_RESULT_STATUS, default="DRAFT")
     is_published = models.BooleanField(default=False)
     published_date = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1488,8 +1519,10 @@ class BaseSessionReport(BaseTermReport, models.Model):
             term_count += 1
 
         self.term_totals = totals
-        self.overall_total = sum(Decimal(str(t["total_score"])) for t in totals)
-        self.overall_average = overall_sum / term_count if term_count else Decimal(0)
+        self.overall_total = sum(
+            Decimal(str(t["total_score"])) for t in totals)
+        self.overall_average = overall_sum / \
+            term_count if term_count else Decimal(0)
         self.overall_grade = _default_grade(float(self.overall_average))
         self.save(
             update_fields=[
@@ -1514,7 +1547,8 @@ class BaseSessionReport(BaseTermReport, models.Model):
             peers.filter(overall_average__gt=self.overall_average).count() + 1
         )
         self.total_students = peers.count() + 1
-        self.save(update_fields=["overall_position", "total_students", "updated_at"])
+        self.save(update_fields=["overall_position",
+                  "total_students", "updated_at"])
 
     @classmethod
     def bulk_recalculate_positions(
@@ -2196,7 +2230,8 @@ class NurseryTermReport(TenantMixin, BaseTermReport, models.Model):
         related_name="nursery_term_reports",
     )
     total_subjects = models.PositiveIntegerField(default=0)
-    total_max_marks = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    total_max_marks = models.DecimalField(
+        max_digits=8, decimal_places=2, default=0)
     total_marks_obtained = models.DecimalField(
         max_digits=8, decimal_places=2, default=0
     )
@@ -2242,7 +2277,8 @@ class NurseryTermReport(TenantMixin, BaseTermReport, models.Model):
     class_teacher_signed_at = models.DateTimeField(blank=True, null=True)
     head_teacher_signature = models.URLField(blank=True, null=True)
     head_teacher_signed_at = models.DateTimeField(blank=True, null=True)
-    status = models.CharField(max_length=20, choices=_RESULT_STATUS, default="DRAFT")
+    status = models.CharField(
+        max_length=20, choices=_RESULT_STATUS, default="DRAFT")
     is_published = models.BooleanField(default=False)
     approved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -2337,7 +2373,8 @@ class NurseryTermReport(TenantMixin, BaseTermReport, models.Model):
                 .values("pk", "rank")
             )
             rank_map = {row["pk"]: row["rank"] for row in ranked}
-            reports = list(qs.only("pk", "class_position", "total_students_in_class"))
+            reports = list(qs.only("pk", "class_position",
+                           "total_students_in_class"))
             for r in reports:
                 r.class_position = rank_map.get(r.pk)
                 r.total_students_in_class = total
@@ -2407,6 +2444,7 @@ class NurseryResult(TenantMixin, BaseResult, models.Model):
         validators=[MinValueValidator(0)],
     )
     academic_comment = models.TextField(blank=True)
+    teacher_remark = models.TextField(blank=True)
     entered_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -2471,11 +2509,13 @@ class NurseryResult(TenantMixin, BaseResult, models.Model):
             )
             if cs_qs.exists():
                 self.mark_obtained = sum(cs.score for cs in cs_qs)
-                self.max_marks_obtainable = sum(cs.component.max_score for cs in cs_qs)
+                self.max_marks_obtainable = sum(
+                    cs.component.max_score for cs in cs_qs)
         self.ca_total = Decimal(0)
         self.total_score = self.mark_obtained
         if self.max_marks_obtainable and self.max_marks_obtainable > 0:
-            self.percentage = (self.mark_obtained / self.max_marks_obtainable) * 100
+            self.percentage = (self.mark_obtained /
+                               self.max_marks_obtainable) * 100
         else:
             self.percentage = Decimal(0)
 
@@ -2589,7 +2629,8 @@ class StudentResult(TenantMixin, models.Model):
         default=0,
         validators=[MinValueValidator(0)],
     )
-    total_score = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    total_score = models.DecimalField(
+        max_digits=5, decimal_places=2, default=0)
     percentage = models.DecimalField(
         max_digits=5,
         decimal_places=2,
@@ -2600,7 +2641,8 @@ class StudentResult(TenantMixin, models.Model):
     grade_point = models.DecimalField(
         max_digits=3, decimal_places=2, null=True, blank=True
     )
-    status = models.CharField(max_length=20, choices=_RESULT_STATUS, default="DRAFT")
+    status = models.CharField(
+        max_length=20, choices=_RESULT_STATUS, default="DRAFT")
     is_passed = models.BooleanField(default=False)
     remarks = models.TextField(blank=True)
     entered_by = models.ForeignKey(
@@ -2633,7 +2675,8 @@ class StudentResult(TenantMixin, models.Model):
         exam = Decimal(self.exam_score or 0)
         self.total_score = ca + exam
         max_score = Decimal(self.grading_system.max_score or 100)
-        self.percentage = (self.total_score / max_score * 100) if max_score > 0 else 0
+        self.percentage = (self.total_score / max_score *
+                           100) if max_score > 0 else 0
         super().save(*args, **kwargs)
 
 
@@ -2657,8 +2700,10 @@ class StudentTermResult(TenantMixin, models.Model):
     total_subjects = models.PositiveIntegerField(default=0)
     subjects_passed = models.PositiveIntegerField(default=0)
     subjects_failed = models.PositiveIntegerField(default=0)
-    total_score = models.DecimalField(max_digits=8, decimal_places=2, default=0)
-    average_score = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    total_score = models.DecimalField(
+        max_digits=8, decimal_places=2, default=0)
+    average_score = models.DecimalField(
+        max_digits=5, decimal_places=2, default=0)
     gpa = models.DecimalField(max_digits=3, decimal_places=2, default=0)
     class_position = models.PositiveIntegerField(null=True, blank=True)
     total_students = models.PositiveIntegerField(default=0)
@@ -2667,7 +2712,8 @@ class StudentTermResult(TenantMixin, models.Model):
     next_term_begins = models.DateField(null=True, blank=True)
     class_teacher_remark = models.TextField(blank=True)
     head_teacher_remark = models.TextField(blank=True)
-    status = models.CharField(max_length=20, choices=_RESULT_STATUS, default="DRAFT")
+    status = models.CharField(
+        max_length=20, choices=_RESULT_STATUS, default="DRAFT")
     is_published = models.BooleanField(default=False)
     published_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -2737,10 +2783,14 @@ class ResultSheet(TenantMixin, models.Model):
     total_students = models.PositiveIntegerField(default=0)
     students_passed = models.PositiveIntegerField(default=0)
     students_failed = models.PositiveIntegerField(default=0)
-    class_average = models.DecimalField(max_digits=5, decimal_places=2, default=0)
-    highest_score = models.DecimalField(max_digits=5, decimal_places=2, default=0)
-    lowest_score = models.DecimalField(max_digits=5, decimal_places=2, default=0)
-    status = models.CharField(max_length=20, choices=_RESULT_STATUS, default="DRAFT")
+    class_average = models.DecimalField(
+        max_digits=5, decimal_places=2, default=0)
+    highest_score = models.DecimalField(
+        max_digits=5, decimal_places=2, default=0)
+    lowest_score = models.DecimalField(
+        max_digits=5, decimal_places=2, default=0)
+    status = models.CharField(
+        max_length=20, choices=_RESULT_STATUS, default="DRAFT")
     prepared_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
