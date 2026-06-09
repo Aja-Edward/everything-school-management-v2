@@ -152,6 +152,9 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
+  const isSeniorSecondary = (level: string) =>
+  level?.toLowerCase().replace(/\s+/g, '_') === 'senior_secondary';
+
   const set = (field: keyof FormData, value: string | null) =>
     setForm(p => ({ ...p, [field]: value as any }));
 
@@ -432,7 +435,13 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
                     onChange={e => {
                       const g = gradeLevels.find(x => String(x.id) === e.target.value);
                       console.log('Selected grade object:', g); // Check what education_level actually is
-                      setForm(p => ({ ...p, student_class: e.target.value, education_level: g?.education_level || '', section: '', stream: '' }));
+                      setForm(p => ({
+                      ...p,
+                      student_class: e.target.value,
+                      education_level: g?.education_level_name || '',  // store the name
+                      section: '',
+                      stream: '',
+                    }));
                     }}>
                     <option value="">{loadingGrades ? 'Loading…' : 'Select class'}</option>
                     {gradeLevels.map(g => <option key={g.id} value={g.id}>{g.name || g.display_name}</option>)}
