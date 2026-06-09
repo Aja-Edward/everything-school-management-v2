@@ -232,7 +232,8 @@ class GradingSystemCreateUpdateSerializer(serializers.ModelSerializer):
                 "Pass mark cannot be less than minimum score"
             )
         if data.get("pass_mark", 0) > data.get("max_score", 0):
-            raise serializers.ValidationError("Pass mark cannot exceed maximum score")
+            raise serializers.ValidationError(
+                "Pass mark cannot exceed maximum score")
         return data
 
     def create(self, validated_data):
@@ -299,7 +300,8 @@ class AssessmentComponentCreateUpdateSerializer(serializers.ModelSerializer):
 
     def validate_max_score(self, value):
         if value <= 0:
-            raise serializers.ValidationError("max_score must be greater than zero")
+            raise serializers.ValidationError(
+                "max_score must be greater than zero")
         return value
 
     def validate_code(self, value):
@@ -308,6 +310,18 @@ class AssessmentComponentCreateUpdateSerializer(serializers.ModelSerializer):
                 "code must contain only letters, numbers, hyphens, and underscores"
             )
         return value.lower()
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        if request and hasattr(request, "tenant"):
+            validated_data["tenant"] = request.tenant
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        request = self.context.get("request")
+        if request and hasattr(request, "tenant"):
+            validated_data["tenant"] = request.tenant
+        return super().update(instance, validated_data)
 
 
 # ============================================================
@@ -328,10 +342,12 @@ class ComponentScoreInputSerializer(serializers.Serializer):
 
     def validate(self, data):
         try:
-            component = AssessmentComponent.objects.get(id=data["component_id"])
+            component = AssessmentComponent.objects.get(
+                id=data["component_id"])
         except AssessmentComponent.DoesNotExist:
             raise serializers.ValidationError(
-                {"component_id": f"Component {data['component_id']} does not exist"}
+                {"component_id":
+                    f"Component {data['component_id']} does not exist"}
             )
         if not component.is_active:
             raise serializers.ValidationError(
@@ -388,7 +404,8 @@ class ResultComponentScoresSerializer(serializers.Serializer):
         }
         fk_name = _FK_MAP.get(type(result_instance))
         if not fk_name:
-            raise ValueError(f"Unsupported result type: {type(result_instance)}")
+            raise ValueError(
+                f"Unsupported result type: {type(result_instance)}")
 
         for item in self.validated_data["scores"]:
             ComponentScore.objects.update_or_create(
@@ -418,8 +435,10 @@ class ComponentScoreReadSerializer(serializers.ModelSerializer):
     Caller must: .select_related('component')
     """
 
-    component_name = serializers.CharField(source="component.name", read_only=True)
-    component_code = serializers.CharField(source="component.code", read_only=True)
+    component_name = serializers.CharField(
+        source="component.name", read_only=True)
+    component_code = serializers.CharField(
+        source="component.code", read_only=True)
     component_type = serializers.CharField(
         source="component.component_type", read_only=True
     )
@@ -537,7 +556,8 @@ class AssessmentTypeCreateUpdateSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         if data.get("weight_percentage", 0) > 100:
-            raise serializers.ValidationError("Weight percentage cannot exceed 100")
+            raise serializers.ValidationError(
+                "Weight percentage cannot exceed 100")
         return data
 
 
@@ -580,6 +600,18 @@ class ExamTypeCreateUpdateSerializer(serializers.ModelSerializer):
                 "code must contain only letters, numbers, hyphens, and underscores"
             )
         return value.lower()
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        if request and hasattr(request, "tenant"):
+            validated_data["tenant"] = request.tenant
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        request = self.context.get("request")
+        if request and hasattr(request, "tenant"):
+            validated_data["tenant"] = request.tenant
+        return super().update(instance, validated_data)
 
 
 # ============================================================
@@ -633,7 +665,8 @@ class ExamSessionCreateUpdateSerializer(serializers.ModelSerializer):
     def validate(self, data):
         if data.get("start_date") and data.get("end_date"):
             if data["start_date"] >= data["end_date"]:
-                raise serializers.ValidationError("Start date must be before end date")
+                raise serializers.ValidationError(
+                    "Start date must be before end date")
         return data
 
 
@@ -766,7 +799,8 @@ class BulkPublishSerializer(serializers.Serializer):
         error_messages={"min_length": "At least one ID is required."},
     )
     send_notifications = serializers.BooleanField(default=False)
-    notification_message = serializers.CharField(required=False, allow_blank=True)
+    notification_message = serializers.CharField(
+        required=False, allow_blank=True)
 
     def validate_result_ids(self, value):
         if len(value) != len({str(v) for v in value}):
@@ -801,7 +835,8 @@ class SingleApproveSerializer(serializers.Serializer):
     An optional comment is accepted for audit logging purposes.
     """
 
-    comment = serializers.CharField(required=False, allow_blank=True, default="")
+    comment = serializers.CharField(
+        required=False, allow_blank=True, default="")
 
 
 class BulkRecordEntrySerializer(serializers.Serializer):
@@ -818,10 +853,12 @@ class BulkRecordEntrySerializer(serializers.Serializer):
 
     def validate(self, data):
         try:
-            component = AssessmentComponent.objects.get(id=data["component_id"])
+            component = AssessmentComponent.objects.get(
+                id=data["component_id"])
         except AssessmentComponent.DoesNotExist:
             raise serializers.ValidationError(
-                {"component_id": f"Component {data['component_id']} does not exist"}
+                {"component_id":
+                    f"Component {data['component_id']} does not exist"}
             )
         if not component.is_active:
             raise serializers.ValidationError(
@@ -897,7 +934,8 @@ class SeniorSecondaryResultSerializer(serializers.ModelSerializer):
     exam_session = ExamSessionSerializer(read_only=True)
     grading_system = GradingSystemSerializer(read_only=True)
 
-    student_name = serializers.CharField(source="student.full_name", read_only=True)
+    student_name = serializers.CharField(
+        source="student.full_name", read_only=True)
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     stream_name = serializers.CharField(
         source="stream.name", read_only=True, allow_null=True
@@ -905,7 +943,8 @@ class SeniorSecondaryResultSerializer(serializers.ModelSerializer):
     stream_type = serializers.CharField(
         source="stream.stream_type_new.name", read_only=True, allow_null=True
     )
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    status_display = serializers.CharField(
+        source="get_status_display", read_only=True)
     entered_by_name = serializers.CharField(
         source="entered_by.get_full_name", read_only=True, allow_null=True
     )
@@ -913,7 +952,8 @@ class SeniorSecondaryResultSerializer(serializers.ModelSerializer):
         source="approved_by.get_full_name", read_only=True, allow_null=True
     )
     component_scores = ComponentScoreReadSerializer(many=True, read_only=True)
-    ca_total = serializers.DecimalField(read_only=True, max_digits=7, decimal_places=2)
+    ca_total = serializers.DecimalField(
+        read_only=True, max_digits=7, decimal_places=2)
     position = serializers.SerializerMethodField()
 
     class Meta:
@@ -1038,11 +1078,13 @@ class SeniorSecondaryTermReportSerializer(
     stream_type = serializers.CharField(
         source="stream.stream_type_new.name", read_only=True, allow_null=True
     )
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    status_display = serializers.CharField(
+        source="get_status_display", read_only=True)
     approved_by_name = serializers.CharField(
         source="approved_by.get_full_name", read_only=True, allow_null=True
     )
-    subject_results = SeniorSecondaryResultSerializer(many=True, read_only=True)
+    subject_results = SeniorSecondaryResultSerializer(
+        many=True, read_only=True)
 
     class Meta:
         model = SeniorSecondaryTermReport
@@ -1103,7 +1145,8 @@ class SeniorSecondarySessionReportSerializer(
     stream_name = serializers.CharField(
         source="stream.name", read_only=True, allow_null=True
     )
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    status_display = serializers.CharField(
+        source="get_status_display", read_only=True)
     term_totals = serializers.JSONField(read_only=True)
     overall_position_formatted = serializers.SerializerMethodField()
     approved_by_name = serializers.CharField(
@@ -1170,8 +1213,10 @@ class JuniorSecondaryResultSerializer(serializers.ModelSerializer):
     exam_session = ExamSessionSerializer(read_only=True)
     grading_system = GradingSystemSerializer(read_only=True)
     component_scores = ComponentScoreReadSerializer(many=True, read_only=True)
-    ca_total = serializers.DecimalField(read_only=True, max_digits=7, decimal_places=2)
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    ca_total = serializers.DecimalField(
+        read_only=True, max_digits=7, decimal_places=2)
+    status_display = serializers.CharField(
+        source="get_status_display", read_only=True)
     entered_by_name = serializers.CharField(
         source="entered_by.get_full_name", read_only=True, allow_null=True
     )
@@ -1287,11 +1332,13 @@ class JuniorSecondaryTermReportSerializer(
 
     student = StudentMinimalSerializer(read_only=True)
     exam_session = ExamSessionSerializer(read_only=True)
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    status_display = serializers.CharField(
+        source="get_status_display", read_only=True)
     approved_by_name = serializers.CharField(
         source="approved_by.get_full_name", read_only=True, allow_null=True
     )
-    subject_results = JuniorSecondaryResultSerializer(many=True, read_only=True)
+    subject_results = JuniorSecondaryResultSerializer(
+        many=True, read_only=True)
 
     class Meta:
         model = JuniorSecondaryTermReport
@@ -1345,7 +1392,8 @@ class JuniorSecondarySessionReportSerializer(
 
     student = StudentMinimalSerializer(read_only=True)
     academic_session = AcademicSessionMinimalSerializer(read_only=True)
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    status_display = serializers.CharField(
+        source="get_status_display", read_only=True)
     term_totals = serializers.JSONField(read_only=True)
     overall_position_formatted = serializers.SerializerMethodField()
     approved_by_name = serializers.CharField(
@@ -1411,8 +1459,10 @@ class PrimaryResultSerializer(serializers.ModelSerializer):
     exam_session = ExamSessionSerializer(read_only=True)
     grading_system = GradingSystemSerializer(read_only=True)
     component_scores = ComponentScoreReadSerializer(many=True, read_only=True)
-    ca_total = serializers.DecimalField(read_only=True, max_digits=7, decimal_places=2)
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    ca_total = serializers.DecimalField(
+        read_only=True, max_digits=7, decimal_places=2)
+    status_display = serializers.CharField(
+        source="get_status_display", read_only=True)
     entered_by_name = serializers.CharField(
         source="entered_by.get_full_name", read_only=True, allow_null=True
     )
@@ -1524,7 +1574,8 @@ class PrimaryTermReportSerializer(_RemarkPermissionMixin, serializers.ModelSeria
 
     student = StudentMinimalSerializer(read_only=True)
     exam_session = ExamSessionSerializer(read_only=True)
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    status_display = serializers.CharField(
+        source="get_status_display", read_only=True)
     approved_by_name = serializers.CharField(
         source="approved_by.get_full_name", read_only=True, allow_null=True
     )
@@ -1582,7 +1633,8 @@ class PrimarySessionReportSerializer(
 
     student = StudentMinimalSerializer(read_only=True)
     academic_session = AcademicSessionMinimalSerializer(read_only=True)
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    status_display = serializers.CharField(
+        source="get_status_display", read_only=True)
     term_totals = serializers.JSONField(read_only=True)
     overall_position_formatted = serializers.SerializerMethodField()
     approved_by_name = serializers.CharField(
@@ -1652,8 +1704,10 @@ class NurseryResultSerializer(serializers.ModelSerializer):
     exam_session = ExamSessionSerializer(read_only=True)
     grading_system = GradingSystemSerializer(read_only=True)
     component_scores = ComponentScoreReadSerializer(many=True, read_only=True)
-    ca_total = serializers.DecimalField(read_only=True, max_digits=7, decimal_places=2)
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    ca_total = serializers.DecimalField(
+        read_only=True, max_digits=7, decimal_places=2)
+    status_display = serializers.CharField(
+        source="get_status_display", read_only=True)
     entered_by_name = serializers.CharField(
         source="entered_by.get_full_name", read_only=True, allow_null=True
     )
@@ -1829,7 +1883,8 @@ class NurseryTermReportSerializer(_RemarkPermissionMixin, serializers.ModelSeria
 
     student = StudentMinimalSerializer(read_only=True)
     exam_session = ExamSessionSerializer(read_only=True)
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    status_display = serializers.CharField(
+        source="get_status_display", read_only=True)
     approved_by_name = serializers.CharField(
         source="approved_by.get_full_name", read_only=True, allow_null=True
     )
@@ -1838,7 +1893,8 @@ class NurseryTermReportSerializer(_RemarkPermissionMixin, serializers.ModelSeria
     physical_development_display = serializers.CharField(
         source="get_physical_development_display", read_only=True
     )
-    health_display = serializers.CharField(source="get_health_display", read_only=True)
+    health_display = serializers.CharField(
+        source="get_health_display", read_only=True)
     cleanliness_display = serializers.CharField(
         source="get_cleanliness_display", read_only=True
     )
@@ -1908,7 +1964,8 @@ class NurserySessionReportSerializer(
 
     student = StudentMinimalSerializer(read_only=True)
     academic_session = AcademicSessionMinimalSerializer(read_only=True)
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    status_display = serializers.CharField(
+        source="get_status_display", read_only=True)
     term_totals = serializers.JSONField(read_only=True)
     overall_position_formatted = serializers.SerializerMethodField()
     approved_by_name = serializers.CharField(
@@ -1986,7 +2043,8 @@ class StudentResultSerializer(serializers.ModelSerializer):
     grading_system = GradingSystemSerializer(read_only=True)
     assessment_scores = AssessmentScoreSerializer(many=True, read_only=True)
     comments = ResultCommentSerializer(many=True, read_only=True)
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    status_display = serializers.CharField(
+        source="get_status_display", read_only=True)
 
     class Meta:
         model = StudentResult
@@ -2093,7 +2151,8 @@ class StudentTermResultSerializer(serializers.ModelSerializer):
     academic_session = AcademicSessionSerializer(read_only=True)
     comments = ResultCommentSerializer(many=True, read_only=True)
     term_display = serializers.SerializerMethodField()
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    status_display = serializers.CharField(
+        source="get_status_display", read_only=True)
     subject_results = serializers.SerializerMethodField()
 
     class Meta:
@@ -2128,7 +2187,8 @@ class StudentTermResultDetailSerializer(serializers.ModelSerializer):
     subject_results = serializers.SerializerMethodField()
     comments = ResultCommentSerializer(many=True, read_only=True)
     term_display = serializers.SerializerMethodField()
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    status_display = serializers.CharField(
+        source="get_status_display", read_only=True)
 
     class Meta:
         model = StudentTermResult
@@ -2197,7 +2257,8 @@ class ResultSheetSerializer(serializers.ModelSerializer):
         read_only=True,
         allow_null=True,
     )
-    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    status_display = serializers.CharField(
+        source="get_status_display", read_only=True)
 
     class Meta:
         model = ResultSheet
@@ -2261,7 +2322,8 @@ class StatusTransitionSerializer(serializers.Serializer):
     View must pass context['instance'] for transition validation.
     """
 
-    status = serializers.ChoiceField(choices=["DRAFT", "APPROVED", "PUBLISHED"])
+    status = serializers.ChoiceField(
+        choices=["DRAFT", "APPROVED", "PUBLISHED"])
     comment = serializers.CharField(required=False, allow_blank=True)
 
     def validate_status(self, value):
@@ -2328,7 +2390,8 @@ class BulkReportGenerationSerializer(serializers.Serializer):
         source="education_level",
     )
     stream_id = serializers.IntegerField(required=False, allow_null=True)
-    report_type = serializers.ChoiceField(choices=["TERM_REPORT", "SESSION_REPORT"])
+    report_type = serializers.ChoiceField(
+        choices=["TERM_REPORT", "SESSION_REPORT"])
     format = serializers.ChoiceField(choices=["PDF", "EXCEL"], default="PDF")
 
     def validate_exam_session_id(self, value):
@@ -2348,7 +2411,8 @@ class ResultImportSerializer(serializers.Serializer):
 
     def validate_file(self, value):
         if not value.name.endswith((".csv", ".xlsx", ".xls")):
-            raise serializers.ValidationError("Only CSV and Excel files are supported")
+            raise serializers.ValidationError(
+                "Only CSV and Excel files are supported")
         return value
 
 
@@ -2356,7 +2420,8 @@ class ResultExportSerializer(serializers.Serializer):
     exam_session_id = serializers.UUIDField()
     education_level = serializers.CharField(required=False, allow_blank=True)
     student_class = serializers.CharField(required=False, allow_blank=True)
-    format = serializers.ChoiceField(choices=["CSV", "EXCEL", "PDF"], default="EXCEL")
+    format = serializers.ChoiceField(
+        choices=["CSV", "EXCEL", "PDF"], default="EXCEL")
     include_statistics = serializers.BooleanField(default=True)
     include_comments = serializers.BooleanField(default=False)
 
@@ -2389,7 +2454,8 @@ class TeacherRemarkUpdateSerializer(serializers.Serializer):
 
     def validate_class_teacher_remark(self, value):
         if len(value.strip()) < 50:
-            raise serializers.ValidationError("Remark must be at least 50 characters")
+            raise serializers.ValidationError(
+                "Remark must be at least 50 characters")
         return value.strip()
 
 
@@ -2398,7 +2464,8 @@ class HeadTeacherRemarkUpdateSerializer(serializers.Serializer):
 
     def validate_head_teacher_remark(self, value):
         if len(value.strip()) < 50:
-            raise serializers.ValidationError("Remark must be at least 50 characters")
+            raise serializers.ValidationError(
+                "Remark must be at least 50 characters")
         return value.strip()
 
 
@@ -2407,9 +2474,11 @@ class SignatureUploadSerializer(serializers.Serializer):
 
     def validate_signature_image(self, value):
         if value.size > 2 * 1024 * 1024:
-            raise serializers.ValidationError("Signature image must be less than 2MB")
+            raise serializers.ValidationError(
+                "Signature image must be less than 2MB")
         if value.content_type not in ("image/png", "image/jpeg", "image/jpg"):
-            raise serializers.ValidationError("Only PNG and JPEG images are allowed")
+            raise serializers.ValidationError(
+                "Only PNG and JPEG images are allowed")
         return value
 
 

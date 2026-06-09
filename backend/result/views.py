@@ -200,7 +200,8 @@ def get_next_term_begins_date(exam_session):
         )
         if next_session:
             first_term = (
-                Term.objects.filter(academic_session=next_session, is_active=True)
+                Term.objects.filter(
+                    academic_session=next_session, is_active=True)
                 .order_by("term_type__display_order")
                 .first()
             )
@@ -225,7 +226,8 @@ def _validate_component_scores(scores_data, education_level):
         cid = entry.get("component_id")
         score = entry.get("score")
         if cid is None or score is None:
-            errors.append("Each score entry must have 'component_id' and 'score'")
+            errors.append(
+                "Each score entry must have 'component_id' and 'score'")
             continue
         if cid in seen_ids:
             errors.append(f"Duplicate component_id {cid}")
@@ -237,7 +239,8 @@ def _validate_component_scores(scores_data, education_level):
             errors.append(f"AssessmentComponent {cid} does not exist")
             continue
         if not component.is_active:
-            errors.append(f"Component '{component.name}' (id={cid}) is not active")
+            errors.append(
+                f"Component '{component.name}' (id={cid}) is not active")
             continue
         try:
             score_decimal = Decimal(str(score))
@@ -272,7 +275,8 @@ def _calculate_nursery_scores(instance):
             instance.grade = (
                 grade if grade else _default_grade(float(instance.percentage))
             )
-            instance.is_passed = float(instance.percentage) >= float(gs.pass_mark or 40)
+            instance.is_passed = float(
+                instance.percentage) >= float(gs.pass_mark or 40)
         except Exception as exc:
             logger.error("Error grading nursery instance: %s", exc)
             from .models import _default_grade
@@ -310,7 +314,8 @@ def _auto_remark(grade: str, score, grading_system_id=None) -> str:
                     return row.description
             # Match by score range as fallback
             if score is not None:
-                row = qs.filter(min_score__lte=score, max_score__gte=score).first()
+                row = qs.filter(min_score__lte=score,
+                                max_score__gte=score).first()
                 if row and row.remark:
                     return row.remark
                 if row and row.description:
@@ -531,9 +536,15 @@ class AssessmentComponentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         except (ValueError, TypeError):
             qs = self.get_queryset().filter(education_level__level_type=param.upper())
         return Response(
-            AssessmentComponentSerializer(qs.filter(is_active=True), many=True).data
+            AssessmentComponentSerializer(
+                qs.filter(is_active=True), many=True).data
         )
 
+    def perform_create(self, serializer):
+        serializer.save(tenant=self.request.tenant)
+
+    def perform_update(self, serializer):
+        serializer.save(tenant=self.request.tenant)
 
 # ── Assessment Type ───────────────────────────────────────────────────────────
 
@@ -583,7 +594,13 @@ class ExamTypeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         et = self.get_object()
         et.is_active = False
         et.save(update_fields=["is_active", "updated_at"])
-        return Response(ExamTypeSerializer(et).data)
+        return Response(ExamTypeSerializer(et).data),
+
+    def perform_create(self, serializer):
+        serializer.save(tenant=self.request.tenant)
+
+    def perform_update(self, serializer):
+        serializer.save(tenant=self.request.tenant)
 
 
 # ── Exam Session ──────────────────────────────────────────────────────────────
@@ -654,7 +671,8 @@ class ScoringConfigurationViewSet(
     queryset = ScoringConfiguration.objects.all().order_by("education_level", "name")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ["education_level", "result_type", "is_active", "is_default"]
+    filterset_fields = ["education_level",
+                        "result_type", "is_active", "is_default"]
     search_fields = ["name", "description"]
 
     def get_serializer_class(self):
@@ -801,7 +819,8 @@ class BaseResultViewSetMixin:
                 serializer.is_valid(raise_exception=True)
                 result = serializer.save()
                 return Response(
-                    result_serializer_class(result, context={"request": request}).data,
+                    result_serializer_class(
+                        result, context={"request": request}).data,
                     status=status.HTTP_201_CREATED,
                 )
         except Student.DoesNotExist:
@@ -860,11 +879,13 @@ class BaseResultViewSetMixin:
             )
         ModelClass = type(result)
         education_level = self._get_education_level(ModelClass)
-        ModelClass.bulk_approve(ModelClass.objects.filter(pk=result.pk), request.user)
+        ModelClass.bulk_approve(
+            ModelClass.objects.filter(pk=result.pk), request.user)
         result.refresh_from_db()
         # Ensure the term report exists and has updated metrics.
         try:
-            self._ensure_term_reports_exist([result], ModelClass, education_level)
+            self._ensure_term_reports_exist(
+                [result], ModelClass, education_level)
         except Exception as e:
             logger.warning("Term report update after approve failed: %s", e)
         return Response(
@@ -891,11 +912,13 @@ class BaseResultViewSetMixin:
             )
         ModelClass = type(result)
         education_level = self._get_education_level(ModelClass)
-        ModelClass.bulk_publish(ModelClass.objects.filter(pk=result.pk), request.user)
+        ModelClass.bulk_publish(
+            ModelClass.objects.filter(pk=result.pk), request.user)
         result.refresh_from_db()
         # Ensure the term report exists and has updated metrics.
         try:
-            self._ensure_term_reports_exist([result], ModelClass, education_level)
+            self._ensure_term_reports_exist(
+                [result], ModelClass, education_level)
         except Exception as e:
             logger.warning("Term report update after publish failed: %s", e)
         return Response(
@@ -921,10 +944,12 @@ class BaseResultViewSetMixin:
         try:
             updated = serializer.save(result_instance=result)
             return Response(
-                self.get_serializer_class()(updated, context={"request": request}).data
+                self.get_serializer_class()(
+                    updated, context={"request": request}).data
             )
         except Exception as exc:
-            logger.error("Failed to save component scores: %s", exc, exc_info=True)
+            logger.error("Failed to save component scores: %s",
+                         exc, exc_info=True)
             return Response({"error": str(exc)}, status=400)
 
     # ── destroy — delegates to model can_delete ───────────────────────────────
@@ -937,7 +962,8 @@ class BaseResultViewSetMixin:
                 status=status.HTTP_403_FORBIDDEN,
             )
         with transaction.atomic():
-            subject_name = getattr(getattr(instance, "subject", None), "name", "N/A")
+            subject_name = getattr(
+                getattr(instance, "subject", None), "name", "N/A")
             student_name = getattr(instance.student, "full_name", "Unknown")
             instance.delete()
         return Response(
@@ -985,14 +1011,16 @@ class BaseResultViewSetMixin:
                 )
                 continue
 
-            score_errors = _validate_component_scores(scores_data, education_level)
+            score_errors = _validate_component_scores(
+                scores_data, education_level)
             if score_errors:
                 errors.append({"index": i, "errors": score_errors})
                 continue
 
             teacher_remark = item.get("teacher_remark", "")
             grading_system_id = item.get("grading_system")
-            validated.append((student_id, subject_id, exam_session_id, scores_data, teacher_remark, grading_system_id))
+            validated.append((student_id, subject_id, exam_session_id,
+                             scores_data, teacher_remark, grading_system_id))
 
         if errors:
             return _error_response("Validation failed. No scores were saved.", errors)
@@ -1013,14 +1041,16 @@ class BaseResultViewSetMixin:
                     # Use the provided ID first; fall back to the tenant's first active system.
                     if not grading_system_id:
                         from result.models import GradingSystem as GS
-                        default_gs = GS.objects.filter(is_active=True).order_by("id").first()
+                        default_gs = GS.objects.filter(
+                            is_active=True, tenant=request.tenant,).order_by("id").first()
                         grading_system_id = default_gs.id if default_gs else None
 
                     defaults = {}
                     if grading_system_id:
                         defaults["grading_system_id"] = grading_system_id
 
-                    result, _ = ModelClass.objects.get_or_create(**lookup, defaults=defaults)
+                    result, _ = ModelClass.objects.get_or_create(
+                        **lookup, defaults=defaults)
 
                     for s in scores_data:
                         component = AssessmentComponent.objects.get(
@@ -1060,12 +1090,16 @@ class BaseResultViewSetMixin:
                                 .filter(term_report_id=result.term_report_id)
                                 .values_list("total_score", flat=True)
                             )
-                            scores_f = [float(s or 0) for s in tr_scores if s is not None]
+                            scores_f = [float(s or 0)
+                                        for s in tr_scores if s is not None]
                             if scores_f:
-                                tr_avg   = round(sum(scores_f) / len(scores_f), 2)
+                                tr_avg = round(sum(scores_f) /
+                                               len(scores_f), 2)
                                 tr_total = round(sum(scores_f), 2)
-                                tr_model_name = ModelClass.__name__.replace("Result", "TermReport")
-                                TRModel = apps.get_model("result", tr_model_name)
+                                tr_model_name = ModelClass.__name__.replace(
+                                    "Result", "TermReport")
+                                TRModel = apps.get_model(
+                                    "result", tr_model_name)
                                 if education_level == "NURSERY":
                                     TRModel.objects.filter(pk=result.term_report_id).update(
                                         total_marks_obtained=tr_total,
@@ -1091,7 +1125,8 @@ class BaseResultViewSetMixin:
                 # report, back-fills any un-linked results, and calls
                 # term_report.calculate_metrics() so totals are correct.
                 try:
-                    self._ensure_term_reports_exist(saved_results, ModelClass, education_level)
+                    self._ensure_term_reports_exist(
+                        saved_results, ModelClass, education_level)
                 except Exception as tr_exc:
                     logger.warning(
                         "bulk_record_component_scores: _ensure_term_reports_exist failed: %s",
@@ -1099,10 +1134,12 @@ class BaseResultViewSetMixin:
                     )
 
             return Response(
-                {"message": f"Scores recorded for {count} result(s)", "count": count}
+                {"message":
+                    f"Scores recorded for {count} result(s)", "count": count}
             )
         except Exception as exc:
-            logger.error("bulk_record_component_scores failed: %s", exc, exc_info=True)
+            logger.error("bulk_record_component_scores failed: %s",
+                         exc, exc_info=True)
             return Response({"error": str(exc)}, status=400)
 
     # ── bulk_create ───────────────────────────────────────────────────────────
@@ -1132,7 +1169,8 @@ class BaseResultViewSetMixin:
             if pair in seen:
                 continue
             seen.add(pair)
-            defaults = {"status": DRAFT, "is_published": False, "tenant": obj.tenant}
+            defaults = {"status": DRAFT,
+                        "is_published": False, "tenant": obj.tenant}
             if ModelClass == SeniorSecondaryResult and getattr(obj, "stream", None):
                 defaults["stream"] = obj.stream
             term_report, _ = TermReportModel.objects.get_or_create(
@@ -1187,9 +1225,11 @@ class BaseResultViewSetMixin:
             item = dict(raw) if not isinstance(raw, dict) else raw.copy()
             scores_data = item.pop("scores", [])
 
-            serializer = CreateUpdateSerializer(data=item, context={"request": request})
+            serializer = CreateUpdateSerializer(
+                data=item, context={"request": request})
             if not serializer.is_valid():
-                errors.append({"index": i, "errors": serializer.errors, "data": item})
+                errors.append(
+                    {"index": i, "errors": serializer.errors, "data": item})
                 continue
 
             data = serializer.validated_data
@@ -1210,7 +1250,8 @@ class BaseResultViewSetMixin:
                 continue
             seen_keys.add(key)
 
-            score_errors = _validate_component_scores(scores_data, education_level)
+            score_errors = _validate_component_scores(
+                scores_data, education_level)
             if score_errors:
                 errors.append({"index": i, "errors": score_errors})
                 continue
@@ -1323,11 +1364,14 @@ class BaseResultViewSetMixin:
             # Ensure term reports exist and metrics are current.
             affected = list(ModelClass.objects.filter(pk__in=result_ids))
             try:
-                self._ensure_term_reports_exist(affected, ModelClass, education_level)
+                self._ensure_term_reports_exist(
+                    affected, ModelClass, education_level)
             except Exception as te:
-                logger.warning("Term report update after bulk_approve failed: %s", te)
+                logger.warning(
+                    "Term report update after bulk_approve failed: %s", te)
             return Response(
-                {"approved_count": count, "result_ids": [str(i) for i in result_ids]}
+                {"approved_count": count, "result_ids": [
+                    str(i) for i in result_ids]}
             )
         except PermissionError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_403_FORBIDDEN)
@@ -1353,11 +1397,14 @@ class BaseResultViewSetMixin:
             # Ensure term reports exist and metrics are current.
             affected = list(ModelClass.objects.filter(pk__in=result_ids))
             try:
-                self._ensure_term_reports_exist(affected, ModelClass, education_level)
+                self._ensure_term_reports_exist(
+                    affected, ModelClass, education_level)
             except Exception as te:
-                logger.warning("Term report update after bulk_publish failed: %s", te)
+                logger.warning(
+                    "Term report update after bulk_publish failed: %s", te)
             return Response(
-                {"published_count": count, "result_ids": [str(i) for i in result_ids]}
+                {"published_count": count, "result_ids": [
+                    str(i) for i in result_ids]}
             )
         except PermissionError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_403_FORBIDDEN)
@@ -1521,7 +1568,8 @@ class SeniorSecondaryTermReportViewSet(
     queryset = SeniorSecondaryTermReport.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ["student", "exam_session", "status", "is_published", "stream"]
+    filterset_fields = ["student", "exam_session",
+                        "status", "is_published", "stream"]
     search_fields = ["student__user__first_name", "student__user__last_name"]
 
     def get_serializer_class(self):
@@ -1564,7 +1612,8 @@ class SeniorSecondaryTermReportViewSet(
                         "approved_by",
                     ).prefetch_related(
                         "grading_system__grades",
-                        Prefetch("component_scores", queryset=_component_score_qs()),
+                        Prefetch("component_scores",
+                                 queryset=_component_score_qs()),
                     ),
                 )
             )
@@ -1588,7 +1637,8 @@ class SeniorSecondaryTermReportViewSet(
             )
         with transaction.atomic():
             SeniorSecondaryTermReport.bulk_approve(
-                SeniorSecondaryTermReport.objects.filter(pk=report.pk), request.user
+                SeniorSecondaryTermReport.objects.filter(
+                    pk=report.pk), request.user
             )
             results_updated = SeniorSecondaryResult.bulk_approve(
                 report.subject_results.filter(status=DRAFT), request.user
@@ -1674,10 +1724,12 @@ class SeniorSecondaryTermReportViewSet(
             return Response({"error": "Permission denied."}, status=403)
         with transaction.atomic():
             qs = SeniorSecondaryTermReport.objects.filter(pk__in=report_ids)
-            combos = list(qs.values_list("exam_session_id", "student__student_class").distinct())
+            combos = list(qs.values_list("exam_session_id",
+                          "student__student_class").distinct())
             count = SeniorSecondaryTermReport.bulk_publish(qs, request.user)
             result_count = SeniorSecondaryResult.bulk_publish(
-                SeniorSecondaryResult.objects.filter(term_report__in=report_ids),
+                SeniorSecondaryResult.objects.filter(
+                    term_report__in=report_ids),
                 request.user,
             )
             for r in SeniorSecondaryTermReport.objects.filter(pk__in=report_ids):
@@ -1731,7 +1783,8 @@ class SeniorSecondaryTermReportViewSet(
                 if subject_id and sc:
                     qs = SeniorSecondaryResult.objects.filter(
                         exam_session=exam_session, subject_id=subject_id,
-                        student__student_class=sc, status__in=(APPROVED, PUBLISHED),
+                        student__student_class=sc, status__in=(
+                            APPROVED, PUBLISHED),
                     )
                     SeniorSecondaryResult.bulk_recalculate_positions(qs)
             for sc in student_classes:
@@ -1814,7 +1867,8 @@ class SeniorSecondarySessionReportViewSet(
                 {"error": f"Cannot approve from status '{report.status}'."}, status=400
             )
         SeniorSecondarySessionReport.bulk_approve(
-            SeniorSecondarySessionReport.objects.filter(pk=report.pk), request.user
+            SeniorSecondarySessionReport.objects.filter(
+                pk=report.pk), request.user
         )
         report.refresh_from_db()
         return Response(
@@ -1854,7 +1908,8 @@ class JuniorSecondaryResultViewSet(
     queryset = JuniorSecondaryResult.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ["student", "subject", "exam_session", "status", "is_passed"]
+    filterset_fields = ["student", "subject",
+                        "exam_session", "status", "is_passed"]
     search_fields = [
         "student__user__first_name",
         "student__user__last_name",
@@ -1985,7 +2040,8 @@ class JuniorSecondaryTermReportViewSet(
                         "approved_by",
                     ).prefetch_related(
                         "grading_system__grades",
-                        Prefetch("component_scores", queryset=_component_score_qs()),
+                        Prefetch("component_scores",
+                                 queryset=_component_score_qs()),
                     ),
                 )
             )
@@ -2004,7 +2060,8 @@ class JuniorSecondaryTermReportViewSet(
             )
         with transaction.atomic():
             JuniorSecondaryTermReport.bulk_approve(
-                JuniorSecondaryTermReport.objects.filter(pk=report.pk), request.user
+                JuniorSecondaryTermReport.objects.filter(
+                    pk=report.pk), request.user
             )
             results_updated = JuniorSecondaryResult.bulk_approve(
                 report.subject_results.filter(status=DRAFT), request.user
@@ -2089,7 +2146,8 @@ class JuniorSecondaryTermReportViewSet(
             qs = JuniorSecondaryTermReport.objects.filter(
                 pk__in=ser.validated_data["result_ids"]
             )
-            combos = list(qs.values_list("exam_session_id", "student__student_class").distinct())
+            combos = list(qs.values_list("exam_session_id",
+                          "student__student_class").distinct())
             count = JuniorSecondaryTermReport.bulk_publish(qs, request.user)
             result_count = JuniorSecondaryResult.bulk_publish(
                 JuniorSecondaryResult.objects.filter(
@@ -2117,7 +2175,8 @@ class JuniorSecondaryTermReportViewSet(
         if not exam_session_id:
             return Response({"error": "exam_session is required."}, status=400)
         try:
-            exam_session = ExamSession.objects.get(pk=exam_session_id, tenant=request.tenant)
+            exam_session = ExamSession.objects.get(
+                pk=exam_session_id, tenant=request.tenant)
         except ExamSession.DoesNotExist:
             return Response({"error": "Exam session not found."}, status=404)
         student_classes = (
@@ -2144,7 +2203,8 @@ class JuniorSecondaryTermReportViewSet(
                 if subject_id and sc:
                     qs = JuniorSecondaryResult.objects.filter(
                         exam_session=exam_session, subject_id=subject_id,
-                        student__student_class=sc, status__in=(APPROVED, PUBLISHED),
+                        student__student_class=sc, status__in=(
+                            APPROVED, PUBLISHED),
                     )
                     JuniorSecondaryResult.bulk_recalculate_positions(qs)
             for sc in student_classes:
@@ -2166,7 +2226,8 @@ class JuniorSecondarySessionReportViewSet(
     queryset = JuniorSecondarySessionReport.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ["student", "academic_session", "status", "is_published"]
+    filterset_fields = ["student",
+                        "academic_session", "status", "is_published"]
     search_fields = ["student__user__first_name", "student__user__last_name"]
 
     def get_serializer_class(self):
@@ -2240,7 +2301,8 @@ class PrimaryResultViewSet(
     queryset = PrimaryResult.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ["student", "subject", "exam_session", "status", "is_passed"]
+    filterset_fields = ["student", "subject",
+                        "exam_session", "status", "is_passed"]
     search_fields = [
         "student__user__first_name",
         "student__user__last_name",
@@ -2374,7 +2436,8 @@ class PrimaryTermReportViewSet(
                         "published_by",
                     ).prefetch_related(
                         "grading_system__grades",
-                        Prefetch("component_scores", queryset=_component_score_qs()),
+                        Prefetch("component_scores",
+                                 queryset=_component_score_qs()),
                     ),
                 )
             )
@@ -2429,7 +2492,8 @@ class PrimaryTermReportViewSet(
                 published_date=now,
                 updated_at=now,
             )
-            PrimaryResult.bulk_publish(report.subject_results.all(), request.user)
+            PrimaryResult.bulk_publish(
+                report.subject_results.all(), request.user)
             report.refresh_from_db()
             report.calculate_metrics()
             if student_class_id:
@@ -2439,7 +2503,8 @@ class PrimaryTermReportViewSet(
                 )
         report.refresh_from_db()
         return Response(
-            PrimaryTermReportSerializer(report, context={"request": request}).data
+            PrimaryTermReportSerializer(
+                report, context={"request": request}).data
         )
 
     @action(detail=False, methods=["post"], url_path="bulk-approve")
@@ -2474,7 +2539,8 @@ class PrimaryTermReportViewSet(
             qs = PrimaryTermReport.objects.filter(
                 pk__in=ser.validated_data["result_ids"]
             )
-            combos = list(qs.values_list("exam_session_id", "student__student_class").distinct())
+            combos = list(qs.values_list("exam_session_id",
+                          "student__student_class").distinct())
             count = PrimaryTermReport.bulk_publish(qs, request.user)
             result_count = PrimaryResult.bulk_publish(
                 PrimaryResult.objects.filter(
@@ -2502,7 +2568,8 @@ class PrimaryTermReportViewSet(
         if not exam_session_id:
             return Response({"error": "exam_session is required."}, status=400)
         try:
-            exam_session = ExamSession.objects.get(pk=exam_session_id, tenant=request.tenant)
+            exam_session = ExamSession.objects.get(
+                pk=exam_session_id, tenant=request.tenant)
         except ExamSession.DoesNotExist:
             return Response({"error": "Exam session not found."}, status=404)
         student_classes = (
@@ -2529,7 +2596,8 @@ class PrimaryTermReportViewSet(
                 if subject_id and sc:
                     qs = PrimaryResult.objects.filter(
                         exam_session=exam_session, subject_id=subject_id,
-                        student__student_class=sc, status__in=(APPROVED, PUBLISHED),
+                        student__student_class=sc, status__in=(
+                            APPROVED, PUBLISHED),
                     )
                     PrimaryResult.bulk_recalculate_positions(qs)
             for sc in student_classes:
@@ -2551,7 +2619,8 @@ class PrimarySessionReportViewSet(
     queryset = PrimarySessionReport.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ["student", "academic_session", "status", "is_published"]
+    filterset_fields = ["student",
+                        "academic_session", "status", "is_published"]
     search_fields = ["student__user__first_name", "student__user__last_name"]
 
     def get_serializer_class(self):
@@ -2606,7 +2675,8 @@ class PrimarySessionReportViewSet(
             )
         report.publish(request.user)
         return Response(
-            PrimarySessionReportSerializer(report, context={"request": request}).data
+            PrimarySessionReportSerializer(
+                report, context={"request": request}).data
         )
 
 
@@ -2623,7 +2693,8 @@ class NurseryResultViewSet(
     queryset = NurseryResult.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ["student", "subject", "exam_session", "status", "is_passed"]
+    filterset_fields = ["student", "subject",
+                        "exam_session", "status", "is_passed"]
     search_fields = [
         "student__user__first_name",
         "student__user__last_name",
@@ -2668,11 +2739,13 @@ class NurseryResultViewSet(
                 serializer.is_valid(raise_exception=True)
                 result = serializer.save()
                 return Response(
-                    NurseryResultSerializer(result, context={"request": request}).data,
+                    NurseryResultSerializer(
+                        result, context={"request": request}).data,
                     status=201,
                 )
         except Exception as exc:
-            logger.error("Failed to create nursery result: %s", exc, exc_info=True)
+            logger.error("Failed to create nursery result: %s",
+                         exc, exc_info=True)
             return Response({"error": str(exc)}, status=400)
 
     def update(self, request, *args, **kwargs):
@@ -2701,7 +2774,8 @@ class NurseryResultViewSet(
                             )
                     except Student.DoesNotExist:
                         return Response({"error": "Student not found"}, status=404)
-                partial = kwargs.get("partial", False) or request.method == "PATCH"
+                partial = kwargs.get(
+                    "partial", False) or request.method == "PATCH"
                 serializer = self.get_serializer(
                     instance, data=request.data, partial=partial
                 )
@@ -2832,7 +2906,8 @@ class NurseryTermReportViewSet(
                     ).prefetch_related(
                         "grading_system__grades",
                         # NurseryResult now inherits BaseResult — component_scores exists.
-                        Prefetch("component_scores", queryset=_component_score_qs()),
+                        Prefetch("component_scores",
+                                 queryset=_component_score_qs()),
                     ),
                 )
             )
@@ -2955,7 +3030,8 @@ class NurseryTermReportViewSet(
         report_ids = ser.validated_data["result_ids"]
         with transaction.atomic():
             qs = NurseryTermReport.objects.filter(pk__in=report_ids)
-            combos = list(qs.values_list("exam_session_id", "student__student_class").distinct())
+            combos = list(qs.values_list("exam_session_id",
+                          "student__student_class").distinct())
             count = NurseryTermReport.bulk_publish(qs, request.user)
             # One UPDATE for all child results — no N+1 loop.
             result_count = NurseryResult.objects.filter(
@@ -2985,7 +3061,8 @@ class NurseryTermReportViewSet(
         if not exam_session_id:
             return Response({"error": "exam_session is required."}, status=400)
         try:
-            exam_session = ExamSession.objects.get(pk=exam_session_id, tenant=request.tenant)
+            exam_session = ExamSession.objects.get(
+                pk=exam_session_id, tenant=request.tenant)
         except ExamSession.DoesNotExist:
             return Response({"error": "Exam session not found."}, status=404)
         # Use exam_session (already tenant-scoped) to filter — avoids excluding
@@ -3021,7 +3098,8 @@ class NurseryTermReportViewSet(
             instance.subject_results.all().delete()
             instance.delete()
         return Response(
-            {"message": f"Deleted report and {subject_count} subject result(s)."},
+            {"message":
+                f"Deleted report and {subject_count} subject result(s)."},
             status=status.HTTP_204_NO_CONTENT,
         )
 
@@ -3035,7 +3113,8 @@ class NurserySessionReportViewSet(
     queryset = NurserySessionReport.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ["student", "academic_session", "status", "is_published"]
+    filterset_fields = ["student",
+                        "academic_session", "status", "is_published"]
     search_fields = ["student__user__first_name", "student__user__last_name"]
 
     def get_serializer_class(self):
@@ -3091,7 +3170,8 @@ class NurserySessionReportViewSet(
             )
         report.publish(request.user)
         return Response(
-            NurserySessionReportSerializer(report, context={"request": request}).data
+            NurserySessionReportSerializer(
+                report, context={"request": request}).data
         )
 
 
@@ -3126,7 +3206,8 @@ class StudentResultViewSet(
         )
         if self.request.user.is_authenticated:
             section_access = self.get_user_section_access()
-            education_levels = self.get_education_levels_for_sections(section_access)
+            education_levels = self.get_education_levels_for_sections(
+                section_access)
             if not education_levels:
                 return qs.none()
             qs = qs.filter(
@@ -3140,7 +3221,8 @@ class StudentResultViewSet(
                 serializer = self.get_serializer(data=request.data)
                 serializer.is_valid(raise_exception=True)
                 return Response(
-                    DetailedStudentResultSerializer(serializer.save()).data, status=201
+                    DetailedStudentResultSerializer(
+                        serializer.save()).data, status=201
                 )
         except Exception as exc:
             return Response({"error": str(exc)}, status=400)
@@ -3256,7 +3338,8 @@ class StudentTermResultViewSet(
         section_access = self.get_user_section_access()
         if not section_access:
             return qs.none()
-        education_levels = self.get_education_levels_for_sections(section_access)
+        education_levels = self.get_education_levels_for_sections(
+            section_access)
         if not education_levels:
             return qs.none()
         return qs.filter(
@@ -3416,7 +3499,8 @@ class ResultCommentViewSet(
     queryset = ResultComment.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["student_result", "term_result", "comment_type", "commented_by"]
+    filterset_fields = ["student_result",
+                        "term_result", "comment_type", "commented_by"]
 
     def get_serializer_class(self):
         if self.action in ("create", "update", "partial_update"):
@@ -3510,7 +3594,8 @@ class BulkResultOperationsViewSet(TenantFilterMixin, viewsets.ViewSet):
             return Response({"error": "Permission denied."}, status=403)
 
         result_ids = ser.validated_data["result_ids"]
-        send_notifications = ser.validated_data.get("send_notifications", False)
+        send_notifications = ser.validated_data.get(
+            "send_notifications", False)
         level = request.data.get("education_level", "").upper()
         model = _RESULT_MODEL_MAP.get(level)
         if not model:
@@ -3580,7 +3665,8 @@ class BulkResultOperationsViewSet(TenantFilterMixin, viewsets.ViewSet):
                         notifications_sent = len(msgs)
                         bulk_msg.sent_count = notifications_sent
                         bulk_msg.delivered_count = notifications_sent
-                        bulk_msg.save(update_fields=["sent_count", "delivered_count"])
+                        bulk_msg.save(
+                            update_fields=["sent_count", "delivered_count"])
 
             return Response(
                 {
@@ -3813,7 +3899,8 @@ class ReportGenerationViewSet(TenantFilterMixin, viewsets.ViewSet):
                 education_level, request
             ).generate_session_report(report_id)
         except Exception as exc:
-            logger.error("Error generating session report: %s", exc, exc_info=True)
+            logger.error("Error generating session report: %s",
+                         exc, exc_info=True)
             return Response({"error": str(exc)}, status=500)
 
 
@@ -3927,7 +4014,8 @@ class ProfessionalAssignmentViewSet(
                 except Exception:
                     term_report = None
 
-                has_remark = bool(term_report and term_report.class_teacher_remark)
+                has_remark = bool(
+                    term_report and term_report.class_teacher_remark)
                 has_sig = bool(
                     term_report
                     and getattr(term_report, "class_teacher_signature", None)
@@ -3964,7 +4052,8 @@ class ProfessionalAssignmentViewSet(
                     }
                 )
 
-            students_data.sort(key=lambda x: (x["student_class"], x["full_name"]))
+            students_data.sort(key=lambda x: (
+                x["student_class"], x["full_name"]))
             total = len(students_data)
             completed = sum(
                 1 for s in students_data if s["remark_status"] == "completed"
@@ -3988,7 +4077,8 @@ class ProfessionalAssignmentViewSet(
                 }
             )
         except Exception as exc:
-            logger.error("Error fetching assigned students: %s", exc, exc_info=True)
+            logger.error("Error fetching assigned students: %s",
+                         exc, exc_info=True)
             return Response({"error": str(exc)}, status=500)
 
     @action(detail=False, methods=["post"], url_path="update-remark")
@@ -4051,7 +4141,8 @@ class ProfessionalAssignmentViewSet(
                 teacher = request.user.teacher
                 teacher.signature_url = result["signature_url"]
                 teacher.signature_uploaded_at = timezone.now()
-                teacher.save(update_fields=["signature_url", "signature_uploaded_at"])
+                teacher.save(update_fields=[
+                             "signature_url", "signature_uploaded_at"])
             except Exception:
                 pass  # Don't fail the upload if the save fails
             return Response(
@@ -4089,7 +4180,8 @@ class ProfessionalAssignmentViewSet(
                         report = model.objects.get(id=rid)
                         if not self._can_teacher_edit_remark(request.user, report):
                             errors.append(
-                                {"report_id": str(rid), "error": "Permission denied"}
+                                {"report_id": str(
+                                    rid), "error": "Permission denied"}
                             )
                             continue
                         report.class_teacher_signature = url
@@ -4103,7 +4195,8 @@ class ProfessionalAssignmentViewSet(
                         )
                         updated += 1
                     except model.DoesNotExist:
-                        errors.append({"report_id": str(rid), "error": "Not found"})
+                        errors.append(
+                            {"report_id": str(rid), "error": "Not found"})
             resp = {"updated_count": updated, "total_requested": len(ids)}
             if errors:
                 resp["errors"] = errors
@@ -4349,7 +4442,8 @@ class HeadTeacherAssignmentViewSet(
                     report = model.objects.get(id=rid)
                     if not report.can_edit_head_teacher_remark(request.user):
                         errors.append(
-                            {"report_id": str(rid), "error": "Permission denied"}
+                            {"report_id": str(
+                                rid), "error": "Permission denied"}
                         )
                         continue
                     report.head_teacher_signature = url
@@ -4363,5 +4457,6 @@ class HeadTeacherAssignmentViewSet(
                     )
                     updated += 1
                 except model.DoesNotExist:
-                    errors.append({"report_id": str(rid), "error": "Not found"})
+                    errors.append(
+                        {"report_id": str(rid), "error": "Not found"})
         return Response({"updated_count": updated, "errors": errors or None})

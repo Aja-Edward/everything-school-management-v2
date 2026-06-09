@@ -448,7 +448,7 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
                 </div>
 
                 {/* Stream — only Senior Secondary */}
-                {form.education_level === 'SENIOR_SECONDARY' && (
+                {form.education_level === 'SENIOR SECONDARY' && (
                   <div>
                     <label className={lbl}>Stream <span className="text-rose-500">*</span></label>
                     <select className={sel} value={form.stream} onChange={e => set('stream', e.target.value)}>
