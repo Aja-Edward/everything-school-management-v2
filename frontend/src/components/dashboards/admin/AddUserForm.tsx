@@ -458,7 +458,8 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
                 </div>
 
                 {/* Stream — only Senior Secondary */}
-                {form.education_level === 'SENIOR_SECONDARY' && (
+                {isSeniorSecondary(form.education_level) && (
+                  
                   <div>
                     <p className="text-xs text-red-500">education_level: "{form.education_level}"</p>
                     <label className={lbl}>Stream <span className="text-rose-500">*</span></label>
