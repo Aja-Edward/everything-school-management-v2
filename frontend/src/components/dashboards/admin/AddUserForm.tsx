@@ -189,7 +189,7 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
     if (s === 2) {
       if (!form.student_class) e.push('Class is required');
       if (!form.section)       e.push('Section is required');
-      const isSS = form.education_level === 'SENIOR_SECONDARY';
+      const isSS = form.education_level === 'SENIOR SECONDARY';
       if (isSS && !form.stream) e.push('Stream is required for Senior Secondary');
     }
     if (s === 3) {
