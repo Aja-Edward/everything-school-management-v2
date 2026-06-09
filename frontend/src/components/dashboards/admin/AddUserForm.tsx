@@ -189,7 +189,7 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
     if (s === 2) {
       if (!form.student_class) e.push('Class is required');
       if (!form.section)       e.push('Section is required');
-      const isSS = form.education_level === 'SENIOR SECONDARY';
+      const isSS = form.education_level === 'SENIOR_SECONDARY';
       if (isSS && !form.stream) e.push('Stream is required for Senior Secondary');
     }
     if (s === 3) {
@@ -430,7 +430,8 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
                   <label className={lbl}>Class / Grade <span className="text-rose-500">*</span></label>
                   <select className={sel} value={form.student_class} disabled={loadingGrades}
                     onChange={e => {
-                      const g = gradeLevels.find(x => x.id === parseInt(e.target.value));
+                      const g = gradeLevels.find(x => String(x.id) === e.target.value);
+                      console.log('Selected grade object:', g); // Check what education_level actually is
                       setForm(p => ({ ...p, student_class: e.target.value, education_level: g?.education_level || '', section: '', stream: '' }));
                     }}>
                     <option value="">{loadingGrades ? 'Loading…' : 'Select class'}</option>
@@ -448,7 +449,7 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onStudentAdded }) => {
                 </div>
 
                 {/* Stream — only Senior Secondary */}
-                {form.education_level === 'SENIOR SECONDARY' && (
+                {form.education_level === 'SENIOR_SECONDARY' && (
                   <div>
                     <label className={lbl}>Stream <span className="text-rose-500">*</span></label>
                     <select className={sel} value={form.stream} onChange={e => set('stream', e.target.value)}>
