@@ -16,6 +16,7 @@ TENANT_PUBLIC_PAGES = [
     {'loc': '/about', 'priority': '0.8', 'changefreq': 'monthly'},
     {'loc': '/contact', 'priority': '0.7', 'changefreq': 'monthly'},
     {'loc': '/school_activities', 'priority': '0.7', 'changefreq': 'monthly'},
+    {'loc': '/login', 'priority': '0.7', 'changefreq': 'monthly'},
 ]
 
 
