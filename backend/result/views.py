@@ -341,26 +341,17 @@ def _component_score_qs():
     return ComponentScore.objects.select_related("component")
 
 
-def _result_qs_base(ModelClass, extra_selects=()):
-    """Return the base queryset with standard select_related for a result model."""
+def _result_qs_base(ModelClass, extra_selects=(), tenant=None):
     selects = [
-        "student",
-        "student__user",
-        "student__student_class",
+        "student", "student__user", "student__student_class",
         "student__student_class__education_level",
-        "subject",
-        "exam_session",
-        "exam_session__academic_session",
-        "exam_session__exam_type",
-        "exam_session__term",
-        "grading_system",
-        "entered_by",
-        "approved_by",
-        "published_by",
-        "last_edited_by",
+        "subject", "exam_session", "exam_session__academic_session",
+        "exam_session__exam_type", "exam_session__term",
+        "grading_system", "entered_by", "approved_by",
+        "published_by", "last_edited_by",
     ]
     selects.extend(extra_selects)
-    return (
+    qs = (
         ModelClass.objects.all()
         .select_related(*selects)
         .prefetch_related(
@@ -375,6 +366,9 @@ def _result_qs_base(ModelClass, extra_selects=()):
             ),
         )
     )
+    if tenant is not None:
+        qs = qs.filter(tenant=tenant)
+    return qs
 
 
 def _apply_role_filter(queryset, viewset, user):
@@ -1534,7 +1528,8 @@ class SeniorSecondaryResultViewSet(
         qs = _result_qs_base(
             SeniorSecondaryResult,
             extra_selects=("stream", "stream__stream_type_new"),
-        ).prefetch_related(_active_enrollments_prefetch()).order_by("-created_at")
+            tenant=getattr(self.request, "tenant", None),  # ← add this
+        ).order_by("-created_at")
         return _apply_role_filter(qs, self, user)
 
     def get_serializer_context(self):
@@ -1951,8 +1946,8 @@ class JuniorSecondaryResultViewSet(
     def get_queryset(self):
         user = self.request.user
         qs = (
-            _result_qs_base(JuniorSecondaryResult)
-            .prefetch_related(_active_enrollments_prefetch())
+            _result_qs_base(JuniorSecondaryResult, tenant=getattr(
+                self.request, "tenant", None),)
             .order_by("-created_at")
         )
         return _apply_role_filter(qs, self, user)
@@ -2339,9 +2334,8 @@ class PrimaryResultViewSet(
 
     def get_queryset(self):
         user = self.request.user
-        qs = _result_qs_base(PrimaryResult).prefetch_related(
-            _active_enrollments_prefetch()
-        ).order_by("-created_at")
+        qs = _result_qs_base(PrimaryResult, tenant=getattr(self.request, "tenant", None)
+                             ).order_by("-created_at")
         sc_param = self.request.query_params.get("student_class")
         if sc_param:
             try:
@@ -2736,7 +2730,7 @@ class NurseryResultViewSet(
         return ctx
 
     def get_queryset(self):
-        qs = _result_qs_base(NurseryResult, extra_selects=("term_report",)).prefetch_related(_active_enrollments_prefetch()).order_by(
+        qs = _result_qs_base(NurseryResult, tenant=getattr(self.request, "tenant", None), extra_selects=("term_report",)).order_by(
             "-created_at"
         )
         return _apply_role_filter(qs, self, self.request.user)

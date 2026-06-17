@@ -109,22 +109,23 @@ class StudentMinimalSerializer(serializers.ModelSerializer):
         ]
 
     def _get_active_enrollment(self, obj):
-        # Skip enrollment lookup for list views that don't need classroom info
         if self.context.get("skip_enrollment_lookup"):
             return None
-
         prefetched = getattr(obj, "active_enrollments", None)
         if prefetched is not None:
             return prefetched[0] if prefetched else None
-        logger.warning(
-            "StudentMinimalSerializer: active_enrollments not prefetched for student %s",
-            obj.id,
-        )
-        return (
-            obj.studentenrollment_set.filter(is_active=True)
-            .select_related("classroom")
-            .first()
-        )
+        # Only warn + fallback in detail views where we expect the prefetch
+        if not self.context.get("skip_permission_flags"):
+            logger.warning(
+                "StudentMinimalSerializer: active_enrollments not prefetched for student %s",
+                obj.id,
+            )
+            return (
+                obj.studentenrollment_set.filter(is_active=True)
+                .select_related("classroom")
+                .first()
+            )
+        return None
 
     def get_classroom_id(self, obj):
         e = self._get_active_enrollment(obj)
@@ -208,6 +209,20 @@ class GradingSystemSerializer(serializers.ModelSerializer):
         model = GradingSystem
         fields = "__all__"
         read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class GradingSystemMinimalSerializer(serializers.ModelSerializer):
+    """Lightweight read serializer — no nested grades. Use on list views."""
+    grading_type_display = serializers.CharField(
+        source="get_grading_type_display", read_only=True
+    )
+
+    class Meta:
+        model = GradingSystem
+        fields = [
+            "id", "name", "grading_type", "grading_type_display",
+            "pass_mark", "min_score", "max_score", "is_active",
+        ]
 
 
 class GradingSystemCreateUpdateSerializer(serializers.ModelSerializer):
@@ -936,7 +951,8 @@ class SeniorSecondaryResultSerializer(serializers.ModelSerializer):
     student = StudentMinimalSerializer(read_only=True)
     subject = SubjectMinimalSerializer(read_only=True)
     exam_session = ExamSessionSerializer(read_only=True)
-    grading_system = GradingSystemSerializer(read_only=True)
+
+    grading_system = serializers.SerializerMethodField()
 
     student_name = serializers.CharField(
         source="student.full_name", read_only=True)
@@ -978,6 +994,13 @@ class SeniorSecondaryResultSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    def get_grading_system(self, obj):
+        if not obj.grading_system_id:
+            return None
+        if self.context.get("skip_permission_flags"):
+            return GradingSystemMinimalSerializer(obj.grading_system).data
+        return GradingSystemSerializer(obj.grading_system).data
 
     def get_position(self, obj):
         return _position_suffix(obj.subject_position)
@@ -1215,7 +1238,7 @@ class JuniorSecondaryResultSerializer(serializers.ModelSerializer):
     student = StudentMinimalSerializer(read_only=True)
     subject = SubjectMinimalSerializer(read_only=True)
     exam_session = ExamSessionSerializer(read_only=True)
-    grading_system = GradingSystemSerializer(read_only=True)
+    grading_system = serializers.SerializerMethodField()
     component_scores = ComponentScoreReadSerializer(many=True, read_only=True)
     ca_total = serializers.DecimalField(
         read_only=True, max_digits=7, decimal_places=2)
@@ -1247,6 +1270,13 @@ class JuniorSecondaryResultSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    def get_grading_system(self, obj):
+        if not obj.grading_system_id:
+            return None
+        if self.context.get("skip_permission_flags"):
+            return GradingSystemMinimalSerializer(obj.grading_system).data
+        return GradingSystemSerializer(obj.grading_system).data
 
     def get_position(self, obj):
         return _position_suffix(obj.subject_position)
@@ -1461,7 +1491,7 @@ class PrimaryResultSerializer(serializers.ModelSerializer):
     student = StudentMinimalSerializer(read_only=True)
     subject = SubjectMinimalSerializer(read_only=True)
     exam_session = ExamSessionSerializer(read_only=True)
-    grading_system = GradingSystemSerializer(read_only=True)
+    grading_system = serializers.SerializerMethodField()
     component_scores = ComponentScoreReadSerializer(many=True, read_only=True)
     ca_total = serializers.DecimalField(
         read_only=True, max_digits=7, decimal_places=2)
@@ -1493,6 +1523,13 @@ class PrimaryResultSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    def get_grading_system(self, obj):
+        if not obj.grading_system_id:
+            return None
+        if self.context.get("skip_permission_flags"):
+            return GradingSystemMinimalSerializer(obj.grading_system).data
+        return GradingSystemSerializer(obj.grading_system).data
 
     def get_position(self, obj):
         return _position_suffix(obj.subject_position)
@@ -1706,7 +1743,8 @@ class NurseryResultSerializer(serializers.ModelSerializer):
     student = StudentMinimalSerializer(read_only=True)
     subject = SubjectMinimalSerializer(read_only=True)
     exam_session = ExamSessionSerializer(read_only=True)
-    grading_system = GradingSystemSerializer(read_only=True)
+    grading_system = serializers.SerializerMethodField()
+
     component_scores = ComponentScoreReadSerializer(many=True, read_only=True)
     ca_total = serializers.DecimalField(
         read_only=True, max_digits=7, decimal_places=2)
@@ -1798,6 +1836,13 @@ class NurseryResultSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    def get_grading_system(self, obj):
+        if not obj.grading_system_id:
+            return None
+        if self.context.get("skip_permission_flags"):
+            return GradingSystemMinimalSerializer(obj.grading_system).data
+        return GradingSystemSerializer(obj.grading_system).data
 
 
 class NurseryResultCreateUpdateSerializer(serializers.ModelSerializer):

@@ -455,16 +455,13 @@ const EnhancedResultsManagement: React.FC = () => {
     else setRefreshing(true);
     setError(null);
     try {
-      const params: TermReportParams = {
-        page: currentPage,
-        page_size: pageSize,
-        ...(filters.status !== 'all' && { status: filters.status as ResultStatus }),
-        ...(filters.search && { search: filters.search }),
-        // Pass term tab as a backend filter (requires backend support — see views.py)
-        ...(trTermTab !== 'SESSION' && { term_tab: trTermTab } as any),
-        ...(trTermTab === 'SESSION' && filters.session !== 'all' && { academic_session_name: filters.session } as any),
-        ...(trTermTab === 'SESSION' && filters.term !== 'all' && { term_name: filters.term } as any),
-      };
+      const params: TermReportParams & { level?: EducationLevelType } = {
+      page: currentPage,
+      page_size: pageSize,
+      ...(filters.status !== 'all' && { status: filters.status as ResultStatus }),
+      ...(filters.search && { search: filters.search }),
+      ...(filters.level !== 'all' && { level: filters.level as EducationLevelType }),
+    };
 
       const data: PaginatedTermReports = await ResultService.getAllTermReports(params);
       setReports(data.results as EnrichedReport[]);
@@ -485,37 +482,33 @@ const EnhancedResultsManagement: React.FC = () => {
 
   // ── Load Subject Results (server-side paginated per level) ────────────────
   const loadSubjectResults = useCallback(async () => {
-    setSrLoading(true);
-    try {
-      const levels: EducationLevelType[] = ['NURSERY', 'PRIMARY', 'JUNIOR_SECONDARY', 'SENIOR_SECONDARY'];
+  setSrLoading(true);
+  try {
+    const levels: EducationLevelType[] = ['NURSERY', 'PRIMARY', 'JUNIOR_SECONDARY', 'SENIOR_SECONDARY'];
+    const levelsToFetch = srFilterLevel !== 'all' ? [srFilterLevel] : levels;
 
-      // Only fetch the specific level if filtered, otherwise fetch all
-      const levelsToFetch = srFilterLevel !== 'all'
-        ? [srFilterLevel]
-        : levels;
+    const settled = await Promise.allSettled(
+      levelsToFetch.map(level =>
+        ResultService.getSubjectResultsPaginated(level, {  // ← was getTermReportsPaginated
+          page: srCurrentPage,
+          page_size: SR_PAGE_SIZE,
+          ...(srFilterStatus !== 'all' && { status: srFilterStatus }),
+          ...(srSearch && { search: srSearch }),
+        }).then(res => ({
+          results: res.results.map((r: any) => ({ ...r, education_level: level })),
+          count: res.count,
+        })).catch(() => ({ results: [], count: 0 }))
+      )
+    );
 
-      const settled = await Promise.allSettled(
-        levelsToFetch.map(level =>
-          ResultService.getTermReportsPaginated(level, {
-            page: srCurrentPage,
-            page_size: SR_PAGE_SIZE,
-            ...(srFilterStatus !== 'all' && { status: srFilterStatus }),
-            ...(srSearch && { search: srSearch }),
-          } as any).then(res => ({
-            results: res.results.map((r: any) => ({ ...r, education_level: level })),
-            count: res.count,
-          })).catch(() => ({ results: [], count: 0 }))
-        )
-      );
-
-      const all = settled.flatMap(r => r.status === 'fulfilled' ? r.value.results : []);
-      const total = settled.reduce((sum, r) => sum + (r.status === 'fulfilled' ? r.value.count : 0), 0);
-      setSubjectResults(all);
-      setSrTotalCount(total);
-    } finally {
-      setSrLoading(false);
-    }
-  }, [srCurrentPage, srFilterLevel, srFilterStatus, srSearch]);
+    const all = settled.flatMap(r => r.status === 'fulfilled' ? r.value.results : []);
+    const total = settled.reduce((sum, r) => sum + (r.status === 'fulfilled' ? r.value.count : 0), 0);
+    setSubjectResults(all);
+    setSrTotalCount(total);
+  } finally {
+    setSrLoading(false);
+  }
+}, [srCurrentPage, srFilterLevel, srFilterStatus, srSearch]);
 
   useEffect(() => {
     if (activeTab === 'subject-results') loadSubjectResults();
