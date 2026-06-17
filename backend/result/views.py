@@ -1541,6 +1541,7 @@ class SeniorSecondaryResultViewSet(
         ctx = super().get_serializer_context()
         if self.action == "list":
             ctx["skip_permission_flags"] = True
+            ctx["skip_enrollment_lookup"] = True
         return ctx
 
     def create(self, request, *args, **kwargs):
@@ -1596,6 +1597,7 @@ class SeniorSecondaryTermReportViewSet(
         ctx = super().get_serializer_context()
         if self.action == "list":
             ctx["skip_permission_flags"] = True
+
         return ctx
 
     def get_queryset(self):
@@ -1941,6 +1943,7 @@ class JuniorSecondaryResultViewSet(
         ctx = super().get_serializer_context()
         if self.action == "list":
             ctx["skip_permission_flags"] = True
+            ctx["skip_enrollment_lookup"] = True
         return ctx
 
     def get_queryset(self):
@@ -2327,6 +2330,7 @@ class PrimaryResultViewSet(
         ctx = super().get_serializer_context()
         if self.action == "list":
             ctx["skip_permission_flags"] = True
+            ctx["skip_enrollment_lookup"] = True
         return ctx
 
     def get_queryset(self):
@@ -2722,6 +2726,7 @@ class NurseryResultViewSet(
         ctx = super().get_serializer_context()
         if self.action == "list":
             ctx["skip_permission_flags"] = True
+            ctx["skip_enrollment_lookup"] = True
         return ctx
 
     def get_queryset(self):

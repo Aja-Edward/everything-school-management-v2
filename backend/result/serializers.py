@@ -109,6 +109,10 @@ class StudentMinimalSerializer(serializers.ModelSerializer):
         ]
 
     def _get_active_enrollment(self, obj):
+        # Skip enrollment lookup for list views that don't need classroom info
+        if self.context.get("skip_enrollment_lookup"):
+            return None
+
         prefetched = getattr(obj, "active_enrollments", None)
         if prefetched is not None:
             return prefetched[0] if prefetched else None
