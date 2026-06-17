@@ -366,6 +366,13 @@ def _result_qs_base(ModelClass, extra_selects=()):
         .prefetch_related(
             "grading_system__grades",
             Prefetch("component_scores", queryset=_component_score_qs()),
+            Prefetch(
+                "student__studentenrollment_set",
+                queryset=StudentEnrollment.objects.filter(
+                    is_active=True
+                ).select_related("classroom"),
+                to_attr="active_enrollments",
+            ),
         )
     )
 
