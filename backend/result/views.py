@@ -1597,6 +1597,7 @@ class SeniorSecondaryTermReportViewSet(
         ctx = super().get_serializer_context()
         if self.action == "list":
             ctx["skip_permission_flags"] = True
+            ctx["skip_enrollment_lookup"] = True
 
         return ctx
 
@@ -1842,6 +1843,7 @@ class SeniorSecondarySessionReportViewSet(
         ctx = super().get_serializer_context()
         if self.action == "list":
             ctx["skip_permission_flags"] = True
+            ctx["skip_enrollment_lookup"] = True
         return ctx
 
     def get_queryset(self):
@@ -2025,6 +2027,7 @@ class JuniorSecondaryTermReportViewSet(
         ctx = super().get_serializer_context()
         if self.action == "list":
             ctx["skip_permission_flags"] = True
+            ctx["skip_enrollment_lookup"] = True
         return ctx
 
     def get_queryset(self):
@@ -2251,6 +2254,7 @@ class JuniorSecondarySessionReportViewSet(
         ctx = super().get_serializer_context()
         if self.action == "list":
             ctx["skip_permission_flags"] = True
+            ctx["skip_enrollment_lookup"] = True
         return ctx
 
     def get_queryset(self):
@@ -2421,6 +2425,7 @@ class PrimaryTermReportViewSet(
         ctx = super().get_serializer_context()
         if self.action == "list":
             ctx["skip_permission_flags"] = True
+            ctx["skip_enrollment_lookup"] = True
         return ctx
 
     def get_queryset(self):
@@ -2648,6 +2653,7 @@ class PrimarySessionReportViewSet(
         ctx = super().get_serializer_context()
         if self.action == "list":
             ctx["skip_permission_flags"] = True
+            ctx["skip_enrollment_lookup"] = True
         return ctx
 
     def get_queryset(self):
@@ -2894,6 +2900,7 @@ class NurseryTermReportViewSet(
         ctx = super().get_serializer_context()
         if self.action == "list":
             ctx["skip_permission_flags"] = True
+            ctx["skip_enrollment_lookup"] = True
         return ctx
 
     def get_queryset(self):
@@ -3144,6 +3151,7 @@ class NurserySessionReportViewSet(
         ctx = super().get_serializer_context()
         if self.action == "list":
             ctx["skip_permission_flags"] = True
+            ctx["skip_enrollment_lookup"] = True
         return ctx
 
     def get_queryset(self):
