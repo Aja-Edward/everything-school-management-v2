@@ -826,7 +826,7 @@ class BaseResultViewSetMixin:
                     data=request.data, context={"request": request}
                 )
                 serializer.is_valid(raise_exception=True)
-                result = serializer.save()
+                result = serializer.save(tenant=request.tenant)
                 return Response(
                     result_serializer_class(
                         result, context={"request": request}).data,
@@ -1172,14 +1172,19 @@ class BaseResultViewSetMixin:
         TermReportModel = self._get_term_report_model(ModelClass)
         if not TermReportModel:
             return
+        # Resolve tenant from request, not from obj (obj.tenant may be None on new rows)
+        tenant = getattr(self.request, "tenant", None)
         seen = set()
         for obj in created_results:
             pair = (obj.student_id, obj.exam_session_id)
             if pair in seen:
                 continue
             seen.add(pair)
-            defaults = {"status": DRAFT,
-                        "is_published": False, "tenant": obj.tenant}
+            defaults = {
+                "status": DRAFT,
+                "is_published": False,
+                "tenant": obj.tenant or tenant,  # ← fallback to request.tenant
+            }
             if ModelClass == SeniorSecondaryResult and getattr(obj, "stream", None):
                 defaults["stream"] = obj.stream
             term_report, _ = TermReportModel.objects.get_or_create(
@@ -1276,6 +1281,10 @@ class BaseResultViewSetMixin:
         try:
             with transaction.atomic():
                 raw_instances = [inst for inst, _ in validated_instances]
+                tenant = getattr(request, "tenant", None)
+                for instance, _ in validated_instances:
+                    if not instance.tenant_id:
+                        instance.tenant = tenant
                 created_results = ModelClass.objects.bulk_create(
                     raw_instances, batch_size=500
                 )
@@ -2754,7 +2763,7 @@ class NurseryResultViewSet(
                     )
                 serializer = self.get_serializer(data=request.data)
                 serializer.is_valid(raise_exception=True)
-                result = serializer.save()
+                result = serializer.save(tenant=request.tenant)
                 return Response(
                     NurseryResultSerializer(
                         result, context={"request": request}).data,
