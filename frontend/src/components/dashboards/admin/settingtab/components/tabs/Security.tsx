@@ -13,6 +13,7 @@ interface PasswordPolicy {
 
 interface SecuritySettings {
   twoFactorAuth: boolean;
+  securityFeaturesEnabled: boolean;
   passwordPolicy: PasswordPolicy;
   sessionTimeout: number;
   maxLoginAttempts: number;
@@ -30,13 +31,15 @@ interface SecurityProps {
 const Security: React.FC<SecurityProps> = ({ settings, onSettingsUpdate }) => {
   const [securitySettings, setSecuritySettings] = useState<SecuritySettings>({
     twoFactorAuth: true,
+    securityFeaturesEnabled: true,
     passwordPolicy: {
       minLength: 8,
       requireUppercase: true,
       requireLowercase: true,
       requireNumbers: true,
       requireSpecialChars: true,
-      passwordExpiry: 90
+      passwordExpiry: 90,
+      
     },
     sessionTimeout: 240,
     maxLoginAttempts: 5,
@@ -57,6 +60,7 @@ const Security: React.FC<SecurityProps> = ({ settings, onSettingsUpdate }) => {
     console.log("Security component settings:", settings);
     setSecuritySettings(prev => ({
       ...prev,
+      securityFeaturesEnabled: settings.security?.securityFeaturesEnabled ?? false, //
       sessionTimeout: settings.security?.sessionTimeout ?? 30,
       maxLoginAttempts: settings.security?.maxLoginAttempts ?? 5,
       lockoutDuration: settings.security?.lockoutDuration ?? 15,
@@ -107,6 +111,7 @@ const Security: React.FC<SecurityProps> = ({ settings, onSettingsUpdate }) => {
     try {
       await onSettingsUpdate({
         security: {
+          securityFeaturesEnabled: securitySettings.securityFeaturesEnabled,  // ✅
           sessionTimeout: securitySettings.sessionTimeout,
           maxLoginAttempts: securitySettings.maxLoginAttempts,
           lockoutDuration: securitySettings.lockoutDuration,
@@ -154,7 +159,27 @@ const Security: React.FC<SecurityProps> = ({ settings, onSettingsUpdate }) => {
           </button>
         </div>
       )}
-
+        {/* Master Security Toggle */}
+      <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 shadow-sm border border-slate-100 dark:border-slate-700">
+        <h3 className="text-xl font-semibold text-slate-900 dark:text-slate-100 mb-2 flex items-center gap-3">
+          <div className="w-8 h-8 bg-gradient-to-br from-slate-500 to-slate-700 rounded-lg flex items-center justify-center">
+            <Lock className="w-4 h-4 text-white" />
+          </div>
+          Advanced Security Features
+        </h3>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+          Enable audit logging, account lockout, token revocation, and suspicious activity monitoring for this school.
+        </p>
+        <ToggleSwitch
+          id="security-features-enabled"
+          checked={securitySettings.securityFeaturesEnabled}
+          onChange={(checked) => updateSecuritySetting('securityFeaturesEnabled', checked)}
+          label="Enable Advanced Security Features"
+          description="Turn this on to activate all security monitoring for your school"
+        />
+      </div>
+      {securitySettings.securityFeaturesEnabled && (
+        <>
       {/* Two-Factor Authentication */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 shadow-sm border border-slate-100 dark:border-slate-700">
         <h3 className="text-xl font-semibold text-slate-900 dark:text-slate-100 mb-6 flex items-center gap-3">
@@ -400,7 +425,8 @@ const Security: React.FC<SecurityProps> = ({ settings, onSettingsUpdate }) => {
           )}
         </div>
       </div>
-
+</>
+      )}
       {/* Bottom Save Button */}
       <div className="flex justify-end pt-6 border-t border-slate-200 dark:border-slate-700">
         <button

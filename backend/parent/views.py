@@ -13,6 +13,8 @@ from utils.section_filtering import AutoSectionFilterMixin
 from tenants.mixins import TenantFilterMixin
 from utils.pagination import StandardResultsPagination
 from .models import ParentProfile
+from django.db.models import Prefetch
+from students.models import Student
 from .serializers import ParentProfileSerializer
 from .permissions import IsParent, IsParentOrAdmin
 
@@ -54,7 +56,12 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
         ):
             queryset = queryset.filter(user=user)
 
-        return queryset.select_related("user")
+        return queryset.select_related("user").prefetch_related(
+            Prefetch(
+                "students",
+                queryset=Student.objects.select_related("user", "stream")
+            )
+        )
 
     @action(detail=False, methods=["get"], url_path="search")
     def search(self, request):

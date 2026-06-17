@@ -51,7 +51,8 @@ class Tenant(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     # Basic Information
-    name = models.CharField(max_length=255, help_text="School/Organization name")
+    name = models.CharField(
+        max_length=255, help_text="School/Organization name")
     slug = models.SlugField(
         max_length=100,
         unique=True,
@@ -65,13 +66,17 @@ class Tenant(models.Model):
     )
 
     # Custom Domain Support
-    custom_domain = models.CharField(max_length=255, null=True, blank=True, unique=True)
+    custom_domain = models.CharField(
+        max_length=255, null=True, blank=True, unique=True)
     custom_domain_verified = models.BooleanField(default=False)
-    domain_verification_token = models.CharField(max_length=64, null=True, blank=True)
-    cloudflare_hostname_id = models.CharField(max_length=100, null=True, blank=True)
+    domain_verification_token = models.CharField(
+        max_length=64, null=True, blank=True)
+    cloudflare_hostname_id = models.CharField(
+        max_length=100, null=True, blank=True)
 
     # Status
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default='pending')
     is_active = models.BooleanField(default=False)
 
     # Contact Information
@@ -175,7 +180,8 @@ class TenantService(models.Model):
         'scheduling': ['timetable'],
     }
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='services')
+    tenant = models.ForeignKey(
+        Tenant, on_delete=models.CASCADE, related_name='services')
     service = models.CharField(max_length=50, choices=SERVICE_CHOICES)
     is_enabled = models.BooleanField(default=True)
     enabled_at = models.DateTimeField(auto_now_add=True)
@@ -219,7 +225,8 @@ class ServicePricing(models.Model):
     Additional services have their own per-student cost.
     """
 
-    service = models.CharField(max_length=50, choices=TenantService.SERVICE_CHOICES, unique=True)
+    service = models.CharField(
+        max_length=50, choices=TenantService.SERVICE_CHOICES, unique=True)
     price_per_student = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -263,10 +270,12 @@ class TenantInvoice(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     invoice_number = models.CharField(max_length=50, unique=True)
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='invoices')
+    tenant = models.ForeignKey(
+        Tenant, on_delete=models.CASCADE, related_name='invoices')
 
     # Billing period
-    billing_period = models.CharField(max_length=20, choices=BILLING_PERIOD_CHOICES, default='term')
+    billing_period = models.CharField(
+        max_length=20, choices=BILLING_PERIOD_CHOICES, default='term')
     academic_session = models.ForeignKey(
         'academics.AcademicSession',
         on_delete=models.PROTECT,
@@ -287,17 +296,25 @@ class TenantInvoice(models.Model):
     student_count = models.PositiveIntegerField(default=0)
 
     # Amounts
-    base_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
-    services_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
-    subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
-    discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    base_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    services_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    subtotal = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    discount_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal('0.00'))
     discount_reason = models.CharField(max_length=255, blank=True)
-    total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
-    amount_paid = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
-    balance_due = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    total_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    amount_paid = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    balance_due = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal('0.00'))
 
     # Status & Payment
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default='draft')
     paid_at = models.DateTimeField(null=True, blank=True)
     confirmed_by = models.ForeignKey(
         'users.CustomUser', on_delete=models.SET_NULL, null=True, blank=True,
@@ -383,9 +400,11 @@ class TenantInvoiceLineItem(models.Model):
         ('adjustment', 'Adjustment'),
     ]
 
-    invoice = models.ForeignKey(TenantInvoice, on_delete=models.CASCADE, related_name='line_items')
+    invoice = models.ForeignKey(
+        TenantInvoice, on_delete=models.CASCADE, related_name='line_items')
     item_type = models.CharField(max_length=20, choices=ITEM_TYPE_CHOICES)
-    service = models.CharField(max_length=50, choices=TenantService.SERVICE_CHOICES, null=True, blank=True)
+    service = models.CharField(
+        max_length=50, choices=TenantService.SERVICE_CHOICES, null=True, blank=True)
     description = models.CharField(max_length=255)
     quantity = models.PositiveIntegerField(default=1)
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
@@ -420,14 +439,20 @@ class TenantPayment(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    invoice = models.ForeignKey(TenantInvoice, on_delete=models.CASCADE, related_name='payments')
+    invoice = models.ForeignKey(
+        TenantInvoice, on_delete=models.CASCADE, related_name='payments')
     amount = models.DecimalField(max_digits=12, decimal_places=2)
-    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    payment_method = models.CharField(
+        max_length=20, choices=PAYMENT_METHOD_CHOICES)
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default='pending')
 
-    reference = models.CharField(max_length=100, unique=True, null=True, blank=True)
-    paystack_reference = models.CharField(max_length=100, null=True, blank=True)
-    paystack_transaction_id = models.CharField(max_length=100, null=True, blank=True)
+    reference = models.CharField(
+        max_length=100, unique=True, null=True, blank=True)
+    paystack_reference = models.CharField(
+        max_length=100, null=True, blank=True)
+    paystack_transaction_id = models.CharField(
+        max_length=100, null=True, blank=True)
 
     bank_name = models.CharField(max_length=100, blank=True)
     account_name = models.CharField(max_length=255, blank=True)
@@ -466,7 +491,8 @@ class TenantPayment(models.Model):
 class TenantSettings(models.Model):
     """School-specific settings and branding."""
 
-    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name='settings', primary_key=True)
+    tenant = models.OneToOneField(
+        Tenant, on_delete=models.CASCADE, related_name='settings', primary_key=True)
 
     # School Information
     school_code = models.CharField(max_length=20, blank=True)
@@ -662,6 +688,11 @@ class TenantSettings(models.Model):
     enable_streaming = models.BooleanField(default=True)
     enable_subject_electives = models.BooleanField(default=True)
 
+    security_features_enabled = models.BooleanField(
+        default=False,
+        help_text="Whether this tenant has opted into advanced security features"
+    )
+
     # Teaching model — configurable per education level
     # When True for a level, that level uses subject teachers (different teacher per subject).
     # When False, the level uses a single class teacher for all subjects.
@@ -688,7 +719,8 @@ class TenantSettings(models.Model):
         verbose_name="Head Teacher Signature URL",
         help_text="Cloudinary URL of the head teacher's digital signature",
     )
-    head_teacher_signature_uploaded_at = models.DateTimeField(blank=True, null=True)
+    head_teacher_signature_uploaded_at = models.DateTimeField(
+        blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -718,7 +750,8 @@ class TenantSettings(models.Model):
     def save(self, *args, **kwargs):
         if not self.school_code:
             words = self.tenant.name.upper().split()
-            self.school_code = ''.join(word[0] for word in words[:3]) if len(words) >= 2 else self.tenant.name[:3].upper()
+            self.school_code = ''.join(word[0] for word in words[:3]) if len(
+                words) >= 2 else self.tenant.name[:3].upper()
         super().save(*args, **kwargs)
 
 
@@ -741,13 +774,15 @@ class TenantInvitation(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='invitations')
+    tenant = models.ForeignKey(
+        Tenant, on_delete=models.CASCADE, related_name='invitations')
     email = models.EmailField()
     role = models.CharField(max_length=30, choices=ROLE_CHOICES)
     section = models.CharField(max_length=20, blank=True, null=True)
 
     token = models.CharField(max_length=64, unique=True)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default='pending')
 
     invited_by = models.ForeignKey(
         'users.CustomUser', on_delete=models.SET_NULL, null=True, related_name='sent_tenant_invitations'
@@ -792,7 +827,8 @@ class TenantSetupToken(models.Model):
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='setup_tokens')
+    tenant = models.ForeignKey(
+        Tenant, on_delete=models.CASCADE, related_name='setup_tokens')
     user = models.ForeignKey(
         'users.CustomUser', on_delete=models.CASCADE, related_name='setup_tokens'
     )

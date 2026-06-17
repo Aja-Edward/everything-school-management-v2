@@ -384,14 +384,36 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   // Listen for token-expiry events emitted by the API layer
   useEffect(() => {
-    const handle = () => {
-      clearAuthData();
-      setUser(null);
-      setIsLoading(false);
-    };
-    window.addEventListener('auth:expired', handle);
-    return () => window.removeEventListener('auth:expired', handle);
-  }, []);
+  const handle = () => {
+    clearAuthData();
+    setUser(null);
+    setIsLoading(false);
+    // api.ts handles the redirect via window.location.href
+  };
+
+  const handleRevoked = () => {
+    clearAuthData();
+    setUser(null);
+    setIsLoading(false);
+    // Show a more specific message than generic session expiry
+     // Fire notification for RootLayout to pick up and show toast
+    window.dispatchEvent(
+      new CustomEvent('auth:notification', {
+        detail: {
+          type: 'warning',
+          message: 'Your session was ended due to a logout or password change on another device. Please log in again.',
+        },
+      })
+    );
+  };
+
+  window.addEventListener('auth:expired', handle);
+  window.addEventListener('auth:token-revoked', handleRevoked);
+  return () => {
+    window.removeEventListener('auth:expired', handle);
+    window.removeEventListener('auth:token-revoked', handleRevoked);
+  };
+}, []);
 
   // ------------------------------------------------------------------
   // Internal silent refresh (no setIsLoading)

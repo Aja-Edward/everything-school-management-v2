@@ -1,33 +1,23 @@
-"""
-Cookie-based JWT Authentication for Django REST Framework.
-
-This module provides secure httpOnly cookie-based authentication,
-protecting against XSS attacks while maintaining a good developer experience.
-"""
+# authentication/cookie_auth.py
 
 from django.conf import settings
-from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.request import Request
+from security.authentication import SecureJWTAuthentication  # ✅ changed import
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-class CookieJWTAuthentication(JWTAuthentication):
+class CookieJWTAuthentication(SecureJWTAuthentication):  # ✅ changed base class
     """
     Custom JWT authentication that reads tokens from httpOnly cookies.
-
-    Falls back to header-based authentication if no cookie is present,
-    allowing both methods to work during migration or for special cases.
+    Extends SecureJWTAuthentication to enforce token_version and revocation checks.
+    Falls back to header-based authentication if no cookie is present.
     """
 
     def authenticate(self, request: Request):
-        """
-        Attempt to authenticate using cookie first, then fall back to header.
-        """
-        # Try to get token from cookie first
         raw_token = request.COOKIES.get(settings.AUTH_COOKIE_ACCESS)
 
         logger.warning(f"🍪 All cookies: {list(request.COOKIES.keys())}")
@@ -36,34 +26,27 @@ class CookieJWTAuthentication(JWTAuthentication):
         logger.warning(f"🍪 Found token: {bool(raw_token)}")
 
         if raw_token is None:
-            # Fall back to header-based authentication
             return super().authenticate(request)
 
         try:
+            # ✅ now calls SecureJWTAuthentication.get_validated_token
             validated_token = self.get_validated_token(raw_token)
+            # ✅ now calls SecureJWTAuthentication.get_user
             user = self.get_user(validated_token)
             logger.debug(
                 f"Cookie authentication successful for user: {user.email}")
             return (user, validated_token)
         except (InvalidToken, TokenError) as e:
             logger.debug(f"Cookie token validation failed: {e}")
-            # Don't raise here - fall back to header authentication
             return super().authenticate(request)
 
 
+# set_auth_cookies, clear_auth_cookies, refresh_access_token_from_cookie
+# remain exactly the same — no changes needed below this line
 def set_auth_cookies(response, access_token: str, refresh_token: str = None, max_age_minutes: int = 60):
-    """
-    Set JWT tokens as httpOnly cookies on the response.
-
-    Args:
-        response: Django/DRF response object
-        access_token: JWT access token string
-        refresh_token: JWT refresh token string (optional)
-        max_age_minutes: Maximum age of the cookies in minutes
-    """
     access_max_age = max_age_minutes * 60
     refresh_max_age = max_age_minutes * 60 * 24
-    # Set access token cookie
+
     response.set_cookie(
         key=settings.AUTH_COOKIE_ACCESS,
         value=access_token,
@@ -76,7 +59,6 @@ def set_auth_cookies(response, access_token: str, refresh_token: str = None, max
         samesite=settings.AUTH_COOKIE_SAMESITE,
     )
 
-    # Set refresh token cookie (if provided)
     if refresh_token:
         response.set_cookie(
             key=settings.AUTH_COOKIE_REFRESH,
@@ -95,12 +77,6 @@ def set_auth_cookies(response, access_token: str, refresh_token: str = None, max
 
 
 def clear_auth_cookies(response):
-    """
-    Clear JWT cookies from the response (for logout).
-
-    Args:
-        response: Django/DRF response object
-    """
     response.delete_cookie(
         key=settings.AUTH_COOKIE_ACCESS,
         path=settings.AUTH_COOKIE_PATH,
@@ -113,21 +89,11 @@ def clear_auth_cookies(response):
         domain=settings.AUTH_COOKIE_DOMAIN,
         samesite=settings.AUTH_COOKIE_SAMESITE,
     )
-
     logger.debug("Auth cookies cleared")
     return response
 
 
 def refresh_access_token_from_cookie(request):
-    """
-    Attempt to refresh the access token using the refresh token from cookie.
-
-    Args:
-        request: Django request object
-
-    Returns:
-        tuple: (new_access_token, new_refresh_token) or (None, None) if refresh fails
-    """
     refresh_token = request.COOKIES.get(settings.AUTH_COOKIE_REFRESH)
 
     if not refresh_token:
@@ -138,7 +104,6 @@ def refresh_access_token_from_cookie(request):
         refresh = RefreshToken(refresh_token)
         new_access = str(refresh.access_token)
 
-        # If rotation is enabled, get new refresh token
         if settings.SIMPLE_JWT.get('ROTATE_REFRESH_TOKENS', False):
             new_refresh = str(refresh)
         else:

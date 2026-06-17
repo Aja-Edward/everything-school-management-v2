@@ -1,3 +1,5 @@
+from aiohttp import request
+
 from .cookie_auth import set_auth_cookies, clear_auth_cookies, refresh_access_token_from_cookie
 from .serializers import (
     RegisterSerializer,
@@ -51,6 +53,7 @@ from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 
 from authentication.utils import get_tenant_session_timeout
+from security.utils import log_action, record_login_attempt, revoke_user_tokens
 
 
 User = get_user_model()
@@ -248,6 +251,9 @@ class SimpleLoginView(APIView):
 
             # Generate JWT tokens
             refresh = RefreshToken.for_user(user)
+            record_login_attempt(
+                user.email, request, success=True, tenant=user.tenant)
+            log_action('login_success', request=request, user=user)
             access_token = refresh.access_token
 
             access_token.set_exp(

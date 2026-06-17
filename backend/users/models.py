@@ -120,7 +120,10 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     verification_code = models.CharField(max_length=6, blank=True, null=True)
     verification_code_expires = models.DateTimeField(blank=True, null=True)
     email_verified = models.BooleanField(default=False)
-
+    token_version = models.IntegerField(
+        default=0,
+        help_text="Increment to invalidate all existing tokens"
+    )
     # Timestamps
     date_joined = models.DateTimeField(default=timezone.now)
     last_login = models.DateTimeField(blank=True, null=True)

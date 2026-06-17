@@ -63,6 +63,7 @@ urlpatterns = [
     path("api/dj-rest-auth/google/", GoogleLogin.as_view(), name="google_login"),
     # Custom authentication routes
     path("api/auth/", include("authentication.urls")),
+    path('api/security/', include('security.urls')),
     # Social account routes (optional, mainly for admin)
     path("api/socialaccounts/", include("allauth.socialaccount.urls")),
     # Social provider routes (if needed for direct provider integration)

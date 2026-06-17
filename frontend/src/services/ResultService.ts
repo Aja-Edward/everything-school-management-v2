@@ -78,6 +78,14 @@ export interface AssessmentComponentInfo {
   };
 }
 
+
+
+export interface PaginatedTermReports {
+  results: (AnyTermReport & { education_level: EducationLevelType })[];
+  count: number;
+  next: string | null;
+  previous: string | null;
+}
 export interface BulkComponentScoreEntry {
   student: string;
   subject: number;
@@ -688,26 +696,28 @@ class ResultService {
    * Fetch term reports across all 4 education levels in parallel.
    * Returns a discriminated union array with education_level injected.
    */
-  async getAllTermReports(params?: TermReportParams): Promise<
-    Array<AnyTermReport & { education_level: EducationLevelType }>
-  > {
-    const levels: EducationLevelType[] = [
-      'NURSERY',
-      'PRIMARY',
-      'JUNIOR_SECONDARY',
-      'SENIOR_SECONDARY',
-    ];
+  async getAllTermReports(params?: TermReportParams): Promise<PaginatedTermReports> {
+  const levels: EducationLevelType[] = [
+    'NURSERY',
+    'PRIMARY',
+    'JUNIOR_SECONDARY',
+    'SENIOR_SECONDARY',
+  ];
 
-    const results = await Promise.allSettled(
-      levels.map((level) =>
-        this.getTermReports(level, params).then((reports) =>
-          reports.map((r) => ({ ...r, education_level: level }))
-        )
-      )
-    );
+  const settled = await Promise.allSettled(
+    levels.map((level) =>
+      this.getTermReportsPaginated(level, params as Record<string, unknown>).then((res) => ({
+        results: res.results.map((r) => ({ ...r, education_level: level })),
+        count: res.count,
+      }))
+    )
+  );
 
-    return results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
-  }
+  const results = settled.flatMap((r) => r.status === 'fulfilled' ? r.value.results : []);
+  const count = settled.reduce((sum, r) => sum + (r.status === 'fulfilled' ? r.value.count : 0), 0);
+
+  return { results, count, next: null, previous: null };
+}
 
   // ── TERM REPORT STATUS ACTIONS ──────────────────────────────────────────────
 

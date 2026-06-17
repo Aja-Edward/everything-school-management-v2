@@ -163,6 +163,7 @@ INSTALLED_APPS = [
     "dj_rest_auth.registration",
     # Your apps
     "messaging",
+    "security",
     "debug_toolbar",
     "utils",
     "common",
@@ -489,7 +490,7 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "authentication.cookie_auth.CookieJWTAuthentication",
         "authentication.supabase_backend.SupabaseJWTAuthentication",
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "security.authentication.SecureJWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.AllowAny",),
     "DEFAULT_FILTER_BACKENDS": ["django_filters.rest_framework.DjangoFilterBackend"],
@@ -578,7 +579,12 @@ SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_QUERY_EMAIL = True
 SOCIALACCOUNT_ADAPTER = "authentication.adapters.CustomSocialAccountAdapter"
 
-
+# ============================================
+# SECURITY APP SETTINGS
+# ============================================
+FAILED_LOGIN_THRESHOLD = int(os.getenv("FAILED_LOGIN_THRESHOLD", "5"))
+FAILED_LOGIN_WINDOW_MINUTES = int(
+    os.getenv("FAILED_LOGIN_WINDOW_MINUTES", "10"))
 # ============================================
 # SOCIAL AUTH PROVIDERS
 # ============================================
@@ -701,5 +707,16 @@ LOGGING = {
             "level": "DEBUG",
             "propagate": False,
         },
+        "security": {
+            "handlers": ["console"],
+            "level": "WARNING",  # Only log warnings and above from security app
+            "propagate": False,
+        },
+        "authentication": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
     },
+
 }

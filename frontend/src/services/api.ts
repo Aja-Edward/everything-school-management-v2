@@ -92,24 +92,23 @@ const attemptTokenRefresh = async (): Promise<boolean> => {
   }
 };
 
-const handleAuthenticationFailure = (): void => {
+const handleAuthenticationFailure = (reason?: 'revoked' | 'expired'): void => {
   clearTokens();
   localStorage.removeItem('userData');
   localStorage.removeItem('userProfile');
 
-  // Notify the app (useAuth can listen and clear React state)
-  window.dispatchEvent(new CustomEvent('auth:expired'));
+  if (reason === 'revoked') {
+    window.dispatchEvent(new CustomEvent('auth:token-revoked'));
+  } else {
+    window.dispatchEvent(new CustomEvent('auth:expired'));
+  }
 
   const currentPath = window.location.pathname;
-  if (currentPath.includes('/login')) {
-    console.log('🔒 Already on login page, skipping redirect');
-    return;
-  }
+  if (currentPath.includes('/login')) return;
 
   sessionStorage.setItem('returnUrl', currentPath);
   window.location.href = '/login';
 };
-
 // ─── Request helpers ──────────────────────────────────────────────────────────
 
 // Endpoints that must never trigger a refresh→logout cycle on 401
@@ -204,19 +203,26 @@ export const handleResponseError = async (
 
   console.error(`❌ ${method} ${endpoint} → ${response.status}`, errorData);
 
-  if (response.status === 401 && !isPublicEndpoint(endpoint)) {
-    console.log('🔄 Attempting token refresh...');
-    const refreshed = await attemptTokenRefresh();
+  // Inside handleResponseError, find the 401 block and update it:
+if (response.status === 401 && !isPublicEndpoint(endpoint)) {
+  console.log('🔄 Attempting token refresh...');
+  const refreshed = await attemptTokenRefresh();
 
-    if (refreshed) {
-      const retryError = new Error('Token refreshed, please retry');
-      (retryError as any).shouldRetry = true;
-      throw retryError;
-    }
-
-    handleAuthenticationFailure();
-    throw new Error('Authentication expired');
+  if (refreshed) {
+    const retryError = new Error('Token refreshed, please retry');
+    (retryError as any).shouldRetry = true;
+    throw retryError;
   }
+
+  // Check if it's a revocation vs plain expiry
+  const isRevoked =
+    typeof errorData === 'object' &&
+    (errorData?.detail?.includes('revoked') ||
+      errorData?.detail?.includes('no longer valid'));
+
+  handleAuthenticationFailure(isRevoked ? 'revoked' : 'expired');
+  throw new Error('Authentication expired');
+}
 
   const message =
     typeof errorData === 'object' && errorData?.detail

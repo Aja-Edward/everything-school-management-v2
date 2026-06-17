@@ -1,4 +1,6 @@
 import ProtectedRoute from '@/components/ProtectedRoute';
+import { useEffect } from 'react';
+import { toast } from 'react-toastify';
 import { UserRole } from '@/types/types';
 import { createBrowserRouter, Outlet, Navigate } from 'react-router-dom';
 import ErrorBoundary from './../components/ErrorBoundary';
@@ -162,7 +164,19 @@ const LazyWrapper = ({ children }: { children: React.ReactNode }) => (
 );
 
 // Root layout with providers
-const RootLayout = () => (
+const RootLayout = () => {
+  useEffect(() => {
+    const handleNotification = (e: Event) => {
+      const { type, message } = (e as CustomEvent).detail;
+      if (type === 'warning') toast.warning(message);
+      else if (type === 'error') toast.error(message);
+      else toast.info(message);
+    };
+
+    window.addEventListener('auth:notification', handleNotification);
+    return () => window.removeEventListener('auth:notification', handleNotification);
+  }, []); 
+  return (
   <DesignProvider>              {/* ← must be OUTSIDE GlobalThemeProvider */}
     <GlobalThemeProvider>       {/* ← calls useDesign(), so needs DesignProvider above */}
       <TenantProvider>
@@ -184,7 +198,7 @@ const RootLayout = () => (
     </GlobalThemeProvider>
   </DesignProvider>
 );
-
+}
 // Main domain layout with Navbar and Footer (for marketing pages)
 const MainDomainLayout = () => (
   <>

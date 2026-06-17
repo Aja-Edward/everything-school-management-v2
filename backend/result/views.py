@@ -172,6 +172,14 @@ class StandardResultsPagination(PageNumberPagination):
 
 
 # ── Utility helpers ───────────────────────────────────────────────────────────
+def _active_enrollments_prefetch():
+    return Prefetch(
+        "student__studentenrollment_set",
+        queryset=StudentEnrollment.objects.filter(
+            is_active=True
+        ).select_related("classroom"),
+        to_attr="active_enrollments",
+    )
 
 
 def get_next_term_begins_date(exam_session):
@@ -1519,7 +1527,7 @@ class SeniorSecondaryResultViewSet(
         qs = _result_qs_base(
             SeniorSecondaryResult,
             extra_selects=("stream", "stream__stream_type_new"),
-        ).order_by("-created_at")
+        ).prefetch_related(_active_enrollments_prefetch()).order_by("-created_at")
         return _apply_role_filter(qs, self, user)
 
     def get_serializer_context(self):
@@ -1601,6 +1609,7 @@ class SeniorSecondaryTermReportViewSet(
                 "stream__stream_type_new",
             )
             .prefetch_related(
+                _active_enrollments_prefetch(),
                 Prefetch(
                     "subject_results",
                     queryset=SeniorSecondaryResult.objects.select_related(
@@ -1931,15 +1940,7 @@ class JuniorSecondaryResultViewSet(
         user = self.request.user
         qs = (
             _result_qs_base(JuniorSecondaryResult)
-            .prefetch_related(
-                Prefetch(
-                    "student__studentenrollment_set",
-                    queryset=StudentEnrollment.objects.filter(
-                        is_active=True
-                    ).select_related("classroom"),
-                    to_attr="active_enrollments",
-                )
-            )
+            .prefetch_related(_active_enrollments_prefetch())
             .order_by("-created_at")
         )
         return _apply_role_filter(qs, self, user)
@@ -2031,6 +2032,7 @@ class JuniorSecondaryTermReportViewSet(
                 "approved_by",
             )
             .prefetch_related(
+                _active_enrollments_prefetch(),
                 Prefetch(
                     "subject_results",
                     queryset=JuniorSecondaryResult.objects.select_related(
@@ -2322,7 +2324,9 @@ class PrimaryResultViewSet(
 
     def get_queryset(self):
         user = self.request.user
-        qs = _result_qs_base(PrimaryResult).order_by("-created_at")
+        qs = _result_qs_base(PrimaryResult).prefetch_related(
+            _active_enrollments_prefetch()
+        ).order_by("-created_at")
         sc_param = self.request.query_params.get("student_class")
         if sc_param:
             try:
@@ -2423,6 +2427,7 @@ class PrimaryTermReportViewSet(
                 "approved_by",
             )
             .prefetch_related(
+                _active_enrollments_prefetch(),
                 Prefetch(
                     "subject_results",
                     queryset=PrimaryResult.objects.select_related(
@@ -2713,7 +2718,7 @@ class NurseryResultViewSet(
         return ctx
 
     def get_queryset(self):
-        qs = _result_qs_base(NurseryResult, extra_selects=("term_report",)).order_by(
+        qs = _result_qs_base(NurseryResult, extra_selects=("term_report",)).prefetch_related(_active_enrollments_prefetch()).order_by(
             "-created_at"
         )
         return _apply_role_filter(qs, self, self.request.user)
@@ -2894,6 +2899,7 @@ class NurseryTermReportViewSet(
                 "approved_by",
             )
             .prefetch_related(
+                _active_enrollments_prefetch(),
                 Prefetch(
                     "subject_results",
                     queryset=NurseryResult.objects.select_related(

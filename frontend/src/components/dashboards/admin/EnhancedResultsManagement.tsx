@@ -11,6 +11,8 @@ import ResultService, {
   EducationLevelType,
   ResultStatus,
   NurseryTermReport,
+  TermReportParams,
+  PaginatedTermReports,
 } from '@/services/ResultService';
 import AddResultForm from './AddResultForm';
 import EditResultForm from './EditResultForm';
@@ -76,7 +78,6 @@ function formatDate(iso: string): string {
 function getAvgScore(report: AnyTermReport): number {
   const stored = ResultService.getAverageScore(report);
   if (stored > 0) return stored;
-  // Fallback: compute from subject_results when term report totals are stale (e.g. first recording)
   const srs: any[] = (report.subject_results ?? []) as any[];
   if (srs.length === 0) return 0;
   const sum = srs.reduce((s: number, sr: any) => s + (parseFloat(sr.total_score || '0') || 0), 0);
@@ -217,7 +218,6 @@ function DetailModal({ report, level, onClose, onApprove, onPublish, onDownload 
         </div>
 
         <div className="p-6 space-y-6">
-          {/* Summary */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-slate-50 rounded-xl p-4 text-center">
               <p className="text-2xl font-bold text-slate-900">{formatScore(avgScore)}</p>
@@ -239,7 +239,6 @@ function DetailModal({ report, level, onClose, onApprove, onPublish, onDownload 
             </div>
           </div>
 
-          {/* Subject results */}
           <div>
             <h3 className="text-sm font-semibold text-slate-700 mb-3">
               Subject Results ({report.subject_results?.length ?? 0})
@@ -303,7 +302,6 @@ function DetailModal({ report, level, onClose, onApprove, onPublish, onDownload 
             </div>
           </div>
 
-          {/* Component score breakdown */}
           {!isNursery && report.subject_results?.some((sr) => sr.component_scores?.length > 0) && (
             <div>
               <h3 className="text-sm font-semibold text-slate-700 mb-3">Score Breakdown</h3>
@@ -327,7 +325,6 @@ function DetailModal({ report, level, onClose, onApprove, onPublish, onDownload 
             </div>
           )}
 
-          {/* Remarks */}
           {(report.class_teacher_remark || report.head_teacher_remark) && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {report.class_teacher_remark && (
@@ -398,6 +395,7 @@ const EnhancedResultsManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [totalCount, setTotalCount] = useState(0);
 
   const [filters, setFilters] = useState<Filters>({
     search: '', status: 'all', level: 'all', session: 'all', term: 'all',
@@ -412,7 +410,6 @@ const EnhancedResultsManagement: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<EnrichedReport | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editTarget, setEditTarget] = useState<{ report: EnrichedReport; subjectResult: any } | null>(null);
-
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   // ── Subject Results state ────────────────────────────────────────────────
@@ -425,48 +422,107 @@ const EnhancedResultsManagement: React.FC = () => {
   const [srActionLoading, setSrActionLoading] = useState<string | null>(null);
   const [srTermTab, setSrTermTab] = useState<'FIRST' | 'SECOND' | 'THIRD' | 'SESSION'>('FIRST');
   const [srSelectedSession, setSrSelectedSession] = useState<string>('');
+  const [srCurrentPage, setSrCurrentPage] = useState(1);
+  const [srTotalCount, setSrTotalCount] = useState(0);
+  const SR_PAGE_SIZE = 25; // per level
 
-  // ── Load ─────────────────────────────────────────────────────────────────
+  // ── Derived ──────────────────────────────────────────────────────────────
+
+  // Server provides the current page — reports IS the page, no client-slice needed
+  const paginated = reports;
+  const totalPages = Math.ceil(totalCount / pageSize);
+
+  const counts = useMemo(() => ({
+    total: totalCount,
+    draft: reports.filter((r) => r.status === 'DRAFT').length,
+    approved: reports.filter((r) => r.status === 'APPROVED').length,
+    published: reports.filter((r) => r.status === 'PUBLISHED').length,
+  }), [reports, totalCount]);
+
+  // Unique sessions/terms from the current page (used only for SESSION tab dropdowns)
+  const uniqueSessions = useMemo(() =>
+    Array.from(new Set(reports.map((r) => r.exam_session?.academic_session?.name).filter(Boolean) as string[])),
+    [reports]
+  );
+  const uniqueTerms = useMemo(() =>
+    Array.from(new Set(reports.map((r) => r.exam_session?.term_name).filter(Boolean) as string[])),
+    [reports]
+  );
+
+  // ── Load Term Reports (server-side pagination + filtering) ────────────────
   const loadReports = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     else setRefreshing(true);
     setError(null);
     try {
-      const data = await ResultService.getAllTermReports();
-      setReports(data);
+      const params: TermReportParams = {
+        page: currentPage,
+        page_size: pageSize,
+        ...(filters.status !== 'all' && { status: filters.status as ResultStatus }),
+        ...(filters.search && { search: filters.search }),
+        // Pass term tab as a backend filter (requires backend support — see views.py)
+        ...(trTermTab !== 'SESSION' && { term_tab: trTermTab } as any),
+        ...(trTermTab === 'SESSION' && filters.session !== 'all' && { academic_session_name: filters.session } as any),
+        ...(trTermTab === 'SESSION' && filters.term !== 'all' && { term_name: filters.term } as any),
+      };
+
+      const data: PaginatedTermReports = await ResultService.getAllTermReports(params);
+      setReports(data.results as EnrichedReport[]);
+      setTotalCount(data.count);
     } catch (err: any) {
       setError(err?.message || 'Failed to load results.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [currentPage, pageSize, filters, trTermTab]);
 
+  // Reload when page/filters change
   useEffect(() => { loadReports(); }, [loadReports]);
-  useEffect(() => { setCurrentPage(1); }, [filters, pageSize]);
 
-  // ── Load subject results across all levels ───────────────────────────────
+  // Reset to page 1 when filters or tab change
+  useEffect(() => { setCurrentPage(1); }, [filters, trTermTab, pageSize]);
+
+  // ── Load Subject Results (server-side paginated per level) ────────────────
   const loadSubjectResults = useCallback(async () => {
     setSrLoading(true);
     try {
       const levels: EducationLevelType[] = ['NURSERY', 'PRIMARY', 'JUNIOR_SECONDARY', 'SENIOR_SECONDARY'];
+
+      // Only fetch the specific level if filtered, otherwise fetch all
+      const levelsToFetch = srFilterLevel !== 'all'
+        ? [srFilterLevel]
+        : levels;
+
       const settled = await Promise.allSettled(
-        levels.map(level =>
-          ResultService.getSubjectResults(level, { page_size: 500 } as any)
-            .then(data => (data as any[]).map(r => ({ ...r, education_level: level })))
-            .catch(() => [])
+        levelsToFetch.map(level =>
+          ResultService.getTermReportsPaginated(level, {
+            page: srCurrentPage,
+            page_size: SR_PAGE_SIZE,
+            ...(srFilterStatus !== 'all' && { status: srFilterStatus }),
+            ...(srSearch && { search: srSearch }),
+          } as any).then(res => ({
+            results: res.results.map((r: any) => ({ ...r, education_level: level })),
+            count: res.count,
+          })).catch(() => ({ results: [], count: 0 }))
         )
       );
-      const all = settled.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+
+      const all = settled.flatMap(r => r.status === 'fulfilled' ? r.value.results : []);
+      const total = settled.reduce((sum, r) => sum + (r.status === 'fulfilled' ? r.value.count : 0), 0);
       setSubjectResults(all);
+      setSrTotalCount(total);
     } finally {
       setSrLoading(false);
     }
-  }, []);
+  }, [srCurrentPage, srFilterLevel, srFilterStatus, srSearch]);
 
   useEffect(() => {
     if (activeTab === 'subject-results') loadSubjectResults();
   }, [activeTab, loadSubjectResults]);
+
+  // Reset SR page when filters change
+  useEffect(() => { setSrCurrentPage(1); }, [srFilterLevel, srFilterStatus, srSearch, srTermTab]);
 
   // ── Subject result actions ───────────────────────────────────────────────
   const handleSrApprove = async (result: any) => {
@@ -553,64 +609,19 @@ const EnhancedResultsManagement: React.FC = () => {
     [subjectResults]
   );
 
-  // ── Filtered subject results ─────────────────────────────────────────────
+  // ── Filtered subject results (client-side only for term tab — server handles status/search/level) ──
   const filteredSr = useMemo(() => {
-    const q = srSearch.toLowerCase();
     return subjectResults.filter(r => {
-      // Term tab filter
       if (srTermTab !== 'SESSION') {
         if (termKey(r.exam_session) !== srTermTab) return false;
       } else if (srSelectedSession) {
         if (String(r.exam_session?.id) !== srSelectedSession) return false;
       }
-      if (srFilterLevel !== 'all' && r.education_level !== srFilterLevel) return false;
-      if (srFilterStatus !== 'all' && (r.status || '').toUpperCase() !== srFilterStatus) return false;
-      if (q &&
-        !(r.student?.full_name || '').toLowerCase().includes(q) &&
-        !(r.subject?.name || '').toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [subjectResults, srTermTab, srSelectedSession, srFilterLevel, srFilterStatus, srSearch]);
+  }, [subjectResults, srTermTab, srSelectedSession]);
 
-  // ── Derived ──────────────────────────────────────────────────────────────
-  const uniqueSessions = useMemo(() =>
-    Array.from(new Set(reports.map((r) => r.exam_session?.academic_session?.name).filter(Boolean) as string[])),
-    [reports]
-  );
-  const uniqueTerms = useMemo(() =>
-    Array.from(new Set(reports.map((r) => r.exam_session?.term_name).filter(Boolean) as string[])),
-    [reports]
-  );
-
-  const filtered = useMemo(() => reports.filter((r) => {
-    // Term tab filter (primary — overrides the old term dropdown)
-    if (trTermTab !== 'SESSION') {
-      if (termKey(r.exam_session) !== trTermTab) return false;
-    } else {
-      // SESSION tab: use existing session / term dropdown values if set
-      if (filters.session !== 'all' && r.exam_session?.academic_session?.name !== filters.session) return false;
-      if (filters.term   !== 'all' && r.exam_session?.term_name !== filters.term)   return false;
-    }
-    if (filters.search &&
-      !r.student?.full_name?.toLowerCase().includes(filters.search.toLowerCase()) &&
-      !r.student?.student_class_name?.toLowerCase().includes(filters.search.toLowerCase()))
-      return false;
-    if (filters.status !== 'all' && r.status !== filters.status) return false;
-    if (filters.level  !== 'all' && r.education_level !== filters.level) return false;
-    return true;
-  }), [reports, filters, trTermTab]);
-
-  const totalPages = Math.ceil(filtered.length / pageSize);
-  const paginated = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-
-  const counts = useMemo(() => ({
-    total: reports.length,
-    draft: reports.filter((r) => r.status === 'DRAFT').length,
-    approved: reports.filter((r) => r.status === 'APPROVED').length,
-    published: reports.filter((r) => r.status === 'PUBLISHED').length,
-  }), [reports]);
-
-  // ── Actions ──────────────────────────────────────────────────────────────
+  // ── Term Report Actions ──────────────────────────────────────────────────
   const handleApprove = async (report: EnrichedReport) => {
     setActionLoading(report.id);
     try {
@@ -642,13 +653,13 @@ const EnhancedResultsManagement: React.FC = () => {
     try {
       await ResultService.deleteTermReport(report.education_level, report.id);
       setReports((prev) => prev.filter((r) => r.id !== report.id));
+      setTotalCount(c => c - 1);
       setDeleteTarget(null);
       toast.success('Term report deleted');
     } catch (err: any) { toast.error(err?.message || 'Failed to delete'); }
     finally { setActionLoading(null); }
   };
 
-  // ── Position recalculation helper ───────────────────────────────────────
   const recalcPositions = async (affected: EnrichedReport[]) => {
     const seen = new Set<string>();
     const combos: { level: EducationLevelType; sid: string }[] = [];
@@ -657,7 +668,6 @@ const EnhancedResultsManagement: React.FC = () => {
       const key = `${r.education_level}:${sid}`;
       if (sid && !seen.has(key)) { seen.add(key); combos.push({ level: r.education_level, sid: String(sid) }); }
     });
-    // Run sequentially so any error surfaces immediately
     for (const { level, sid } of combos) {
       await ResultService.recalculatePositions(level, sid);
     }
@@ -667,12 +677,7 @@ const EnhancedResultsManagement: React.FC = () => {
     setActionLoading('positions');
     try {
       await recalcPositions(reports);
-      const freshData = await ResultService.getAllTermReports();
-      setReports(freshData);
-      if (detailReport) {
-        const updated = freshData.find(r => r.id === detailReport.id);
-        if (updated) setDetailReport(updated as EnrichedReport);
-      }
+      await loadReports(true);
       toast.success('Positions recalculated');
     } catch (e: any) { toast.error(e?.message || 'Failed to recalculate positions'); }
     finally { setActionLoading(null); }
@@ -694,9 +699,6 @@ const EnhancedResultsManagement: React.FC = () => {
         const res = await ResultService.bulkApproveTermReports(level, ids);
         total += res.approved_reports;
       }
-      setReports((prev) => prev.map((r) =>
-        selectedIds.includes(r.id) && r.status === 'DRAFT' ? { ...r, status: 'APPROVED' as ResultStatus } : r
-      ));
       setSelectedIds([]);
       toast.success(`${total} report(s) approved`);
       const affected = reports.filter(r => selectedIds.includes(r.id));
@@ -722,9 +724,6 @@ const EnhancedResultsManagement: React.FC = () => {
         const res = await ResultService.bulkPublishTermReports(level, ids);
         total += res.published_reports;
       }
-      setReports((prev) => prev.map((r) =>
-        selectedIds.includes(r.id) && r.status === 'APPROVED' ? { ...r, status: 'PUBLISHED' as ResultStatus } : r
-      ));
       setSelectedIds([]);
       toast.success(`${total} report(s) published`);
       const affected = reports.filter(r => selectedIds.includes(r.id));
@@ -803,7 +802,7 @@ const EnhancedResultsManagement: React.FC = () => {
               <Plus className="w-4 h-4" /> Record Result
             </button>
             <button
-              onClick={() => { loadReports(true); loadSubjectResults(); }}
+              onClick={() => { loadReports(true); if (activeTab === 'subject-results') loadSubjectResults(); }}
               disabled={refreshing || srLoading}
               className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 rounded-xl text-slate-600 text-sm hover:bg-white transition-colors disabled:opacity-50"
             >
@@ -813,7 +812,6 @@ const EnhancedResultsManagement: React.FC = () => {
               <button
                 onClick={handleRecalculatePositions}
                 disabled={actionLoading === 'positions' || reports.length === 0}
-                title="Recalculate class positions for all APPROVED/PUBLISHED term reports"
                 className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 text-white rounded-xl text-sm font-medium hover:bg-amber-600 disabled:opacity-50 transition-colors"
               >
                 <RefreshCw className={`w-4 h-4 ${actionLoading === 'positions' ? 'animate-spin' : ''}`} />
@@ -834,9 +832,7 @@ const EnhancedResultsManagement: React.FC = () => {
             <BookOpen className="w-4 h-4" />
             Subject Results
             {srDraftCount > 0 && (
-              <span className="bg-amber-500 text-white text-xs px-1.5 py-0.5 rounded-full">
-                {srDraftCount}
-              </span>
+              <span className="bg-amber-500 text-white text-xs px-1.5 py-0.5 rounded-full">{srDraftCount}</span>
             )}
           </button>
           <button
@@ -853,9 +849,8 @@ const EnhancedResultsManagement: React.FC = () => {
         {/* ── Subject Results Tab ── */}
         {activeTab === 'subject-results' && (
           <div className="space-y-4">
-            {/* Subject Results Stats */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard label="Total Results" value={subjectResults.length} icon={BookOpen} color="bg-slate-600" />
+              <StatCard label="Total Results" value={srTotalCount} icon={BookOpen} color="bg-slate-600" />
               <StatCard label="Draft" value={srDraftCount} icon={Clock} color="bg-amber-500" sub="Pending approval" />
               <StatCard label="Approved" value={subjectResults.filter(r => r.status === 'APPROVED').length} icon={CheckCircle} color="bg-emerald-500" sub="Ready to publish" />
               <StatCard label="Published" value={subjectResults.filter(r => r.status === 'PUBLISHED').length} icon={Award} color="bg-violet-600" sub="Term report generated" />
@@ -884,7 +879,6 @@ const EnhancedResultsManagement: React.FC = () => {
               </button>
             </div>
 
-            {/* Session selector (shown only in SESSION tab) */}
             {srTermTab === 'SESSION' && (
               <div className="bg-white rounded-xl border border-slate-200 p-4">
                 <label className="block text-sm font-medium text-slate-700 mb-2">Select Exam Session</label>
@@ -900,7 +894,7 @@ const EnhancedResultsManagement: React.FC = () => {
               </div>
             )}
 
-            {/* Subject Results Filters + Bulk Actions */}
+            {/* Filters + Bulk Actions */}
             <div className="bg-white rounded-2xl border border-slate-200 p-4">
               <div className="flex flex-wrap gap-3 mb-3">
                 <div className="relative flex-1 min-w-[200px]">
@@ -982,7 +976,6 @@ const EnhancedResultsManagement: React.FC = () => {
                         const caTotal = caComps.length > 0
                           ? caComps.reduce((s: number, c: any) => s + (parseFloat(c.score) || 0), 0)
                           : parseFloat(r.ca_total || '0');
-                        // Nursery has no exam_score — fall back to mark_obtained
                         const examScore = examComp ? parseFloat(examComp.score) : parseFloat(r.exam_score || (r as any).mark_obtained || '0');
                         const isActing = srActionLoading === String(r.id);
                         return (
@@ -1025,11 +1018,10 @@ const EnhancedResultsManagement: React.FC = () => {
                               <span className="text-sm font-bold text-slate-900">{parseFloat(r.total_score || '0').toFixed(1)}</span>
                             </td>
                             <td className="px-4 py-3 text-center"><GradeChip grade={r.grade || '—'} /></td>
-                            <td className="px-4 py-3 text-xs text-slate-600 max-w-[120px] truncate" title={r.teacher_remark || (r as any).academic_comment || ''}>{r.teacher_remark || (r as any).academic_comment || ''}</td>
+                            <td className="px-4 py-3 text-xs text-slate-600 max-w-[120px] truncate">{r.teacher_remark || (r as any).academic_comment || ''}</td>
                             <td className="px-4 py-3"><StatusBadge status={(r.status || 'DRAFT') as ResultStatus} /></td>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-1">
-                                {/* Edit — always available */}
                                 <button
                                   onClick={() => setEditTarget({ report: { education_level: r.education_level } as EnrichedReport, subjectResult: r })}
                                   className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
@@ -1061,9 +1053,28 @@ const EnhancedResultsManagement: React.FC = () => {
                   </table>
                 </div>
               )}
+
+              {/* Subject Results Pagination */}
+              {srTotalCount > SR_PAGE_SIZE && (
+                <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50">
+                  <span className="text-sm text-slate-500">
+                    Showing <strong>{(srCurrentPage - 1) * SR_PAGE_SIZE + 1}–{Math.min(srCurrentPage * SR_PAGE_SIZE, srTotalCount)}</strong> of <strong>{srTotalCount}</strong>
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => setSrCurrentPage(p => Math.max(1, p - 1))} disabled={srCurrentPage === 1}
+                      className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40">
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="px-3 text-sm text-slate-600">Page {srCurrentPage}</span>
+                    <button onClick={() => setSrCurrentPage(p => p + 1)} disabled={srCurrentPage * SR_PAGE_SIZE >= srTotalCount}
+                      className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40">
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Info banner */}
             <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-700 flex items-start gap-2">
               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
               <span>
@@ -1075,66 +1086,59 @@ const EnhancedResultsManagement: React.FC = () => {
 
         {/* ── Term Reports Tab ── */}
         {activeTab === 'term-reports' && <>
-        {/* Term Tabs */}
-        <div className="flex gap-1 bg-white rounded-2xl border border-slate-200 p-1 w-fit">
-          {(['FIRST', 'SECOND', 'THIRD'] as const).map((t, i) => {
-            const label = ['1st Term', '2nd Term', '3rd Term'][i];
-            const count = reports.filter(r => termKey(r.exam_session) === t).length;
-            return (
-              <button key={t} onClick={() => { setTrTermTab(t); setFilters(f => ({ ...f, session: 'all', term: 'all' })); }}
-                className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 ${
-                  trTermTab === t ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-                }`}>
-                {label}
-                {count > 0 && (
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${trTermTab === t ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-          <button onClick={() => setTrTermTab('SESSION')}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-              trTermTab === 'SESSION' ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-            }`}>
-            By Session
-          </button>
-        </div>
-
-        {/* Session / Term selectors — shown only in SESSION tab */}
-        {trTermTab === 'SESSION' && (
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-wrap gap-4 items-end">
-            <div className="flex-1 min-w-[200px]">
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Academic Session</label>
-              <select value={filters.session} onChange={e => setFilters(f => ({ ...f, session: e.target.value }))}
-                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 outline-none">
-                <option value="all">— All sessions —</option>
-                {uniqueSessions.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-            <div className="flex-1 min-w-[180px]">
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Term</label>
-              <select value={filters.term} onChange={e => setFilters(f => ({ ...f, term: e.target.value }))}
-                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 outline-none">
-                <option value="all">— All terms —</option>
-                {uniqueTerms.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
+          {/* Term Tabs */}
+          <div className="flex gap-1 bg-white rounded-2xl border border-slate-200 p-1 w-fit">
+            {(['FIRST', 'SECOND', 'THIRD'] as const).map((t, i) => {
+              const label = ['1st Term', '2nd Term', '3rd Term'][i];
+              return (
+                <button key={t} onClick={() => { setTrTermTab(t); setFilters(f => ({ ...f, session: 'all', term: 'all' })); }}
+                  className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 ${
+                    trTermTab === t ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                  }`}>
+                  {label}
+                </button>
+              );
+            })}
+            <button onClick={() => setTrTermTab('SESSION')}
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+                trTermTab === 'SESSION' ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+              }`}>
+              By Session
+            </button>
           </div>
-        )}
 
-        {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="Total Reports" value={counts.total} icon={FileText} color="bg-slate-600" />
-          <StatCard label="Draft" value={counts.draft} icon={Clock} color="bg-amber-500" sub="Awaiting approval" />
-          <StatCard label="Approved" value={counts.approved} icon={CheckCircle} color="bg-emerald-500" sub="Ready to publish" />
-          <StatCard label="Published" value={counts.published} icon={Award} color="bg-violet-600" sub="Visible to students" />
-        </div>
+          {trTermTab === 'SESSION' && (
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-wrap gap-4 items-end">
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Academic Session</label>
+                <select value={filters.session} onChange={e => setFilters(f => ({ ...f, session: e.target.value }))}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 outline-none">
+                  <option value="all">— All sessions —</option>
+                  {uniqueSessions.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div className="flex-1 min-w-[180px]">
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Term</label>
+                <select value={filters.term} onChange={e => setFilters(f => ({ ...f, term: e.target.value }))}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 outline-none">
+                  <option value="all">— All terms —</option>
+                  {uniqueTerms.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
 
-        {/* Filters */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          {/* Stats */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard label="Total Reports" value={counts.total} icon={FileText} color="bg-slate-600" />
+            <StatCard label="Draft" value={counts.draft} icon={Clock} color="bg-amber-500" sub="Awaiting approval" />
+            <StatCard label="Approved" value={counts.approved} icon={CheckCircle} color="bg-emerald-500" sub="Ready to publish" />
+            <StatCard label="Published" value={counts.published} icon={Award} color="bg-violet-600" sub="Visible to students" />
+          </div>
+
+          {/* Filters */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
@@ -1142,33 +1146,21 @@ const EnhancedResultsManagement: React.FC = () => {
                   placeholder="Search student or class…"
                   value={filters.search}
                   onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-                  className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 focus:border-transparent outline-none"
+                  className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 outline-none"
                 />
               </div>
-              {/* Status and Level filters only — session/term are controlled by the term tabs above */}
-              {(['status', 'level'] as const).map((key) => (
-                <select
-                  key={key}
-                  value={filters[key]}
-                  onChange={(e) => setFilters((f) => ({ ...f, [key]: e.target.value }))}
-                  className="px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 outline-none"
-                >
-                  {key === 'status' && (
-                    <>
-                      <option value="all">All Statuses</option>
-                      <option value="DRAFT">Draft</option>
-                      <option value="APPROVED">Approved</option>
-                      <option value="PUBLISHED">Published</option>
-                    </>
-                  )}
-                  {key === 'level' && (
-                    <>
-                      <option value="all">All Levels</option>
-                      {EDUCATION_LEVELS.map((l) => <option key={l} value={l}>{LEVEL_LABELS[l]}</option>)}
-                    </>
-                  )}
-                </select>
-              ))}
+              <select value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value as any }))}
+                className="px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 outline-none">
+                <option value="all">All Statuses</option>
+                <option value="DRAFT">Draft</option>
+                <option value="APPROVED">Approved</option>
+                <option value="PUBLISHED">Published</option>
+              </select>
+              <select value={filters.level} onChange={(e) => setFilters((f) => ({ ...f, level: e.target.value as any }))}
+                className="px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 outline-none">
+                <option value="all">All Levels</option>
+                {EDUCATION_LEVELS.map((l) => <option key={l} value={l}>{LEVEL_LABELS[l]}</option>)}
+              </select>
             </div>
             {(filters.status !== 'all' || filters.level !== 'all' || filters.search) && (
               <button
@@ -1180,171 +1172,169 @@ const EnhancedResultsManagement: React.FC = () => {
             )}
           </div>
 
-        {/* Table */}
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <h2 className="text-base font-semibold text-slate-900">
-              Term Reports <span className="text-slate-400 font-normal">({filtered.length})</span>
-            </h2>
-            {selectedIds.length > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-slate-500">{selectedIds.length} selected</span>
-                <button onClick={handleBulkApprove} disabled={actionLoading === 'bulk'} className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50">
-                  <CheckCircle className="w-3.5 h-3.5" /> Approve
-                </button>
-                <button onClick={handleBulkPublish} disabled={actionLoading === 'bulk'} className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700 disabled:opacity-50">
-                  <Award className="w-3.5 h-3.5" /> Publish
-                </button>
-                <button onClick={() => setSelectedIds([])} className="text-slate-400 hover:text-slate-600 p-1"><X className="w-4 h-4" /></button>
-              </div>
-            )}
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="px-4 py-3 text-left w-10">
-                    <input type="checkbox" checked={selectedIds.length === paginated.length && paginated.length > 0} onChange={handleSelectAll} className="rounded border-slate-300 text-violet-600 focus:ring-violet-400" />
-                  </th>
-                  {['Student', 'Level', 'Term / Session', 'Subjects', 'Average', 'Grade', 'Position', 'Status', 'Updated', 'Actions'].map((h) => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {paginated.length === 0 ? (
-                  <tr>
-                    <td colSpan={11} className="px-4 py-16 text-center">
-                      <FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                      <p className="text-slate-500 font-medium">No results found</p>
-                    </td>
-                  </tr>
-                ) : (
-                  paginated.map((report) => {
-                    const avg = getAvgScore(report);
-                    const grade = getOverallGrade(report);
-                    const isActing = actionLoading === report.id;
-                    const totalStudents = getTotalStudents(report);
-                    return (
-                      <tr key={report.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-4 py-3">
-                          <input type="checkbox" checked={selectedIds.includes(report.id)} onChange={() => setSelectedIds((prev) => prev.includes(report.id) ? prev.filter((x) => x !== report.id) : [...prev, report.id])} className="rounded border-slate-300 text-violet-600 focus:ring-violet-400" />
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0">
-                              <User className="w-4 h-4 text-violet-600" />
-                            </div>
-                            <div>
-                              <p className="font-medium text-slate-900 leading-tight">{report.student?.full_name || 'N/A'}</p>
-                              <p className="text-xs text-slate-400">{report.student?.student_class_name || '—'}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3"><LevelBadge level={report.education_level} /></td>
-                        <td className="px-4 py-3">
-                          <p className="text-slate-700 font-medium leading-tight">{report.exam_session?.term_name || 'N/A'}</p>
-                          <p className="text-xs text-slate-400">{report.exam_session?.academic_session?.name || '—'}</p>
-                        </td>
-                        <td className="px-4 py-3 text-center text-slate-600">{getSubjectCount(report)}</td>
-                        <td className="px-4 py-3 text-center font-medium text-slate-900">{formatScore(avg)}</td>
-                        <td className="px-4 py-3 text-center"><GradeChip grade={grade} /></td>
-                        <td className="px-4 py-3 text-center text-slate-500 text-xs">
-                          {report.class_position ? `${report.class_position}${totalStudents ? `/${totalStudents}` : ''}` : '—'}
-                        </td>
-                        <td className="px-4 py-3"><StatusBadge status={report.status} /></td>
-                        <td className="px-4 py-3 text-xs text-slate-400">{formatDate(report.updated_at)}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center justify-center gap-1">
-                            <button onClick={() => setDetailReport(report)} className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors" title="View"><Eye className="w-4 h-4" /></button>
-                            {/* Edit: opens edit form for the first subject result */}
-                            <button
-                              onClick={() => {
-                                const sr = report.subject_results?.[0];
-                                if (sr) setEditTarget({ report, subjectResult: sr });
-                                else toast.info('No subject results to edit');
-                              }}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
-                              title="Edit"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </button>
-                            {report.status === 'DRAFT' && (
-                              <button onClick={() => handleApprove(report)} disabled={isActing} className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors disabled:opacity-40" title="Approve">
-                                <CheckCircle className="w-4 h-4" />
-                              </button>
-                            )}
-                            {report.status === 'APPROVED' && (
-                              <button onClick={() => handlePublish(report)} disabled={isActing} className="p-1.5 rounded-lg text-slate-400 hover:text-violet-600 hover:bg-violet-50 transition-colors disabled:opacity-40" title="Publish">
-                                <Award className="w-4 h-4" />
-                              </button>
-                            )}
-                            <button onClick={() => handleDownloadPDF(report)} disabled={actionLoading === report.id + '_pdf'} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-40" title="Download PDF">
-                              <Download className="w-4 h-4" />
-                            </button>
-                            <button onClick={() => setDeleteTarget(report)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="Delete">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Pagination */}
-          {filtered.length > 0 && (
-            <div className="px-6 py-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50">
-              <div className="flex items-center gap-2 text-sm text-slate-500">
-                <span>Show</span>
-                <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="px-2 py-1 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-violet-400 outline-none">
-                  {[10, 20, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
-                </select>
-                <span>Showing <strong>{(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filtered.length)}</strong> of <strong>{filtered.length}</strong></span>
-              </div>
-              {totalPages > 1 && (
-                <div className="flex items-center gap-1">
-                  {([
-                    { icon: ChevronsLeft, action: () => setCurrentPage(1), disabled: currentPage === 1 },
-                    { icon: ChevronLeft, action: () => setCurrentPage((p) => p - 1), disabled: currentPage === 1 },
-                  ] as const).map(({ icon: Icon, action, disabled }, i) => (
-                    <button key={i} onClick={action} disabled={disabled} className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
-                      <Icon className="w-4 h-4" />
-                    </button>
-                  ))}
-                  <div className="hidden sm:flex items-center gap-1">
-                    {getPageNumbers().map((p, i) =>
-                      p === '…' ? (
-                        <span key={`e${i}`} className="px-2 text-slate-400">…</span>
-                      ) : (
-                        <button key={p} onClick={() => setCurrentPage(p as number)}
-                          className={`min-w-[2.25rem] h-9 rounded-lg border text-sm font-medium transition-colors ${currentPage === p ? 'bg-violet-600 border-violet-600 text-white' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
-                          {p}
-                        </button>
-                      )
-                    )}
-                  </div>
-                  {([
-                    { icon: ChevronRight, action: () => setCurrentPage((p) => p + 1), disabled: currentPage === totalPages },
-                    { icon: ChevronsRight, action: () => setCurrentPage(totalPages), disabled: currentPage === totalPages },
-                  ] as const).map(({ icon: Icon, action, disabled }, i) => (
-                    <button key={i} onClick={action} disabled={disabled} className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
-                      <Icon className="w-4 h-4" />
-                    </button>
-                  ))}
+          {/* Table */}
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <h2 className="text-base font-semibold text-slate-900">
+                Term Reports <span className="text-slate-400 font-normal">({totalCount})</span>
+              </h2>
+              {selectedIds.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-slate-500">{selectedIds.length} selected</span>
+                  <button onClick={handleBulkApprove} disabled={actionLoading === 'bulk'} className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+                    <CheckCircle className="w-3.5 h-3.5" /> Approve
+                  </button>
+                  <button onClick={handleBulkPublish} disabled={actionLoading === 'bulk'} className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700 disabled:opacity-50">
+                    <Award className="w-3.5 h-3.5" /> Publish
+                  </button>
+                  <button onClick={() => setSelectedIds([])} className="text-slate-400 hover:text-slate-600 p-1"><X className="w-4 h-4" /></button>
                 </div>
               )}
             </div>
-          )}
-        </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr>
+                    <th className="px-4 py-3 text-left w-10">
+                      <input type="checkbox" checked={selectedIds.length === paginated.length && paginated.length > 0} onChange={handleSelectAll} className="rounded border-slate-300 text-violet-600 focus:ring-violet-400" />
+                    </th>
+                    {['Student', 'Level', 'Term / Session', 'Subjects', 'Average', 'Grade', 'Position', 'Status', 'Updated', 'Actions'].map((h) => (
+                      <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {paginated.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="px-4 py-16 text-center">
+                        <FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                        <p className="text-slate-500 font-medium">No results found</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    paginated.map((report) => {
+                      const avg = getAvgScore(report);
+                      const grade = getOverallGrade(report);
+                      const isActing = actionLoading === report.id;
+                      const totalStudents = getTotalStudents(report);
+                      return (
+                        <tr key={report.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-4 py-3">
+                            <input type="checkbox" checked={selectedIds.includes(report.id)} onChange={() => setSelectedIds((prev) => prev.includes(report.id) ? prev.filter((x) => x !== report.id) : [...prev, report.id])} className="rounded border-slate-300 text-violet-600 focus:ring-violet-400" />
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0">
+                                <User className="w-4 h-4 text-violet-600" />
+                              </div>
+                              <div>
+                                <p className="font-medium text-slate-900 leading-tight">{report.student?.full_name || 'N/A'}</p>
+                                <p className="text-xs text-slate-400">{report.student?.student_class_name || '—'}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3"><LevelBadge level={report.education_level} /></td>
+                          <td className="px-4 py-3">
+                            <p className="text-slate-700 font-medium leading-tight">{report.exam_session?.term_name || 'N/A'}</p>
+                            <p className="text-xs text-slate-400">{report.exam_session?.academic_session?.name || '—'}</p>
+                          </td>
+                          <td className="px-4 py-3 text-center text-slate-600">{getSubjectCount(report)}</td>
+                          <td className="px-4 py-3 text-center font-medium text-slate-900">{formatScore(avg)}</td>
+                          <td className="px-4 py-3 text-center"><GradeChip grade={grade} /></td>
+                          <td className="px-4 py-3 text-center text-slate-500 text-xs">
+                            {report.class_position ? `${report.class_position}${totalStudents ? `/${totalStudents}` : ''}` : '—'}
+                          </td>
+                          <td className="px-4 py-3"><StatusBadge status={report.status} /></td>
+                          <td className="px-4 py-3 text-xs text-slate-400">{formatDate(report.updated_at)}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-center gap-1">
+                              <button onClick={() => setDetailReport(report)} className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors" title="View"><Eye className="w-4 h-4" /></button>
+                              <button
+                                onClick={() => {
+                                  const sr = report.subject_results?.[0];
+                                  if (sr) setEditTarget({ report, subjectResult: sr });
+                                  else toast.info('No subject results to edit');
+                                }}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                                title="Edit"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              {report.status === 'DRAFT' && (
+                                <button onClick={() => handleApprove(report)} disabled={isActing} className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors disabled:opacity-40" title="Approve">
+                                  <CheckCircle className="w-4 h-4" />
+                                </button>
+                              )}
+                              {report.status === 'APPROVED' && (
+                                <button onClick={() => handlePublish(report)} disabled={isActing} className="p-1.5 rounded-lg text-slate-400 hover:text-violet-600 hover:bg-violet-50 transition-colors disabled:opacity-40" title="Publish">
+                                  <Award className="w-4 h-4" />
+                                </button>
+                              )}
+                              <button onClick={() => handleDownloadPDF(report)} disabled={actionLoading === report.id + '_pdf'} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-40" title="Download PDF">
+                                <Download className="w-4 h-4" />
+                              </button>
+                              <button onClick={() => setDeleteTarget(report)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="Delete">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {totalCount > 0 && (
+              <div className="px-6 py-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50">
+                <div className="flex items-center gap-2 text-sm text-slate-500">
+                  <span>Show</span>
+                  <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="px-2 py-1 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-violet-400 outline-none">
+                    {[10, 20, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                  <span>Showing <strong>{(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, totalCount)}</strong> of <strong>{totalCount}</strong></span>
+                </div>
+                {totalPages > 1 && (
+                  <div className="flex items-center gap-1">
+                    {([
+                      { icon: ChevronsLeft, action: () => setCurrentPage(1), disabled: currentPage === 1 },
+                      { icon: ChevronLeft, action: () => setCurrentPage((p) => p - 1), disabled: currentPage === 1 },
+                    ] as const).map(({ icon: Icon, action, disabled }, i) => (
+                      <button key={i} onClick={action} disabled={disabled} className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
+                        <Icon className="w-4 h-4" />
+                      </button>
+                    ))}
+                    <div className="hidden sm:flex items-center gap-1">
+                      {getPageNumbers().map((p, i) =>
+                        p === '…' ? (
+                          <span key={`e${i}`} className="px-2 text-slate-400">…</span>
+                        ) : (
+                          <button key={p} onClick={() => setCurrentPage(p as number)}
+                            className={`min-w-[2.25rem] h-9 rounded-lg border text-sm font-medium transition-colors ${currentPage === p ? 'bg-violet-600 border-violet-600 text-white' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
+                            {p}
+                          </button>
+                        )
+                      )}
+                    </div>
+                    {([
+                      { icon: ChevronRight, action: () => setCurrentPage((p) => p + 1), disabled: currentPage === totalPages },
+                      { icon: ChevronsRight, action: () => setCurrentPage(totalPages), disabled: currentPage === totalPages },
+                    ] as const).map(({ icon: Icon, action, disabled }, i) => (
+                      <button key={i} onClick={action} disabled={disabled} className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
+                        <Icon className="w-4 h-4" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </>}
       </div>
 
-      {/* Detail Modal */}
       {detailReport && (
         <DetailModal
           report={detailReport}
@@ -1356,7 +1346,6 @@ const EnhancedResultsManagement: React.FC = () => {
         />
       )}
 
-      {/* Delete Modal */}
       {deleteTarget && (
         <DeleteModal
           report={deleteTarget}
@@ -1366,7 +1355,6 @@ const EnhancedResultsManagement: React.FC = () => {
         />
       )}
 
-      {/* Add Result Form */}
       {showAddForm && (
         <AddResultForm
           onClose={() => setShowAddForm(false)}
@@ -1374,7 +1362,6 @@ const EnhancedResultsManagement: React.FC = () => {
         />
       )}
 
-      {/* Edit Result Form */}
       {editTarget && (
         <EditResultForm
           result={editTarget.subjectResult}
