@@ -6,6 +6,7 @@ from classroom.models import Section
 from .models import (
     AssessmentComponent,
     ComponentScore,
+    ExamType,
     ExamSession,
     Grade,
     GradingSystem,
@@ -47,7 +48,8 @@ class GradingSystemAdmin(admin.ModelAdmin):
 
 @admin.register(Grade)
 class GradeAdmin(admin.ModelAdmin):
-    list_display = ["grade", "min_score", "max_score", "grading_system", "is_passing"]
+    list_display = ["grade", "min_score",
+                    "max_score", "grading_system", "is_passing"]
     list_filter = ["grading_system", "is_passing"]
     search_fields = ["grade", "description"]
     ordering = ["grading_system", "-min_score"]
@@ -101,6 +103,11 @@ class ScoringConfigurationAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         return super().get_queryset(request).select_related("education_level")
+
+    def save_model(self, request, obj, form, change):
+        if not obj.tenant_id:
+            obj.tenant = request.tenant  # or infer from request.user mapping
+        super().save_model(request, obj, form, change)
 
 
 # ── Component Score ───────────────────────────────────────────────────────────
@@ -171,6 +178,14 @@ class ComponentScoreAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return request.user.is_superuser
 
+
+@admin.register(ExamType)
+class ExamTypeAdmin(admin.ModelAdmin):
+
+    def save_model(self, request, obj, form, change):
+        if not obj.tenant_id:
+            obj.tenant = request.tenant
+        super().save_model(request, obj, form, change)
 
 # ── Exam Session ──────────────────────────────────────────────────────────────
 

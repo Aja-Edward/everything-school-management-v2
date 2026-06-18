@@ -337,9 +337,6 @@ class AssessmentComponentCreateUpdateSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
-        request = self.context.get("request")
-        if request and hasattr(request, "tenant"):
-            validated_data["tenant"] = request.tenant
         return super().update(instance, validated_data)
 
 

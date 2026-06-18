@@ -83,6 +83,16 @@ const safeNum = (v: any): number => {
   return isNaN(n) ? 0 : n;
 };
 
+
+/** Derive CA total from component_scores (source of truth), with fallback to stored fields */
+const derivedCa = (result: StudentResult): number => {
+  const comps: any[] = Array.isArray(result.component_scores) ? result.component_scores : [];
+  const caComps = comps.filter((c: any) => c.component_type !== 'EXAM');
+  if (caComps.length > 0) {
+    return caComps.reduce((s: number, c: any) => s + (parseFloat(c.score) || 0), 0);
+  }
+  return result.ca_total ?? result.ca_score ?? 0;
+};
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const TeacherResults: React.FC = () => {
@@ -837,7 +847,7 @@ const TeacherResults: React.FC = () => {
                         </div>
                         <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100">
                           {[
-                            { label: 'CA', value: result.ca_score, bg: 'bg-blue-50', text: 'text-blue-900' },
+                            { label: 'CA', value: derivedCa(result), bg: 'bg-blue-50', text: 'text-blue-900' },
                             { label: 'Exam', value: result.exam_score, bg: 'bg-purple-50', text: 'text-purple-900' },
                             { label: 'Total', value: result.total_score, bg: 'bg-green-50', text: 'text-green-900' },
                           ].map(({ label, value, bg, text }) => (
@@ -928,7 +938,7 @@ const TeacherResults: React.FC = () => {
                             <p className="text-xs text-gray-500 truncate">{result.exam_session?.academic_session || 'N/A'}</p>
                           </td>
                           {[
-                            { v: result.ca_score,    bg: 'bg-blue-100',   text: 'text-blue-900'   },
+                            { v: derivedCa(result), bg: 'bg-blue-100',   text: 'text-blue-900'   },
                             { v: result.exam_score,  bg: 'bg-purple-100', text: 'text-purple-900' },
                             { v: result.total_score, bg: 'bg-green-100',  text: 'text-green-900'  },
                           ].map(({ v, bg, text }, i) => (

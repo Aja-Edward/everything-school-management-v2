@@ -258,7 +258,10 @@ class AssessmentComponent(TenantMixin, models.Model):
         if self.max_score is not None and self.max_score <= 0:
             raise ValidationError("max_score must be greater than zero")
 
-
+    def save(self, *args, **kwargs):
+        if self.tenant_id is None:
+            raise ValueError("tenant is required")
+        super().save(*args, **kwargs)
 # ============================================================
 # SCORING CONFIGURATION
 # ============================================================
@@ -409,6 +412,11 @@ class ExamType(TenantMixin, models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        if self.tenant_id is None:
+            raise ValueError("tenant is required")
+        super().save(*args, **kwargs)
 
 
 DEFAULT_EXAM_TYPES = [

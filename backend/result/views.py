@@ -553,7 +553,7 @@ class AssessmentComponentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         serializer.save(tenant=self.request.tenant)
 
     def perform_update(self, serializer):
-        serializer.save(tenant=self.request.tenant)
+        serializer.save()
 
 # ── Assessment Type ───────────────────────────────────────────────────────────
 
