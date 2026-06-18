@@ -26,28 +26,37 @@ const EDUCATION_LEVELS: EducationLevelType[] = [
 ];
 
 const LEVEL_LABELS: Record<EducationLevelType, string> = {
-  NURSERY: 'Nursery',
-  PRIMARY: 'Primary',
-  JUNIOR_SECONDARY: 'Junior Secondary',
-  SENIOR_SECONDARY: 'Senior Secondary',
+  NURSERY:           'Nursery',
+  PRIMARY:           'Primary',
+  JUNIOR_SECONDARY:  'Junior Secondary',
+  SENIOR_SECONDARY:  'Senior Secondary',
 };
 
 const LEVEL_COLORS: Record<EducationLevelType, string> = {
-  NURSERY: 'bg-pink-100 text-pink-800 border-pink-200',
-  PRIMARY: 'bg-blue-100 text-blue-800 border-blue-200',
-  JUNIOR_SECONDARY: 'bg-amber-100 text-amber-800 border-amber-200',
-  SENIOR_SECONDARY: 'bg-purple-100 text-purple-800 border-purple-200',
+  NURSERY:           'bg-pink-100 text-pink-800 border-pink-200',
+  PRIMARY:           'bg-blue-100 text-blue-800 border-blue-200',
+  JUNIOR_SECONDARY:  'bg-amber-100 text-amber-800 border-amber-200',
+  SENIOR_SECONDARY:  'bg-purple-100 text-purple-800 border-purple-200',
 };
 
 const STATUS_CONFIG: Record<ResultStatus, { label: string; color: string; dot: string }> = {
-  DRAFT:     { label: 'Draft',    color: 'bg-slate-100 text-slate-700 border-slate-200',   dot: 'bg-slate-400'  },
-  APPROVED:  { label: 'Approved', color: 'bg-emerald-100 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
-  PUBLISHED: { label: 'Published',color: 'bg-violet-100 text-violet-700 border-violet-200',  dot: 'bg-violet-500' },
+  DRAFT:     { label: 'Draft',     color: 'bg-slate-100  text-slate-700   border-slate-200',   dot: 'bg-slate-400'   },
+  APPROVED:  { label: 'Approved',  color: 'bg-emerald-100 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
+  PUBLISHED: { label: 'Published', color: 'bg-violet-100  text-violet-700  border-violet-200',  dot: 'bg-violet-500'  },
 };
 
-// FIX 1: Single source of truth for page sizes — no duplicate declarations inside component.
-const SR_FETCH_PAGE_SIZE  = 100; // how many we request from the server per level
-const SR_CLIENT_PAGE_SIZE = 25;  // how many we show per page in the table
+const GRADE_COLORS: Record<string, string> = {
+  'A+': 'text-emerald-700 bg-emerald-50',
+  A:    'text-emerald-700 bg-emerald-50',
+  B:    'text-blue-700    bg-blue-50',
+  C:    'text-amber-700   bg-amber-50',
+  D:    'text-orange-700  bg-orange-50',
+  E:    'text-red-600     bg-red-50',
+  F:    'text-red-800     bg-red-100',
+};
+
+// Subject-results page size is fixed; term-reports page size is user-selectable.
+const SR_PAGE_SIZE = 25;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -55,12 +64,14 @@ const SR_CLIENT_PAGE_SIZE = 25;  // how many we show per page in the table
 
 type EnrichedReport = AnyTermReport & { education_level: EducationLevelType };
 
-interface Filters {
+type TermTab = 'FIRST' | 'SECOND' | 'THIRD' | 'SESSION';
+
+interface TrFilters {
   search: string;
   status: ResultStatus | 'all';
-  level: EducationLevelType | 'all';
+  level:  EducationLevelType | 'all';
   session: string;
-  term: string;
+  term:    string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -76,7 +87,9 @@ function formatScore(value: string | number | null | undefined): string {
 
 function formatDate(iso: string): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(iso).toLocaleDateString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric',
+  });
 }
 
 function getAvgScore(report: AnyTermReport): number {
@@ -93,7 +106,7 @@ function getOverallGrade(report: AnyTermReport): string {
   if (stored && stored !== 'N/A' && stored !== '') return stored;
   const avg = getAvgScore(report);
   if (avg <= 0) return '—';
-  if (avg >= 90) return 'A+';
+  if (avg >= 95) return 'A+';
   if (avg >= 80) return 'A';
   if (avg >= 70) return 'B';
   if (avg >= 60) return 'C';
@@ -111,20 +124,12 @@ function getSubjectCount(report: AnyTermReport): number {
   return report.subject_results?.length ?? 0;
 }
 
-function termKey(session: any): 'FIRST' | 'SECOND' | 'THIRD' | 'OTHER' {
-  const t = (session?.term_name || session?.term || '').toString().toUpperCase();
-  if (t.includes('FIRST')  || t === '1') return 'FIRST';
-  if (t.includes('SECOND') || t === '2') return 'SECOND';
-  if (t.includes('THIRD')  || t === '3') return 'THIRD';
-  return 'OTHER';
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // SUB-COMPONENTS
 // ─────────────────────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: ResultStatus }) {
-  const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.DRAFT;
+  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.DRAFT;
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${cfg.color}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
@@ -142,23 +147,19 @@ function LevelBadge({ level }: { level: EducationLevelType }) {
 }
 
 function GradeChip({ grade }: { grade: string }) {
-  const colors: Record<string, string> = {
-    A:  'text-emerald-700 bg-emerald-50',
-    B:  'text-blue-700 bg-blue-50',
-    C:  'text-amber-700 bg-amber-50',
-    D:  'text-orange-700 bg-orange-50',
-    E:  'text-red-600 bg-red-50',
-    F:  'text-red-800 bg-red-100',
-  };
   return (
-    <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${colors[grade] || 'text-slate-600 bg-slate-50'}`}>
+    <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${GRADE_COLORS[grade] ?? 'text-slate-600 bg-slate-50'}`}>
       {grade || '—'}
     </span>
   );
 }
 
 function StatCard({ label, value, icon: Icon, color, sub }: {
-  label: string; value: number | string; icon: React.ElementType; color: string; sub?: string;
+  label: string;
+  value: number | string;
+  icon: React.ElementType;
+  color: string;
+  sub?: string;
 }) {
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5 flex items-center gap-4">
@@ -179,16 +180,22 @@ function StatCard({ label, value, icon: Icon, color, sub }: {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function DetailModal({ report, level, onClose, onApprove, onPublish, onDownload }: {
-  report: EnrichedReport; level: EducationLevelType;
-  onClose: () => void; onApprove: () => void; onPublish: () => void; onDownload: () => void;
+  report: EnrichedReport;
+  level: EducationLevelType;
+  onClose: () => void;
+  onApprove: () => void;
+  onPublish: () => void;
+  onDownload: () => void;
 }) {
-  const avgScore    = getAvgScore(report);
+  const avgScore     = getAvgScore(report);
   const overallGrade = getOverallGrade(report);
-  const isNursery   = level === 'NURSERY';
+  const isNursery    = level === 'NURSERY';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+
+        {/* Header */}
         <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-start justify-between rounded-t-2xl">
           <div>
             <h2 className="text-lg font-bold text-slate-900">{report.student?.full_name}</h2>
@@ -203,25 +210,40 @@ function DetailModal({ report, level, onClose, onApprove, onPublish, onDownload 
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {report.status === 'DRAFT' && (
-              <button onClick={onApprove} className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">
+              <button
+                onClick={onApprove}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors"
+              >
                 <CheckCircle className="w-4 h-4" /> Approve
               </button>
             )}
             {report.status === 'APPROVED' && (
-              <button onClick={onPublish} className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700 transition-colors">
+              <button
+                onClick={onPublish}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700 transition-colors"
+              >
                 <Award className="w-4 h-4" /> Publish
               </button>
             )}
-            <button onClick={onDownload} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-200 transition-colors">
+            <button
+              onClick={onDownload}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-200 transition-colors"
+            >
               <Download className="w-4 h-4" /> PDF
             </button>
-            <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100">
+            <button
+              onClick={onClose}
+              className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+            >
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
+        {/* Body */}
         <div className="p-6 space-y-6">
+
+          {/* Summary tiles */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-slate-50 rounded-xl p-4 text-center">
               <p className="text-2xl font-bold text-slate-900">{formatScore(avgScore)}</p>
@@ -233,7 +255,9 @@ function DetailModal({ report, level, onClose, onApprove, onPublish, onDownload 
             </div>
             <div className="bg-slate-50 rounded-xl p-4 text-center">
               <p className="text-2xl font-bold text-slate-900">
-                {report.class_position ? `${report.class_position}/${getTotalStudents(report)}` : '—'}
+                {report.class_position
+                  ? `${report.class_position}/${getTotalStudents(report)}`
+                  : '—'}
               </p>
               <p className="text-xs text-slate-500 mt-1">Position</p>
             </div>
@@ -243,6 +267,7 @@ function DetailModal({ report, level, onClose, onApprove, onPublish, onDownload 
             </div>
           </div>
 
+          {/* Subject results table */}
           <div>
             <h3 className="text-sm font-semibold text-slate-700 mb-3">
               Subject Results ({report.subject_results?.length ?? 0})
@@ -271,10 +296,12 @@ function DetailModal({ report, level, onClose, onApprove, onPublish, onDownload 
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {(report.subject_results ?? []).length === 0 ? (
-                    <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400">No subject results</td></tr>
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-center text-slate-400">No subject results</td>
+                    </tr>
                   ) : (
                     (report.subject_results ?? []).map((sr, i) => (
-                      <tr key={sr.id || i} className="hover:bg-slate-50">
+                      <tr key={sr.id ?? i} className="hover:bg-slate-50">
                         <td className="px-4 py-3">
                           <div className="font-medium text-slate-900">{sr.subject?.name}</div>
                           <div className="text-xs text-slate-400">{sr.subject?.code}</div>
@@ -306,6 +333,7 @@ function DetailModal({ report, level, onClose, onApprove, onPublish, onDownload 
             </div>
           </div>
 
+          {/* Score breakdown */}
           {!isNursery && report.subject_results?.some((sr) => sr.component_scores?.length > 0) && (
             <div>
               <h3 className="text-sm font-semibold text-slate-700 mb-3">Score Breakdown</h3>
@@ -329,6 +357,7 @@ function DetailModal({ report, level, onClose, onApprove, onPublish, onDownload 
             </div>
           )}
 
+          {/* Remarks */}
           {(report.class_teacher_remark || report.head_teacher_remark) && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {report.class_teacher_remark && (
@@ -356,7 +385,10 @@ function DetailModal({ report, level, onClose, onApprove, onPublish, onDownload 
 // ─────────────────────────────────────────────────────────────────────────────
 
 function DeleteModal({ report, onConfirm, onCancel, loading }: {
-  report: EnrichedReport; onConfirm: () => void; onCancel: () => void; loading: boolean;
+  report: EnrichedReport;
+  onConfirm: () => void;
+  onCancel: () => void;
+  loading: boolean;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -375,10 +407,17 @@ function DeleteModal({ report, onConfirm, onCancel, loading }: {
           All subject results will also be deleted.
         </p>
         <div className="flex gap-3">
-          <button onClick={onCancel} className="flex-1 px-4 py-2 border border-slate-300 rounded-xl text-slate-700 text-sm font-medium hover:bg-slate-50">
+          <button
+            onClick={onCancel}
+            className="flex-1 px-4 py-2 border border-slate-300 rounded-xl text-slate-700 text-sm font-medium hover:bg-slate-50"
+          >
             Cancel
           </button>
-          <button onClick={onConfirm} disabled={loading} className="flex-1 px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-medium hover:bg-red-700 disabled:opacity-50">
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex-1 px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+          >
             {loading ? 'Deleting…' : 'Delete'}
           </button>
         </div>
@@ -388,262 +427,187 @@ function DeleteModal({ report, onConfirm, onCancel, loading }: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PAGINATION HELPER
+// ─────────────────────────────────────────────────────────────────────────────
+
+function buildPageNumbers(current: number, total: number): (number | '…')[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages: (number | '…')[] = [];
+  if (current <= 4) {
+    for (let i = 1; i <= 5; i++) pages.push(i);
+    pages.push('…', total);
+  } else if (current >= total - 3) {
+    pages.push(1, '…');
+    for (let i = total - 4; i <= total; i++) pages.push(i);
+  } else {
+    pages.push(1, '…', current - 1, current, current + 1, '…', total);
+  }
+  return pages;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MAIN COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
 
 const EnhancedResultsManagement: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'term-reports' | 'subject-results'>('subject-results');
 
-  // ── Term Reports state ───────────────────────────────────────────────────
-  const [reports, setReports]       = useState<EnrichedReport[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError]           = useState<string | null>(null);
-  const [totalCount, setTotalCount] = useState(0);
+  // ── Term Reports ──────────────────────────────────────────────────────────
+  const [reports, setReports]           = useState<EnrichedReport[]>([]);
+  const [trLoading, setTrLoading]       = useState(true);
+  const [trRefreshing, setTrRefreshing] = useState(false);
+  const [trError, setTrError]           = useState<string | null>(null);
+  const [trTotalCount, setTrTotalCount] = useState(0);
+  // Server-side status counts (accurate across all pages)
+  const [trDraftCount, setTrDraftCount]         = useState(0);
+  const [trApprovedCount, setTrApprovedCount]   = useState(0);
+  const [trPublishedCount, setTrPublishedCount] = useState(0);
 
-  const [filters, setFilters] = useState<Filters>({
+  const [trFilters, setTrFilters] = useState<TrFilters>({
     search: '', status: 'all', level: 'all', session: 'all', term: 'all',
   });
-  const [selectedIds, setSelectedIds]   = useState<string[]>([]);
-  const [currentPage, setCurrentPage]   = useState(1);
-  const [pageSize, setPageSize]         = useState(20);
-  const [trTermTab, setTrTermTab]       = useState<'FIRST' | 'SECOND' | 'THIRD' | 'SESSION'>('FIRST');
+  const [trSelectedIds, setTrSelectedIds] = useState<string[]>([]);
+  const [trCurrentPage, setTrCurrentPage] = useState(1);
+  const [trPageSize, setTrPageSize]       = useState(20);
+  const [trTermTab, setTrTermTab]         = useState<TermTab>('FIRST');
 
   // Modals
   const [detailReport, setDetailReport] = useState<EnrichedReport | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<EnrichedReport | null>(null);
   const [showAddForm, setShowAddForm]   = useState(false);
   const [editTarget, setEditTarget]     = useState<{ report: EnrichedReport; subjectResult: any } | null>(null);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [trActionLoading, setTrActionLoading] = useState<string | null>(null);
 
-  // ── Subject Results state ────────────────────────────────────────────────
-  const [subjectResults, setSubjectResults]   = useState<any[]>([]);
-  const [srLoading, setSrLoading]             = useState(false);
-  const [srSelectedIds, setSrSelectedIds]     = useState<string[]>([]);
-  const [srFilterStatus, setSrFilterStatus]   = useState<string>('all');
-  const [srFilterLevel, setSrFilterLevel]     = useState<EducationLevelType | 'all'>('all');
-  const [srSearch, setSrSearch]               = useState('');
-  const [srActionLoading, setSrActionLoading] = useState<string | null>(null);
-  const [srTermTab, setSrTermTab]             = useState<'FIRST' | 'SECOND' | 'THIRD' | 'SESSION'>('FIRST');
-  const [srSelectedSession, setSrSelectedSession] = useState<string>('');
-  const [srCurrentPage, setSrCurrentPage]     = useState(1);
-  const [srTotalCount, setSrTotalCount]       = useState(0);
+  // ── Subject Results ───────────────────────────────────────────────────────
+  const [subjectResults, setSubjectResults]         = useState<any[]>([]);
+  const [srLoading, setSrLoading]                   = useState(false);
+  const [srSelectedIds, setSrSelectedIds]           = useState<string[]>([]);
+  const [srFilterStatus, setSrFilterStatus]         = useState<string>('all');
+  const [srFilterLevel, setSrFilterLevel]           = useState<EducationLevelType | 'all'>('all');
+  const [srSearch, setSrSearch]                     = useState('');
+  const [srActionLoading, setSrActionLoading]       = useState<string | null>(null);
+  const [srTermTab, setSrTermTab]                   = useState<TermTab>('FIRST');
+  const [srSelectedSession, setSrSelectedSession]   = useState('');
+  const [srCurrentPage, setSrCurrentPage]           = useState(1);
+  const [srTotalCount, setSrTotalCount]             = useState(0);
+  const [srDraftCount, setSrDraftCount]             = useState(0);
+  const [srApprovedCount, setSrApprovedCount]       = useState(0);
+  const [srPublishedCount, setSrPublishedCount]     = useState(0);
 
-  // ── Derived — Term Reports ────────────────────────────────────────────────
+  // ── Derived ───────────────────────────────────────────────────────────────
 
-  // Server already returns the current page slice; no further client slicing needed.
-  const paginated  = reports;
-  const totalPages = Math.ceil(totalCount / pageSize);
+  const trTotalPages = Math.ceil(trTotalCount / trPageSize);
+  const srTotalPages = Math.ceil(srTotalCount / SR_PAGE_SIZE);
 
-  const counts = useMemo(() => ({
-    total:     totalCount,
-    draft:     reports.filter((r) => r.status === 'DRAFT').length,
-    approved:  reports.filter((r) => r.status === 'APPROVED').length,
-    published: reports.filter((r) => r.status === 'PUBLISHED').length,
-  }), [reports, totalCount]);
-
-  // Unique sessions / terms shown in the SESSION dropdown (derived from current page).
-  const uniqueSessions = useMemo(() =>
-    Array.from(new Set(
-      reports.map((r) => r.exam_session?.academic_session?.name).filter(Boolean) as string[]
-    )),
+  // Unique session/term values derived from the current page (used for SESSION dropdowns)
+  const uniqueTrSessions = useMemo(
+    () => Array.from(new Set(reports.map((r) => r.exam_session?.academic_session?.name).filter(Boolean) as string[])),
     [reports],
   );
-  const uniqueTerms = useMemo(() =>
-    Array.from(new Set(
-      reports.map((r) => r.exam_session?.term_name).filter(Boolean) as string[]
-    )),
+  const uniqueTrTerms = useMemo(
+    () => Array.from(new Set(reports.map((r) => r.exam_session?.term_name).filter(Boolean) as string[])),
     [reports],
   );
 
-  // ── Load Term Reports (server-side pagination + filtering) ────────────────
-  const loadReports = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    else setRefreshing(true);
-    setError(null);
+  // ── Load Term Reports ─────────────────────────────────────────────────────
+
+  const loadTermReports = useCallback(async (silent = false) => {
+    if (silent) setTrRefreshing(true);
+    else setTrLoading(true);
+    setTrError(null);
+
+    const termNameMap: Record<string, string> = {
+      FIRST: 'First', SECOND: 'Second', THIRD: 'Third',
+    };
+
+    const baseParams = {
+      ...(trFilters.status !== 'all' && { status: trFilters.status as ResultStatus }),
+      ...(trFilters.search  !== ''   && { search: trFilters.search }),
+      ...(trFilters.level   !== 'all' && { level: trFilters.level as EducationLevelType }),
+      ...(trTermTab !== 'SESSION'    && { term_name: termNameMap[trTermTab] }),
+      ...(trTermTab === 'SESSION' && trFilters.session !== 'all' && { session_name: trFilters.session }),
+      ...(trTermTab === 'SESSION' && trFilters.term    !== 'all' && { term_name:    trFilters.term }),
+    };
+
     try {
-      // FIX 6: trTermTab removed from deps — it's not sent to the server yet.
-      const params: TermReportParams & { level?: EducationLevelType } = {
-        page:      currentPage,
-        page_size: pageSize,
-        ...(filters.status !== 'all' && { status: filters.status as ResultStatus }),
-        ...(filters.search  !== ''    && { search: filters.search }),
-        ...(filters.level   !== 'all' && { level: filters.level as EducationLevelType }),
-      };
+      const [mainRes, draftRes, approvedRes, publishedRes] = await Promise.all([
+        ResultService.getAllTermReports({ ...baseParams, page: trCurrentPage, page_size: trPageSize } as TermReportParams & { level?: EducationLevelType }),
+        ResultService.getAllTermReports({ ...baseParams, status: 'DRAFT',     page: 1, page_size: 1 } as any),
+        ResultService.getAllTermReports({ ...baseParams, status: 'APPROVED',  page: 1, page_size: 1 } as any),
+        ResultService.getAllTermReports({ ...baseParams, status: 'PUBLISHED', page: 1, page_size: 1 } as any),
+      ]);
 
-      const data: PaginatedTermReports = await ResultService.getAllTermReports(params);
-      setReports(data.results as EnrichedReport[]);
-      setTotalCount(data.count);
+      setReports(mainRes.results as EnrichedReport[]);
+      setTrTotalCount(mainRes.count);
+      setTrDraftCount(draftRes.count);
+      setTrApprovedCount(approvedRes.count);
+      setTrPublishedCount(publishedRes.count);
     } catch (err: any) {
-      setError(err?.message || 'Failed to load results.');
+      setTrError(err?.message || 'Failed to load results.');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      setTrLoading(false);
+      setTrRefreshing(false);
     }
-  // FIX 6: trTermTab deliberately excluded — it has no server-side effect yet.
-  }, [currentPage, pageSize, filters]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [trCurrentPage, trPageSize, trFilters, trTermTab]);
 
-  // Reload when dependencies change.
-  useEffect(() => { loadReports(); }, [loadReports]);
+  useEffect(() => { loadTermReports(); }, [loadTermReports]);
 
-  // Reset to page 1 when filters, tab, or page-size change.
-  useEffect(() => { setCurrentPage(1); }, [filters, trTermTab, pageSize]);
+  // Reset to page 1 when filters or term tab changes
+  useEffect(() => { setTrCurrentPage(1); }, [trFilters, trTermTab, trPageSize]);
 
-  // ── Load Subject Results (fetch page 1 per level, paginate client-side) ───
-  //
-  // FIX 1 (SR_PAGE_SIZE): constants are now at module level, no duplicate declarations.
-  // FIX 3 (pagination math): srCurrentPage removed from fetch deps; we always fetch
-  //   page 1 with SR_FETCH_PAGE_SIZE per level so client-side slicing works correctly.
-  //   The term tab filter is client-side only — fetching per-page from the server per
-  //   level and then filtering by term would produce incorrect counts and gaps.
+  // ── Load Subject Results ──────────────────────────────────────────────────
+
   const loadSubjectResults = useCallback(async () => {
     setSrLoading(true);
+    const termNameMap: Record<string, string> = {
+      FIRST: 'First', SECOND: 'Second', THIRD: 'Third',
+    };
+
+    const baseParams = {
+      ...(srFilterLevel      !== 'all' && { level:        srFilterLevel }),
+      ...(srSearch           !== ''    && { search:       srSearch }),
+      ...(srTermTab !== 'SESSION'      && { term_name:    termNameMap[srTermTab] }),
+      ...(srTermTab === 'SESSION' && srSelectedSession && { session_name: srSelectedSession }),
+    };
+
     try {
-      const levelsToFetch: EducationLevelType[] = srFilterLevel !== 'all'
-        ? [srFilterLevel]
-        : ['NURSERY', 'PRIMARY', 'JUNIOR_SECONDARY', 'SENIOR_SECONDARY'];
+      const [mainRes, draftRes, approvedRes, publishedRes] = await Promise.all([
+        ResultService.getAllSubjectResultsPaginated({
+          ...baseParams,
+          page:      srCurrentPage,
+          page_size: SR_PAGE_SIZE,
+          ...(srFilterStatus !== 'all' && { status: srFilterStatus }),
+        }),
+        ResultService.getAllSubjectResultsPaginated({ ...baseParams, status: 'DRAFT',     page: 1, page_size: 1 }),
+        ResultService.getAllSubjectResultsPaginated({ ...baseParams, status: 'APPROVED',  page: 1, page_size: 1 }),
+        ResultService.getAllSubjectResultsPaginated({ ...baseParams, status: 'PUBLISHED', page: 1, page_size: 1 }),
+      ]);
 
-      const settled = await Promise.allSettled(
-        levelsToFetch.map((level) =>
-          ResultService.getSubjectResultsPaginated(level, {
-            page:      1,
-            page_size: SR_FETCH_PAGE_SIZE,
-            ...(srFilterStatus !== 'all' && { status: srFilterStatus }),
-            ...(srSearch        !== ''    && { search: srSearch }),
-          }).then((res) => ({
-            results: res.results.map((r: any) => ({ ...r, education_level: level })),
-            count:   res.count,
-          }))
-        ),
-      );
-
-      const all   = settled.flatMap((r) => r.status === 'fulfilled' ? r.value.results : []);
-      const total = settled.reduce((sum, r) => sum + (r.status === 'fulfilled' ? r.value.count : 0), 0);
-      setSubjectResults(all);
-      setSrTotalCount(total);
+      setSubjectResults(mainRes.results as any[]);
+      setSrTotalCount(mainRes.count);
+      setSrDraftCount(draftRes.count);
+      setSrApprovedCount(approvedRes.count);
+      setSrPublishedCount(publishedRes.count);
     } finally {
       setSrLoading(false);
     }
-  }, [srFilterLevel, srFilterStatus, srSearch]);
+  }, [srCurrentPage, srFilterStatus, srFilterLevel, srSearch, srTermTab, srSelectedSession]);
 
   useEffect(() => {
     if (activeTab === 'subject-results') loadSubjectResults();
   }, [activeTab, loadSubjectResults]);
 
-  // Reset to page 1 when any server-side filter or the term tab changes.
-  useEffect(() => { setSrCurrentPage(1); }, [srFilterLevel, srFilterStatus, srSearch, srTermTab]);
+  // Reset to page 1 when any filter changes
+  useEffect(() => { setSrCurrentPage(1); }, [srFilterLevel, srFilterStatus, srSearch, srTermTab, srSelectedSession]);
 
-  // ── Derived — Subject Results ─────────────────────────────────────────────
+  // ── Shared refresh ────────────────────────────────────────────────────────
 
-  // FIX 2/3/4/5: filteredSr = full list after term-tab filtering;
-  //              paginatedSr = the visible page slice used in the table.
-  const filteredSr = useMemo(() => {
-    return subjectResults.filter((r) => {
-      if (srTermTab !== 'SESSION') {
-        return termKey(r.exam_session) === srTermTab;
-      }
-      if (srSelectedSession) {
-        return String(r.exam_session?.id) === srSelectedSession;
-      }
-      return true;
-    });
-  }, [subjectResults, srTermTab, srSelectedSession]);
-
-  const srFilteredTotal = filteredSr.length;
-
-  const paginatedSr = useMemo(() => {
-    const start = (srCurrentPage - 1) * SR_CLIENT_PAGE_SIZE;
-    return filteredSr.slice(start, start + SR_CLIENT_PAGE_SIZE);
-  }, [filteredSr, srCurrentPage]);
-
-  const srTotalPages    = Math.ceil(srFilteredTotal / SR_CLIENT_PAGE_SIZE);
-
-  const srDraftCount = useMemo(() =>
-    subjectResults.filter((r) => r.status === 'DRAFT').length,
-    [subjectResults],
-  );
-
-  const srExamSessions = useMemo(() => {
-    const seen = new Set<string>();
-    const sessions: any[] = [];
-    subjectResults.forEach((r) => {
-      const id = String(r.exam_session?.id ?? '');
-      if (id && !seen.has(id)) { seen.add(id); sessions.push(r.exam_session); }
-    });
-    return sessions.sort((a, b) => (a?.name || '').localeCompare(b?.name || ''));
-  }, [subjectResults]);
-
-  // ── Subject Result Actions ────────────────────────────────────────────────
-
-  const handleSrApprove = async (result: any) => {
-    setSrActionLoading(result.id);
-    try {
-      await ResultService.approveSubjectResult(result.education_level, String(result.id));
-      toast.success('Result approved — term report updated');
-      await Promise.all([loadSubjectResults(), loadReports(true)]);
-    } catch (e: any) { toast.error(e?.message || 'Failed to approve'); }
-    finally { setSrActionLoading(null); }
+  const handleRefresh = () => {
+    loadTermReports(true);
+    if (activeTab === 'subject-results') loadSubjectResults();
   };
 
-  const handleSrPublish = async (result: any) => {
-    setSrActionLoading(result.id);
-    try {
-      await ResultService.publishSubjectResult(result.education_level, String(result.id));
-      toast.success('Result published — term report updated');
-      await Promise.all([loadSubjectResults(), loadReports(true)]);
-    } catch (e: any) { toast.error(e?.message || 'Failed to publish'); }
-    finally { setSrActionLoading(null); }
-  };
-
-  const handleSrBulkApprove = async () => {
-    if (!srSelectedIds.length) return;
-    setSrActionLoading('bulk');
-    try {
-      const byLevel = new Map<EducationLevelType, string[]>();
-      for (const id of srSelectedIds) {
-        const r = subjectResults.find((x) => String(x.id) === id);
-        if (!r) continue;
-        const list = byLevel.get(r.education_level) || [];
-        list.push(id);
-        byLevel.set(r.education_level, list);
-      }
-      let total = 0;
-      for (const [level, ids] of byLevel) {
-        const res = await ResultService.bulkApproveSubjectResults(level, ids);
-        total += (res as any).approved_count || 0;
-      }
-      toast.success(`${total} result(s) approved — term reports updated`);
-      setSrSelectedIds([]);
-      await Promise.all([loadSubjectResults(), loadReports(true)]);
-    } catch (e: any) { toast.error(e?.message || 'Bulk approve failed'); }
-    finally { setSrActionLoading(null); }
-  };
-
-  const handleSrBulkPublish = async () => {
-    if (!srSelectedIds.length) return;
-    setSrActionLoading('bulk');
-    try {
-      const byLevel = new Map<EducationLevelType, string[]>();
-      for (const id of srSelectedIds) {
-        const r = subjectResults.find((x) => String(x.id) === id);
-        if (!r) continue;
-        const list = byLevel.get(r.education_level) || [];
-        list.push(id);
-        byLevel.set(r.education_level, list);
-      }
-      let total = 0;
-      for (const [level, ids] of byLevel) {
-        const res = await ResultService.bulkPublishSubjectResults(level, ids);
-        total += (res as any).published_count || 0;
-      }
-      toast.success(`${total} result(s) published — term reports updated`);
-      setSrSelectedIds([]);
-      await Promise.all([loadSubjectResults(), loadReports(true)]);
-    } catch (e: any) { toast.error(e?.message || 'Bulk publish failed'); }
-    finally { setSrActionLoading(null); }
-  };
-
-  // ── Term Report Actions ───────────────────────────────────────────────────
+  // ── Recalculate positions helper ──────────────────────────────────────────
 
   const recalcPositions = async (affected: EnrichedReport[]) => {
     const seen   = new Set<string>();
@@ -661,68 +625,93 @@ const EnhancedResultsManagement: React.FC = () => {
     }
   };
 
-  const handleApprove = async (report: EnrichedReport) => {
-    setActionLoading(report.id);
+  // ── Term Report actions ───────────────────────────────────────────────────
+
+  const handleTrApprove = async (report: EnrichedReport) => {
+    setTrActionLoading(report.id);
     try {
       await ResultService.approveTermReport(report.education_level, report.id);
       toast.success('Term report approved');
-      setReports((prev) => prev.map((r) =>
-        r.id === report.id ? { ...r, status: 'APPROVED' as ResultStatus } : r
-      ));
+      setReports((prev) => prev.map((r) => r.id === report.id ? { ...r, status: 'APPROVED' as ResultStatus } : r));
       if (detailReport?.id === report.id)
         setDetailReport((p) => p ? { ...p, status: 'APPROVED' as ResultStatus } : null);
       await recalcPositions([report]);
-      await loadReports(true);
-    } catch (err: any) { toast.error(err?.message || 'Failed to approve'); }
-    finally { setActionLoading(null); }
+      await loadTermReports(true);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to approve');
+    } finally {
+      setTrActionLoading(null);
+    }
   };
 
-  const handlePublish = async (report: EnrichedReport) => {
-    setActionLoading(report.id);
+  const handleTrPublish = async (report: EnrichedReport) => {
+    setTrActionLoading(report.id);
     try {
       await ResultService.publishTermReport(report.education_level, report.id);
       toast.success('Term report published');
-      setReports((prev) => prev.map((r) =>
-        r.id === report.id ? { ...r, status: 'PUBLISHED' as ResultStatus } : r
-      ));
+      setReports((prev) => prev.map((r) => r.id === report.id ? { ...r, status: 'PUBLISHED' as ResultStatus } : r));
       if (detailReport?.id === report.id)
         setDetailReport((p) => p ? { ...p, status: 'PUBLISHED' as ResultStatus } : null);
       await recalcPositions([report]);
-      await loadReports(true);
-    } catch (err: any) { toast.error(err?.message || 'Failed to publish'); }
-    finally { setActionLoading(null); }
+      await loadTermReports(true);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to publish');
+    } finally {
+      setTrActionLoading(null);
+    }
   };
 
-  const handleDelete = async (report: EnrichedReport) => {
-    setActionLoading('delete');
+  const handleTrDelete = async (report: EnrichedReport) => {
+    setTrActionLoading('delete');
     try {
       await ResultService.deleteTermReport(report.education_level, report.id);
       setReports((prev) => prev.filter((r) => r.id !== report.id));
-      setTotalCount((c) => c - 1);
+      setTrTotalCount((c) => c - 1);
       setDeleteTarget(null);
       toast.success('Term report deleted');
-    } catch (err: any) { toast.error(err?.message || 'Failed to delete'); }
-    finally { setActionLoading(null); }
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to delete');
+    } finally {
+      setTrActionLoading(null);
+    }
+  };
+
+  const handleTrDownloadPDF = async (report: EnrichedReport) => {
+    setTrActionLoading(`${report.id}_pdf`);
+    try {
+      const blob = await ResultService.downloadTermReportPDF(report.id, report.education_level);
+      const term = report.exam_session?.term_name?.replace(/\s/g, '_') || 'Term';
+      const sess = report.exam_session?.academic_session?.name?.replace(/\s/g, '_') || 'Session';
+      ResultService.triggerDownload(blob, `${report.student?.full_name}_${term}_${sess}.pdf`);
+    } catch (err: any) {
+      toast.error(err?.message || 'PDF download failed');
+    } finally {
+      setTrActionLoading(null);
+    }
   };
 
   const handleRecalculatePositions = async () => {
-    setActionLoading('positions');
+    setTrActionLoading('positions');
     try {
       await recalcPositions(reports);
-      await loadReports(true);
+      await loadTermReports(true);
       toast.success('Positions recalculated');
-    } catch (e: any) { toast.error(e?.message || 'Failed to recalculate positions'); }
-    finally { setActionLoading(null); }
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to recalculate positions');
+    } finally {
+      setTrActionLoading(null);
+    }
   };
 
-  const handleBulkApprove = async () => {
-    setActionLoading('bulk');
+  const handleTrBulkApprove = async () => {
+    if (!trSelectedIds.length) return;
+    setTrActionLoading('bulk');
     try {
       const byLevel = new Map<EducationLevelType, string[]>();
-      for (const id of selectedIds) {
+      for (const id of trSelectedIds) {
         const r = reports.find((x) => x.id === id);
         if (!r) continue;
-        const list = byLevel.get(r.education_level) || [];
+        const list = byLevel.get(r.education_level) ?? [];
         list.push(id);
         byLevel.set(r.education_level, list);
       }
@@ -731,23 +720,27 @@ const EnhancedResultsManagement: React.FC = () => {
         const res = await ResultService.bulkApproveTermReports(level, ids);
         total += res.approved_reports;
       }
-      setSelectedIds([]);
+      setTrSelectedIds([]);
       toast.success(`${total} report(s) approved`);
-      const affected = reports.filter((r) => selectedIds.includes(r.id));
+      const affected = reports.filter((r) => trSelectedIds.includes(r.id));
       await recalcPositions(affected);
-      await loadReports(true);
-    } catch (err: any) { toast.error(err?.message || 'Bulk approve failed'); }
-    finally { setActionLoading(null); }
+      await loadTermReports(true);
+    } catch (err: any) {
+      toast.error(err?.message || 'Bulk approve failed');
+    } finally {
+      setTrActionLoading(null);
+    }
   };
 
-  const handleBulkPublish = async () => {
-    setActionLoading('bulk');
+  const handleTrBulkPublish = async () => {
+    if (!trSelectedIds.length) return;
+    setTrActionLoading('bulk');
     try {
       const byLevel = new Map<EducationLevelType, string[]>();
-      for (const id of selectedIds) {
+      for (const id of trSelectedIds) {
         const r = reports.find((x) => x.id === id);
         if (!r) continue;
-        const list = byLevel.get(r.education_level) || [];
+        const list = byLevel.get(r.education_level) ?? [];
         list.push(id);
         byLevel.set(r.education_level, list);
       }
@@ -756,51 +749,113 @@ const EnhancedResultsManagement: React.FC = () => {
         const res = await ResultService.bulkPublishTermReports(level, ids);
         total += res.published_reports;
       }
-      setSelectedIds([]);
+      setTrSelectedIds([]);
       toast.success(`${total} report(s) published`);
-      const affected = reports.filter((r) => selectedIds.includes(r.id));
+      const affected = reports.filter((r) => trSelectedIds.includes(r.id));
       await recalcPositions(affected);
-      await loadReports(true);
-    } catch (err: any) { toast.error(err?.message || 'Bulk publish failed'); }
-    finally { setActionLoading(null); }
-  };
-
-  const handleDownloadPDF = async (report: EnrichedReport) => {
-    setActionLoading(report.id + '_pdf');
-    try {
-      const blob = await ResultService.downloadTermReportPDF(report.id, report.education_level);
-      const term = report.exam_session?.term_name?.replace(/\s/g, '_') || 'Term';
-      const sess = report.exam_session?.academic_session?.name?.replace(/\s/g, '_') || 'Session';
-      ResultService.triggerDownload(blob, `${report.student?.full_name}_${term}_${sess}.pdf`);
-    } catch (err: any) { toast.error(err?.message || 'PDF download failed'); }
-    finally { setActionLoading(null); }
-  };
-
-  const handleSelectAll = () => {
-    if (selectedIds.length === paginated.length && paginated.length > 0) setSelectedIds([]);
-    else setSelectedIds(paginated.map((r) => r.id));
-  };
-
-  const getPageNumbers = (): (number | '…')[] => {
-    if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
-    const pages: (number | '…')[] = [];
-    if (currentPage <= 4) {
-      for (let i = 1; i <= 5; i++) pages.push(i);
-      pages.push('…', totalPages);
-    } else if (currentPage >= totalPages - 3) {
-      pages.push(1, '…');
-      for (let i = totalPages - 4; i <= totalPages; i++) pages.push(i);
-    } else {
-      pages.push(1, '…', currentPage - 1, currentPage, currentPage + 1, '…', totalPages);
+      await loadTermReports(true);
+    } catch (err: any) {
+      toast.error(err?.message || 'Bulk publish failed');
+    } finally {
+      setTrActionLoading(null);
     }
-    return pages;
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // "Select all on this page" — correctly scoped to the current page only
+  const handleTrSelectAllPage = () => {
+    const pageIds = reports.map((r) => r.id);
+    const allSelected = pageIds.every((id) => trSelectedIds.includes(id));
+    setTrSelectedIds(allSelected
+      ? trSelectedIds.filter((id) => !pageIds.includes(id))
+      : Array.from(new Set([...trSelectedIds, ...pageIds]))
+    );
+  };
 
-  // FIX 7: Only block the whole screen on the very first term-reports load.
-  // Subject results have their own inline spinner, so the user is never locked out.
-  if (loading && activeTab === 'term-reports' && reports.length === 0) {
+  // ── Subject Result actions ────────────────────────────────────────────────
+
+  const handleSrApprove = async (result: any) => {
+    setSrActionLoading(result.id);
+    try {
+      await ResultService.approveSubjectResult(result.education_level, String(result.id));
+      toast.success('Result approved — term report updated');
+      await Promise.all([loadSubjectResults(), loadTermReports(true)]);
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to approve');
+    } finally {
+      setSrActionLoading(null);
+    }
+  };
+
+  const handleSrPublish = async (result: any) => {
+    setSrActionLoading(result.id);
+    try {
+      await ResultService.publishSubjectResult(result.education_level, String(result.id));
+      toast.success('Result published — term report updated');
+      await Promise.all([loadSubjectResults(), loadTermReports(true)]);
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to publish');
+    } finally {
+      setSrActionLoading(null);
+    }
+  };
+
+  const handleSrBulkApprove = async () => {
+    if (!srSelectedIds.length) return;
+    setSrActionLoading('bulk');
+    try {
+      const byLevel = new Map<EducationLevelType, string[]>();
+      for (const id of srSelectedIds) {
+        const r = subjectResults.find((x) => String(x.id) === id);
+        if (!r) continue;
+        const list = byLevel.get(r.education_level) ?? [];
+        list.push(id);
+        byLevel.set(r.education_level, list);
+      }
+      let total = 0;
+      for (const [level, ids] of byLevel) {
+        const res = await ResultService.bulkApproveSubjectResults(level, ids);
+        total += (res as any).approved_count ?? 0;
+      }
+      toast.success(`${total} result(s) approved — term reports updated`);
+      setSrSelectedIds([]);
+      await Promise.all([loadSubjectResults(), loadTermReports(true)]);
+    } catch (e: any) {
+      toast.error(e?.message || 'Bulk approve failed');
+    } finally {
+      setSrActionLoading(null);
+    }
+  };
+
+  const handleSrBulkPublish = async () => {
+    if (!srSelectedIds.length) return;
+    setSrActionLoading('bulk');
+    try {
+      const byLevel = new Map<EducationLevelType, string[]>();
+      for (const id of srSelectedIds) {
+        const r = subjectResults.find((x) => String(x.id) === id);
+        if (!r) continue;
+        const list = byLevel.get(r.education_level) ?? [];
+        list.push(id);
+        byLevel.set(r.education_level, list);
+      }
+      let total = 0;
+      for (const [level, ids] of byLevel) {
+        const res = await ResultService.bulkPublishSubjectResults(level, ids);
+        total += (res as any).published_count ?? 0;
+      }
+      toast.success(`${total} result(s) published — term reports updated`);
+      setSrSelectedIds([]);
+      await Promise.all([loadSubjectResults(), loadTermReports(true)]);
+    } catch (e: any) {
+      toast.error(e?.message || 'Bulk publish failed');
+    } finally {
+      setSrActionLoading(null);
+    }
+  };
+
+  // ── Guard: initial full-screen loading / error ────────────────────────────
+
+  if (trLoading && activeTab === 'term-reports' && reports.length === 0) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
@@ -811,13 +866,16 @@ const EnhancedResultsManagement: React.FC = () => {
     );
   }
 
-  if (error && activeTab === 'term-reports') {
+  if (trError && activeTab === 'term-reports') {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="bg-white rounded-2xl border border-red-200 p-8 text-center max-w-sm">
           <AlertCircle className="w-10 h-10 text-red-500 mx-auto mb-3" />
-          <p className="text-slate-700 font-medium mb-4">{error}</p>
-          <button onClick={() => loadReports()} className="px-4 py-2 bg-slate-900 text-white rounded-xl text-sm font-medium hover:bg-slate-800">
+          <p className="text-slate-700 font-medium mb-4">{trError}</p>
+          <button
+            onClick={() => loadTermReports()}
+            className="px-4 py-2 bg-slate-900 text-white rounded-xl text-sm font-medium hover:bg-slate-800"
+          >
             Retry
           </button>
         </div>
@@ -825,11 +883,13 @@ const EnhancedResultsManagement: React.FC = () => {
     );
   }
 
+  // ── Render ────────────────────────────────────────────────────────────────
+
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="max-w-screen-xl mx-auto px-4 py-8 space-y-6">
 
-        {/* Header */}
+        {/* ── Page header ──────────────────────────────────────────────────── */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Results Management</h1>
@@ -843,34 +903,34 @@ const EnhancedResultsManagement: React.FC = () => {
               <Plus className="w-4 h-4" /> Record Result
             </button>
             <button
-              onClick={() => {
-                loadReports(true);
-                if (activeTab === 'subject-results') loadSubjectResults();
-              }}
-              disabled={refreshing || srLoading}
+              onClick={handleRefresh}
+              disabled={trRefreshing || srLoading}
               className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 rounded-xl text-slate-600 text-sm hover:bg-white transition-colors disabled:opacity-50"
             >
-              <RefreshCw className={`w-4 h-4 ${(refreshing || srLoading) ? 'animate-spin' : ''}`} /> Refresh
+              <RefreshCw className={`w-4 h-4 ${(trRefreshing || srLoading) ? 'animate-spin' : ''}`} />
+              Refresh
             </button>
             {activeTab === 'term-reports' && (
               <button
                 onClick={handleRecalculatePositions}
-                disabled={actionLoading === 'positions' || reports.length === 0}
+                disabled={trActionLoading === 'positions' || reports.length === 0}
                 className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 text-white rounded-xl text-sm font-medium hover:bg-amber-600 disabled:opacity-50 transition-colors"
               >
-                <RefreshCw className={`w-4 h-4 ${actionLoading === 'positions' ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-4 h-4 ${trActionLoading === 'positions' ? 'animate-spin' : ''}`} />
                 Recalculate Positions
               </button>
             )}
           </div>
         </div>
 
-        {/* Tabs */}
+        {/* ── Tab switcher ─────────────────────────────────────────────────── */}
         <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
           <button
             onClick={() => setActiveTab('subject-results')}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              activeTab === 'subject-results' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              activeTab === 'subject-results'
+                ? 'bg-white text-slate-900 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             <BookOpen className="w-4 h-4" />
@@ -882,7 +942,9 @@ const EnhancedResultsManagement: React.FC = () => {
           <button
             onClick={() => setActiveTab('term-reports')}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              activeTab === 'term-reports' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              activeTab === 'term-reports'
+                ? 'bg-white text-slate-900 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             <List className="w-4 h-4" />
@@ -890,68 +952,60 @@ const EnhancedResultsManagement: React.FC = () => {
           </button>
         </div>
 
-        {/* ─────────────────────── Subject Results Tab ─────────────────────── */}
+        {/* ═══════════════════════ SUBJECT RESULTS TAB ═══════════════════════ */}
         {activeTab === 'subject-results' && (
           <div className="space-y-4">
-            {/* Stat cards — counts from the full fetched list, not just the visible page */}
+
+            {/* Stats */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard label="Total Results"  value={srTotalCount}                                                       icon={BookOpen}    color="bg-slate-600" />
-              <StatCard label="Draft"          value={srDraftCount}                                                       icon={Clock}       color="bg-amber-500"   sub="Pending approval" />
-              <StatCard label="Approved"       value={subjectResults.filter((r) => r.status === 'APPROVED').length}       icon={CheckCircle} color="bg-emerald-500" sub="Ready to publish" />
-              <StatCard label="Published"      value={subjectResults.filter((r) => r.status === 'PUBLISHED').length}      icon={Award}       color="bg-violet-600"  sub="Term report generated" />
+              <StatCard label="Total Results" value={srTotalCount}    icon={BookOpen}    color="bg-slate-600" />
+              <StatCard label="Draft"         value={srDraftCount}    icon={Clock}       color="bg-amber-500"   sub="Pending approval" />
+              <StatCard label="Approved"      value={srApprovedCount} icon={CheckCircle} color="bg-emerald-500" sub="Ready to publish" />
+              <StatCard label="Published"     value={srPublishedCount}icon={Award}       color="bg-violet-600"  sub="Term report generated" />
             </div>
 
-            {/* Term Tabs */}
+            {/* Term tabs */}
             <div className="bg-white rounded-2xl border border-slate-200 p-1 flex gap-1 w-fit">
-              {(['FIRST', 'SECOND', 'THIRD'] as const).map((t, i) => {
-                const label = ['1st Term', '2nd Term', '3rd Term'][i];
-                const count = subjectResults.filter((r) => termKey(r.exam_session) === t).length;
-                return (
-                  <button
-                    key={t}
-                    onClick={() => { setSrTermTab(t); setSrSelectedSession(''); }}
-                    className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 ${
-                      srTermTab === t ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    {label}
-                    {count > 0 && (
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                        srTermTab === t ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
-                      }`}>{count}</span>
-                    )}
-                  </button>
-                );
-              })}
+              {(['FIRST', 'SECOND', 'THIRD'] as const).map((t, i) => (
+                <button
+                  key={t}
+                  onClick={() => { setSrTermTab(t); setSrSelectedSession(''); }}
+                  className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+                    srTermTab === t
+                      ? 'bg-violet-600 text-white shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  {['1st Term', '2nd Term', '3rd Term'][i]}
+                </button>
+              ))}
               <button
                 onClick={() => { setSrTermTab('SESSION'); setSrSelectedSession(''); }}
                 className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-                  srTermTab === 'SESSION' ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                  srTermTab === 'SESSION'
+                    ? 'bg-violet-600 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
                 }`}
               >
                 By Session
               </button>
             </div>
 
+            {/* Session input (only when By Session is active) */}
             {srTermTab === 'SESSION' && (
               <div className="bg-white rounded-xl border border-slate-200 p-4">
-                <label className="block text-sm font-medium text-slate-700 mb-2">Select Exam Session</label>
-                <select
+                <label className="block text-sm font-medium text-slate-700 mb-2">Session Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 2024/2025"
                   value={srSelectedSession}
                   onChange={(e) => setSrSelectedSession(e.target.value)}
                   className="w-full max-w-md px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-400 outline-none"
-                >
-                  <option value="">— All sessions —</option>
-                  {srExamSessions.map((s) => (
-                    <option key={s?.id} value={String(s?.id)}>
-                      {s?.name || s?.id}{s?.term_name ? ` · ${s.term_name}` : ''}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
             )}
 
-            {/* Filters + Bulk Actions */}
+            {/* Filters + bulk actions */}
             <div className="bg-white rounded-2xl border border-slate-200 p-4">
               <div className="flex flex-wrap gap-3 mb-3">
                 <div className="relative flex-1 min-w-[200px]">
@@ -1008,14 +1062,13 @@ const EnhancedResultsManagement: React.FC = () => {
               )}
             </div>
 
-            {/* Subject Results Table */}
+            {/* Subject Results table */}
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
               {srLoading ? (
                 <div className="flex items-center justify-center py-16">
                   <div className="w-8 h-8 border-4 border-violet-200 border-t-violet-600 rounded-full animate-spin" />
                 </div>
-              ) : paginatedSr.length === 0 ? (
-                // FIX 5: empty-state check against paginatedSr (the visible slice).
+              ) : subjectResults.length === 0 ? (
                 <div className="py-16 text-center">
                   <BookOpen className="w-10 h-10 text-slate-300 mx-auto mb-3" />
                   <p className="text-slate-500 font-medium">No subject results found</p>
@@ -1026,15 +1079,14 @@ const EnhancedResultsManagement: React.FC = () => {
                     <thead className="bg-slate-50 border-b border-slate-200">
                       <tr>
                         <th className="px-4 py-3 text-left w-10">
-                          {/* FIX 4: "select all" applies to paginatedSr, the visible rows. */}
                           <input
                             type="checkbox"
                             checked={
-                              paginatedSr.length > 0 &&
-                              paginatedSr.every((r) => srSelectedIds.includes(String(r.id)))
+                              subjectResults.length > 0 &&
+                              subjectResults.every((r) => srSelectedIds.includes(String(r.id)))
                             }
                             onChange={() => {
-                              const pageIds = paginatedSr.map((r) => String(r.id));
+                              const pageIds = subjectResults.map((r) => String(r.id));
                               const allSelected = pageIds.every((id) => srSelectedIds.includes(id));
                               setSrSelectedIds(allSelected
                                 ? srSelectedIds.filter((id) => !pageIds.includes(id))
@@ -1050,20 +1102,20 @@ const EnhancedResultsManagement: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {/* FIX 2: iterate paginatedSr, not filteredSr. */}
-                      {paginatedSr.map((r, idx) => {
-                        const comps    = [...(r.component_scores ?? [])].sort((a: any, b: any) => a.display_order - b.display_order);
-                        const examComp = comps.find((c: any) => c.component_type === 'EXAM');
-                        const caComps  = comps.filter((c: any) => c.component_type !== 'EXAM');
-                        const caTotal  = caComps.length > 0
+                      {subjectResults.map((r, idx) => {
+                        const comps     = [...(r.component_scores ?? [])].sort((a: any, b: any) => a.display_order - b.display_order);
+                        const examComp  = comps.find((c: any) => c.component_type === 'EXAM');
+                        const caComps   = comps.filter((c: any) => c.component_type !== 'EXAM');
+                        const caTotal   = caComps.length > 0
                           ? caComps.reduce((s: number, c: any) => s + (parseFloat(c.score) || 0), 0)
                           : parseFloat(r.ca_total || '0');
                         const examScore = examComp
                           ? parseFloat(examComp.score)
                           : parseFloat(r.exam_score || (r as any).mark_obtained || '0');
-                        const isActing = srActionLoading === String(r.id);
+                        const isActing  = srActionLoading === String(r.id);
+
                         return (
-                          <tr key={r.id || idx} className={`hover:bg-slate-50 ${idx % 2 === 1 ? 'bg-slate-50/30' : ''}`}>
+                          <tr key={r.id ?? idx} className={`hover:bg-slate-50 ${idx % 2 === 1 ? 'bg-slate-50/30' : ''}`}>
                             <td className="px-4 py-3">
                               <input
                                 type="checkbox"
@@ -1152,19 +1204,15 @@ const EnhancedResultsManagement: React.FC = () => {
                 </div>
               )}
 
-              {/* Subject Results Pagination — FIX 3: use srFilteredTotal + SR_CLIENT_PAGE_SIZE */}
-              {srFilteredTotal > SR_CLIENT_PAGE_SIZE && (
+              {/* Subject results pagination */}
+              {srTotalCount > SR_PAGE_SIZE && (
                 <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50">
                   <span className="text-sm text-slate-500">
                     Showing{' '}
                     <strong>
-                      {(srCurrentPage - 1) * SR_CLIENT_PAGE_SIZE + 1}–
-                      {Math.min(srCurrentPage * SR_CLIENT_PAGE_SIZE, srFilteredTotal)}
+                      {(srCurrentPage - 1) * SR_PAGE_SIZE + 1}–{Math.min(srCurrentPage * SR_PAGE_SIZE, srTotalCount)}
                     </strong>{' '}
-                    of <strong>{srFilteredTotal}</strong>
-                    {srTotalCount > SR_FETCH_PAGE_SIZE && (
-                      <span className="text-slate-400"> (first {SR_FETCH_PAGE_SIZE} per level shown)</span>
-                    )}
+                    of <strong>{srTotalCount}</strong>
                   </span>
                   <div className="flex items-center gap-1">
                     <button
@@ -1174,9 +1222,7 @@ const EnhancedResultsManagement: React.FC = () => {
                     >
                       <ChevronLeft className="w-4 h-4" />
                     </button>
-                    <span className="px-3 text-sm text-slate-600">
-                      Page {srCurrentPage} of {srTotalPages}
-                    </span>
+                    <span className="px-3 text-sm text-slate-600">Page {srCurrentPage} of {srTotalPages}</span>
                     <button
                       onClick={() => setSrCurrentPage((p) => Math.min(srTotalPages, p + 1))}
                       disabled={srCurrentPage >= srTotalPages}
@@ -1189,95 +1235,102 @@ const EnhancedResultsManagement: React.FC = () => {
               )}
             </div>
 
+            {/* Info banner */}
             <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-700 flex items-start gap-2">
               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
               <span>
-                <strong>How it works:</strong> Approving a subject result locks the score. Publishing makes it visible to students and automatically creates or updates the student's Term Report in the Term Reports tab.
+                <strong>How it works:</strong> Approving a subject result locks the score. Publishing makes it
+                visible to students and automatically creates or updates the student's Term Report in the Term
+                Reports tab.
               </span>
             </div>
           </div>
         )}
 
-        {/* ─────────────────────── Term Reports Tab ────────────────────────── */}
+        {/* ═══════════════════════ TERM REPORTS TAB ══════════════════════════ */}
         {activeTab === 'term-reports' && (
-          <>
-            {/* Term Tabs */}
+          <div className="space-y-4">
+
+            {/* Term tabs */}
             <div className="flex gap-1 bg-white rounded-2xl border border-slate-200 p-1 w-fit">
               {(['FIRST', 'SECOND', 'THIRD'] as const).map((t, i) => {
-                const label = ['1st Term', '2nd Term', '3rd Term'][i];
-                return (
-                  <button
-                    key={t}
-                    onClick={() => { setTrTermTab(t); setFilters((f) => ({ ...f, session: 'all', term: 'all' })); }}
-                    className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 ${
-                      trTermTab === t ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
+                  const label = ['1st Term', '2nd Term', '3rd Term'][i];
+                  return (
+                    <button
+                      key={t}
+                      onClick={() => { setSrTermTab(t); setSrSelectedSession(''); }}
+                      className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 ${
+                        srTermTab === t ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
               <button
                 onClick={() => setTrTermTab('SESSION')}
                 className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-                  trTermTab === 'SESSION' ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                  trTermTab === 'SESSION'
+                    ? 'bg-violet-600 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
                 }`}
               >
                 By Session
               </button>
             </div>
 
+            {/* Session/term dropdowns (only when By Session is active) */}
             {trTermTab === 'SESSION' && (
               <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-wrap gap-4 items-end">
                 <div className="flex-1 min-w-[200px]">
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Academic Session</label>
                   <select
-                    value={filters.session}
-                    onChange={(e) => setFilters((f) => ({ ...f, session: e.target.value }))}
+                    value={trFilters.session}
+                    onChange={(e) => setTrFilters((f) => ({ ...f, session: e.target.value }))}
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 outline-none"
                   >
                     <option value="all">— All sessions —</option>
-                    {uniqueSessions.map((s) => <option key={s} value={s}>{s}</option>)}
+                    {uniqueTrSessions.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div className="flex-1 min-w-[180px]">
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Term</label>
                   <select
-                    value={filters.term}
-                    onChange={(e) => setFilters((f) => ({ ...f, term: e.target.value }))}
+                    value={trFilters.term}
+                    onChange={(e) => setTrFilters((f) => ({ ...f, term: e.target.value }))}
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 outline-none"
                   >
                     <option value="all">— All terms —</option>
-                    {uniqueTerms.map((t) => <option key={t} value={t}>{t}</option>)}
+                    {uniqueTrTerms.map((t) => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
               </div>
             )}
 
-            {/* Stats */}
+            {/* Stats — counts come from server, accurate across all pages */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard label="Total Reports" value={counts.total}     icon={FileText}    color="bg-slate-600" />
-              <StatCard label="Draft"         value={counts.draft}     icon={Clock}       color="bg-amber-500"   sub="Awaiting approval" />
-              <StatCard label="Approved"      value={counts.approved}  icon={CheckCircle} color="bg-emerald-500" sub="Ready to publish" />
-              <StatCard label="Published"     value={counts.published} icon={Award}       color="bg-violet-600"  sub="Visible to students" />
+              <StatCard label="Total Reports" value={trTotalCount}     icon={FileText}    color="bg-slate-600" />
+              <StatCard label="Draft"         value={trDraftCount}     icon={Clock}       color="bg-amber-500"   sub="Awaiting approval" />
+              <StatCard label="Approved"      value={trApprovedCount}  icon={CheckCircle} color="bg-emerald-500" sub="Ready to publish" />
+              <StatCard label="Published"     value={trPublishedCount} icon={Award}       color="bg-violet-600"  sub="Visible to students" />
             </div>
 
             {/* Filters */}
             <div className="bg-white rounded-2xl border border-slate-200 p-5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input
                     type="text"
                     placeholder="Search student or class…"
-                    value={filters.search}
-                    onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+                    value={trFilters.search}
+                    onChange={(e) => setTrFilters((f) => ({ ...f, search: e.target.value }))}
                     className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 outline-none"
                   />
                 </div>
                 <select
-                  value={filters.status}
-                  onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value as any }))}
+                  value={trFilters.status}
+                  onChange={(e) => setTrFilters((f) => ({ ...f, status: e.target.value as any }))}
                   className="px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 outline-none"
                 >
                   <option value="all">All Statuses</option>
@@ -1286,17 +1339,17 @@ const EnhancedResultsManagement: React.FC = () => {
                   <option value="PUBLISHED">Published</option>
                 </select>
                 <select
-                  value={filters.level}
-                  onChange={(e) => setFilters((f) => ({ ...f, level: e.target.value as any }))}
+                  value={trFilters.level}
+                  onChange={(e) => setTrFilters((f) => ({ ...f, level: e.target.value as any }))}
                   className="px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 outline-none"
                 >
                   <option value="all">All Levels</option>
                   {EDUCATION_LEVELS.map((l) => <option key={l} value={l}>{LEVEL_LABELS[l]}</option>)}
                 </select>
               </div>
-              {(filters.status !== 'all' || filters.level !== 'all' || filters.search) && (
+              {(trFilters.status !== 'all' || trFilters.level !== 'all' || trFilters.search) && (
                 <button
-                  onClick={() => setFilters({ search: '', status: 'all', level: 'all', session: 'all', term: 'all' })}
+                  onClick={() => setTrFilters({ search: '', status: 'all', level: 'all', session: 'all', term: 'all' })}
                   className="mt-3 text-xs text-violet-600 hover:underline"
                 >
                   Clear filters
@@ -1304,22 +1357,30 @@ const EnhancedResultsManagement: React.FC = () => {
               )}
             </div>
 
-            {/* Table */}
+            {/* Term Reports table */}
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
               <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <h2 className="text-base font-semibold text-slate-900">
-                  Term Reports <span className="text-slate-400 font-normal">({totalCount})</span>
+                  Term Reports <span className="text-slate-400 font-normal">({trTotalCount})</span>
                 </h2>
-                {selectedIds.length > 0 && (
+                {trSelectedIds.length > 0 && (
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-slate-500">{selectedIds.length} selected</span>
-                    <button onClick={handleBulkApprove} disabled={actionLoading === 'bulk'} className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+                    <span className="text-sm text-slate-500">{trSelectedIds.length} selected</span>
+                    <button
+                      onClick={handleTrBulkApprove}
+                      disabled={trActionLoading === 'bulk'}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                    >
                       <CheckCircle className="w-3.5 h-3.5" /> Approve
                     </button>
-                    <button onClick={handleBulkPublish} disabled={actionLoading === 'bulk'} className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700 disabled:opacity-50">
+                    <button
+                      onClick={handleTrBulkPublish}
+                      disabled={trActionLoading === 'bulk'}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700 disabled:opacity-50"
+                    >
                       <Award className="w-3.5 h-3.5" /> Publish
                     </button>
-                    <button onClick={() => setSelectedIds([])} className="text-slate-400 hover:text-slate-600 p-1">
+                    <button onClick={() => setTrSelectedIds([])} className="text-slate-400 hover:text-slate-600 p-1">
                       <X className="w-4 h-4" />
                     </button>
                   </div>
@@ -1333,8 +1394,8 @@ const EnhancedResultsManagement: React.FC = () => {
                       <th className="px-4 py-3 text-left w-10">
                         <input
                           type="checkbox"
-                          checked={selectedIds.length === paginated.length && paginated.length > 0}
-                          onChange={handleSelectAll}
+                          checked={reports.length > 0 && reports.every((r) => trSelectedIds.includes(r.id))}
+                          onChange={handleTrSelectAllPage}
                           className="rounded border-slate-300 text-violet-600 focus:ring-violet-400"
                         />
                       </th>
@@ -1344,7 +1405,7 @@ const EnhancedResultsManagement: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {paginated.length === 0 ? (
+                    {reports.length === 0 ? (
                       <tr>
                         <td colSpan={11} className="px-4 py-16 text-center">
                           <FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" />
@@ -1352,18 +1413,19 @@ const EnhancedResultsManagement: React.FC = () => {
                         </td>
                       </tr>
                     ) : (
-                      paginated.map((report) => {
+                      reports.map((report) => {
                         const avg           = getAvgScore(report);
                         const grade         = getOverallGrade(report);
-                        const isActing      = actionLoading === report.id;
+                        const isActing      = trActionLoading === report.id;
                         const totalStudents = getTotalStudents(report);
+
                         return (
                           <tr key={report.id} className="hover:bg-slate-50 transition-colors">
                             <td className="px-4 py-3">
                               <input
                                 type="checkbox"
-                                checked={selectedIds.includes(report.id)}
-                                onChange={() => setSelectedIds((prev) =>
+                                checked={trSelectedIds.includes(report.id)}
+                                onChange={() => setTrSelectedIds((prev) =>
                                   prev.includes(report.id)
                                     ? prev.filter((x) => x !== report.id)
                                     : [...prev, report.id]
@@ -1419,7 +1481,7 @@ const EnhancedResultsManagement: React.FC = () => {
                                 </button>
                                 {report.status === 'DRAFT' && (
                                   <button
-                                    onClick={() => handleApprove(report)}
+                                    onClick={() => handleTrApprove(report)}
                                     disabled={isActing}
                                     className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors disabled:opacity-40"
                                     title="Approve"
@@ -1429,7 +1491,7 @@ const EnhancedResultsManagement: React.FC = () => {
                                 )}
                                 {report.status === 'APPROVED' && (
                                   <button
-                                    onClick={() => handlePublish(report)}
+                                    onClick={() => handleTrPublish(report)}
                                     disabled={isActing}
                                     className="p-1.5 rounded-lg text-slate-400 hover:text-violet-600 hover:bg-violet-50 transition-colors disabled:opacity-40"
                                     title="Publish"
@@ -1438,8 +1500,8 @@ const EnhancedResultsManagement: React.FC = () => {
                                   </button>
                                 )}
                                 <button
-                                  onClick={() => handleDownloadPDF(report)}
-                                  disabled={actionLoading === report.id + '_pdf'}
+                                  onClick={() => handleTrDownloadPDF(report)}
+                                  disabled={trActionLoading === `${report.id}_pdf`}
                                   className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-40"
                                   title="Download PDF"
                                 >
@@ -1462,44 +1524,50 @@ const EnhancedResultsManagement: React.FC = () => {
                 </table>
               </div>
 
-              {/* Term Reports Pagination */}
-              {totalCount > 0 && (
+              {/* Term Reports pagination */}
+              {trTotalCount > 0 && (
                 <div className="px-6 py-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50">
                   <div className="flex items-center gap-2 text-sm text-slate-500">
                     <span>Show</span>
                     <select
-                      value={pageSize}
-                      onChange={(e) => setPageSize(Number(e.target.value))}
+                      value={trPageSize}
+                      onChange={(e) => setTrPageSize(Number(e.target.value))}
                       className="px-2 py-1 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-violet-400 outline-none"
                     >
                       {[10, 20, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
                     </select>
                     <span>
                       Showing{' '}
-                      <strong>{(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, totalCount)}</strong>
-                      {' '}of <strong>{totalCount}</strong>
+                      <strong>{(trCurrentPage - 1) * trPageSize + 1}–{Math.min(trCurrentPage * trPageSize, trTotalCount)}</strong>
+                      {' '}of <strong>{trTotalCount}</strong>
                     </span>
                   </div>
-                  {totalPages > 1 && (
+                  {trTotalPages > 1 && (
                     <div className="flex items-center gap-1">
-                      {([
-                        { icon: ChevronsLeft,  action: () => setCurrentPage(1),              disabled: currentPage === 1 },
-                        { icon: ChevronLeft,   action: () => setCurrentPage((p) => p - 1),   disabled: currentPage === 1 },
-                      ] as const).map(({ icon: Icon, action, disabled }, i) => (
-                        <button key={i} onClick={action} disabled={disabled} className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
-                          <Icon className="w-4 h-4" />
-                        </button>
-                      ))}
+                      <button
+                        onClick={() => setTrCurrentPage(1)}
+                        disabled={trCurrentPage === 1}
+                        className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <ChevronsLeft className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setTrCurrentPage((p) => p - 1)}
+                        disabled={trCurrentPage === 1}
+                        className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
                       <div className="hidden sm:flex items-center gap-1">
-                        {getPageNumbers().map((p, i) =>
+                        {buildPageNumbers(trCurrentPage, trTotalPages).map((p, i) =>
                           p === '…' ? (
                             <span key={`e${i}`} className="px-2 text-slate-400">…</span>
                           ) : (
                             <button
                               key={p}
-                              onClick={() => setCurrentPage(p as number)}
+                              onClick={() => setTrCurrentPage(p as number)}
                               className={`min-w-[2.25rem] h-9 rounded-lg border text-sm font-medium transition-colors ${
-                                currentPage === p
+                                trCurrentPage === p
                                   ? 'bg-violet-600 border-violet-600 text-white'
                                   : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                               }`}
@@ -1509,47 +1577,55 @@ const EnhancedResultsManagement: React.FC = () => {
                           )
                         )}
                       </div>
-                      {([
-                        { icon: ChevronRight,  action: () => setCurrentPage((p) => p + 1),     disabled: currentPage === totalPages },
-                        { icon: ChevronsRight, action: () => setCurrentPage(totalPages),        disabled: currentPage === totalPages },
-                      ] as const).map(({ icon: Icon, action, disabled }, i) => (
-                        <button key={i} onClick={action} disabled={disabled} className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
-                          <Icon className="w-4 h-4" />
-                        </button>
-                      ))}
+                      <button
+                        onClick={() => setTrCurrentPage((p) => p + 1)}
+                        disabled={trCurrentPage === trTotalPages}
+                        className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setTrCurrentPage(trTotalPages)}
+                        disabled={trCurrentPage === trTotalPages}
+                        className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <ChevronsRight className="w-4 h-4" />
+                      </button>
                     </div>
                   )}
                 </div>
               )}
             </div>
-          </>
+          </div>
         )}
       </div>
+
+      {/* ── Modals ─────────────────────────────────────────────────────────── */}
 
       {detailReport && (
         <DetailModal
           report={detailReport}
           level={detailReport.education_level}
           onClose={() => setDetailReport(null)}
-          onApprove={() => handleApprove(detailReport)}
-          onPublish={() => handlePublish(detailReport)}
-          onDownload={() => handleDownloadPDF(detailReport)}
+          onApprove={() => handleTrApprove(detailReport)}
+          onPublish={() => handleTrPublish(detailReport)}
+          onDownload={() => handleTrDownloadPDF(detailReport)}
         />
       )}
 
       {deleteTarget && (
         <DeleteModal
           report={deleteTarget}
-          onConfirm={() => handleDelete(deleteTarget)}
+          onConfirm={() => handleTrDelete(deleteTarget)}
           onCancel={() => setDeleteTarget(null)}
-          loading={actionLoading === 'delete'}
+          loading={trActionLoading === 'delete'}
         />
       )}
 
       {showAddForm && (
         <AddResultForm
           onClose={() => setShowAddForm(false)}
-          onSuccess={() => { setShowAddForm(false); loadReports(true); }}
+          onSuccess={() => { setShowAddForm(false); loadTermReports(true); }}
         />
       )}
 
@@ -1558,7 +1634,11 @@ const EnhancedResultsManagement: React.FC = () => {
           result={editTarget.subjectResult}
           educationLevel={editTarget.report.education_level}
           onClose={() => setEditTarget(null)}
-          onSuccess={() => { setEditTarget(null); loadReports(true); loadSubjectResults(); }}
+          onSuccess={() => {
+            setEditTarget(null);
+            loadTermReports(true);
+            loadSubjectResults();
+          }}
         />
       )}
     </div>

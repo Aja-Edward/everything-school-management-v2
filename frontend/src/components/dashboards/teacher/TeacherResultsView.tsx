@@ -446,25 +446,48 @@ const TeacherResults: React.FC = () => {
   }, [results]);
 
   const filteredResults = useMemo(() => {
-    const q = searchTerm.toLowerCase();
-    return results.filter((r) => {
-      // Term tab filter
-      if (filterTerm !== 'SESSION') {
-        if (getTermKey(r.exam_session?.term || '') !== filterTerm) return false;
-      } else if (filterSession) {
-        if (String(r.exam_session?.id ?? '') !== filterSession) return false;
-      }
-      const matchSearch =
-        (r.student?.full_name || '').toLowerCase().includes(q) ||
-        (r.student?.registration_number || '').toLowerCase().includes(q) ||
-        (r.subject?.name || '').toLowerCase().includes(q);
-      const matchSubject = filterSubject === 'all' || String(r.subject?.id ?? '') === filterSubject;
-      const matchStatus  = filterStatus  === 'all' || (r.status || '').toLowerCase() === filterStatus.toLowerCase();
-      const matchLevel   = filterLevel   === 'all' || r.education_level === filterLevel;
-      return matchSearch && matchSubject && matchStatus && matchLevel;
-    });
-  }, [results, filterTerm, filterSession, searchTerm, filterSubject, filterStatus, filterLevel]);
+  const q = searchTerm.toLowerCase();
 
+  const filtered = results.filter((r) => {
+    if (filterTerm !== 'SESSION') {
+      if (getTermKey(r.exam_session?.term || '') !== filterTerm) return false;
+    } else if (filterSession) {
+      if (String(r.exam_session?.id ?? '') !== filterSession) return false;
+    }
+
+    const matchSearch =
+      (r.student?.full_name || '').toLowerCase().includes(q) ||
+      (r.student?.registration_number || '').toLowerCase().includes(q) ||
+      (r.subject?.name || '').toLowerCase().includes(q);
+
+    const matchSubject =
+      filterSubject === 'all' ||
+      String(r.subject?.id ?? '') === filterSubject;
+
+    const matchStatus =
+      filterStatus === 'all' ||
+      (r.status || '').toLowerCase() === filterStatus.toLowerCase();
+
+    const matchLevel =
+      filterLevel === 'all' ||
+      r.education_level === filterLevel;
+
+    return matchSearch && matchSubject && matchStatus && matchLevel;
+  });
+
+  console.log("filteredResults:", filtered);
+  console.table(filtered); // nicer for arrays of objects
+
+  return filtered;
+}, [
+  results,
+  filterTerm,
+  filterSession,
+  searchTerm,
+  filterSubject,
+  filterStatus,
+  filterLevel
+]);
   const stats = useMemo(() => {
     const total     = results.length;
     const published = results.filter((r) => r.status === 'PUBLISHED').length;
@@ -770,16 +793,19 @@ const TeacherResults: React.FC = () => {
 
           {/* ── Results ── */}
           {(viewMode === 'card' || isMobile) ? (
+            
             /* Card view */
             <div className="space-y-3">
               <p className="text-xs md:text-sm text-gray-600 px-1">
                 {filteredResults.length} of {results.length} results
+                
               </p>
               {filteredResults.length === 0 ? (
                 <div className="bg-white rounded-lg"><EmptyState /></div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                   {filteredResults.map((result) => (
+                    
                     <div key={result.id} className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
                       <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-3 border-b border-gray-100">
                         <div className="flex items-start gap-2">

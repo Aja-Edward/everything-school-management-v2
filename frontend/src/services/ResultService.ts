@@ -729,6 +729,29 @@ async getSubjectResultsPaginated<T extends AnySubjectResult>(
   return res as PaginatedResponse<T>;
 }
 
+/**
+ * Fetch a single page of subject results across ALL education levels
+ * from the unified endpoint. This is the correct method for the admin
+ * Subject Results tab — count and pagination are accurate.
+ */
+async getAllSubjectResultsPaginated(
+  params?: {
+    page?: number;
+    page_size?: number;
+    status?: string;
+    level?: EducationLevelType;
+    search?: string;
+    term_name?: string;
+    session_name?: string;
+  }
+): Promise<PaginatedResponse<AnySubjectResult & { education_level: EducationLevelType }>> {
+  const res = await api.get(`${this.base}/subject-results/`, params ?? {});
+  if (Array.isArray(res)) {
+    return { count: res.length, next: null, previous: null, results: res as any };
+  }
+  return res as any;
+}
+
   // ── TERM REPORT STATUS ACTIONS ──────────────────────────────────────────────
 
   /** Approve a single term report (and cascade to its subject results). */

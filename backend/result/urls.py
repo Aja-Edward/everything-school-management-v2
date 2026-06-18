@@ -42,15 +42,18 @@ from .views import (
     HeadTeacherAssignmentViewSet,
     ExamTypeViewSet,
     AssessmentComponentViewSet,
+    UnifiedSubjectResultViewSet,
 )
 
 # Create the router
 router = DefaultRouter()
 
 # ===== BASE CONFIGURATION ROUTES =====
-router.register(r"grading-systems", GradingSystemViewSet, basename="grading-system")
+router.register(r"grading-systems", GradingSystemViewSet,
+                basename="grading-system")
 router.register(r"grades", GradeViewSet, basename="grade")
-router.register(r"assessment-types", AssessmentTypeViewSet, basename="assessment-type")
+router.register(r"assessment-types", AssessmentTypeViewSet,
+                basename="assessment-type")
 router.register(r"exam-sessions", ExamSessionViewSet, basename="exam-session")
 router.register(
     r"scoring-configurations",
@@ -65,7 +68,8 @@ router.register(
 )
 
 # ===== LEGACY/BASE RESULT ROUTES =====
-router.register(r"student-results", StudentResultViewSet, basename="student-result")
+router.register(r"student-results", StudentResultViewSet,
+                basename="student-result")
 router.register(
     r"student-term-results", StudentTermResultViewSet, basename="student-term-result"
 )
@@ -110,7 +114,8 @@ router.register(
 )
 
 # ===== PRIMARY ROUTES =====
-router.register(r"primary/results", PrimaryResultViewSet, basename="primary-result")
+router.register(r"primary/results", PrimaryResultViewSet,
+                basename="primary-result")
 router.register(
     r"primary/term-reports", PrimaryTermReportViewSet, basename="primary-term-report"
 )
@@ -121,7 +126,8 @@ router.register(
 )
 
 # ===== NURSERY ROUTES =====
-router.register(r"nursery/results", NurseryResultViewSet, basename="nursery-result")
+router.register(r"nursery/results", NurseryResultViewSet,
+                basename="nursery-result")
 router.register(
     r"nursery/term-reports", NurseryTermReportViewSet, basename="nursery-term-report"
 )
@@ -131,13 +137,22 @@ router.register(
     basename="nursery-session-report",
 )
 
+# ===== UNIFIED CROSS-LEVEL SUBJECT RESULTS =====
+router.register(
+    r"subject-results",
+    UnifiedSubjectResultViewSet,
+    basename="unified-subject-results",
+)
+
 # ===== SUPPORTING ROUTES =====
 router.register(r"result-sheets", ResultSheetViewSet, basename="result-sheet")
 router.register(
     r"assessment-scores", AssessmentScoreViewSet, basename="assessment-score"
 )
-router.register(r"result-comments", ResultCommentViewSet, basename="result-comment")
-router.register(r"result-templates", ResultTemplateViewSet, basename="result-template")
+router.register(r"result-comments", ResultCommentViewSet,
+                basename="result-comment")
+router.register(r"result-templates", ResultTemplateViewSet,
+                basename="result-template")
 
 # ===== BULK OPERATIONS & ANALYTICS ROUTES =====
 router.register(
@@ -145,7 +160,8 @@ router.register(
     BulkResultOperationsViewSet,
     basename="bulk-result-operations",
 )
-router.register(r"analytics", ResultAnalyticsViewSet, basename="result-analytics")
+router.register(r"analytics", ResultAnalyticsViewSet,
+                basename="result-analytics")
 router.register(
     r"import-export", ResultImportExportViewSet, basename="result-import-export"
 )

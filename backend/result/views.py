@@ -3204,6 +3204,164 @@ class NurserySessionReportViewSet(
         )
 
 
+# ── Unified Subject Results (cross-level, server-side paginated) ──────────────
+
+class UnifiedSubjectResultViewSet(TenantFilterMixin, viewsets.ViewSet):
+    """
+    Single paginated endpoint for subject results across all 4 education levels.
+    Supports filtering by status, level, search, term_name, session_name.
+    Used by the admin dashboard Subject Results tab.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request):
+        # ── Query params ──────────────────────────────────────────────────────
+        page = max(1, int(request.query_params.get("page", 1)))
+        page_size = min(
+            200, max(1, int(request.query_params.get("page_size", 25))))
+        status_f = request.query_params.get("status", "").upper() or None
+        level_f = request.query_params.get("level", "").upper() or None
+        search = request.query_params.get("search", "").strip()
+        term_name = request.query_params.get("term_name", "").strip()
+        session_name = request.query_params.get("session_name", "").strip()
+
+        levels = (
+            [level_f]
+            if level_f and level_f in _RESULT_MODEL_MAP
+            else list(_RESULT_MODEL_MAP.keys())
+        )
+
+        _SERIALIZER_MAP = {
+            "SENIOR_SECONDARY": SeniorSecondaryResultSerializer,
+            "JUNIOR_SECONDARY": JuniorSecondaryResultSerializer,
+            "PRIMARY":          PrimaryResultSerializer,
+            "NURSERY":          NurseryResultSerializer,
+        }
+
+        offset_start = (page - 1) * page_size
+        offset_end = offset_start + page_size
+
+        def build_qs(level, model):
+            qs = _result_qs_base(
+                model,
+                extra_selects=("stream", "stream__stream_type_new")
+                if level == "SENIOR_SECONDARY" else (),
+                tenant=getattr(request, "tenant", None),
+            ).order_by("-created_at")
+
+            qs = _apply_role_filter(qs, self, request.user)
+
+            if status_f and status_f in (DRAFT, APPROVED, PUBLISHED):
+                qs = qs.filter(status=status_f)
+            if search:
+                qs = qs.filter(
+                    Q(student__user__first_name__icontains=search) |
+                    Q(student__user__last_name__icontains=search) |
+                    Q(subject__name__icontains=search)
+                )
+            if term_name:
+                qs = qs.filter(
+                    exam_session__term__term_type__name__icontains=term_name)
+            if session_name:
+                qs = qs.filter(
+                    exam_session__academic_session__name__icontains=session_name
+                )
+            return qs
+
+        # ── Phase 1: count per level ──────────────────────────────────────────
+        counts = {}
+        for level in _RESULT_MODEL_MAP:
+            if level not in levels:
+                counts[level] = 0
+                continue
+            counts[level] = build_qs(level, _RESULT_MODEL_MAP[level]).count()
+
+        global_total = sum(counts.values())
+
+        # ── Phase 2: page slice across levels in fixed order ──────────────────
+        LEVEL_ORDER = ["NURSERY", "PRIMARY",
+                       "JUNIOR_SECONDARY", "SENIOR_SECONDARY"]
+        results = []
+        cumulative = 0
+
+        for level in LEVEL_ORDER:
+            if level not in levels:
+                continue
+            level_count = counts[level]
+            level_start = cumulative
+            level_end = cumulative + level_count
+
+            if offset_end <= level_start or offset_start >= level_end:
+                cumulative = level_end
+                continue
+
+            local_start = max(0, offset_start - level_start)
+            local_limit = min(level_count, offset_end -
+                              level_start) - local_start
+
+            model = _RESULT_MODEL_MAP[level]
+            ser_cls = _SERIALIZER_MAP[level]
+            qs = build_qs(level, model)[local_start: local_start + local_limit]
+
+            serialized = ser_cls(
+                qs,
+                many=True,
+                context={
+                    "request": request,
+                    "skip_permission_flags": True,
+                    "skip_enrollment_lookup": True,
+                },
+            ).data
+
+            for item in serialized:
+                item["education_level"] = level
+
+            results.extend(serialized)
+            cumulative = level_end
+
+        return Response({
+            "count":    global_total,
+            "next":     None,
+            "previous": None,
+            "results":  results,
+        })
+
+    def get_user_education_level_access(self):
+        """Required by _apply_role_filter."""
+        return list(_RESULT_MODEL_MAP.keys())
+
+    def get_teacher_queryset(self, user, queryset):
+        """Required by _apply_role_filter when role is TEACHER."""
+        Teacher = apps.get_model("teacher", "Teacher")
+        Classroom = apps.get_model("classroom", "Classroom")
+        ClassroomTeacherAssignment = apps.get_model(
+            "classroom", "ClassroomTeacherAssignment"
+        )
+        try:
+            teacher = Teacher.objects.get(user=user)
+            assigned_classrooms = Classroom.objects.filter(
+                Q(class_teacher=teacher) |
+                Q(classroomteacherassignment__teacher=teacher)
+            ).distinct()
+            if not assigned_classrooms.exists():
+                return queryset.none()
+            student_ids = StudentEnrollment.objects.filter(
+                classroom__in=assigned_classrooms, is_active=True
+            ).values_list("student_id", flat=True)
+            assigned_subjects = (
+                ClassroomTeacherAssignment.objects.filter(teacher=teacher)
+                .exclude(subject__isnull=True)
+                .values_list("subject_id", flat=True)
+                .distinct()
+            )
+            if assigned_subjects.exists():
+                return queryset.filter(
+                    subject_id__in=assigned_subjects,
+                    student_id__in=student_ids,
+                )
+            return queryset.filter(student_id__in=student_ids)
+        except Teacher.DoesNotExist:
+            return queryset.none()
 # ── Legacy Student Result / Term Result ───────────────────────────────────────
 
 
