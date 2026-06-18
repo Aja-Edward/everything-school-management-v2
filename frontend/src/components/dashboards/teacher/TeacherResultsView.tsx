@@ -234,29 +234,63 @@ const TeacherResults: React.FC = () => {
         return;
       }
 
-      // ── Fetch results per level + subject ──────────────────────────────────
-      const fetchPromises = (Object.entries(subjectsByLevel) as [EducationLevel, number[]][])
-        .filter(([, ids]) => ids.length > 0)
-        .flatMap(([level, ids]) =>
-          ids.map((subjectId) => {
-            const params: SubjectResultParams = { subject: String(subjectId) };
-            const serviceLevel = toServiceLevel(level);
+      async function fetchAllPages(
+  fetcher: (params: any) => Promise<any>,
+  params: SubjectResultParams
+): Promise<any[]> {
+  const allResults: any[] = [];
+  let currentParams: Record<string, string | number | boolean> = {
+    ...params,
+    page_size: '100',
+    page: '1',
+  };
 
-            return ResultService
-              .getSubjectResults(serviceLevel, params)         // ✅ correct call
-              .then((data) => ({
-                data,
-                subjectId,
-                level,
-                classroomIds:   Array.from(classroomIdsBySubject.get(subjectId) || []),
-                classroomNames: Array.from(classroomNamesBySubject.get(subjectId) || []),
-              }))
-              .catch((err) => {
-                console.error(`❌ Failed to fetch ${level} results for subject ${subjectId}:`, err);
-                return { data: [], subjectId, level, classroomIds: [], classroomNames: [] };
-              });
-          })
-        );
+  while (true) {
+    const response = await fetcher(currentParams);
+
+    if (Array.isArray(response)) {
+      allResults.push(...response);
+      break;
+    }
+
+    const page = response?.results ?? response?.data ?? [];
+    allResults.push(...page);
+
+    if (!response?.next) break;
+
+    const nextUrl = new URL(response.next);
+    const nextPage = nextUrl.searchParams.get('page') ?? '2';
+    currentParams = { ...currentParams, page: nextPage };
+  }
+
+  return allResults;
+}
+
+      // ── Fetch results per level + subject (uses fetchAllPages) ─────────────
+    const fetchPromises = (Object.entries(subjectsByLevel) as [EducationLevel, number[]][])
+      .filter(([, ids]) => ids.length > 0)
+      .flatMap(([level, ids]) =>
+        ids.map((subjectId) => {
+          const params: SubjectResultParams = { subject: String(subjectId) };
+          const serviceLevel = toServiceLevel(level);
+
+          return fetchAllPages(             // ← swapped in here
+            (p) => ResultService.getSubjectResults(serviceLevel, p),
+            params
+          ).then((data) => ({
+            data,
+            subjectId,
+            level,
+            classroomIds:   Array.from(classroomIdsBySubject.get(subjectId) || []),
+            classroomNames: Array.from(classroomNamesBySubject.get(subjectId) || []),
+          }))
+          .catch((err) => {
+            console.error(`❌ Failed to fetch ${level} results for subject ${subjectId}:`, err);
+            return { data: [], subjectId, level, classroomIds: [], classroomNames: [] };
+          });
+        })
+      );
+
 
       const settled = await Promise.allSettled(fetchPromises);
 
