@@ -422,7 +422,7 @@ const TeacherResults: React.FC = () => {
       // Final filter: only subjects this teacher teaches
       const finalResults = normalized.filter((r) => allSubjectIds.has(Number(r.subject.id)));
       setResults(finalResults);
-
+      console.log('TERM VALUES:', finalResults.map(r => r.exam_session?.term));
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to load data';
       console.error('❌ Error loading teacher data:', err);
@@ -463,13 +463,17 @@ const TeacherResults: React.FC = () => {
   );
 
   // Normalise any term string to FIRST / SECOND / THIRD / OTHER
-  const getTermKey = (termStr: string): 'FIRST' | 'SECOND' | 'THIRD' | 'OTHER' => {
-    const t = (termStr || '').toString().toUpperCase();
-    if (t.includes('FIRST')  || t === '1') return 'FIRST';
-    if (t.includes('SECOND') || t === '2') return 'SECOND';
-    if (t.includes('THIRD')  || t === '3') return 'THIRD';
-    return 'OTHER';
-  };
+  // TeacherResults.tsx — replace getTermKey
+const getTermKey = (termStr: string): 'FIRST' | 'SECOND' | 'THIRD' | 'OTHER' => {
+  const t = (termStr || '').toString().toUpperCase().trim();
+  if (t.includes('FIRST') || t === '1' || t === '1ST' || t.includes('TERM 1') ||
+      t.includes('TERM ONE') || t.startsWith('1')) return 'FIRST';
+  if (t.includes('SECOND') || t === '2' || t === '2ND' || t.includes('TERM 2') ||
+      t.includes('TERM TWO') || t.startsWith('2')) return 'SECOND';
+  if (t.includes('THIRD') || t === '3' || t === '3RD' || t.includes('TERM 3') ||
+      t.includes('TERM THREE') || t.startsWith('3')) return 'THIRD';
+  return 'OTHER';
+};
 
   // Unique exam sessions from loaded results (for Session tab dropdown)
   const uniqueExamSessions = useMemo(() => {

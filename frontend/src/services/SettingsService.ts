@@ -261,93 +261,46 @@ class SettingsService {
     return c.available_spots ?? Math.max(0, c.max_capacity - this.getClassroomEnrollment(c));
   }
 
-  async getClassrooms(): Promise<Classroom[]> {
-    try {
-      const res = await fetch(`${API_BASE_URL}/classrooms/classrooms/`, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-      });
-      if (!res.ok) throw new Error(`Failed to load classrooms (${res.status})`);
-      const data = await res.json();
-      return Array.isArray(data) ? data : Array.isArray(data.results) ? data.results : [];
-    } catch (err: any) {
-      console.error('SettingsService.getClassrooms error:', err);
-      throw err;
-    }
+  // settingsService.ts  ← AFTER (fixed)
+async getClassrooms(): Promise<Classroom[]> {
+  try {
+    const data = await api.get('/classrooms/classrooms/');
+    // ✅ api.get → buildHeaders → injects X-Tenant-Slug from localStorage
+    return Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : [];
+  } catch (err: any) {
+    console.error('SettingsService.getClassrooms error:', err);
+    throw err;
   }
+}
  
   // ── Update a single classroom's capacity ───────────────────────────────────
  
   async setClassroomCapacity(classroomId: number, maxCapacity: number): Promise<Classroom> {
-    try {
-      const res = await fetch(
-        `${API_BASE_URL}/classrooms/classrooms/${classroomId}/set-capacity/`,
-        {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ max_capacity: maxCapacity }),
-        }
-      );
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        const msg =
-          errData?.error ||
-          (Array.isArray(errData?.max_capacity) ? errData.max_capacity[0] : null) ||
-          errData?.detail ||
-          `Server error ${res.status}`;
-        throw new Error(msg);
-      }
-      return await res.json();
-    } catch (err: any) {
-      console.error('SettingsService.setClassroomCapacity error:', err);
-      throw err;
-    }
-  }
+  return api.patch(`/classrooms/classrooms/${classroomId}/set-capacity/`, {
+    max_capacity: maxCapacity,
+  });
+}
  
   // ── Bulk-update all classrooms to the same capacity ───────────────────────
  
   async bulkSetClassroomCapacity(
-    classrooms: Classroom[],
-    maxCapacity: number
-  ): Promise<{ succeeded: number; failed: Array<{ name: string; error: string }> }> {
-    const results = await Promise.allSettled(
-      classrooms.map(c =>
-        fetch(`${API_BASE_URL}/classrooms/classrooms/${c.id}/set-capacity/`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ max_capacity: maxCapacity }),
-        }).then(async res => {
-          if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            const msg =
-              errData?.error ||
-              (Array.isArray(errData?.max_capacity) ? errData.max_capacity[0] : null) ||
-              errData?.detail ||
-              `Error ${res.status}`;
-            throw new Error(`${c.name}: ${msg}`);
-          }
-          return res.json();
-        })
-      )
-    );
- 
-    const failed = results
-      .filter(r => r.status === 'rejected')
-      .map(r => ({
-        name: '',
-        error: (r as PromiseRejectedResult).reason?.message ?? 'Unknown error',
-      }));
- 
-    return { succeeded: results.length - failed.length, failed };
-  }
+  classrooms: Classroom[],
+  maxCapacity: number
+): Promise<{ succeeded: number; failed: Array<{ name: string; error: string }> }> {
+  const settled = await Promise.allSettled(
+    classrooms.map(c =>
+      api.patch(`/classrooms/classrooms/${c.id}/set-capacity/`, { max_capacity: maxCapacity })
+    )
+  );
+  const failed = settled
+    .map((r, i) =>
+      r.status === 'rejected'
+        ? { name: classrooms[i].name, error: (r as PromiseRejectedResult).reason?.message ?? 'Unknown error' }
+        : null
+    )
+    .filter((x): x is { name: string; error: string } => x !== null);
+  return { succeeded: settled.length - failed.length, failed };
+}
 
   private transformBackendToFrontend(response: any): SchoolSettings {
     console.log('🔄 Transforming backend response to frontend');
