@@ -1039,7 +1039,9 @@ class BaseResultViewSetMixin:
                 count = 0
                 saved_results = []  # collect to ensure term reports exist after the loop
                 for student_id, subject_id, exam_session_id, scores_data, teacher_remark, grading_system_id in validated:
+                    tenant = getattr(request, "tenant", None)
                     lookup = {
+                        "tenant": tenant,
                         "student_id": student_id,
                         "exam_session_id": exam_session_id,
                     }
@@ -1067,7 +1069,7 @@ class BaseResultViewSetMixin:
                         )
                         ComponentScore.objects.update_or_create(
                             **{fk_name: result, "component": component},
-                            defaults={"score": s["score"]},
+                            defaults={"score": s["score"], "tenant": tenant},
                         )
 
                     result.calculate_scores()
