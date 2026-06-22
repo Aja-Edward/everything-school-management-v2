@@ -138,6 +138,13 @@ COMPONENT_DEFAULTS = {
 
 def _seed_exam_types(tenant):
     from result.models import ExamType
+
+    # Skip if tenant already has exam types configured
+    if ExamType.objects.filter(tenant=tenant).exists():
+        logger.info(
+            f"[{tenant.slug}] ExamTypes already configured — skipping.")
+        return
+
     for d in EXAM_TYPE_DEFAULTS:
         ExamType.objects.get_or_create(
             tenant=tenant,
@@ -161,6 +168,16 @@ def _seed_assessment_components(tenant):
         return
 
     for level in levels:
+        # Skip if this education level already has components configured.
+        # Never overwrite a tenant's custom assessment structure.
+        if AssessmentComponent.objects.filter(
+            tenant=tenant, education_level=level
+        ).exists():
+            logger.info(
+                f"[{tenant.slug}] {level.level_type} already has components — skipping."
+            )
+            continue
+
         templates = COMPONENT_DEFAULTS.get(level.level_type, [])
         for t in templates:
             obj, created = AssessmentComponent.objects.get_or_create(

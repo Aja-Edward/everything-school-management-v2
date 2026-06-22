@@ -7,6 +7,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         tables = [
+            'results_assessment_component',
+            'results_exam_type',
             'results_component_score',
             'results_nursery_result',
             'results_primary_result',
