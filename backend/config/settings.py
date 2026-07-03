@@ -191,6 +191,7 @@ INSTALLED_APPS = [
     "lesson",
     "tenants",
     "student_promotions",
+    "integrations",
 ]
 
 SITE_ID = 1

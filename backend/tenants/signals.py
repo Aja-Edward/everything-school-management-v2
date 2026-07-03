@@ -9,7 +9,7 @@ from tenants.models import Tenant
 from academics.utils import seed_default_term_types
 from classroom.services.grade_level_service import seed_grade_levels
 from academics.services.education_level_service import seed_education_levels
-
+from integrations.services import provision_subdomain
 logger = logging.getLogger(__name__)
 
 
@@ -57,7 +57,12 @@ def seed_all_tenant_defaults(sender, instance, created, **kwargs):
         raise  # re-raise so the transaction rolls back cleanly
 
 
+@receiver(post_save, sender=Tenant)
+def provision_tenant_subdomain(sender, instance, created, **kwargs):
+    if created:
+        provision_subdomain(instance)
 # ── Seeder functions (also used by the management command) ────────────────────
+
 
 EXAM_TYPE_DEFAULTS = [
     {"name": "First Term Examination",  "code": "FTE",
@@ -139,18 +144,27 @@ COMPONENT_DEFAULTS = {
 def _seed_exam_types(tenant):
     from result.models import ExamType
 
-    # Skip if tenant already has exam types configured
-    if ExamType.objects.filter(tenant=tenant).exists():
-        logger.info(
-            f"[{tenant.slug}] ExamTypes already configured — skipping.")
-        return
+    existing_codes = set(
+        ExamType.objects.filter(tenant=tenant).values_list("code", flat=True)
+    )
 
     for d in EXAM_TYPE_DEFAULTS:
-        ExamType.objects.get_or_create(
+        # Skip if this exam type already exists for this tenant
+        if d["code"] in existing_codes:
+            logger.debug(
+                f"[{tenant.slug}] ExamType '{d['code']}' already exists — skipping."
+            )
+            continue
+
+        obj, created = ExamType.objects.get_or_create(
             tenant=tenant,
             code=d["code"],
             defaults={**d, "is_active": True},
         )
+        if created:
+            logger.info(
+                f"[{tenant.slug}] ✅ Created exam type: {obj.code}"
+            )
 
 
 def _seed_assessment_components(tenant):
@@ -168,18 +182,22 @@ def _seed_assessment_components(tenant):
         return
 
     for level in levels:
-        # Skip if this education level already has components configured.
-        # Never overwrite a tenant's custom assessment structure.
-        if AssessmentComponent.objects.filter(
-            tenant=tenant, education_level=level
-        ).exists():
-            logger.info(
-                f"[{tenant.slug}] {level.level_type} already has components — skipping."
-            )
-            continue
-
         templates = COMPONENT_DEFAULTS.get(level.level_type, [])
+        existing_codes = set(
+            AssessmentComponent.objects.filter(
+                tenant=tenant, education_level=level
+            ).values_list("code", flat=True)
+        )
+
         for t in templates:
+            # Skip this component if it already exists for this level
+            if t["code"] in existing_codes:
+                logger.debug(
+                    f"[{tenant.slug}] {level.level_type} already has component "
+                    f"'{t['code']}' — skipping."
+                )
+                continue
+
             obj, created = AssessmentComponent.objects.get_or_create(
                 tenant=tenant,
                 education_level=level,
@@ -195,7 +213,7 @@ def _seed_assessment_components(tenant):
                 },
             )
             if created:
-                logger.debug(
-                    f"[{tenant.slug}] Created component: "
+                logger.info(
+                    f"[{tenant.slug}] ✅ Created component: "
                     f"{obj.code} / {level.level_type}"
                 )
