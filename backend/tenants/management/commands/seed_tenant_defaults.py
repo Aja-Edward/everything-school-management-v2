@@ -8,6 +8,7 @@ from academics.utils import seed_default_term_types
 from classroom.services.grade_level_service import seed_grade_levels
 from academics.services.education_level_service import seed_education_levels
 from tenants.signals import _seed_exam_types, _seed_assessment_components
+from django.db import connection
 
 
 class Command(BaseCommand):
@@ -64,6 +65,27 @@ class Command(BaseCommand):
                 self.stdout.write("    [dry-run] no writes performed\n")
                 continue
 
+            # Acquire an advisory lock per-tenant to avoid concurrent seeding/race conditions
+            def _try_acquire_lock(tid):
+                try:
+                    with connection.cursor() as cur:
+                        cur.execute("SELECT pg_try_advisory_lock(%s)", [tid])
+                        return cur.fetchone()[0]
+                except Exception:
+                    return False
+
+            def _release_lock(tid):
+                try:
+                    with connection.cursor() as cur:
+                        cur.execute("SELECT pg_advisory_unlock(%s)", [tid])
+                        return cur.fetchone()[0]
+                except Exception:
+                    return False
+
+            if not _try_acquire_lock(tenant.id):
+                self.stdout.write(f"    ⏭ Seeding already in progress for {tenant.slug} — skipping\n")
+                continue
+
             try:
                 with transaction.atomic():
                     if not step or step == 'grades':
@@ -93,3 +115,5 @@ class Command(BaseCommand):
                 self.stderr.write(
                     self.style.ERROR(f"    ❌ Failed: {e}\n")
                 )
+            finally:
+                _release_lock(tenant.id)

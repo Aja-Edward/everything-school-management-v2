@@ -3,7 +3,7 @@
 import logging
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from django.db import transaction
+from django.db import transaction, IntegrityError, connection
 
 from tenants.models import Tenant
 from academics.utils import seed_default_term_types
@@ -25,6 +25,27 @@ def seed_all_tenant_defaults(sender, instance, created, **kwargs):
     everything back and leaves no half-seeded tenant.
     """
     if not created:
+        return
+
+    # Prevent concurrent seeding for the same tenant using a Postgres advisory lock.
+    def _try_acquire_lock(tid):
+        try:
+            with connection.cursor() as cur:
+                cur.execute("SELECT pg_try_advisory_lock(%s)", [tid])
+                return cur.fetchone()[0]
+        except Exception:
+            return False
+
+    def _release_lock(tid):
+        try:
+            with connection.cursor() as cur:
+                cur.execute("SELECT pg_advisory_unlock(%s)", [tid])
+                return cur.fetchone()[0]
+        except Exception:
+            return False
+
+    if not _try_acquire_lock(instance.id):
+        logger.info(f"[{instance.slug}] Seeding already in progress by another process — skipping.")
         return
 
     try:
@@ -55,6 +76,8 @@ def seed_all_tenant_defaults(sender, instance, created, **kwargs):
             exc_info=True,
         )
         raise  # re-raise so the transaction rolls back cleanly
+    finally:
+        _release_lock(instance.id)
 
 
 @receiver(post_save, sender=Tenant)
@@ -156,15 +179,22 @@ def _seed_exam_types(tenant):
             )
             continue
 
-        obj, created = ExamType.objects.get_or_create(
-            tenant=tenant,
-            code=d["code"],
-            defaults={**d, "is_active": True},
-        )
-        if created:
-            logger.info(
-                f"[{tenant.slug}] ✅ Created exam type: {obj.code}"
+        try:
+            obj, created = ExamType.objects.get_or_create(
+                tenant=tenant,
+                code=d["code"],
+                defaults={**d, "is_active": True},
             )
+            if created:
+                logger.info(
+                    f"[{tenant.slug}] ✅ Created exam type: {obj.code}"
+                )
+        except IntegrityError:
+            # Handle race condition where another process created the row
+            logger.warning(
+                f"[{tenant.slug}] IntegrityError creating ExamType '{d['code']}', fetching existing."
+            )
+            obj = ExamType.objects.filter(tenant=tenant, code=d["code"]).first()
 
 
 def _seed_assessment_components(tenant):
@@ -188,32 +218,48 @@ def _seed_assessment_components(tenant):
                 tenant=tenant, education_level=level
             ).values_list("code", flat=True)
         )
+        # Also gather normalized existing names to avoid creating near-duplicates
+        def _normalize(s):
+            return "".join(ch for ch in (s or "").lower() if ch.isalnum())
+
+        existing_names_norm = set(
+            _normalize(n) for n in AssessmentComponent.objects.filter(
+                tenant=tenant, education_level=level
+            ).values_list("name", flat=True)
+        )
 
         for t in templates:
             # Skip this component if it already exists for this level
-            if t["code"] in existing_codes:
+            if t["code"] in existing_codes or _normalize(t.get("name")) in existing_names_norm:
                 logger.debug(
                     f"[{tenant.slug}] {level.level_type} already has component "
                     f"'{t['code']}' — skipping."
                 )
                 continue
-
-            obj, created = AssessmentComponent.objects.get_or_create(
-                tenant=tenant,
-                education_level=level,
-                code=t["code"],
-                defaults={
-                    "name":                   t["name"],
-                    "component_type":         t["component_type"],
-                    "max_score":              t["max_score"],
-                    "contributes_to_ca":      t["contributes_to_ca"],
-                    "show_in_printed_report": t["show_in_printed_report"],
-                    "display_order":          t["display_order"],
-                    "is_active":              True,
-                },
-            )
-            if created:
-                logger.info(
-                    f"[{tenant.slug}] ✅ Created component: "
-                    f"{obj.code} / {level.level_type}"
+            try:
+                obj, created = AssessmentComponent.objects.get_or_create(
+                    tenant=tenant,
+                    education_level=level,
+                    code=t["code"],
+                    defaults={
+                        "name":                   t["name"],
+                        "component_type":         t["component_type"],
+                        "max_score":              t["max_score"],
+                        "contributes_to_ca":      t["contributes_to_ca"],
+                        "show_in_printed_report": t["show_in_printed_report"],
+                        "display_order":          t["display_order"],
+                        "is_active":              True,
+                    },
                 )
+                if created:
+                    logger.info(
+                        f"[{tenant.slug}] ✅ Created component: "
+                        f"{obj.code} / {level.level_type}"
+                    )
+            except IntegrityError:
+                logger.warning(
+                    f"[{tenant.slug}] IntegrityError creating component '{t['code']}' for {level.level_type}, fetching existing."
+                )
+                obj = AssessmentComponent.objects.filter(
+                    tenant=tenant, education_level=level, code=t["code"]
+                ).first()
