@@ -823,11 +823,16 @@ class TeacherDashboardService {
     const subjectMap = new Map<number, TeacherSubjectData>();
 
     assignments.forEach((a: any) => {
-      const subjectId: number = a.subject_id;
+      const subjectId = Number(a.subject_id ?? a.subject?.id ?? 0);
       if (!subjectId) return;
 
       if (!subjectMap.has(subjectId)) {
-        subjectMap.set(subjectId, { id: subjectId, name: a.subject_name, code: a.subject_code || '', assignments: [] });
+        subjectMap.set(subjectId, {
+          id: subjectId,
+          name: a.subject_name || a.subject?.name || 'Unknown Subject',
+          code: a.subject_code || a.subject?.code || '',
+          assignments: [],
+        });
       }
 
       subjectMap.get(subjectId)!.assignments.push({
