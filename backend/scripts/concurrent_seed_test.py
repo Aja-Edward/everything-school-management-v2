@@ -19,22 +19,28 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--slug', required=True, help='Tenant slug to seed')
-parser.add_argument('--parallel', type=int, default=6, help='Number of parallel processes')
-parser.add_argument('--wait', type=float, default=0.1, help='Stagger start (seconds)')
+parser.add_argument('--parallel', type=int, default=6,
+                    help='Number of parallel processes')
+parser.add_argument('--wait', type=float, default=0.1,
+                    help='Stagger start (seconds)')
 args = parser.parse_args()
 
 CMD = [sys.executable, 'manage.py', 'seed_tenant_defaults', '--slug', args.slug]
 
-print(f"Running {args.parallel} parallel seed processes for tenant '{args.slug}'")
+print(
+    f"Running {args.parallel} parallel seed processes for tenant '{args.slug}'")
 print('Command:', ' '.join(CMD))
+
 
 def run_seed(i):
     try:
-        proc = subprocess.Popen(CMD, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        proc = subprocess.Popen(
+            CMD, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         out, _ = proc.communicate()
         return (i, proc.returncode, out)
     except Exception as e:
         return (i, -1, str(e))
+
 
 pool = ThreadPool(min(args.parallel, 32))
 jobs = []

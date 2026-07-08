@@ -106,7 +106,9 @@ const TeacherResults: React.FC = () => {
   const [filterSubject, setFilterSubject]           = useState('all');
   const [filterStatus, setFilterStatus]             = useState('all');
   const [filterLevel, setFilterLevel]               = useState<EducationLevel | 'all'>('all');
-  const [filterTerm, setFilterTerm]                 = useState<'FIRST' | 'SECOND' | 'THIRD' | 'SESSION'>('FIRST');
+  // Show all results on initial load so teachers can see records from any term
+  // without being hidden by the default FIRST-term filter.
+  const [filterTerm, setFilterTerm]                 = useState<'FIRST' | 'SECOND' | 'THIRD' | 'SESSION'>('SESSION');
   const [filterSession, setFilterSession]           = useState<string>('');
   const [showFilters, setShowFilters]               = useState(false);
   const [activeTab, setActiveTab]                   = useState<'results' | 'record' | 'development'>('results');
@@ -331,7 +333,18 @@ const TeacherResults: React.FC = () => {
         const subjectId      = r.subject?.id ?? r.subject_id;
         const examSessionId  = r.exam_session?.id ?? r.exam_session_id ?? r.session_id;
         const educationLevel = (r.education_level ?? r.student?.education_level) as EducationLevel;
+        
 
+        // 🔍 TEMP DEBUG — remove after diagnosing
+          if (educationLevel !== 'NURSERY') {
+            console.log('RAW RECORD', {
+              studentId,
+              educationLevel,
+              exam_session: r.exam_session,
+              term_name: r.term_name,
+              term_display: r.term_display,
+            });
+          }
         let ca_score = 0, exam_score = 0, total_score = 0;
 
         // component_scores is the source of truth — flat score fields no longer exist.
@@ -419,6 +432,8 @@ const TeacherResults: React.FC = () => {
         };
       });
 
+      
+
       // Final filter: only subjects this teacher teaches
       const finalResults = normalized.filter((r) => allSubjectIds.has(Number(r.subject.id)));
       setResults(finalResults);
@@ -497,9 +512,12 @@ const getTermKey = (termStr: string): 'FIRST' | 'SECOND' | 'THIRD' | 'OTHER' => 
   const q = searchTerm.toLowerCase();
 
   const filtered = results.filter((r) => {
+    // Only apply term filtering when the user explicitly selects a term.
+    // The default session-mode shows all terms unless the teacher chooses a specific session.
     if (filterTerm !== 'SESSION') {
       if (getTermKey(r.exam_session?.term || '') !== filterTerm) return false;
-    } else if (filterSession) {
+    }
+    if (filterTerm === 'SESSION' && filterSession) {
       if (String(r.exam_session?.id ?? '') !== filterSession) return false;
     }
 

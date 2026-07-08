@@ -45,7 +45,8 @@ def seed_all_tenant_defaults(sender, instance, created, **kwargs):
             return False
 
     if not _try_acquire_lock(instance.id):
-        logger.info(f"[{instance.slug}] Seeding already in progress by another process — skipping.")
+        logger.info(
+            f"[{instance.slug}] Seeding already in progress by another process — skipping.")
         return
 
     try:
@@ -194,7 +195,8 @@ def _seed_exam_types(tenant):
             logger.warning(
                 f"[{tenant.slug}] IntegrityError creating ExamType '{d['code']}', fetching existing."
             )
-            obj = ExamType.objects.filter(tenant=tenant, code=d["code"]).first()
+            obj = ExamType.objects.filter(
+                tenant=tenant, code=d["code"]).first()
 
 
 def _seed_assessment_components(tenant):
@@ -219,6 +221,7 @@ def _seed_assessment_components(tenant):
             ).values_list("code", flat=True)
         )
         # Also gather normalized existing names to avoid creating near-duplicates
+
         def _normalize(s):
             return "".join(ch for ch in (s or "").lower() if ch.isalnum())
 

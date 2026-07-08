@@ -83,7 +83,8 @@ class Command(BaseCommand):
                     return False
 
             if not _try_acquire_lock(tenant.id):
-                self.stdout.write(f"    ⏭ Seeding already in progress for {tenant.slug} — skipping\n")
+                self.stdout.write(
+                    f"    ⏭ Seeding already in progress for {tenant.slug} — skipping\n")
                 continue
 
             try:
