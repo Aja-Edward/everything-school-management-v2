@@ -190,6 +190,12 @@ const TeacherResults: React.FC = () => {
       }
 
       setTeacherAssignments(assignments as unknown as TeacherAssignment[]);
+      console.log('DEBUG TeacherResultsView.loadTeacherData: assignments', {
+        teacherId,
+        assignmentCount: assignments.length,
+        subjectPayloadCount: subjects.length,
+        assignmentsPreview: assignments.slice(0, 10),
+      });
 
       // ── Group subject IDs by education level ───────────────────────────────
       const subjectsByLevel: Record<EducationLevel, number[]> = {
@@ -230,8 +236,15 @@ const TeacherResults: React.FC = () => {
       const allSubjectIds = new Set(
         Object.values(subjectsByLevel).flat()
       );
+      console.log('DEBUG TeacherResultsView.loadTeacherData: subjectsByLevel', {
+        subjectsByLevel,
+        allSubjectIds: Array.from(allSubjectIds),
+        classroomIdsBySubject: Array.from(classroomIdsBySubject.entries()).map(([subjectId, ids]) => [subjectId, Array.from(ids)]),
+        classroomNamesBySubject: Array.from(classroomNamesBySubject.entries()).map(([subjectId, names]) => [subjectId, Array.from(names)]),
+      });
 
       if (allSubjectIds.size === 0) {
+        console.log('DEBUG TeacherResultsView.loadTeacherData: no subjects to fetch', { subjectsByLevel });
         setResults([]);
         return;
       }
@@ -302,7 +315,14 @@ const TeacherResults: React.FC = () => {
       const raw: any[] = [];
       settled.forEach((res) => {
         if (res.status !== 'fulfilled') return;
-        const { data, classroomIds, classroomNames } = res.value;
+        const { data, classroomIds, classroomNames, subjectId, level } = res.value;
+        console.log('DEBUG TeacherResultsView.loadTeacherData: fetched results batch', {
+          subjectId,
+          level,
+          receivedCount: Array.isArray(data) ? data.length : ((data as any)?.length ?? 0),
+          classroomIds,
+          classroomNames,
+        });
 
         const idSet   = new Set(classroomIds.map(Number));
         const nameSet = new Set(classroomNames.map((n: string) => n.trim()));
