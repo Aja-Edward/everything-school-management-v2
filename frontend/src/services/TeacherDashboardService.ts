@@ -109,6 +109,20 @@ export interface TeacherSubject {
  * Extract the unique education levels a teacher is assigned to.
  * Used to scope ResultService calls to only the relevant levels.
  */
+function deriveEducationLevelFromClassroomName(classroomName: string): EducationLevelType | undefined {
+  const u = (classroomName || '').toString().toUpperCase();
+  if (u.includes('JSS') || u.includes('JUNIOR')) return 'JUNIOR_SECONDARY';
+  if (u.includes('SSS') || u.includes('SENIOR')) return 'SENIOR_SECONDARY';
+  if (u.includes('PRIMARY') || /\bP\s*\d/.test(u)) return 'PRIMARY';
+  if (
+    u.includes('NURSERY') || u.includes('KG') ||
+    u.includes('KINDERGARTEN') || u.includes('PRESCHOOL') ||
+    u.includes('PRE-SCHOOL') || u.includes('PRE SCHOOL') ||
+    u.includes('CRÈCHE') || u.includes('CRECHE')
+  ) return 'NURSERY';
+  return undefined;
+}
+
 function extractTeacherLevels(classroomAssignments: any[]): EducationLevelType[] {
   return [...new Set(
     classroomAssignments
@@ -327,13 +341,14 @@ class TeacherDashboardService {
         });
       }
 
+      const derivedLevel = deriveEducationLevelFromClassroomName(a.classroom_name || '');
       subjectMap.get(subjectId)!.assignments.push({
         id:               a.id,
         classroom_name:   a.classroom_name,
         classroom_id:     a.classroom_id,
         grade_level:      a.classroom_name?.split(' ')[0] || '',
         section:          a.classroom_name?.split(' ')[1] || '',
-        education_level:  a.education_level || '',
+        education_level:  derivedLevel || a.education_level || '',
         stream_type:      a.stream_type,
         student_count:    a.student_count    || 0,
         is_class_teacher: a.is_primary_teacher || false,
@@ -835,13 +850,14 @@ class TeacherDashboardService {
         });
       }
 
+      const derivedLevel = deriveEducationLevelFromClassroomName(a.classroom_name || '');
       subjectMap.get(subjectId)!.assignments.push({
         id:               a.id,
         classroom_name:   a.classroom_name,
         classroom_id:     a.classroom_id,
         grade_level:      a.grade_level_name,
         section:          a.section_name,
-        education_level:  a.education_level,
+        education_level:  derivedLevel || a.education_level,
         stream_type:      a.stream_type,
         student_count:    a.student_count    || 0,
         is_class_teacher: a.is_primary_teacher || false,

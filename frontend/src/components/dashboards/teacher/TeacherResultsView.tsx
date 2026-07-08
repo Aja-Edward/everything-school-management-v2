@@ -139,21 +139,24 @@ const TeacherResults: React.FC = () => {
       let assignments: ExtendedAssignment[] = subjects.flatMap((subject: any) => {
         if (!Array.isArray(subject.assignments)) return [];
         const subjectId = Number(subject.id ?? subject.subject_id ?? 0);
-        return subject.assignments.map((a: any): ExtendedAssignment => ({
-          id: a.id,
-          classroom_name: a.classroom_name || 'Unknown',
-          classroom_id: a.classroom_id || null,
-          section_name: a.section_name || a.section || 'Unknown',
-          section_id: a.section_id || null,
-          grade_level_name: a.grade_level || 'Unknown',
-          education_level: (a.education_level as EducationLevel) || deriveLevel(a.classroom_name),
-          subject_name: subject.name || subject.subject_name || 'Unknown Subject',
-          subject_code: subject.code || subject.subject_code || '',
-          subject_id: Number.isInteger(subjectId) ? subjectId : 0,
-          student_count: a.student_count || 0,
-          periods_per_week: a.periods_per_week || 0,
-          is_primary_teacher: a.is_primary_teacher || a.is_class_teacher || false,
-        }));
+        return subject.assignments.map((a: any): ExtendedAssignment => {
+          const derivedLevel = deriveLevel(a.classroom_name || '');
+          return {
+            id: a.id,
+            classroom_name: a.classroom_name || 'Unknown',
+            classroom_id: a.classroom_id || null,
+            section_name: a.section_name || a.section || 'Unknown',
+            section_id: a.section_id || null,
+            grade_level_name: a.grade_level || 'Unknown',
+            education_level: (derivedLevel as EducationLevel) || (a.education_level as EducationLevel),
+            subject_name: subject.name || subject.subject_name || 'Unknown Subject',
+            subject_code: subject.code || subject.subject_code || '',
+            subject_id: Number.isInteger(subjectId) ? subjectId : 0,
+            student_count: a.student_count || 0,
+            periods_per_week: a.periods_per_week || 0,
+            is_primary_teacher: a.is_primary_teacher || a.is_class_teacher || false,
+          };
+        });
       });
       // ── Fallback: use teacher's M2M assigned subjects when no classroom
       //    assignments exist (subject-teacher model — no fixed classroom) ────────
