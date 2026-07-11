@@ -5,7 +5,16 @@
  * component (fetched from AssessmentComponent API), and submits via:
  *   POST /api/results/<level>/results/<id>/component-scores/
  *
- * For Nursery: edits mark_obtained + max_marks_obtainable directly.
+ * IMPORTANT: The scoring model (single mark vs. CA/Exam components) is a
+ * per-tenant, per-education-level SETTING — not something tied to the
+ * education level name. Some schools use the same AssessmentComponent setup
+ * across Nursery → Senior Secondary; others configure a simple
+ * mark_obtained / max_marks_obtainable model for some levels (which may or
+ * may not include Nursery) and components for others.
+ *
+ * So this form NEVER decides its rendering mode from `educationLevel`.
+ * It always fetches AssessmentComponents for the given level, and switches
+ * mode based on whether any were returned (`usesComponents`).
  */
 
 import React, { useState, useEffect } from 'react';
@@ -13,8 +22,11 @@ import { X, Save, RefreshCw, Target, AlertCircle } from 'lucide-react';
 import { toast } from 'react-toastify';
 import api from '@/services/api';
 import ResultService from '@/services/ResultService';
-import resultSettingsService, { AssessmentComponent } from '@/services/ResultSettingsService';
-import type { EducationLevelType, AnySubjectResult, NurseryResult } from '@/services/ResultService';
+import type {
+  EducationLevelType,
+  AnySubjectResult,
+  AssessmentComponentInfo,
+} from '@/services/ResultService';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -58,20 +70,22 @@ const EditResultForm: React.FC<EditResultFormProps> = ({
   onClose,
   onSuccess,
 }) => {
-  const isNursery = educationLevel === 'NURSERY';
-  const nurseryResult = result as unknown as NurseryResult;
+  const r = result as any;
 
-  const [components, setComponents] = useState<AssessmentComponent[]>([]);
+  // Only Nursery's update serializer accepts direct mark_obtained /
+  // max_marks_obtainable writes — Senior/Junior/Primary's serializers don't
+  // expose those fields at all, so components are their only path.
+  const isNurseryLevel = educationLevel === 'NURSERY';
+  // Field name is tied to the level's serializer, not to scoring mode.
+  const remarkField = isNurseryLevel ? 'academic_comment' : 'teacher_remark';
+
+  const [components, setComponents] = useState<AssessmentComponentInfo[]>([]);
+  const [componentsLoaded, setComponentsLoaded] = useState(false);
+
   const [componentScores, setComponentScores] = useState<Record<number, string>>({});
-  const [teacherRemark, setTeacherRemark] = useState(
-    (result as any).teacher_remark || (result as any).academic_comment || ''
-  );
-  const [markObtained, setMarkObtained] = useState(
-    isNursery ? String(nurseryResult.mark_obtained || '0') : ''
-  );
-  const [maxMarks, setMaxMarks] = useState(
-    isNursery ? String(nurseryResult.max_marks_obtainable || '100') : '100'
-  );
+  const [teacherRemark, setTeacherRemark] = useState(r[remarkField] || '');
+  const [markObtained, setMarkObtained] = useState(String(r.mark_obtained ?? '0'));
+  const [maxMarks, setMaxMarks] = useState(String(r.max_marks_obtainable ?? '100'));
   const [status, setStatus] = useState<'DRAFT' | 'APPROVED' | 'PUBLISHED'>(
     (result.status as any) || 'DRAFT'
   );
@@ -80,19 +94,23 @@ const EditResultForm: React.FC<EditResultFormProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // ── Load components + pre-fill existing scores ───────────────────────────
+  // ── Load components (for THIS tenant + level) + pre-fill existing scores ──
+  // Always fetch — never skip based on education level. Whether this level
+  // uses components or a simple mark is a tenant setting we only learn from
+  // the response.
   useEffect(() => {
     const load = async () => {
       try {
         setLoading(true);
-        if (!isNursery) {
-          const comps = await ResultService.getAssessmentComponentsByEducationLevel(educationLevel);
-          const sorted = [...comps].sort((a, b) => a.display_order - b.display_order);
-          setComponents(sorted);
+        const comps = await ResultService.getAssessmentComponentsByEducationLevel(educationLevel);
+        const sorted = [...comps].sort((a, b) => a.display_order - b.display_order);
+        setComponents(sorted);
+        setComponentsLoaded(true);
 
+        if (sorted.length > 0) {
           // Pre-fill from existing component_scores on the result
           const existing: Record<number, string> = {};
-          const scores = (result as any).component_scores || [];
+          const scores = r.component_scores || [];
           scores.forEach((cs: any) => {
             existing[cs.component] = String(cs.score);
           });
@@ -101,15 +119,29 @@ const EditResultForm: React.FC<EditResultFormProps> = ({
       } catch (e) {
         console.error('EditResultForm load error:', e);
         toast.error('Failed to load assessment components');
+        setComponentsLoaded(true);
       } finally {
         setLoading(false);
       }
     };
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [educationLevel]);
 
-  // ── Derived totals ───────────────────────────────────────────────────────
+  // Scoring mode.
+  // Senior/Junior/Primary have NO simple-mark fallback in their backend
+  // serializers — components are the only way to enter a score for them,
+  // regardless of whether any are currently configured.
+  // Nursery is the only level with a real simple-mark fallback, and even
+  // then only when this specific result has no ComponentScore rows yet —
+  // once it has any, the backend rejects direct mark_obtained /
+  // max_marks_obtainable edits (they'd be silently recalculated away).
+  const existingComponentScores: any[] = r.component_scores || [];
+  const usesComponents = isNurseryLevel
+    ? componentsLoaded && (components.length > 0 || existingComponentScores.length > 0)
+    : true;
+
+  // ── Derived totals (component mode) ─────────────────────────────────────
   const caComponents = components.filter((c) => c.contributes_to_ca);
   const examComponents = components.filter((c) => !c.contributes_to_ca);
 
@@ -125,7 +157,8 @@ const EditResultForm: React.FC<EditResultFormProps> = ({
   const maxPossible = components.reduce((sum, c) => sum + parseFloat(c.max_score), 0);
   const percentage = maxPossible > 0 ? (totalScore / maxPossible) * 100 : 0;
 
-  const nurseryPct =
+  // ── Derived totals (simple mark mode) ───────────────────────────────────
+  const simplePct =
     parseFloat(maxMarks) > 0
       ? (parseFloat(markObtained || '0') / parseFloat(maxMarks)) * 100
       : 0;
@@ -133,12 +166,7 @@ const EditResultForm: React.FC<EditResultFormProps> = ({
   // ── Validation ───────────────────────────────────────────────────────────
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
-    if (isNursery) {
-      const mark = parseFloat(markObtained || '0');
-      const max = parseFloat(maxMarks || '0');
-      if (max <= 0) errs.maxMarks = 'Max marks must be greater than 0';
-      if (mark < 0 || mark > max) errs.markObtained = `Must be 0–${max}`;
-    } else {
+    if (usesComponents) {
       components.forEach((c) => {
         const score = parseFloat(componentScores[c.id] || '0');
         const max = parseFloat(c.max_score);
@@ -146,6 +174,11 @@ const EditResultForm: React.FC<EditResultFormProps> = ({
           errs[`comp_${c.id}`] = `Max ${max}`;
         }
       });
+    } else {
+      const mark = parseFloat(markObtained || '0');
+      const max = parseFloat(maxMarks || '0');
+      if (max <= 0) errs.maxMarks = 'Max marks must be greater than 0';
+      if (mark < 0 || mark > max) errs.markObtained = `Must be 0–${max}`;
     }
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -160,33 +193,35 @@ const EditResultForm: React.FC<EditResultFormProps> = ({
     try {
       const path = levelPath(educationLevel);
 
-      if (isNursery) {
+      if (usesComponents) {
+        // 1. Update metadata (remark, status). Field name is level-specific:
+        // Nursery's serializer only accepts academic_comment; the other
+        // three only accept teacher_remark.
+        await ResultService.updateSubjectResult(educationLevel, result.id, {
+          [remarkField]: teacherRemark,
+          status,
+        } as any);
+
+        // 2. Submit component scores via dedicated endpoint
+        const scores = components
+          .filter((c) => componentScores[c.id] !== undefined)
+          .map((c) => ({ component_id: c.id, score: componentScores[c.id] || '0' }));
+
+        if (scores.length > 0) {
+          await api.post(
+            `/api/results/${path}/results/${result.id}/component-scores/`,
+            { scores }
+          );
+        }
+      } else {
+        // Nursery only, and only when this result has no ComponentScore
+        // rows yet — the backend rejects this write otherwise.
         await ResultService.updateSubjectResult(educationLevel, result.id, {
           mark_obtained: parseFloat(markObtained || '0'),
           max_marks_obtainable: parseFloat(maxMarks),
           academic_comment: teacherRemark,
           status,
-        });
-      } else {
-        // 1. Update metadata (remark, status)
-        await ResultService.updateSubjectResult(educationLevel, result.id, {
-          teacher_remark: teacherRemark,
-          status,
-        });
-
-        // 2. Submit component scores via dedicated endpoint
-        if (components.length > 0) {
-          const scores = components
-            .filter((c) => componentScores[c.id] !== undefined)
-            .map((c) => ({ component_id: c.id, score: componentScores[c.id] || '0' }));
-
-          if (scores.length > 0) {
-            await api.post(
-              `/api/results/${path}/results/${result.id}/component-scores/`,
-              { scores }
-            );
-          }
-        }
+        } as any);
       }
 
       toast.success('Result updated successfully!');
@@ -216,8 +251,7 @@ const EditResultForm: React.FC<EditResultFormProps> = ({
           <div>
             <h2 className="text-lg font-bold text-slate-900">Edit Result</h2>
             <p className="text-sm text-slate-500 mt-0.5">
-              {(result as any).subject?.name || 'Subject'} ·{' '}
-              {(result as any).student?.full_name || 'Student'}
+              {r.subject?.name || 'Subject'} · {r.student?.full_name || 'Student'}
             </p>
           </div>
           <button
@@ -242,43 +276,24 @@ const EditResultForm: React.FC<EditResultFormProps> = ({
                   <Target className="w-4 h-4" /> Score Breakdown
                 </h3>
 
-                {isNursery ? (
-                  <div className="grid grid-cols-2 gap-4">
-                    <ScoreField
-                      label="Max Marks Obtainable"
-                      value={maxMarks}
-                      onChange={setMaxMarks}
-                      max={999}
-                      error={errors.maxMarks}
-                    />
-                    <ScoreField
-                      label="Mark Obtained"
-                      value={markObtained}
-                      onChange={setMarkObtained}
-                      max={parseFloat(maxMarks) || 100}
-                      error={errors.markObtained}
-                    />
-                    {markObtained && parseFloat(maxMarks) > 0 && (
-                      <div className="col-span-2">
-                        <ResultSummary
-                          total={parseFloat(markObtained || '0')}
-                          max={parseFloat(maxMarks)}
-                          pct={nurseryPct}
-                          grade={gradeFromPct(nurseryPct)}
-                        />
-                      </div>
-                    )}
-                  </div>
-                ) : components.length === 0 ? (
+                {usesComponents && components.length === 0 ? (
                   <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
                     <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
                     <p className="text-sm text-amber-800">
-                      No assessment components are configured for this education level. Configure them in
-                      Settings → Exams & Results → Assessment Components.
+                      This result's score comes from assessment components that are no
+                      longer active or configured. Scores can't be edited here until a
+                      component setup is restored in Settings → Exams &amp; Results →
+                      Assessment Components.
                     </p>
                   </div>
-                ) : (
+                ) : usesComponents ? (
                   <div className="space-y-4">
+                    {isNurseryLevel && existingComponentScores.length === 0 && (
+                      <p className="text-xs text-slate-500 -mt-1">
+                        This level uses assessment components. Enter each component score
+                        below.
+                      </p>
+                    )}
                     {caComponents.length > 0 && (
                       <div>
                         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
@@ -335,6 +350,33 @@ const EditResultForm: React.FC<EditResultFormProps> = ({
                       />
                     )}
                   </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-4">
+                    <ScoreField
+                      label="Max Marks Obtainable"
+                      value={maxMarks}
+                      onChange={setMaxMarks}
+                      max={999}
+                      error={errors.maxMarks}
+                    />
+                    <ScoreField
+                      label="Mark Obtained"
+                      value={markObtained}
+                      onChange={setMarkObtained}
+                      max={parseFloat(maxMarks) || 100}
+                      error={errors.markObtained}
+                    />
+                    {markObtained && parseFloat(maxMarks) > 0 && (
+                      <div className="col-span-2">
+                        <ResultSummary
+                          total={parseFloat(markObtained || '0')}
+                          max={parseFloat(maxMarks)}
+                          pct={simplePct}
+                          grade={gradeFromPct(simplePct)}
+                        />
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -342,7 +384,7 @@ const EditResultForm: React.FC<EditResultFormProps> = ({
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">
-                    {isNursery ? 'Academic Comment' : 'Teacher Remark'}
+                    {isNurseryLevel ? 'Academic Comment' : 'Teacher Remark'}
                   </label>
                   <textarea
                     value={teacherRemark}
@@ -401,12 +443,6 @@ const EditResultForm: React.FC<EditResultFormProps> = ({
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** Map level_type string → education_level id for API filter. Falls back to level_type string. */
-function educationLevelId(level: EducationLevelType): string {
-  // The API accepts the level_type string directly for filtering
-  return level;
-}
 
 function ScoreField({
   label, value, onChange, max, error,

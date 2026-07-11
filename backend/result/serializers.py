@@ -1864,6 +1864,30 @@ class NurseryResultCreateUpdateSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, attrs):
+        # Guard against silently discarded edits: BaseResult.save() always
+        # calls calculate_scores(), and NurseryResult.calculate_scores()
+        # overwrites mark_obtained/max_marks_obtainable from ComponentScore
+        # rows whenever any exist for this result. If we accept a direct
+        # write to those fields here, the save will succeed but the values
+        # will be clobbered back to the component-derived sum on the very
+        # same save — the edit "disappears" with no error.
+        instance = getattr(self, "instance", None)
+        if instance is not None and (
+            "mark_obtained" in attrs or "max_marks_obtainable" in attrs
+        ):
+            if ComponentScore.objects.filter(nursery_result=instance).exists():
+                raise serializers.ValidationError(
+                    {
+                        "mark_obtained": (
+                            "This result's score is derived from assessment "
+                            "components and is recalculated automatically. "
+                            "Submit score changes via the component-scores "
+                            "endpoint instead of editing mark_obtained / "
+                            "max_marks_obtainable directly."
+                        )
+                    }
+                )
+
         if attrs.get("mark_obtained", 0) > attrs.get("max_marks_obtainable", 0):
             raise serializers.ValidationError(
                 "Mark obtained cannot exceed max marks obtainable"

@@ -224,9 +224,8 @@ def _validate_component_scores(scores_data, education_level):
     """
     Validate a list of {"component_id": int, "score": Decimal} dicts.
     Returns a list of error strings; empty list means valid.
-    Nursery skips this — it uses mark_obtained directly.
     """
-    if education_level == NURSERY or not scores_data:
+    if not scores_data:
         return []
 
     errors, seen_ids = [], set()
