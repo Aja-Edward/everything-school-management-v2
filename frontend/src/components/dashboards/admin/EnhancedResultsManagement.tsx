@@ -1104,14 +1104,23 @@ const EnhancedResultsManagement: React.FC = () => {
                     <tbody className="divide-y divide-slate-100">
                       {subjectResults.map((r, idx) => {
                         const comps     = [...(r.component_scores ?? [])].sort((a: any, b: any) => a.display_order - b.display_order);
-                        const examComp  = comps.find((c: any) => c.component_type === 'EXAM');
-                        const caComps   = comps.filter((c: any) => c.component_type !== 'EXAM');
-                        const caTotal   = caComps.length > 0
+                        const hasComps  = comps.length > 0;
+                        // contributes_to_ca is the field that actually determines whether a
+                        // component counts toward the CA sub-total or stands alone as an
+                        // exam/final score. component_type is just a free-text label a
+                        // tenant may set when creating a component (defaults to "CA" if
+                        // never touched) — it isn't a reliable signal for "is this the exam".
+                        const caComps   = comps.filter((c: any) => c.contributes_to_ca);
+                        const examComps = comps.filter((c: any) => !c.contributes_to_ca);
+                        const caTotal   = hasComps
                           ? caComps.reduce((s: number, c: any) => s + (parseFloat(c.score) || 0), 0)
                           : parseFloat(r.ca_total || '0');
-                        const examScore = examComp
-                          ? parseFloat(examComp.score)
-                          : parseFloat(r.exam_score || (r as any).mark_obtained || '0');
+                        const examScore = hasComps
+                          ? examComps.reduce((s: number, c: any) => s + (parseFloat(c.score) || 0), 0)
+                          // Nursery-only simple-mark fallback — no components at all for
+                          // this result. Every other level has no score without components,
+                          // so there's nothing meaningful to fall back to for them.
+                          : ('mark_obtained' in r ? parseFloat(r.mark_obtained || '0') : 0);
                         const isActing  = srActionLoading === String(r.id);
 
                         return (
