@@ -106,39 +106,68 @@ export interface TeacherSubject {
 // ============================================================================
 
 /**
- * Guess an education level from a classroom's display name.
+ * Keyword/pattern match against a single piece of text. Shared by both the
+ * grade-level-name pass and the classroom-name pass below.
+ */
+function levelFromText(raw: string | undefined | null): EducationLevelType | undefined {
+  if (!raw) return undefined;
+  const u = raw.toString().toUpperCase();
+
+  // Full keywords first — most reliable, works regardless of digit format.
+  if (u.includes('JSS') || u.includes('JUNIOR')) return 'JUNIOR_SECONDARY';
+  if (u.includes('SSS') || u.includes('SENIOR')) return 'SENIOR_SECONDARY';
+  if (u.includes('PRIMARY') || u.includes('BASIC')) return 'PRIMARY';
+  if (
+    u.includes('NURSERY') || u.includes('KINDERGARTEN') ||
+    u.includes('PRESCHOOL') || u.includes('PRE-SCHOOL') || u.includes('PRE SCHOOL') ||
+    u.includes('CRÈCHE') || u.includes('CRECHE') || u.includes('RECEPTION') ||
+    u.includes('KG')
+  ) return 'NURSERY';
+
+  // Looser digit-adjacent abbreviations ("JS1", "SS1", "P1", "N1") —
+  // checked only after the fuller keywords above so e.g. "JUNIOR SECONDARY"
+  // never falls through to a weaker match.
+  if (/\bJS\s*\d/.test(u)) return 'JUNIOR_SECONDARY';
+  if (/\bSS\s*\d/.test(u)) return 'SENIOR_SECONDARY';
+  if (/\bPRY?\s*\d/.test(u) || /\bP\s*\d/.test(u)) return 'PRIMARY';
+  if (/\bN\s*\d/.test(u)) return 'NURSERY';
+
+  return undefined;
+}
+
+/**
+ * Guess an education level from classroom metadata.
  *
  * This is a FALLBACK ONLY — used when the backend genuinely doesn't supply
- * `education_level` on a classroom assignment row (e.g. older records, or a
- * classroom whose EducationLevel FK was never set). It must never be allowed
- * to override an authoritative value the backend does provide, because it's
- * just keyword-matching a free-text name and tenants name classes however
- * they like (e.g. "SS1"/"JS1" two-letter style vs. "SSS"/"JSS" three-letter
- * style, "Basic 1", "Reception", etc.). See deriveSubjectsFromAssignments /
- * groupSubjectsFromAssignments for the priority order this must respect.
+ * `education_level` on a classroom assignment row. It must never be allowed
+ * to override an authoritative value the backend does provide. See
+ * deriveSubjectsFromAssignments / groupSubjectsFromAssignments for the
+ * priority order this must respect.
+ *
+ * `gradeLevelName` (e.g. "Primary 2", "JSS 3") is checked FIRST — it's
+ * normalized, human-authored text and far more reliable than a classroom's
+ * free-text display name, which tenants format however they like. Two real
+ * examples that break name-only matching: classrooms named "Grade 2" for
+ * Primary (no level-indicating word at all — grade_level_name says
+ * "Primary 2"), and classrooms named "J S S 1" with a space after every
+ * character (grade_level_name says "JSS 1" with normal spacing).
  */
-function deriveEducationLevelFromClassroomName(classroomName: string): EducationLevelType | undefined {
-  const u = (classroomName || '').toString().toUpperCase();
+function deriveEducationLevelFromClassroomName(
+  classroomName: string,
+  gradeLevelName?: string
+): EducationLevelType | undefined {
+  const fromGradeLevel = levelFromText(gradeLevelName);
+  if (fromGradeLevel) return fromGradeLevel;
 
-  // Junior Secondary: "JSS1", "JSS 1", "JS1", "JS 1", "JUNIOR SECONDARY 1"
-  if (u.includes('JSS') || u.includes('JUNIOR') || /\bJS\s*\d/.test(u)) return 'JUNIOR_SECONDARY';
+  const fromClassroom = levelFromText(classroomName);
+  if (fromClassroom) return fromClassroom;
 
-  // Senior Secondary: "SSS1", "SSS 1", "SS1", "SS 1", "SENIOR SECONDARY 1"
-  // Checked after Junior above so "JSS1" (which also contains "SS1") is
-  // never mis-caught here.
-  if (u.includes('SSS') || u.includes('SENIOR') || /\bSS\s*\d/.test(u)) return 'SENIOR_SECONDARY';
-
-  // Primary: "Primary 1", "PRY1", "P1", "P 1", "Basic 4" (common alt naming)
-  if (u.includes('PRIMARY') || u.includes('BASIC') || /\bPRY?\s*\d/.test(u) || /\bP\s*\d/.test(u)) return 'PRIMARY';
-
-  // Nursery / Kindergarten / Reception / Creche
-  if (
-    u.includes('NURSERY') || u.includes('KG') ||
-    u.includes('KINDERGARTEN') || u.includes('PRESCHOOL') ||
-    u.includes('PRE-SCHOOL') || u.includes('PRE SCHOOL') ||
-    u.includes('CRÈCHE') || u.includes('CRECHE') ||
-    u.includes('RECEPTION') || /\bN\s*\d/.test(u)
-  ) return 'NURSERY';
+  // Last resort: some tenants space out every letter ("J S S 1"). Collapse
+  // all whitespace and try the keyword/pattern match again.
+  if (classroomName) {
+    const collapsed = classroomName.toString().toUpperCase().replace(/\s+/g, '');
+    return levelFromText(collapsed);
+  }
 
   return undefined;
 }
@@ -362,9 +391,12 @@ class TeacherDashboardService {
       }
 
       // Authoritative backend value FIRST — only fall back to guessing from
-      // the classroom name when the backend genuinely didn't supply a level.
+      // classroom metadata when the backend genuinely didn't supply a level.
       // A guess must never override real data.
-      const level = a.education_level || deriveEducationLevelFromClassroomName(a.classroom_name || '') || '';
+      const level = a.education_level || deriveEducationLevelFromClassroomName(
+        a.classroom_name || '',
+        a.grade_level_name || a.grade_level?.name || a.classroom_grade_level_name
+      ) || '';
       subjectMap.get(subjectId)!.assignments.push({
         id:               a.id,
         classroom_name:   a.classroom_name,
@@ -879,7 +911,10 @@ class TeacherDashboardService {
       // previous order — derive-first — let a keyword match on the
       // classroom's free-text name silently override a correct backend
       // value whenever the name didn't fit the guesser's patterns.)
-      const level = a.education_level || deriveEducationLevelFromClassroomName(a.classroom_name || '');
+      const level = a.education_level || deriveEducationLevelFromClassroomName(
+        a.classroom_name || '',
+        a.grade_level_name || a.grade_level?.name || a.classroom_grade_level_name
+      );
       subjectMap.get(subjectId)!.assignments.push({
         id:               a.id,
         classroom_name:   a.classroom_name,

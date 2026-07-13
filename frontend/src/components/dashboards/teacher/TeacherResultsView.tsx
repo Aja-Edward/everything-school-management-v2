@@ -63,28 +63,60 @@ const toServiceLevel = (level: EducationLevel): EducationLevelType => {
 };
 
 /**
- * Derive education level from a classroom name — FALLBACK ONLY, used when
+ * Keyword/pattern match against one piece of text. Shared by the
+ * grade-level-name pass and the classroom-name pass in deriveLevel below.
+ */
+const levelFromText = (raw?: string | null): EducationLevel | undefined => {
+  if (!raw) return undefined;
+  const u = raw.toString().toUpperCase();
+
+  if (u.includes('JSS') || u.includes('JUNIOR'))    return 'JUNIOR_SECONDARY';
+  if (u.includes('SSS') || u.includes('SENIOR'))    return 'SENIOR_SECONDARY';
+  if (u.includes('PRIMARY') || u.includes('BASIC')) return 'PRIMARY';
+  if (
+    u.includes('NURSERY') || u.includes('KINDERGARTEN') ||
+    u.includes('PRESCHOOL') || u.includes('PRE-SCHOOL') || u.includes('PRE SCHOOL') ||
+    u.includes('CRÈCHE') || u.includes('CRECHE') || u.includes('RECEPTION') ||
+    u.includes('KG')
+  ) return 'NURSERY';
+
+  // Looser digit-adjacent abbreviations ("JS1", "SS1", "P1", "N1") —
+  // checked only after the fuller keywords above.
+  if (/\bJS\s*\d/.test(u))                         return 'JUNIOR_SECONDARY';
+  if (/\bSS\s*\d/.test(u))                         return 'SENIOR_SECONDARY';
+  if (/\bPRY?\s*\d/.test(u) || /\bP\s*\d/.test(u)) return 'PRIMARY';
+  if (/\bN\s*\d/.test(u))                          return 'NURSERY';
+
+  return undefined;
+};
+
+/**
+ * Derive education level from classroom metadata — FALLBACK ONLY, used when
  * the backend genuinely doesn't supply education_level on an assignment.
  * Must never be allowed to override an authoritative backend value (see
  * call sites below — always checked as `a.education_level || deriveLevel(...)`,
  * never the reverse).
+ *
+ * gradeLevelName ("Primary 2", "JSS 3") is checked FIRST — it's normalized,
+ * human-authored text and far more reliable than a classroom's free-text
+ * display name. Real example that breaks name-only matching: classrooms
+ * named "Grade 2" for Primary (no level word at all — grade_level_name
+ * says "Primary 2"), or "J S S 1" with a space after every character
+ * (grade_level_name says "JSS 1" normally spaced).
  */
-const deriveLevel = (className: string): EducationLevel | undefined => {
-  const u = className.toUpperCase();
-  // Junior Secondary: "JSS1", "JSS 1", "JS1", "JS 1"
-  if (u.includes('JSS') || u.includes('JUNIOR') || /\bJS\s*\d/.test(u))    return 'JUNIOR_SECONDARY';
-  // Senior Secondary: "SSS1", "SSS 1", "SS1", "SS 1" — checked after Junior
-  // above so "JSS1" (which also contains "SS1") is never mis-caught here.
-  if (u.includes('SSS') || u.includes('SENIOR') || /\bSS\s*\d/.test(u))    return 'SENIOR_SECONDARY';
-  // Primary: "Primary 1", "PRY1", "P1", "Basic 4"
-  if (u.includes('PRIMARY') || u.includes('BASIC') || /\bPRY?\s*\d/.test(u) || /\bP\s*\d/.test(u)) return 'PRIMARY';
-  if (
-    u.includes('NURSERY') || u.includes('KG')   ||
-    u.includes('KINDERGARTEN') || u.includes('PRESCHOOL') ||
-    u.includes('PRE-SCHOOL') || u.includes('PRE SCHOOL') ||
-    u.includes('CRÈCHE')    || u.includes('CRECHE') ||
-    u.includes('RECEPTION') || /\bN\s*\d/.test(u)
-  ) return 'NURSERY';
+const deriveLevel = (className: string, gradeLevelName?: string): EducationLevel | undefined => {
+  const fromGradeLevel = levelFromText(gradeLevelName);
+  if (fromGradeLevel) return fromGradeLevel;
+
+  const fromClassroom = levelFromText(className);
+  if (fromClassroom) return fromClassroom;
+
+  // Last resort: some tenants space out every letter ("J S S 1"). Collapse
+  // all whitespace and try again.
+  if (className) {
+    const collapsed = className.toString().toUpperCase().replace(/\s+/g, '');
+    return levelFromText(collapsed);
+  }
   return undefined;
 };
 
@@ -158,7 +190,7 @@ const TeacherResults: React.FC = () => {
           // name the guesser didn't recognize (e.g. "SS1" vs "SSS1") could
           // silently discard a correct backend-provided education_level and
           // let that subject leak into every level's dropdown.
-          const derivedLevel = deriveLevel(a.classroom_name || '');
+          const derivedLevel = deriveLevel(a.classroom_name || '', a.grade_level);
           return {
             id: a.id,
             classroom_name: a.classroom_name || 'Unknown',
@@ -229,7 +261,7 @@ const TeacherResults: React.FC = () => {
       const assignmentsBySubject    = new Map<number, ExtendedAssignment[]>();
 
       assignments.forEach((a) => {
-        const level     = a.education_level || deriveLevel(a.classroom_name);
+        const level     = a.education_level || deriveLevel(a.classroom_name, a.grade_level_name);
         const subjectId = Number(a.subject_id);
         if (!level || !subjectId) return;
 
@@ -663,7 +695,7 @@ const getTermKey = (termStr: string): 'FIRST' | 'SECOND' | 'THIRD' | 'OTHER' => 
     new Map(
       (teacherAssignments as any[])
         .filter(a => {
-          const lv = a.education_level || deriveLevel(a.classroom_name || '');
+          const lv = a.education_level || deriveLevel(a.classroom_name || '', a.grade_level_name);
           return lv === 'NURSERY';
         })
         .filter(a => a.classroom_id)
