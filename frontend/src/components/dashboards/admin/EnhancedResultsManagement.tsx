@@ -1122,7 +1122,6 @@ const EnhancedResultsManagement: React.FC = () => {
                           // so there's nothing meaningful to fall back to for them.
                           : ('mark_obtained' in r ? parseFloat(r.mark_obtained || '0') : 0);
                         const isActing  = srActionLoading === String(r.id);
-                          console.log(r.subject?.name, { hasComps, comps, ca_total: r.ca_total, mark_obtained: r.mark_obtained });
                         return (
                           <tr key={r.id ?? idx} className={`hover:bg-slate-50 ${idx % 2 === 1 ? 'bg-slate-50/30' : ''}`}>
                             <td className="px-4 py-3">

@@ -24,7 +24,7 @@ import { useThresholdCache } from "@/contexts/PromotionThresholdContext";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const FALLBACK_THRESHOLD = 49;
+const FALLBACK_THRESHOLD = 40;
 const MANAGED_LEVEL_TYPES = ["NURSERY", "PRIMARY", "JUNIOR_SECONDARY", "SENIOR_SECONDARY"] as const;
 
 // ─── usePromotionThreshold ────────────────────────────────────────────────────
@@ -127,7 +127,7 @@ export function usePromotionRules(): UsePromotionRulesReturn {
           const id = rule.education_level_detail?.id ?? rule.education_level;
           ruleByLevel[id] = rule;
         }
-
+console.log(levels.map(l => ({ id: l.id, name: l.name, level_type: l.level_type, code: (l as any).code })));
         const initialRows: PromotionRuleRow[] = levels
           .filter((l) => {
             const type = (l.level_type ?? (l as any).code ?? "").toUpperCase().replace(/-/g, "_");
