@@ -273,12 +273,12 @@ export default function PromotionDashboard() {
             <span className="font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-full text-xs">
               {threshold}%
             </span>
-            <a
-              href="/settings/promotions"
+            <Link
+              to="/admin/classroom-management/settings"
               className="text-xs text-gray-400 hover:text-indigo-600"
             >
               Change in settings →
-            </a>
+            </Link>
           </div>
         )}
 

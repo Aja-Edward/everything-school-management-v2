@@ -27,6 +27,18 @@ import { useThresholdCache } from "@/contexts/PromotionThresholdContext";
 const FALLBACK_THRESHOLD = 40;
 const MANAGED_LEVEL_TYPES = ["NURSERY", "PRIMARY", "JUNIOR_SECONDARY", "SENIOR_SECONDARY"] as const;
 
+
+const CODE_TO_TYPE: Record<string, string> = {
+  NURSERY: "NURSERY",
+  PRIMARY: "PRIMARY",
+  JSS: "JUNIOR_SECONDARY",
+  SSS: "SENIOR_SECONDARY",
+};
+
+function resolveLevelType(l: { level_type?: string | null; code?: string | null }): string {
+  const raw = (l.level_type ?? l.code ?? "").toUpperCase().trim().replace(/[\s-]+/g, "_");
+  return CODE_TO_TYPE[raw] ?? raw;
+}
 // ─── usePromotionThreshold ────────────────────────────────────────────────────
 
 export function usePromotionThreshold(
@@ -67,14 +79,12 @@ export function usePromotionThreshold(
         const rules: PromotionRule[] = Array.isArray(raw) ? raw : raw.results ?? [];
 
         const rule = rules.find((r) => {
-          const detail = r.education_level_detail;
-          const byCode =
-            String(detail?.code ?? "").toLowerCase() === String(levelId).toLowerCase() ||
-            String(detail?.level_type ?? "").toLowerCase().replace(/-/g, "_") ===
-              String(levelId).toLowerCase().replace(/-/g, "_");
-          const byId = String(detail?.id ?? r.education_level) === String(levelId);
-          return byCode || byId;
-        });
+        const detail = r.education_level_detail;
+        const byType = resolveLevelType({ level_type: detail?.level_type, code: detail?.code }) 
+          === resolveLevelType({ code: String(levelId) });
+        const byId = String(detail?.id ?? r.education_level) === String(levelId);
+        return byType || byId;
+      });
 
       const t = rule ? parseFloat(rule.pass_threshold) : FALLBACK_THRESHOLD;
       setCache(levelId, t);
@@ -127,25 +137,21 @@ export function usePromotionRules(): UsePromotionRulesReturn {
           const id = rule.education_level_detail?.id ?? rule.education_level;
           ruleByLevel[id] = rule;
         }
-console.log(levels.map(l => ({ id: l.id, name: l.name, level_type: l.level_type, code: (l as any).code })));
         const initialRows: PromotionRuleRow[] = levels
-          .filter((l) => {
-            const type = (l.level_type ?? (l as any).code ?? "").toUpperCase().replace(/-/g, "_");
-            return (MANAGED_LEVEL_TYPES as readonly string[]).includes(type);
-          })
-          .map((level) => {
-            const type = (level.level_type ?? (level as any).code ?? "").toUpperCase().replace(/-/g, "_");
-            const existing = ruleByLevel[level.id];
-            return {
-              education_level_id: level.id,
-              education_level_name: level.name,
-              level_type: type,
-              rule_id: existing?.id ?? null,
-              pass_threshold: existing ? parseFloat(existing.pass_threshold) : FALLBACK_THRESHOLD,
-              require_all_three_terms: existing?.require_all_three_terms ?? true,
-              dirty: false,
-            };
-          });
+        .filter((l) => (MANAGED_LEVEL_TYPES as readonly string[]).includes(resolveLevelType(l)))
+        .map((level) => {
+          const type = resolveLevelType(level); // ← was the old unmapped logic, now consistent with the filter
+          const existing = ruleByLevel[level.id];
+          return {
+            education_level_id: level.id,
+            education_level_name: level.name,
+            level_type: type,
+            rule_id: existing?.id ?? null,
+            pass_threshold: existing ? parseFloat(existing.pass_threshold) : FALLBACK_THRESHOLD,
+            require_all_three_terms: existing?.require_all_three_terms ?? true,
+            dirty: false,
+          };
+        });
 
         setRows(initialRows);
       } catch (err) {
