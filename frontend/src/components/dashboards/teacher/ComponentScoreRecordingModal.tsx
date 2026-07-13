@@ -84,9 +84,21 @@ const ComponentScoreRecordingModal: React.FC<Props> = ({ open, onClose, assignme
     if (!selectedLevel) return [];
     const seen = new Set<number>();
     return assignments.filter(a => {
+      // An assignment with no resolved education_level must NEVER be treated
+      // as matching every level — that's what let subjects leak across
+      // levels in the first place (upstream bug in how assignments were
+      // built). Until the level is actually known, exclude it rather than
+      // show it everywhere; a missing subject is a far safer failure mode
+      // here than a teacher recording a score against the wrong level.
+      if (!a.education_level) return false;
       if (seen.has(a.subject_id)) return false;
+      // Dedup only after confirming this assignment is for the selected
+      // level — a same subject_id used across levels (e.g. one Subject row
+      // reused for "Agricultural Science" at Nursery/Primary/JSS) must not
+      // let an earlier, different-level assignment claim the id and hide
+      // the correct one.
+      if (a.education_level !== selectedLevel) return false;
       seen.add(a.subject_id);
-      if (a.education_level) return a.education_level === selectedLevel;
       return true;
     });
   }, [assignments, selectedLevel]);

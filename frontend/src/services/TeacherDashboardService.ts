@@ -106,20 +106,40 @@ export interface TeacherSubject {
 // ============================================================================
 
 /**
- * Extract the unique education levels a teacher is assigned to.
- * Used to scope ResultService calls to only the relevant levels.
+ * Guess an education level from a classroom's display name.
+ *
+ * This is a FALLBACK ONLY — used when the backend genuinely doesn't supply
+ * `education_level` on a classroom assignment row (e.g. older records, or a
+ * classroom whose EducationLevel FK was never set). It must never be allowed
+ * to override an authoritative value the backend does provide, because it's
+ * just keyword-matching a free-text name and tenants name classes however
+ * they like (e.g. "SS1"/"JS1" two-letter style vs. "SSS"/"JSS" three-letter
+ * style, "Basic 1", "Reception", etc.). See deriveSubjectsFromAssignments /
+ * groupSubjectsFromAssignments for the priority order this must respect.
  */
 function deriveEducationLevelFromClassroomName(classroomName: string): EducationLevelType | undefined {
   const u = (classroomName || '').toString().toUpperCase();
-  if (u.includes('JSS') || u.includes('JUNIOR')) return 'JUNIOR_SECONDARY';
-  if (u.includes('SSS') || u.includes('SENIOR')) return 'SENIOR_SECONDARY';
-  if (u.includes('PRIMARY') || /\bP\s*\d/.test(u)) return 'PRIMARY';
+
+  // Junior Secondary: "JSS1", "JSS 1", "JS1", "JS 1", "JUNIOR SECONDARY 1"
+  if (u.includes('JSS') || u.includes('JUNIOR') || /\bJS\s*\d/.test(u)) return 'JUNIOR_SECONDARY';
+
+  // Senior Secondary: "SSS1", "SSS 1", "SS1", "SS 1", "SENIOR SECONDARY 1"
+  // Checked after Junior above so "JSS1" (which also contains "SS1") is
+  // never mis-caught here.
+  if (u.includes('SSS') || u.includes('SENIOR') || /\bSS\s*\d/.test(u)) return 'SENIOR_SECONDARY';
+
+  // Primary: "Primary 1", "PRY1", "P1", "P 1", "Basic 4" (common alt naming)
+  if (u.includes('PRIMARY') || u.includes('BASIC') || /\bPRY?\s*\d/.test(u) || /\bP\s*\d/.test(u)) return 'PRIMARY';
+
+  // Nursery / Kindergarten / Reception / Creche
   if (
     u.includes('NURSERY') || u.includes('KG') ||
     u.includes('KINDERGARTEN') || u.includes('PRESCHOOL') ||
     u.includes('PRE-SCHOOL') || u.includes('PRE SCHOOL') ||
-    u.includes('CRÈCHE') || u.includes('CRECHE')
+    u.includes('CRÈCHE') || u.includes('CRECHE') ||
+    u.includes('RECEPTION') || /\bN\s*\d/.test(u)
   ) return 'NURSERY';
+
   return undefined;
 }
 
@@ -341,14 +361,17 @@ class TeacherDashboardService {
         });
       }
 
-      const derivedLevel = deriveEducationLevelFromClassroomName(a.classroom_name || '');
+      // Authoritative backend value FIRST — only fall back to guessing from
+      // the classroom name when the backend genuinely didn't supply a level.
+      // A guess must never override real data.
+      const level = a.education_level || deriveEducationLevelFromClassroomName(a.classroom_name || '') || '';
       subjectMap.get(subjectId)!.assignments.push({
         id:               a.id,
         classroom_name:   a.classroom_name,
         classroom_id:     a.classroom_id,
         grade_level:      a.classroom_name?.split(' ')[0] || '',
         section:          a.classroom_name?.split(' ')[1] || '',
-        education_level:  derivedLevel || a.education_level || '',
+        education_level:  level,
         stream_type:      a.stream_type,
         student_count:    a.student_count    || 0,
         is_class_teacher: a.is_primary_teacher || false,
@@ -850,14 +873,20 @@ class TeacherDashboardService {
         });
       }
 
-      const derivedLevel = deriveEducationLevelFromClassroomName(a.classroom_name || '');
+      // Authoritative backend value FIRST — only fall back to guessing from
+      // the classroom name when the backend genuinely didn't supply a level.
+      // A guess must never override real data. (This is the fix: the
+      // previous order — derive-first — let a keyword match on the
+      // classroom's free-text name silently override a correct backend
+      // value whenever the name didn't fit the guesser's patterns.)
+      const level = a.education_level || deriveEducationLevelFromClassroomName(a.classroom_name || '');
       subjectMap.get(subjectId)!.assignments.push({
         id:               a.id,
         classroom_name:   a.classroom_name,
         classroom_id:     a.classroom_id,
         grade_level:      a.grade_level_name,
         section:          a.section_name,
-        education_level:  derivedLevel || a.education_level,
+        education_level:  level,
         stream_type:      a.stream_type,
         student_count:    a.student_count    || 0,
         is_class_teacher: a.is_primary_teacher || false,

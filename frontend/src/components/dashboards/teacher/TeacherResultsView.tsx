@@ -62,17 +62,28 @@ const toServiceLevel = (level: EducationLevel): EducationLevelType => {
   return map[level];
 };
 
-/** Derive education level from a classroom name when the API doesn't supply it */
+/**
+ * Derive education level from a classroom name — FALLBACK ONLY, used when
+ * the backend genuinely doesn't supply education_level on an assignment.
+ * Must never be allowed to override an authoritative backend value (see
+ * call sites below — always checked as `a.education_level || deriveLevel(...)`,
+ * never the reverse).
+ */
 const deriveLevel = (className: string): EducationLevel | undefined => {
   const u = className.toUpperCase();
-  if (u.includes('JSS') || u.includes('JUNIOR'))                           return 'JUNIOR_SECONDARY';
-  if (u.includes('SSS') || u.includes('SENIOR'))                           return 'SENIOR_SECONDARY';
-  if (u.includes('PRIMARY') || /\bP\s*\d/.test(u))                        return 'PRIMARY';
+  // Junior Secondary: "JSS1", "JSS 1", "JS1", "JS 1"
+  if (u.includes('JSS') || u.includes('JUNIOR') || /\bJS\s*\d/.test(u))    return 'JUNIOR_SECONDARY';
+  // Senior Secondary: "SSS1", "SSS 1", "SS1", "SS 1" — checked after Junior
+  // above so "JSS1" (which also contains "SS1") is never mis-caught here.
+  if (u.includes('SSS') || u.includes('SENIOR') || /\bSS\s*\d/.test(u))    return 'SENIOR_SECONDARY';
+  // Primary: "Primary 1", "PRY1", "P1", "Basic 4"
+  if (u.includes('PRIMARY') || u.includes('BASIC') || /\bPRY?\s*\d/.test(u) || /\bP\s*\d/.test(u)) return 'PRIMARY';
   if (
     u.includes('NURSERY') || u.includes('KG')   ||
     u.includes('KINDERGARTEN') || u.includes('PRESCHOOL') ||
     u.includes('PRE-SCHOOL') || u.includes('PRE SCHOOL') ||
-    u.includes('CRÈCHE')    || u.includes('CRECHE')
+    u.includes('CRÈCHE')    || u.includes('CRECHE') ||
+    u.includes('RECEPTION') || /\bN\s*\d/.test(u)
   ) return 'NURSERY';
   return undefined;
 };
@@ -87,7 +98,7 @@ const safeNum = (v: any): number => {
 /** Derive CA total from component_scores (source of truth), with fallback to stored fields */
 const derivedCa = (result: StudentResult): number => {
   const comps: any[] = Array.isArray(result.component_scores) ? result.component_scores : [];
-  const caComps = comps.filter((c: any) => c.component_type !== 'EXAM');
+  const caComps = comps.filter((c: any) => c.contributes_to_ca);
   if (caComps.length > 0) {
     return caComps.reduce((s: number, c: any) => s + (parseFloat(c.score) || 0), 0);
   }
@@ -140,6 +151,13 @@ const TeacherResults: React.FC = () => {
         if (!Array.isArray(subject.assignments)) return [];
         const subjectId = Number(subject.id ?? subject.subject_id ?? 0);
         return subject.assignments.map((a: any): ExtendedAssignment => {
+          // Authoritative backend value FIRST — only fall back to guessing
+          // from the classroom name when the backend genuinely didn't supply
+          // a level. A guess must never override real data: this was
+          // previously reversed (derive-first), which meant any classroom
+          // name the guesser didn't recognize (e.g. "SS1" vs "SSS1") could
+          // silently discard a correct backend-provided education_level and
+          // let that subject leak into every level's dropdown.
           const derivedLevel = deriveLevel(a.classroom_name || '');
           return {
             id: a.id,
@@ -148,7 +166,7 @@ const TeacherResults: React.FC = () => {
             section_name: a.section_name || a.section || 'Unknown',
             section_id: a.section_id || null,
             grade_level_name: a.grade_level || 'Unknown',
-            education_level: (derivedLevel as EducationLevel) || (a.education_level as EducationLevel),
+            education_level: (a.education_level as EducationLevel) || (derivedLevel as EducationLevel),
             subject_name: subject.name || subject.subject_name || 'Unknown Subject',
             subject_code: subject.code || subject.subject_code || '',
             subject_id: Number.isInteger(subjectId) ? subjectId : 0,
@@ -371,10 +389,11 @@ const TeacherResults: React.FC = () => {
         let ca_score = 0, exam_score = 0, total_score = 0;
 
         // component_scores is the source of truth — flat score fields no longer exist.
+        // contributes_to_ca is the field that actually determines CA vs exam/standalone;
+        // component_type is just a display label a tenant may not set consistently.
         const comps: any[] = Array.isArray(r.component_scores) ? r.component_scores : [];
-        const examComp = comps.find((c: any) => c.component_type === 'EXAM')
-                      ?? comps.find((c: any) => !c.contributes_to_ca);
-        const caComps  = comps.filter((c: any) => c.component_type !== 'EXAM');
+        const examComp = comps.find((c: any) => !c.contributes_to_ca);
+        const caComps  = comps.filter((c: any) => c.contributes_to_ca);
 
         if (educationLevel === 'NURSERY') {
           total_score = safeNum(r.mark_obtained);
