@@ -1092,42 +1092,6 @@ class BaseResultViewSetMixin:
 
                     saved_results.append(result)
 
-                    # Recalculate parent term report aggregates
-                    if getattr(result, "term_report_id", None):
-                        try:
-                            tr_scores = list(
-                                ModelClass.objects
-                                .filter(term_report_id=result.term_report_id)
-                                .values_list("total_score", flat=True)
-                            )
-                            scores_f = [float(s or 0)
-                                        for s in tr_scores if s is not None]
-                            if scores_f:
-                                tr_avg = round(sum(scores_f) /
-                                               len(scores_f), 2)
-                                tr_total = round(sum(scores_f), 2)
-                                tr_model_name = ModelClass.__name__.replace(
-                                    "Result", "TermReport")
-                                TRModel = apps.get_model(
-                                    "result", tr_model_name)
-                                if education_level == "NURSERY":
-                                    TRModel.objects.filter(pk=result.term_report_id).update(
-                                        total_marks_obtained=tr_total,
-                                        overall_percentage=tr_avg,
-                                        updated_at=timezone.now(),
-                                    )
-                                else:
-                                    TRModel.objects.filter(pk=result.term_report_id).update(
-                                        total_score=tr_total,
-                                        average_score=tr_avg,
-                                        updated_at=timezone.now(),
-                                    )
-                        except Exception as tr_exc:
-                            logger.warning(
-                                "Term report aggregate update failed for %s: %s",
-                                result.term_report_id, tr_exc,
-                            )
-
                     count += 1
 
                 # Ensure every saved result has a term report linked.

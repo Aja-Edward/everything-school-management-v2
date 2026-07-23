@@ -942,64 +942,46 @@ class BaseResult(models.Model):
     @classmethod
     def _bulk_recalculate_scores(cls, queryset):
         """
-        Recalculate total_score, ca_total, percentage, grade, is_passed
-        for every result in *queryset* using two DB statements:
-          1. Aggregate ComponentScore sums per result (one query).
-          2. bulk_update the result rows (one query).
-        grade / is_passed require the GradingSystem — fetched once per
-        unique grading system in the queryset.
+        Mirrors calculate_scores(): if ComponentScore rows exist, sum them
+        into mark_obtained/max_marks_obtainable (component-based scoring,
+        same as every other level); otherwise leave the directly-entered
+        marks alone. Keeps NurseryTermReport.calculate_metrics() correct
+        regardless of which mode the tenant uses.
         """
-        fk_name = cls.RESULT_FK_NAME  # e.g. "senior_result"
-        if not fk_name:
-            return
-
-        # One aggregation query: sum scores per result, split by CA flag.
+        fk_name = cls.RESULT_FK_NAME  # "nursery_result"
         agg_qs = (
             ComponentScore.objects.filter(**{f"{fk_name}__in": queryset})
             .values(fk_name)
-            .annotate(
-                total=Sum("score"),
-                ca=Sum("score", filter=Q(component__contributes_to_ca=True)),
-            )
+            .annotate(total=Sum("score"), max_total=Sum("component__max_score"))
         )
         agg_map = {
-            row[fk_name]: (row["total"] or Decimal(0), row["ca"] or Decimal(0))
+            row[fk_name]: (row["total"] or Decimal(
+                0), row["max_total"] or Decimal(0))
             for row in agg_qs
         }
 
-        # Fetch grading systems in one query.
-        results = list(
-            queryset.select_related("grading_system").prefetch_related(
-                "grading_system__grades"
-            )
-        )
+        results = list(queryset.select_related("grading_system"))
         updates = []
         for result in results:
-            totals = agg_map.get(result.pk, (Decimal(0), Decimal(0)))
-            result.total_score = totals[0]
-            result.ca_total = totals[1]
-            gs = result.grading_system
-            max_score = Decimal(
-                gs.max_score) if gs and gs.max_score else Decimal(100)
+            obtained, max_total = agg_map.get(result.pk, (None, None))
+            if obtained is not None:
+                result.mark_obtained = obtained
+                result.max_marks_obtainable = max_total
+            result.ca_total = Decimal(0)
+            result.total_score = result.mark_obtained
             result.percentage = (
-                (result.total_score / max_score *
-                 100) if max_score > 0 else Decimal(0)
+                (result.mark_obtained / result.max_marks_obtainable * 100)
+                if result.max_marks_obtainable and result.max_marks_obtainable > 0
+                else Decimal(0)
             )
-            # Reuse the in-memory determine_grade logic.
             result.determine_grade()
             updates.append(result)
 
         cls.objects.bulk_update(
             updates,
-            [
-                "total_score",
-                "ca_total",
-                "percentage",
-                "grade",
-                "grade_point",
-                "is_passed",
-                "updated_at",
-            ],
+            ["mark_obtained", "max_marks_obtainable", "total_score",
+             "ca_total", "percentage", "grade", "grade_point",
+             "is_passed", "updated_at"],
             batch_size=200,
         )
 

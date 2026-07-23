@@ -1219,12 +1219,11 @@ async getAllSubjectResultsPaginated(
    * NurseryTermReport does not have overall_grade — compute from overall_percentage.
    */
   getOverallGrade(report: AnyTermReport): string {
-  if ('overall_percentage' in report) {
-    const pct = this.getAverageScore(report); // reuse the fallback-aware calc above
-    return this.gradeFromPercentage(pct);
+    if ('overall_percentage' in report) {
+      return this.gradeFromPercentage(parseFloat(report.overall_percentage));
+    }
+    return (report as SeniorSecondaryTermReport).overall_grade || 'N/A';
   }
-  return (report as SeniorSecondaryTermReport).overall_grade || 'N/A';
-}
 
   /** Simple grade computation (mirrors backend _default_grade). */
   gradeFromPercentage(pct: number): string {
