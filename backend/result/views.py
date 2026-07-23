@@ -2818,21 +2818,7 @@ class NurseryResultViewSet(
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
-        result = self.get_object()
-        if not _is_admin(request.user):
-            return Response({"error": "Permission denied."}, status=403)
-        if result.status != DRAFT:
-            return Response(
-                {"error": f"Cannot approve result with status '{result.status}'."},
-                status=400,
-            )
-        NurseryResult.bulk_approve(
-            NurseryResult.objects.filter(pk=result.pk), request.user
-        )
-        result.refresh_from_db()
-        return Response(
-            NurseryResultSerializer(result, context={"request": request}).data
-        )
+        return self.handle_approve(request, self.get_object(), NurseryResultSerializer)
 
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):

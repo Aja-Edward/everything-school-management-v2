@@ -1190,11 +1190,18 @@ async getAllSubjectResultsPaginated(
    * NurseryTermReport uses overall_percentage; others use average_score.
    */
   getAverageScore(report: AnyTermReport): number {
-    if ('overall_percentage' in report) {
-      return parseFloat(report.overall_percentage) || 0;
-    }
-    return parseFloat((report as SeniorSecondaryTermReport).average_score) || 0;
+  if ('overall_percentage' in report) {
+    const stored = parseFloat(report.overall_percentage) || 0;
+    if (stored > 0) return stored;
+
+    // overall_percentage may be stale/uncached — derive it from raw marks if present.
+    const obtained = parseFloat((report as NurseryTermReport).total_marks_obtained) || 0;
+    const max = parseFloat((report as NurseryTermReport).total_max_marks) || 0;
+    if (max > 0) return parseFloat(((obtained / max) * 100).toFixed(2));
+    return 0;
   }
+  return parseFloat((report as SeniorSecondaryTermReport).average_score) || 0;
+}
 
   /**
    * Get total students from any term report.
@@ -1212,11 +1219,12 @@ async getAllSubjectResultsPaginated(
    * NurseryTermReport does not have overall_grade — compute from overall_percentage.
    */
   getOverallGrade(report: AnyTermReport): string {
-    if ('overall_percentage' in report) {
-      return this.gradeFromPercentage(parseFloat(report.overall_percentage));
-    }
-    return (report as SeniorSecondaryTermReport).overall_grade || 'N/A';
+  if ('overall_percentage' in report) {
+    const pct = this.getAverageScore(report); // reuse the fallback-aware calc above
+    return this.gradeFromPercentage(pct);
   }
+  return (report as SeniorSecondaryTermReport).overall_grade || 'N/A';
+}
 
   /** Simple grade computation (mirrors backend _default_grade). */
   gradeFromPercentage(pct: number): string {
