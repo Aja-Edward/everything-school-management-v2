@@ -95,8 +95,19 @@ function formatDate(iso: string): string {
 function getAvgScore(report: AnyTermReport): number {
   const stored = ResultService.getAverageScore(report);
   if (stored > 0) return stored;
+
   const srs: any[] = (report.subject_results ?? []) as any[];
   if (srs.length === 0) return 0;
+
+  // Nursery reports use mark_obtained / max_marks_obtainable instead of total_score,
+  // so compute a percentage from those instead of averaging a nonexistent total_score.
+  if ('total_subjects' in report) {
+    const totalObtained = srs.reduce((s, sr) => s + (parseFloat(sr.mark_obtained || '0') || 0), 0);
+    const totalMax = srs.reduce((s, sr) => s + (parseFloat(sr.max_marks_obtainable || '0') || 0), 0);
+    if (totalMax <= 0) return 0;
+    return parseFloat(((totalObtained / totalMax) * 100).toFixed(2));
+  }
+
   const sum = srs.reduce((s: number, sr: any) => s + (parseFloat(sr.total_score || '0') || 0), 0);
   return parseFloat((sum / srs.length).toFixed(2));
 }
