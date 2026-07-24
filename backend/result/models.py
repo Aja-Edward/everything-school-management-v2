@@ -1254,9 +1254,49 @@ class BaseTermReport(models.Model):
 # ============================================================
 # TERM REPORT SHARED FIELDS
 # ============================================================
+class PhysicalDevelopmentFields(models.Model):
+    """
+    Optional physical-development / conduct tracking, shared by all four
+    term report models. Blank/null everywhere — a report shows this section
+    only when a teacher has actually filled it in (see has_physical_development_data
+    on the serializers).
+    """
+
+    PHYSICAL_DEVELOPMENT_CHOICES = [
+        ("Excellent", "Excellent"),
+        ("Very Good", "Very Good"),
+        ("Good", "Good"),
+        ("Fair", "Fair"),
+        ("Poor", "Poor"),
+    ]
+
+    physical_development = models.CharField(
+        max_length=20, choices=PHYSICAL_DEVELOPMENT_CHOICES, blank=True
+    )
+    health = models.CharField(
+        max_length=20, choices=PHYSICAL_DEVELOPMENT_CHOICES, blank=True
+    )
+    cleanliness = models.CharField(
+        max_length=20, choices=PHYSICAL_DEVELOPMENT_CHOICES, blank=True
+    )
+    general_conduct = models.CharField(
+        max_length=20, choices=PHYSICAL_DEVELOPMENT_CHOICES, blank=True
+    )
+    physical_development_comment = models.TextField(blank=True)
+    height_beginning = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True)
+    height_end = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True)
+    weight_beginning = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True)
+    weight_end = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True)
+
+    class Meta:
+        abstract = True
 
 
-class TermReportFields(models.Model):
+class TermReportFields(PhysicalDevelopmentFields, models.Model):
     """Shared fields on all four term report models (except Nursery)."""
 
     total_score = models.DecimalField(
@@ -2194,19 +2234,11 @@ PrimarySessionReport.TERM_REPORT_MODEL = PrimaryTermReport
 # ============================================================
 
 
-class NurseryTermReport(TenantMixin, BaseTermReport, models.Model):
+class NurseryTermReport(TenantMixin, BaseTermReport, PhysicalDevelopmentFields, models.Model):
     """
     Nursery uses marks-based aggregation so it doesn't inherit TermReportFields.
     It does inherit BaseTermReport for all permission helpers.
     """
-
-    PHYSICAL_DEVELOPMENT_CHOICES = [
-        ("Excellent", "Excellent"),
-        ("Very Good", "Very Good"),
-        ("Good", "Good"),
-        ("Fair", "Fair"),
-        ("Poor", "Poor"),
-    ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(
@@ -2235,31 +2267,6 @@ class NurseryTermReport(TenantMixin, BaseTermReport, models.Model):
     total_students_in_class = models.PositiveIntegerField(default=0)
     times_school_opened = models.PositiveIntegerField(default=0)
     times_student_present = models.PositiveIntegerField(default=0)
-    physical_development = models.CharField(
-        max_length=20, choices=PHYSICAL_DEVELOPMENT_CHOICES, blank=True
-    )
-    health = models.CharField(
-        max_length=20, choices=PHYSICAL_DEVELOPMENT_CHOICES, blank=True
-    )
-    cleanliness = models.CharField(
-        max_length=20, choices=PHYSICAL_DEVELOPMENT_CHOICES, blank=True
-    )
-    general_conduct = models.CharField(
-        max_length=20, choices=PHYSICAL_DEVELOPMENT_CHOICES, blank=True
-    )
-    physical_development_comment = models.TextField(blank=True)
-    height_beginning = models.DecimalField(
-        max_digits=5, decimal_places=2, null=True, blank=True
-    )
-    height_end = models.DecimalField(
-        max_digits=5, decimal_places=2, null=True, blank=True
-    )
-    weight_beginning = models.DecimalField(
-        max_digits=5, decimal_places=2, null=True, blank=True
-    )
-    weight_end = models.DecimalField(
-        max_digits=5, decimal_places=2, null=True, blank=True
-    )
     next_term_begins = models.DateField(null=True, blank=True)
     class_teacher_remark = models.TextField(blank=True)
     head_teacher_remark = models.TextField(blank=True)

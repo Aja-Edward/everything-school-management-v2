@@ -1932,25 +1932,7 @@ class NurseryResultCreateUpdateSerializer(serializers.ModelSerializer):
 
 
 class NurseryTermReportSerializer(_RemarkPermissionMixin, serializers.ModelSerializer):
-    """
-    Caller must:
-        .select_related(
-            'student', 'exam_session', 'exam_session__academic_session',
-            'exam_session__exam_type', 'published_by', 'approved_by',
-        )
-        .prefetch_related(
-            Prefetch('subject_results',
-                     queryset=NurseryResult.objects.select_related(
-                         'subject', 'grading_system', 'entered_by', 'term_report',
-                     ).prefetch_related(
-                         'grading_system__grades',
-                         Prefetch('component_scores',
-                                  queryset=ComponentScore.objects.select_related('component')),
-                     ))
-        )
-    List views: pass context['skip_permission_flags'] = True.
-    """
-
+    ...
     student = StudentMinimalSerializer(read_only=True)
     exam_session = ExamSessionSerializer(read_only=True)
     status_display = serializers.CharField(
@@ -1971,6 +1953,26 @@ class NurseryTermReportSerializer(_RemarkPermissionMixin, serializers.ModelSeria
     general_conduct_display = serializers.CharField(
         source="get_general_conduct_display", read_only=True
     )
+
+    # NurseryTermReport has no average_score / overall_grade fields on the
+    # model (it uses overall_percentage instead). These aliases keep the
+    # API response shape consistent with every other education level's
+    # term report serializer, so generic frontend code (admin dashboards,
+    # teacher/head-teacher screens) doesn't need nursery-specific branching.
+    average_score = serializers.SerializerMethodField()
+    overall_grade = serializers.SerializerMethodField()
+
+    def get_average_score(self, obj):
+        pct = float(obj.overall_percentage or 0)
+        if pct > 0:
+            return round(pct, 2)
+        obtained = float(obj.total_marks_obtained or 0)
+        max_marks = float(obj.total_max_marks or 0)
+        return round((obtained / max_marks) * 100, 2) if max_marks > 0 else 0.0
+
+    def get_overall_grade(self, obj):
+        from .models import _default_grade
+        return _default_grade(self.get_average_score(obj))
 
     class Meta:
         model = NurseryTermReport
