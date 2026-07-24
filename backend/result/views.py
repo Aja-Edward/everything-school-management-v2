@@ -332,6 +332,25 @@ def _auto_remark(grade: str, score, grading_system_id=None) -> str:
     return ''
 
 
+def _term_report_average(term_report):
+    """
+    Normalised average score for any term report type.
+    NurseryTermReport has no `average_score` field — it uses
+    `overall_percentage` instead. Mirrors the frontend's
+    ResultService.getAverageScore() so admin, teacher profile, and
+    signature/remarks screens all agree.
+    """
+    if term_report is None:
+        return None
+    if hasattr(term_report, "overall_percentage"):
+        pct = float(term_report.overall_percentage or 0)
+        if pct > 0:
+            return pct
+        # overall_percentage may be stale — derive from raw marks if present
+        obtained = float(getattr(term_report, "total_marks_obtained", 0) or 0)
+        max_marks = float(getattr(term_report, "total_max_marks", 0) or 0)
+        return round((obtained / max_marks) * 100, 2) if max_marks > 0 else 0.0
+    return float(getattr(term_report, "average_score", None) or 0)
 # ── Result queryset helpers ───────────────────────────────────────────────────
 
 
@@ -4174,11 +4193,7 @@ class ProfessionalAssignmentViewSet(
                             else enrollment.classroom.name
                         ),
                         "education_level": level,
-                        "average_score": (
-                            float(getattr(term_report, "average_score", None) or 0)
-                            if term_report
-                            else None
-                        ),
+                        "average_score": _term_report_average(term_report),
                         "term_report_id": str(term_report.id) if term_report else None,
                         "has_remark": has_remark,
                         "remark_status": remark_status,
@@ -4458,11 +4473,7 @@ class HeadTeacherAssignmentViewSet(
                             getattr(report, "head_teacher_signature", None)
                         ),
                         "status": report.status,
-                        "average_score": (
-                            float(getattr(report, "average_score", None) or 0)
-                            if hasattr(report, "average_score")
-                            else None
-                        ),
+                        "average_score": _term_report_average(report),
                     }
                 )
         return Response(
