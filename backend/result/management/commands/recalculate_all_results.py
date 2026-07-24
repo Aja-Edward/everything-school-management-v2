@@ -153,10 +153,25 @@ class Command(BaseCommand):
 
         result_count = 0
         error_count = 0
+        processed = 0
 
         # ── Step 1: recalculate every subject result's own scores ──────────
-        # select_related grading_system to avoid N+1 inside determine_grade().
-        for result in result_qs.select_related("grading_system").iterator(chunk_size=200):
+        # select_related grading_system + prefetch grades/component_scores to
+        # avoid two N+1 query patterns inside calculate_scores()/determine_grade():
+        #   - ComponentScore lookup per row (component_scores__component prefetch)
+        #   - grading_system.grades.filter(...) per row (grading_system__grades prefetch)
+        qs = (
+            result_qs
+            .select_related("grading_system")
+            .prefetch_related("grading_system__grades", "component_scores__component")
+        )
+
+        for result in qs:
+            processed += 1
+            if processed % 100 == 0 or processed == result_total:
+                self.stdout.write(
+                    f"    ...{processed}/{result_total} processed")
+                self.stdout.flush()
             try:
                 before = {
                     "total_score": result.total_score,
@@ -209,7 +224,13 @@ class Command(BaseCommand):
         self.stdout.write(f"  Term reports to recalculate: {report_total}")
 
         report_count = 0
-        for report in report_qs.iterator(chunk_size=200):
+        report_processed = 0
+        for report in report_qs:
+            report_processed += 1
+            if report_processed % 50 == 0 or report_processed == report_total:
+                self.stdout.write(
+                    f"    ...{report_processed}/{report_total} processed")
+                self.stdout.flush()
             try:
                 if level == "NURSERY":
                     before = (report.total_marks_obtained,

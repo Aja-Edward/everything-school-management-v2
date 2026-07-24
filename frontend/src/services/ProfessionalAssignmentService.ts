@@ -1,5 +1,5 @@
 // services/ProfessionalAssignmentService.ts
-import api from './api';
+import api, { API_BASE_URL } from './api';
 import type {
   AssignedStudentsResponse,
   UpdateTeacherRemarkRequest,
@@ -14,8 +14,7 @@ import type {
   PendingReviewsResponse,
 } from '@/types/results';
 
-export const API_BASE_URL =
-  import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+
 
 // ---------------------------------------------------------------------------
 // Helpers
