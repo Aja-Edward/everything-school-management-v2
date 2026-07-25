@@ -34,6 +34,7 @@ from .serializers import (
     TenantSerializer,
     TenantSettingsSerializer,
     DesignSettingsSerializer,
+    NurseryReportStyleSerializer,
     TenantServiceSerializer,
     ServicePricingSerializer,
     AvailableServiceSerializer,
@@ -1211,6 +1212,28 @@ class TenantSettingsViewSet(viewsets.ModelViewSet):
         logger.info(
             f"TenantSettings GET: Returning settings for {tenant.slug}")
         return Response(TenantSettingsSerializer(settings_obj).data)
+
+    @action(detail=False, methods=['get', 'patch'], url_path='nursery-report-style')
+    def nursery_report_style(self, request):
+        """Get or update the nursery report style (STANDARD vs DEVELOPMENTAL)."""
+        tenant = getattr(request, 'tenant', None)
+        if not tenant:
+            return Response({'error': 'No tenant context'}, status=400)
+
+        settings_obj, created = TenantSettings.objects.get_or_create(
+            tenant=tenant)
+
+        if request.method == 'PATCH':
+            serializer = NurseryReportStyleSerializer(
+                settings_obj, data=request.data, partial=True
+            )
+            if serializer.is_valid():
+                serializer.save()
+                cache.delete(f"tenant_settings_{tenant.id}")
+                return Response(serializer.data)
+            return Response(serializer.errors, status=400)
+
+        return Response(NurseryReportStyleSerializer(settings_obj).data)
 
 
 # ============ Invoice Management ============

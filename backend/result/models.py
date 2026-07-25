@@ -58,7 +58,8 @@ from django.db.models import (
     Window,
 )
 from django.utils import timezone
-from django.db.models.functions import Rank
+
+from django.db.models.functions import DenseRank
 
 from academics.models import AcademicSession, EducationLevel, Term
 from classroom.models import Class as StudentClass, Stream
@@ -1015,7 +1016,7 @@ class BaseResult(models.Model):
             cls.objects.filter(pk__in=pks)
             .annotate(
                 rank=Window(
-                    expression=Rank(),
+                    expression=DenseRank(),
                     order_by=F("percentage").desc(),
                 )
             )
@@ -1235,7 +1236,7 @@ class BaseTermReport(models.Model):
                 cls.objects.filter(**base_filter)
                 .annotate(
                     rank=Window(
-                        expression=Rank(),
+                        expression=DenseRank(),
                         order_by=F("average_score").desc(),
                     )
                 )
@@ -1599,7 +1600,7 @@ class BaseSessionReport(BaseTermReport, models.Model):
 
             ranked = qs.annotate(
                 rank=Window(
-                    expression=Rank(),
+                    expression=DenseRank(),
                     order_by=F("overall_average").desc(),
                 )
             ).values("pk", "rank")
@@ -2363,7 +2364,7 @@ class NurseryTermReport(TenantMixin, BaseTermReport, PhysicalDevelopmentFields, 
                 cls.objects.filter(**base_filter)
                 .annotate(
                     rank=Window(
-                        expression=Rank(),
+                        expression=DenseRank(),
                         order_by=F("overall_percentage").desc(),
                     )
                 )

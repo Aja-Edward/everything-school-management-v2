@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>{{ student.name }} - Primary Term Report</title>
+<title>{{ student.name }} - Nursery Term Report</title>
 
 <style>
 @page {
@@ -435,7 +435,7 @@ tbody tr:nth-child(even) {
         </div>
     </div>
 
-    <div class="report-title">Primary School Termly Report</div>
+    <div class="report-title">Nursery Termly Report</div>
     <div class="session-info">{{ term.name }} Term &nbsp;|&nbsp; {{ term.session }} Academic Session</div>
 </div>
 
@@ -614,6 +614,62 @@ tbody tr:nth-child(even) {
         {% endif %}
     </div>
 </div>
+
+{% if has_physical_development_data %}
+<!-- PHYSICAL DEVELOPMENT (nursery-specific, shown only when data was entered) -->
+<div class="section-title">Physical Development</div>
+<div class="summary-attendance-row">
+    <div class="summary-box">
+        <h3>Development &amp; Conduct</h3>
+        {% if development.physical %}
+        <div class="summary-item">
+            <span class="label">Physical Development</span>
+            <span class="value">{{ development.physical }}</span>
+        </div>
+        {% endif %}
+        {% if development.health %}
+        <div class="summary-item">
+            <span class="label">Health</span>
+            <span class="value">{{ development.health }}</span>
+        </div>
+        {% endif %}
+        {% if development.cleanliness %}
+        <div class="summary-item">
+            <span class="label">Cleanliness</span>
+            <span class="value">{{ development.cleanliness }}</span>
+        </div>
+        {% endif %}
+        {% if development.conduct %}
+        <div class="summary-item">
+            <span class="label">General Conduct</span>
+            <span class="value">{{ development.conduct }}</span>
+        </div>
+        {% endif %}
+        {% if development.comment %}
+        <div class="summary-item">
+            <span class="label">Comment</span>
+            <span class="value">{{ development.comment }}</span>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="summary-box">
+        <h3>Growth Measurements</h3>
+        {% if measurements.height_beginning or measurements.height_end %}
+        <div class="summary-item">
+            <span class="label">Height (Start / End)</span>
+            <span class="value">{{ measurements.height_beginning|default:"—" }} / {{ measurements.height_end|default:"—" }}</span>
+        </div>
+        {% endif %}
+        {% if measurements.weight_beginning or measurements.weight_end %}
+        <div class="summary-item">
+            <span class="label">Weight (Start / End)</span>
+            <span class="value">{{ measurements.weight_beginning|default:"—" }} / {{ measurements.weight_end|default:"—" }}</span>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
 
 <!-- REMARKS -->
 <div class="remarks-row">

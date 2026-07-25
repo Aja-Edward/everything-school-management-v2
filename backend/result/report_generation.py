@@ -34,6 +34,8 @@ from datetime import datetime
 
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
+from django.db.models import F, Max, Min, Window
+from django.db.models.functions import DenseRank
 from django.http import HttpResponse, JsonResponse
 from django.template.loader import render_to_string
 
@@ -43,6 +45,7 @@ from .models import (
     JuniorSecondarySessionReport,
     JuniorSecondaryTermReport,
     NurserySessionReport,
+    NurseryResult,
     NurseryTermReport,
     PrimaryResult,
     PrimarySessionReport,
@@ -361,7 +364,8 @@ class ReportGenerator:
         try:
             from classroom.models import StudentEnrollment
             enrollment = (
-                StudentEnrollment.objects.filter(student=student, is_active=True)
+                StudentEnrollment.objects.filter(
+                    student=student, is_active=True)
                 .select_related("classroom__section")
                 .first()
             )
@@ -406,28 +410,78 @@ class ReportGenerator:
             logger.debug(f"compute_class_position: {e}")
             return self.format_grade_suffix(report.class_position)
 
-    def compute_subject_position(self, result, ResultModel):
+
+    def get_show_subject_min_max(self, student):
+        """Read the tenant's 'show class max/min per subject' setting."""
+        try:
+            tenant = getattr(student, "tenant", None)
+            if tenant:
+                return bool(tenant.settings.show_subject_min_max)
+        except Exception as e:
+            logger.debug(f"get_show_subject_min_max: {e}")
+        return False
+
+    def get_subject_min_max_map(self, ResultModel, exam_session, student_class):
         """
-        Compute subject position on-the-fly by ranking this student's percentage
-        against peers in the same class/subject/session.  Used when subject_position
-        is not yet stored.
+        One query for the whole report: return {subject_id: (class_max, class_min)}
+        across all subjects, for this exam session + class, among
+        approved/published results. Called once per report, not once per subject.
         """
         try:
-            if result.subject_position:
-                return self.format_grade_suffix(result.subject_position)
-            pct = float(result.percentage or 0)
-            if not pct:
-                return ""
-            better = ResultModel.objects.filter(
-                exam_session=result.exam_session,
-                subject=result.subject,
-                student__student_class=result.student.student_class,
-                percentage__gt=pct,
-            ).count()
-            return self.format_grade_suffix(better + 1)
+            rows = (
+                ResultModel.objects.filter(
+                    exam_session=exam_session,
+                    student__student_class=student_class,
+                    status__in=("APPROVED", "PUBLISHED"),
+                )
+                .values("subject_id")
+                .annotate(class_max=Max("percentage"), class_min=Min("percentage"))
+            )
+            return {
+                row["subject_id"]: (float(row["class_max"] or 0),
+                                    float(row["class_min"] or 0))
+                for row in rows
+            }
         except Exception as e:
-            logger.debug(f"compute_subject_position: {e}")
-            return self.format_grade_suffix(result.subject_position)
+            logger.debug(f"get_subject_min_max_map: {e}")
+            return {}
+
+    def get_subject_position_map(self, ResultModel, exam_session, student, student_class):
+        """
+        One windowed query for the whole report: return {subject_id: position}
+        for this student's subjects — ranked against the whole class per
+        subject using a single DENSE_RANK() window function (matching the
+        tie-handling convention used by bulk_recalculate_positions elsewhere
+        in this codebase), instead of running one COUNT() query per subject.
+        """
+        try:
+            ranked = (
+                ResultModel.objects.filter(
+                    exam_session=exam_session,
+                    student__student_class=student_class,
+                )
+                .annotate(
+                    computed_rank=Window(
+                        expression=DenseRank(),
+                        partition_by=[F("subject_id")],
+                        order_by=F("percentage").desc(),
+                    )
+                )
+                .filter(student=student)
+                .values("subject_id", "subject_position", "computed_rank", "percentage")
+            )
+            result_map = {}
+            for row in ranked:
+                if row["subject_position"]:
+                    result_map[row["subject_id"]] = row["subject_position"]
+                elif float(row["percentage"] or 0):
+                    result_map[row["subject_id"]] = row["computed_rank"]
+                else:
+                    result_map[row["subject_id"]] = None
+            return result_map
+        except Exception as e:
+            logger.debug(f"get_subject_position_map: {e}")
+            return {}
 
     def build_grade_scale(self, subject_results):
         """Return admin-configured grade scale from the grading system on subject results."""
@@ -563,7 +617,8 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
         except SeniorSecondaryTermReport.DoesNotExist:
             return JsonResponse({"error": f"Report {report_id} not found"}, status=404)
         except Exception as e:
-            logger.error(f"Error fetching report {report_id}: {e}", exc_info=True)
+            logger.error(
+                f"Error fetching report {report_id}: {e}", exc_info=True)
             return JsonResponse({"error": str(e)}, status=500)
 
         try:
@@ -580,10 +635,19 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                 report.refresh_from_db()
 
             subjects_data = []
+            min_max_map = self.get_subject_min_max_map(
+                SeniorSecondaryResult, report.exam_session, report.student.student_class
+            )
+            position_map = self.get_subject_position_map(
+                SeniorSecondaryResult, report.exam_session, report.student, report.student.student_class
+            )
             for result in subject_results:
                 component_breakdown = _build_component_breakdown(result)
                 ca_components = [c for c in component_breakdown if c["is_ca"]]
-                exam_components = [c for c in component_breakdown if not c["is_ca"]]
+                exam_components = [
+                    c for c in component_breakdown if not c["is_ca"]]
+                class_max, class_min = min_max_map.get(
+                    result.subject_id, (0.0, 0.0))
                 subjects_data.append(
                     {
                         "name": result.subject.name,
@@ -591,17 +655,17 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                         "components": component_breakdown,
                         "ca_components": ca_components,
                         "exam_components": exam_components,
-                        # visible_* = only columns that render in the printed sheet.
-                        # ca_total still aggregates ALL ca_components (visible or not).
-                        "visible_ca_components":   [c for c in ca_components   if c["show_in_report"]],
+                        "visible_ca_components":   [c for c in ca_components if c["show_in_report"]],
                         "visible_exam_components": [c for c in exam_components if c["show_in_report"]],
                         "ca_total": sum(c["score"] for c in ca_components),
                         "total": sum(c["score"] for c in component_breakdown),
                         "percentage": float(result.percentage or 0),
                         "grade": result.grade or "",
-                        "position": self.compute_subject_position(result, SeniorSecondaryResult),
+                        "position": self.format_grade_suffix(position_map.get(result.subject_id)),
                         "remark": result.teacher_remark or "",
                         "is_passed": result.is_passed,
+                        "class_max": class_max,
+                        "class_min": class_min,
                     }
                 )
 
@@ -609,7 +673,8 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                 report.student, report.exam_session
             )
 
-            total_students = self.count_students_in_class(report.student) or report.total_students or 0
+            total_students = self.count_students_in_class(
+                report.student) or report.total_students or 0
             class_position = self.compute_class_position(
                 report, SeniorSecondaryResult, SeniorSecondaryTermReport
             )
@@ -647,6 +712,7 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                     "total_students": total_students,
                 },
                 "grade_scale": self.build_grade_scale(subject_results),
+                "show_subject_min_max": self.get_show_subject_min_max(report.student),
                 "grade_summary": self._grade_summary(subject_results),
                 "attendance": {
                     "times_opened": times_opened or report.times_opened or 0,
@@ -669,7 +735,8 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
             return self.generate_pdf(html, filename)
 
         except Exception as e:
-            logger.error(f"Error generating SSS term report: {e}", exc_info=True)
+            logger.error(
+                f"Error generating SSS term report: {e}", exc_info=True)
             return JsonResponse({"error": str(e)}, status=500)
 
     def generate_session_report(self, report_id):
@@ -742,7 +809,8 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
             return self.generate_pdf(html, filename)
 
         except Exception as e:
-            logger.error(f"Error generating SSS session report: {e}", exc_info=True)
+            logger.error(
+                f"Error generating SSS session report: {e}", exc_info=True)
             return JsonResponse({"error": str(e)}, status=500)
 
     def _grade_summary(self, subject_results):
@@ -781,7 +849,8 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
         except JuniorSecondaryTermReport.DoesNotExist:
             return JsonResponse({"error": f"Report {report_id} not found"}, status=404)
         except Exception as e:
-            logger.error(f"Error fetching JSS report {report_id}: {e}", exc_info=True)
+            logger.error(
+                f"Error fetching JSS report {report_id}: {e}", exc_info=True)
             return JsonResponse({"error": str(e)}, status=500)
 
         try:
@@ -798,10 +867,19 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
                 report.refresh_from_db()
 
             subjects_data = []
+            min_max_map = self.get_subject_min_max_map(
+                JuniorSecondaryResult, report.exam_session, report.student.student_class
+            )
+            position_map = self.get_subject_position_map(
+                JuniorSecondaryResult, report.exam_session, report.student, report.student.student_class
+            )
             for result in subject_results:
                 component_breakdown = _build_component_breakdown(result)
                 ca_components = [c for c in component_breakdown if c["is_ca"]]
-                exam_components = [c for c in component_breakdown if not c["is_ca"]]
+                exam_components = [
+                    c for c in component_breakdown if not c["is_ca"]]
+                class_max, class_min = min_max_map.get(
+                    result.subject_id, (0.0, 0.0))
                 subjects_data.append(
                     {
                         "name": result.subject.name,
@@ -809,15 +887,17 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
                         "components": component_breakdown,
                         "ca_components": ca_components,
                         "exam_components": exam_components,
-                        "visible_ca_components":   [c for c in ca_components   if c["show_in_report"]],
+                        "visible_ca_components":   [c for c in ca_components if c["show_in_report"]],
                         "visible_exam_components": [c for c in exam_components if c["show_in_report"]],
                         "ca_total": sum(c["score"] for c in ca_components),
                         "total": sum(c["score"] for c in component_breakdown),
                         "percentage": float(result.percentage or 0),
                         "grade": result.grade or "",
-                        "position": self.compute_subject_position(result, JuniorSecondaryResult),
+                        "position": self.format_grade_suffix(position_map.get(result.subject_id)),
                         "remark": result.teacher_remark or "",
                         "is_passed": result.is_passed,
+                        "class_max": class_max,
+                        "class_min": class_min,
                     }
                 )
 
@@ -825,7 +905,8 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
                 report.student, report.exam_session
             )
 
-            total_students = self.count_students_in_class(report.student) or report.total_students or 0
+            total_students = self.count_students_in_class(
+                report.student) or report.total_students or 0
             class_position = self.compute_class_position(
                 report, JuniorSecondaryResult, JuniorSecondaryTermReport
             )
@@ -865,6 +946,7 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
                     "total_students": total_students,
                 },
                 "grade_scale": self.build_grade_scale(subject_results),
+                "show_subject_min_max": self.get_show_subject_min_max(report.student),
                 "attendance": {
                     "times_opened": times_opened or report.times_opened or 0,
                     "times_present": times_present or report.times_present or 0,
@@ -886,7 +968,8 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
             return self.generate_pdf(html, filename)
 
         except Exception as e:
-            logger.error(f"Error generating JSS term report: {e}", exc_info=True)
+            logger.error(
+                f"Error generating JSS term report: {e}", exc_info=True)
             return JsonResponse({"error": str(e)}, status=500)
 
     def generate_session_report(self, report_id):
@@ -917,7 +1000,8 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
             )
             return self.generate_pdf(html, filename)
         except Exception as e:
-            logger.error(f"Error generating JSS session report: {e}", exc_info=True)
+            logger.error(
+                f"Error generating JSS session report: {e}", exc_info=True)
             return JsonResponse({"error": str(e)}, status=500)
 
 
@@ -989,10 +1073,19 @@ class PrimaryReportGenerator(ReportGenerator):
                 report.refresh_from_db()
 
             subjects_data = []
+            min_max_map = self.get_subject_min_max_map(
+                PrimaryResult, report.exam_session, report.student.student_class
+            )
+            position_map = self.get_subject_position_map(
+                PrimaryResult, report.exam_session, report.student, report.student.student_class
+            )
             for result in subject_results:
                 component_breakdown = _build_component_breakdown(result)
                 ca_components = [c for c in component_breakdown if c["is_ca"]]
-                exam_components = [c for c in component_breakdown if not c["is_ca"]]
+                exam_components = [
+                    c for c in component_breakdown if not c["is_ca"]]
+                class_max, class_min = min_max_map.get(
+                    result.subject_id, (0.0, 0.0))
                 subjects_data.append(
                     {
                         "name": result.subject.name,
@@ -1000,15 +1093,17 @@ class PrimaryReportGenerator(ReportGenerator):
                         "components": component_breakdown,
                         "ca_components": ca_components,
                         "exam_components": exam_components,
-                        "visible_ca_components":   [c for c in ca_components   if c["show_in_report"]],
+                        "visible_ca_components":   [c for c in ca_components if c["show_in_report"]],
                         "visible_exam_components": [c for c in exam_components if c["show_in_report"]],
                         "ca_total": sum(c["score"] for c in ca_components),
                         "total": sum(c["score"] for c in component_breakdown),
                         "percentage": float(result.percentage or 0),
                         "grade": result.grade or "",
-                        "position": self.compute_subject_position(result, PrimaryResult),
+                        "position": self.format_grade_suffix(position_map.get(result.subject_id)),
                         "remark": result.teacher_remark or "",
                         "is_passed": result.is_passed,
+                        "class_max": class_max,
+                        "class_min": class_min,
                     }
                 )
 
@@ -1058,6 +1153,7 @@ class PrimaryReportGenerator(ReportGenerator):
                     "position": class_position,
                     "total_students": total_students,
                 },
+                "show_subject_min_max": self.get_show_subject_min_max(report.student),
                 "grade_scale": self.build_grade_scale(subject_results),
                 "attendance": {
                     "times_opened": times_opened or report.times_opened or 0,
@@ -1080,7 +1176,8 @@ class PrimaryReportGenerator(ReportGenerator):
             return self.generate_pdf(html, filename)
 
         except Exception as e:
-            logger.error(f"Error generating primary term report: {e}", exc_info=True)
+            logger.error(
+                f"Error generating primary term report: {e}", exc_info=True)
             return JsonResponse({"error": str(e)}, status=500)
 
     def generate_session_report(self, report_id):
@@ -1112,7 +1209,8 @@ class PrimaryReportGenerator(ReportGenerator):
             )
             return self.generate_pdf(html, filename)
         except Exception as e:
-            logger.error(f"Error generating primary session report: {e}", exc_info=True)
+            logger.error(
+                f"Error generating primary session report: {e}", exc_info=True)
             return JsonResponse({"error": str(e)}, status=500)
 
 
@@ -1123,6 +1221,25 @@ class PrimaryReportGenerator(ReportGenerator):
 
 class NurseryReportGenerator(ReportGenerator):
     EDUCATION_LEVEL = "NURSERY"
+
+    def _get_report_style(self, report):
+        """Read the tenant's chosen nursery report style. Defaults to
+        DEVELOPMENTAL if settings are missing, matching the model default."""
+        try:
+            tenant = report.student.tenant
+            return tenant.settings.nursery_report_style
+        except Exception:
+            return "DEVELOPMENTAL"
+
+    def get_template(self, report_type="term", style="DEVELOPMENTAL"):
+        if report_type == "term" and style == "STANDARD":
+            return "results/nursery_standard_term_report.html"
+        key = (self.EDUCATION_LEVEL, report_type)
+        template = TEMPLATE_MAPPING.get(key)
+        if not template:
+            raise ValueError(
+                f"No template for {self.EDUCATION_LEVEL!r} / {report_type!r}")
+        return template
 
     def _overall_grade(self, report):
         """
@@ -1147,19 +1264,74 @@ class NurseryReportGenerator(ReportGenerator):
             logger.debug(f"_overall_grade fallback: {e}")
         return "N/A"
 
+    def _build_standard_subjects_data(self, subject_results, exam_session, student, student_class):
+        subjects_data = []
+        min_max_map = self.get_subject_min_max_map(
+            NurseryResult, exam_session, student_class
+        )
+        position_map = self.get_subject_position_map(
+            NurseryResult, exam_session, student, student_class
+        )
+        for result in subject_results:
+            component_breakdown = _build_component_breakdown(result)
+            ca_components = [c for c in component_breakdown if c["is_ca"]]
+            exam_components = [
+                c for c in component_breakdown if not c["is_ca"]]
+            class_max, class_min = min_max_map.get(
+                result.subject_id, (0.0, 0.0))
+            subjects_data.append({
+                "name": result.subject.name,
+                "code": result.subject.code,
+                "components": component_breakdown,
+                "ca_components": ca_components,
+                "exam_components": exam_components,
+                "visible_ca_components":   [c for c in ca_components if c["show_in_report"]],
+                "visible_exam_components": [c for c in exam_components if c["show_in_report"]],
+                "ca_total": sum(c["score"] for c in ca_components),
+                "total": sum(c["score"] for c in component_breakdown),
+                "percentage": float(result.percentage or 0),
+                "grade": result.grade or "",
+                "position": self.format_grade_suffix(position_map.get(result.subject_id)),
+                "remark": result.teacher_remark or result.academic_comment or "",
+                "is_passed": result.is_passed,
+                "class_max": class_max,
+                "class_min": class_min,
+            })
+        return subjects_data
+
+    def _compute_standard_summary(self, report, subject_results):
+        """
+        NurseryTermReport has no average_score/overall_grade columns
+        (it uses overall_percentage). For STANDARD style we derive the
+        Primary-style summary on the fly from subject_results, so no
+        model/migration change is needed for this to work.
+        """
+        from .models import _default_grade
+        results = list(subject_results)
+        total_score = sum(float(r.total_score or 0) for r in results)
+        avg_pct = (
+            sum(float(r.percentage or 0) for r in results) / len(results)
+            if results else 0.0
+        )
+        return {
+            "total_score": total_score,
+            "average": round(avg_pct, 2),
+            "grade": _default_grade(avg_pct),
+        }
+
     def generate_term_report(self, report_id):
         try:
             report = (
                 NurseryTermReport.objects.select_related(
-                    "student",
-                    "student__user",
-                    "exam_session",
-                    "exam_session__academic_session",
+                    "student", "student__user", "student__tenant",
+                    "student__tenant__settings",
+                    "exam_session", "exam_session__academic_session",
                     "exam_session__term",
                 )
                 .prefetch_related(
                     "subject_results__subject",
                     "subject_results__grading_system__grades",
+                    "subject_results__component_scores__component",
                 )
                 .get(id=report_id)
             )
@@ -1167,34 +1339,21 @@ class NurseryReportGenerator(ReportGenerator):
             return JsonResponse({"error": f"Report {report_id} not found"}, status=404)
         except Exception as e:
             logger.error(
-                f"Error fetching nursery report {report_id}: {e}", exc_info=True
-            )
+                f"Error fetching nursery report {report_id}: {e}", exc_info=True)
             return JsonResponse({"error": str(e)}, status=500)
+
+        style = self._get_report_style(report)
 
         try:
             subject_results = (
                 report.subject_results.all()
                 .select_related("subject", "grading_system")
+                .prefetch_related("component_scores__component")
                 .order_by("subject__name")
             )
-            subjects_data = [
-                {
-                    "name": r.subject.name,
-                    "max_obtainable": float(r.max_marks_obtainable or 0),
-                    "mark_obtained": float(r.mark_obtained or 0),
-                    "percentage": float(r.percentage or 0),
-                    "grade": r.grade or "",
-                    "position": (
-                        self.format_grade_suffix(r.subject_position)
-                        if r.subject_position
-                        else "N/A"
-                    ),
-                    "remark": r.academic_comment or "",
-                }
-                for r in subject_results
-            ]
 
-            context = {
+            # ── Shared context pieces (identical for both styles) ──────────
+            base_context = {
                 "report_type": "TERM_REPORT",
                 "school": self.get_school_info(student=report.student),
                 "student": {
@@ -1211,52 +1370,9 @@ class NurseryReportGenerator(ReportGenerator):
                     "picture": self.get_student_picture(report.student),
                 },
                 "term": {
-                    "name": (
-                        report.exam_session.term.name
-                        if report.exam_session.term
-                        else ""
-                    ),
+                    "name": report.exam_session.term.name if report.exam_session.term else "",
                     "session": report.exam_session.academic_session.name,
                     "year": report.exam_session.academic_session.start_date.year,
-                },
-                "subjects": subjects_data,
-                "summary": {
-                    "total_subjects": report.total_subjects or 0,
-                    "total_max_marks": float(report.total_max_marks or 0),
-                    "total_marks_obtained": float(report.total_marks_obtained or 0),
-                    "overall_percentage": float(report.overall_percentage or 0),
-                    "grade": self._overall_grade(report),
-                    "position": self.format_grade_suffix(report.class_position),
-                    "total_students": report.total_students_in_class or 0,
-                },
-                "attendance": {
-                    "times_opened": report.times_school_opened or 0,
-                    "times_present": report.times_student_present or 0,
-                },
-                "development": {
-                    "physical": (
-                        report.get_physical_development_display()
-                        if report.physical_development
-                        else "Good"
-                    ),
-                    "health": report.get_health_display() if report.health else "Good",
-                    "cleanliness": (
-                        report.get_cleanliness_display()
-                        if report.cleanliness
-                        else "Good"
-                    ),
-                    "conduct": (
-                        report.get_general_conduct_display()
-                        if report.general_conduct
-                        else "Good"
-                    ),
-                    "comment": report.physical_development_comment or "",
-                },
-                "measurements": {
-                    "height_beginning": report.height_beginning or "",
-                    "height_end": report.height_end or "",
-                    "weight_beginning": report.weight_beginning or "",
-                    "weight_end": report.weight_end or "",
                 },
                 "next_term_begins": self.get_next_term_begins(report),
                 "remarks": {
@@ -1265,9 +1381,96 @@ class NurseryReportGenerator(ReportGenerator):
                 },
                 "signatures": self.get_signatures(report),
                 "generated_date": datetime.now().strftime(_DATE_FORMAT),
+                # Physical development — shown only when at least one field
+                # was actually filled in, regardless of report style.
+                "has_physical_development_data": any([
+                    report.physical_development, report.health,
+                    report.cleanliness, report.general_conduct,
+                    report.physical_development_comment,
+                    report.height_beginning, report.height_end,
+                    report.weight_beginning, report.weight_end,
+                ]),
+                "development": {
+                    "physical": report.get_physical_development_display() if report.physical_development else "",
+                    "health": report.get_health_display() if report.health else "",
+                    "cleanliness": report.get_cleanliness_display() if report.cleanliness else "",
+                    "conduct": report.get_general_conduct_display() if report.general_conduct else "",
+                    "comment": report.physical_development_comment or "",
+                },
+                "measurements": {
+                    "height_beginning": report.height_beginning or "",
+                    "height_end": report.height_end or "",
+                    "weight_beginning": report.weight_beginning or "",
+                    "weight_end": report.weight_end or "",
+                },
             }
 
-            html = render_to_string(self.get_template("term"), context)
+            if style == "STANDARD":
+                subjects_data = self._build_standard_subjects_data(
+                    subject_results, report.exam_session, report.student, report.student.student_class
+                )
+                summary_calc = self._compute_standard_summary(
+                    report, subject_results)
+                total_students = self.count_students_in_class(
+                    report.student) or 0
+
+                context = {
+                    **base_context,
+                    "subjects": subjects_data,
+                    "summary": {
+                        "total_subjects": len(subjects_data),
+                        "total_score": summary_calc["total_score"],
+                        "average": summary_calc["average"],
+                        "grade": summary_calc["grade"],
+                        "position": self.format_grade_suffix(report.class_position),
+                        "total_students": report.total_students_in_class or total_students,
+                    },
+                    "show_subject_min_max": self.get_show_subject_min_max(report.student),
+                    "grade_scale": self.build_grade_scale(subject_results),
+                    "attendance": {
+                        "times_opened": report.times_school_opened or 0,
+                        "times_present": report.times_student_present or 0,
+                    },
+                }
+                template = self.get_template("term", style="STANDARD")
+            else:
+                subjects_data = [
+                    {
+                        "name": r.subject.name,
+                        "max_obtainable": float(r.max_marks_obtainable or 0),
+                        "mark_obtained": float(r.mark_obtained or 0),
+                        "percentage": float(r.percentage or 0),
+                        "grade": r.grade or "",
+                        "position": (
+                            self.format_grade_suffix(r.subject_position)
+                            if r.subject_position
+                            else "N/A"
+                        ),
+                        "remark": r.academic_comment or "",
+                    }
+                    for r in subject_results
+                ]
+
+                context = {
+                    **base_context,
+                    "subjects": subjects_data,
+                    "summary": {
+                        "total_subjects": report.total_subjects or 0,
+                        "total_max_marks": float(report.total_max_marks or 0),
+                        "total_marks_obtained": float(report.total_marks_obtained or 0),
+                        "overall_percentage": float(report.overall_percentage or 0),
+                        "grade": self._overall_grade(report),
+                        "position": self.format_grade_suffix(report.class_position),
+                        "total_students": report.total_students_in_class or 0,
+                    },
+                    "attendance": {
+                        "times_opened": report.times_school_opened or 0,
+                        "times_present": report.times_student_present or 0,
+                    },
+                }
+                template = self.get_template("term", style="DEVELOPMENTAL")
+
+            html = render_to_string(template, context)
             filename = self.sanitize_filename(
                 f"{report.student.registration_number or report.student.user.username}"
                 f"_term_report.pdf"
@@ -1275,7 +1478,8 @@ class NurseryReportGenerator(ReportGenerator):
             return self.generate_pdf(html, filename)
 
         except Exception as e:
-            logger.error(f"Error generating nursery term report: {e}", exc_info=True)
+            logger.error(
+                f"Error generating nursery term report: {e}", exc_info=True)
             return JsonResponse({"error": str(e)}, status=500)
 
     def generate_session_report(self, report_id):
@@ -1311,7 +1515,8 @@ class NurseryReportGenerator(ReportGenerator):
             )
             return self.generate_pdf(html, filename)
         except Exception as e:
-            logger.error(f"Error generating nursery session report: {e}", exc_info=True)
+            logger.error(
+                f"Error generating nursery session report: {e}", exc_info=True)
             return JsonResponse({"error": str(e)}, status=500)
 
 

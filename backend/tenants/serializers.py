@@ -133,7 +133,18 @@ class DesignSettingsSerializer(serializers.ModelSerializer):
             "high_contrast",
         ]
 
+class NurseryReportStyleSerializer(serializers.ModelSerializer):
+    """Simplified serializer for nursery report style setting only."""
+    nursery_report_style_display = serializers.CharField(
+        source="get_nursery_report_style_display", read_only=True
+    )
 
+    class Meta:
+        model = TenantSettings
+        fields = [
+            "nursery_report_style",
+            "nursery_report_style_display",
+        ]
 class TenantServiceSerializer(serializers.ModelSerializer):
     """Serializer for TenantService model."""
     service_display = serializers.CharField(source='get_service_display', read_only=True)

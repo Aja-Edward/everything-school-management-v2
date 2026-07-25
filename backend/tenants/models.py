@@ -722,6 +722,23 @@ class TenantSettings(models.Model):
     head_teacher_signature_uploaded_at = models.DateTimeField(
         blank=True, null=True)
 
+    NURSERY_REPORT_STYLES = [
+        ("STANDARD", "Standard (same format as Primary — subjects, CA/Exam, average, grade)"),
+        ("DEVELOPMENTAL", "Developmental (marks obtained, physical development, height/weight)"),
+    ]
+    nursery_report_style = models.CharField(
+        max_length=20,
+        choices=NURSERY_REPORT_STYLES,
+        default="DEVELOPMENTAL",
+        help_text="Controls how Nursery term reports are scored and printed.",
+    )
+
+    show_subject_min_max = models.BooleanField(
+        default=False,
+        help_text="Show 'Highest in Class' / 'Lowest in Class' columns for each "
+        "subject on term reports.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

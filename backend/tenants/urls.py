@@ -33,7 +33,8 @@ router.register(r'list', TenantViewSet, basename='tenant')
 router.register(r'pricing', ServicePricingViewSet, basename='service-pricing')
 router.register(r'invoices', TenantInvoiceViewSet, basename='tenant-invoice')
 router.register(r'payments', TenantPaymentViewSet, basename='tenant-payment')
-router.register(r'invitations', TenantInvitationViewSet, basename='tenant-invitation')
+router.register(r'invitations', TenantInvitationViewSet,
+                basename='tenant-invitation')
 
 # Service management as a ViewSet
 service_list = ServiceManagementViewSet.as_view({
@@ -63,11 +64,18 @@ settings_current = TenantSettingsViewSet.as_view({
     'patch': 'current',
 })
 
+settings_nursery_report_style = TenantSettingsViewSet.as_view({
+    'get': 'nursery_report_style',
+    'patch': 'nursery_report_style',
+})
+
 settings_upload_logo = TenantSettingsViewSet.as_view({"post": "upload_logo"})
 
-settings_upload_favicon = TenantSettingsViewSet.as_view({"post": "upload_favicon"})
+settings_upload_favicon = TenantSettingsViewSet.as_view(
+    {"post": "upload_favicon"})
 
-settings_upload_hero_image = TenantSettingsViewSet.as_view({"post": "upload_hero_image"})
+settings_upload_hero_image = TenantSettingsViewSet.as_view(
+    {"post": "upload_hero_image"})
 
 urlpatterns = [
     # Include router URLs
@@ -76,7 +84,8 @@ urlpatterns = [
     path("register/", SchoolRegistrationView.as_view(), name="school-register"),
     path("check-slug/", CheckSlugView.as_view(), name="check-slug"),
     path("check-domain/", CheckDomainView.as_view(), name="check-domain"),
-    path("public/by-domain/", PublicTenantByDomainView.as_view(), name="public-tenant-by-domain"),
+    path("public/by-domain/", PublicTenantByDomainView.as_view(),
+         name="public-tenant-by-domain"),
     path("public/<slug:slug>/", PublicTenantView.as_view(), name="public-tenant"),
     path(
         "setup/exchange/", SetupTokenExchangeView.as_view(), name="setup-token-exchange"
@@ -84,6 +93,7 @@ urlpatterns = [
     path("api/platform/info/", PlatformInfoView.as_view(), name="platform-info"),
     # Current tenant context
     path("current/", CurrentTenantView.as_view(), name="current-tenant"),
+
     # Service management
     path("services/", service_list, name="service-list"),
     path("services/toggle/", service_toggle, name="service-toggle"),
@@ -94,6 +104,11 @@ urlpatterns = [
     path("domain/remove/", domain_remove, name="domain-remove"),
     # Settings
     path("settings/current/", settings_current, name="tenant-settings"),
+    path(
+        "settings/nursery-report-style/",
+        settings_nursery_report_style,
+        name="tenant-settings-nursery-report-style",
+    ),
     path(
         "settings/upload-logo/",
         settings_upload_logo,

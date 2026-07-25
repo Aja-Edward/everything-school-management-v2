@@ -86,6 +86,7 @@ export interface TenantSettings {
   show_position_on_result: boolean;
   show_class_average_on_result: boolean;
   require_token_for_result: boolean;
+  nursery_report_style: NurseryReportStyle;
   created_at: string;
   updated_at: string;
 }
@@ -249,6 +250,13 @@ export interface TenantPayment {
   confirmed_by?: number;
   confirmed_at?: string;
   created_at: string;
+}
+
+export type NurseryReportStyle = 'STANDARD' | 'DEVELOPMENTAL';
+
+export interface NurseryReportStyleSettings {
+  nursery_report_style: NurseryReportStyle;
+  nursery_report_style_display: string;
 }
 
 export interface PaystackInitializeResponse {
@@ -538,6 +546,36 @@ class TenantService {
       return response;
     } catch (error) {
       console.error('Error updating tenant settings:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get the current nursery report style (STANDARD vs DEVELOPMENTAL)
+   */
+  async getNurseryReportStyle(): Promise<NurseryReportStyleSettings> {
+    try {
+      const response = await api.get('/api/tenants/settings/nursery-report-style/');
+      return response;
+    } catch (error) {
+      console.error('Error fetching nursery report style:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update the nursery report style (STANDARD vs DEVELOPMENTAL)
+   */
+  async updateNurseryReportStyle(
+    style: NurseryReportStyle
+  ): Promise<NurseryReportStyleSettings> {
+    try {
+      const response = await api.patch('/api/tenants/settings/nursery-report-style/', {
+        nursery_report_style: style,
+      });
+      return response;
+    } catch (error) {
+      console.error('Error updating nursery report style:', error);
       throw error;
     }
   }

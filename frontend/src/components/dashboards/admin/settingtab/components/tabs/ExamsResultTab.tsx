@@ -3,7 +3,7 @@ import {
   Plus, Edit, Trash2, Save, X, Calculator,
   BookOpen, FileText, Award, Users, Eye, EyeOff,
   CheckCircle, AlertCircle, Info, Star, Calendar, Layers,
-  AlertTriangle, ChevronRight,
+  AlertTriangle, ChevronRight, LayoutTemplate,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import resultSettingsService, {
@@ -13,6 +13,7 @@ import resultSettingsService, {
   GradeCreateUpdate, ExamSessionCreateUpdate, ExamTypeCreateUpdate,
   AssessmentComponent, AssessmentComponentCreateUpdate,
 } from '@/services/ResultSettingsService';
+import tenantService, { NurseryReportStyle } from '@/services/TenantService';
 import { AcademicSession } from '@/types/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -309,6 +310,8 @@ const ExamsResultTab: React.FC = () => {
   const [educationLevels,       setEducationLevels]       = useState<EducationLevel[]>([]);
   const [selectedGradingSystem, setSelectedGradingSystem] = useState<GradingSystem | null>(null);
   const [academicTerms,         setAcademicTerms]         = useState<any[]>([]);
+  const [nurseryReportStyle,    setNurseryReportStyle]    = useState<NurseryReportStyle>('DEVELOPMENTAL');
+  const [nurseryStyleSaving,    setNurseryStyleSaving]    = useState(false);
 
   // ── Modal visibility ──────────────────────────────────────────────────────
   const [showScoringConfigForm,   setShowScoringConfigForm]   = useState(false);
@@ -395,6 +398,14 @@ const ExamsResultTab: React.FC = () => {
       setExamTypes(et);
       setAssessmentComponents(ac);
 
+      // Nursery report style — non-fatal if it fails
+      try {
+        const nrs = await tenantService.getNurseryReportStyle();
+        setNurseryReportStyle(nrs.nursery_report_style);
+      } catch {
+        // keep default DEVELOPMENTAL
+      }
+
       // Load education levels and academic terms
       try {
         const { default: api } = await import('@/services/api');
@@ -416,10 +427,27 @@ const ExamsResultTab: React.FC = () => {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+
   const toggleSection = (key: string) => {
     const s = new Set(activeSections);
     s.has(key) ? s.delete(key) : s.add(key);
     setActiveSections(s);
+  };
+
+  const handleNurseryReportStyleChange = async (style: NurseryReportStyle) => {
+    if (style === nurseryReportStyle || nurseryStyleSaving) return;
+    const previous = nurseryReportStyle;
+    setNurseryReportStyle(style); // optimistic update
+    setNurseryStyleSaving(true);
+    try {
+      await tenantService.updateNurseryReportStyle(style);
+      toast.success('Nursery report style updated');
+    } catch {
+      setNurseryReportStyle(previous); // revert on failure
+      toast.error('Failed to update nursery report style');
+    } finally {
+      setNurseryStyleSaving(false);
+    }
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -751,6 +779,67 @@ const ExamsResultTab: React.FC = () => {
             </div>
           </div>
         ))}
+      </div>
+      {/* ══════════════════════════════════════════════════════════════════════
+          NURSERY REPORT STYLE
+      ══════════════════════════════════════════════════════════════════════ */}
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+        <div className="bg-black px-4 sm:px-8 py-4 sm:py-6">
+          <div className="flex items-center gap-3">
+            <div className="bg-white/20 p-2.5 rounded-lg shrink-0">
+              <LayoutTemplate className="h-5 w-5 text-white" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-bold text-white">Nursery Report Style</h2>
+              <p className="text-white/70 text-xs hidden sm:block">
+                Choose how Nursery term reports are scored and printed
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <InfoBanner>
+            This only affects the Nursery report template — Primary and Secondary reports are unchanged.
+          </InfoBanner>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {(['STANDARD', 'DEVELOPMENTAL'] as NurseryReportStyle[]).map((style) => {
+              const selected = nurseryReportStyle === style;
+              const label = style === 'STANDARD' ? 'Standard' : 'Developmental';
+              const desc =
+                style === 'STANDARD'
+                  ? 'Same format as Primary — subjects, CA/Exam, average, grade.'
+                  : 'Marks obtained, physical development, height/weight.';
+              return (
+                <button
+                  key={style}
+                  type="button"
+                  disabled={nurseryStyleSaving}
+                  onClick={() => handleNurseryReportStyleChange(style)}
+                  className={`text-left border rounded-xl p-4 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    selected
+                      ? 'border-black bg-gray-50 ring-1 ring-black'
+                      : 'border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="font-semibold text-gray-900">{label}</p>
+                    {selected && <CheckCircle className="w-4 h-4 text-black shrink-0" />}
+                  </div>
+                  <p className="text-xs text-gray-500">{desc}</p>
+                </button>
+              );
+            })}
+          </div>
+
+          {nurseryStyleSaving && (
+            <p className="text-xs text-gray-400 flex items-center gap-1.5">
+              <span className="animate-spin rounded-full h-3 w-3 border-2 border-gray-300 border-t-black inline-block" />
+              Saving…
+            </p>
+          )}
+        </div>
       </div>
 
       {/* ══════════════════════════════════════════════════════════════════════
