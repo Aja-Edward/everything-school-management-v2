@@ -738,6 +738,11 @@ class TenantSettings(models.Model):
         help_text="Show 'Highest in Class' / 'Lowest in Class' columns for each "
         "subject on term reports.",
     )
+    show_physical_development = models.BooleanField(
+        default=True,
+        help_text="Show the Physical Development / Growth Measurements section "
+        "on Nursery term reports when data has been entered for a student.",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

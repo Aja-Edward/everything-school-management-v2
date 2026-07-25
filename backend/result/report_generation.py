@@ -410,7 +410,6 @@ class ReportGenerator:
             logger.debug(f"compute_class_position: {e}")
             return self.format_grade_suffix(report.class_position)
 
-
     def get_show_subject_min_max(self, student):
         """Read the tenant's 'show class max/min per subject' setting."""
         try:
@@ -420,6 +419,16 @@ class ReportGenerator:
         except Exception as e:
             logger.debug(f"get_show_subject_min_max: {e}")
         return False
+
+    def get_show_physical_development(self, student):
+        """Read the tenant's 'show physical development section' setting."""
+        try:
+            tenant = getattr(student, "tenant", None)
+            if tenant:
+                return bool(tenant.settings.show_physical_development)
+        except Exception as e:
+            logger.debug(f"get_show_physical_development: {e}")
+        return True
 
     def get_subject_min_max_map(self, ResultModel, exam_session, student_class):
         """
@@ -1383,7 +1392,7 @@ class NurseryReportGenerator(ReportGenerator):
                 "generated_date": datetime.now().strftime(_DATE_FORMAT),
                 # Physical development — shown only when at least one field
                 # was actually filled in, regardless of report style.
-                "has_physical_development_data": any([
+                "has_physical_development_data": self.get_show_physical_development(report.student) and any([
                     report.physical_development, report.health,
                     report.cleanliness, report.general_conduct,
                     report.physical_development_comment,

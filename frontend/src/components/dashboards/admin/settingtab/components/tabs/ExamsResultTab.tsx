@@ -13,7 +13,7 @@ import resultSettingsService, {
   GradeCreateUpdate, ExamSessionCreateUpdate, ExamTypeCreateUpdate,
   AssessmentComponent, AssessmentComponentCreateUpdate,
 } from '@/services/ResultSettingsService';
-import tenantService, { NurseryReportStyle } from '@/services/TenantService';
+import tenantService, { NurseryReportStyle, TenantSettings } from '@/services/TenantService';
 import { AcademicSession } from '@/types/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -312,6 +312,9 @@ const ExamsResultTab: React.FC = () => {
   const [academicTerms,         setAcademicTerms]         = useState<any[]>([]);
   const [nurseryReportStyle,    setNurseryReportStyle]    = useState<NurseryReportStyle>('DEVELOPMENTAL');
   const [nurseryStyleSaving,    setNurseryStyleSaving]    = useState(false);
+  const [showSubjectMinMax,     setShowSubjectMinMax]     = useState(false);
+  const [showPhysicalDev,       setShowPhysicalDev]       = useState(true);
+  const [reportDisplaySaving,   setReportDisplaySaving]   = useState(false);
 
   // ── Modal visibility ──────────────────────────────────────────────────────
   const [showScoringConfigForm,   setShowScoringConfigForm]   = useState(false);
@@ -406,6 +409,15 @@ const ExamsResultTab: React.FC = () => {
         // keep default DEVELOPMENTAL
       }
 
+      // Report display toggles — non-fatal if it fails
+      try {
+        const settings = await tenantService.getTenantSettings();
+        setShowSubjectMinMax(!!settings.show_subject_min_max);
+        setShowPhysicalDev(settings.show_physical_development ?? true);
+      } catch {
+        // keep defaults
+      }
+
       // Load education levels and academic terms
       try {
         const { default: api } = await import('@/services/api');
@@ -447,6 +459,28 @@ const ExamsResultTab: React.FC = () => {
       toast.error('Failed to update nursery report style');
     } finally {
       setNurseryStyleSaving(false);
+    }
+  };
+
+
+  const handleReportDisplayToggle = async (
+    field: 'show_subject_min_max' | 'show_physical_development',
+    value: boolean
+  ) => {
+    if (reportDisplaySaving) return;
+    const revert = field === 'show_subject_min_max' ? showSubjectMinMax : showPhysicalDev;
+    const setLocal = field === 'show_subject_min_max' ? setShowSubjectMinMax : setShowPhysicalDev;
+
+    setLocal(value); // optimistic update
+    setReportDisplaySaving(true);
+    try {
+      await tenantService.updateTenantSettings({ [field]: value } as Partial<TenantSettings>);
+      toast.success('Report display setting updated');
+    } catch {
+      setLocal(revert); // revert on failure
+      toast.error('Failed to update report display setting');
+    } finally {
+      setReportDisplaySaving(false);
     }
   };
 
@@ -834,6 +868,89 @@ const ExamsResultTab: React.FC = () => {
           </div>
 
           {nurseryStyleSaving && (
+            <p className="text-xs text-gray-400 flex items-center gap-1.5">
+              <span className="animate-spin rounded-full h-3 w-3 border-2 border-gray-300 border-t-black inline-block" />
+              Saving…
+            </p>
+          )}
+        </div>
+      </div>
+
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          REPORT DISPLAY OPTIONS
+      ══════════════════════════════════════════════════════════════════════ */}
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+        <div className="bg-black px-4 sm:px-8 py-4 sm:py-6">
+          <div className="flex items-center gap-3">
+            <div className="bg-white/20 p-2.5 rounded-lg shrink-0">
+              <Eye className="h-5 w-5 text-white" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-bold text-white">Report Display Options</h2>
+              <p className="text-white/70 text-xs hidden sm:block">
+                Control extra columns and sections shown on printed term reports
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div className="flex items-start justify-between gap-4 border border-gray-200 rounded-xl p-4">
+            <div>
+              <p className="font-semibold text-gray-900 text-sm">Class Max / Min per Subject</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Adds "MAX" and "MIN" columns to every subject row, showing the highest and
+                lowest score in the class for that subject. Applies to Primary, Junior
+                Secondary, Senior Secondary, and Nursery (Standard style) reports.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={showSubjectMinMax}
+              disabled={reportDisplaySaving}
+              onClick={() => handleReportDisplayToggle('show_subject_min_max', !showSubjectMinMax)}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                showSubjectMinMax ? 'bg-black' : 'bg-gray-200'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  showSubjectMinMax ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className="flex items-start justify-between gap-4 border border-gray-200 rounded-xl p-4">
+            <div>
+              <p className="font-semibold text-gray-900 text-sm">Physical Development Section</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Shows the Physical Development, Health, Cleanliness, Conduct, and Height/Weight
+                section on Nursery term reports, whenever that data has been recorded for a
+                student. Turn off to hide this section entirely, even if data exists.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={showPhysicalDev}
+              disabled={reportDisplaySaving}
+              onClick={() => handleReportDisplayToggle('show_physical_development', !showPhysicalDev)}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                showPhysicalDev ? 'bg-black' : 'bg-gray-200'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  showPhysicalDev ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+
+          {reportDisplaySaving && (
             <p className="text-xs text-gray-400 flex items-center gap-1.5">
               <span className="animate-spin rounded-full h-3 w-3 border-2 border-gray-300 border-t-black inline-block" />
               Saving…

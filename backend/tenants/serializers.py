@@ -80,6 +80,8 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
             "show_position_on_result",
             "show_class_average_on_result",
             "require_token_for_result",
+            "show_subject_min_max",
+            "show_physical_development",
             # Academic Year
             "academic_year_start",
             "academic_year_end",

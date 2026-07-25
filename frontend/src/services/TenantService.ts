@@ -86,6 +86,8 @@ export interface TenantSettings {
   show_position_on_result: boolean;
   show_class_average_on_result: boolean;
   require_token_for_result: boolean;
+  show_subject_min_max: boolean;
+  show_physical_development: boolean;
   nursery_report_style: NurseryReportStyle;
   created_at: string;
   updated_at: string;
