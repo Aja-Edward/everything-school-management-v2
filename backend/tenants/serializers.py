@@ -83,6 +83,10 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
             "show_subject_min_max",
             "show_physical_development",
             "physical_development_applies_to",
+            "show_affective_domain",              
+            "show_psychomotor",                    
+            "psychomotor_applies_to", 
+            "affective_domain_applies_to",
             "affective_domain_rating_mode",
             "psychomotor_rating_mode",
             # Academic Year
