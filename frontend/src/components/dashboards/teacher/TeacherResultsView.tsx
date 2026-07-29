@@ -652,6 +652,32 @@ const getTermKey = (termStr: string): 'FIRST' | 'SECOND' | 'THIRD' | 'OTHER' => 
     ];
   }, [results]);
 
+
+    // Nursery classrooms this teacher has assignments for — used to show the
+  // Development & Conduct tab and to populate its class selector.
+  // Classrooms this teacher has assignments for, grouped by education level.
+  // Only levels with at least one classroom appear as keys — drives both
+  // the tab's visibility and the level dropdown inside TraitsRecordingForm.
+  const classroomsByLevel = useMemo(() => {
+    const map: Partial<Record<EducationLevelType, { id: number; name: string }[]>> = {};
+    const seen = new Map<string, Set<number>>();
+
+    (teacherAssignments as any[]).forEach(a => {
+      if (!a.classroom_id) return;
+      const level = (a.education_level || deriveLevel(a.classroom_name || '', a.grade_level_name)) as EducationLevelType | undefined;
+      if (!level) return;
+
+      if (!map[level]) map[level] = [];
+      if (!seen.has(level)) seen.set(level, new Set());
+      const ids = seen.get(level)!;
+      if (!ids.has(a.classroom_id)) {
+        ids.add(a.classroom_id);
+        map[level]!.push({ id: a.classroom_id, name: a.classroom_name });
+      }
+    });
+
+    return map;
+  }, [teacherAssignments]);
   // ── Colours ─────────────────────────────────────────────────────────────────
 
   // ResultStatus = 'DRAFT' | 'APPROVED' | 'PUBLISHED' (SUBMITTED removed from backend)
@@ -698,31 +724,7 @@ const getTermKey = (termStr: string): 'FIRST' | 'SECOND' | 'THIRD' | 'OTHER' => 
     </TeacherDashboardLayout>
   );
 
-  // Nursery classrooms this teacher has assignments for — used to show the
-  // Development & Conduct tab and to populate its class selector.
-  // Classrooms this teacher has assignments for, grouped by education level.
-  // Only levels with at least one classroom appear as keys — drives both
-  // the tab's visibility and the level dropdown inside TraitsRecordingForm.
-  const classroomsByLevel = useMemo(() => {
-    const map: Partial<Record<EducationLevelType, { id: number; name: string }[]>> = {};
-    const seen = new Map<string, Set<number>>();
 
-    (teacherAssignments as any[]).forEach(a => {
-      if (!a.classroom_id) return;
-      const level = (a.education_level || deriveLevel(a.classroom_name || '', a.grade_level_name)) as EducationLevelType | undefined;
-      if (!level) return;
-
-      if (!map[level]) map[level] = [];
-      if (!seen.has(level)) seen.set(level, new Set());
-      const ids = seen.get(level)!;
-      if (!ids.has(a.classroom_id)) {
-        ids.add(a.classroom_id);
-        map[level]!.push({ id: a.classroom_id, name: a.classroom_name });
-      }
-    });
-
-    return map;
-  }, [teacherAssignments]);
 
   const traitEligibleClassroomCount = Object.values(classroomsByLevel)
     .reduce((sum, list) => sum + (list?.length ?? 0), 0);
