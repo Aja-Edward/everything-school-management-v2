@@ -53,6 +53,10 @@ from .models import (
     SeniorSecondaryResult,
     SeniorSecondarySessionReport,
     SeniorSecondaryTermReport,
+    # ── add these three ──
+    TraitCategory,
+    get_report_trait_section,
+    is_physical_development_visible,
 )
 from students.models import Student
 from tenants.models import Tenant, TenantSettings
@@ -430,6 +434,83 @@ class ReportGenerator:
             logger.debug(f"get_show_physical_development: {e}")
         return True
 
+    def get_trait_sections(self, report):
+        """
+        AFFECTIVE DOMAIN / PSYCHOMOTOR SKILLS blocks for a term report —
+        shared across all four education levels. Mirrors the exact
+        resolution logic the API serializers use (get_report_trait_section),
+        so the printed PDF always matches what the teacher recording
+        screen and the API response show.
+        """
+        try:
+            affective = get_report_trait_section(report, TraitCategory.AFFECTIVE)
+        except Exception as e:
+            logger.debug(f"get_trait_sections affective: {e}")
+            affective = []
+        try:
+            psychomotor = get_report_trait_section(report, TraitCategory.PSYCHOMOTOR)
+        except Exception as e:
+            logger.debug(f"get_trait_sections psychomotor: {e}")
+            psychomotor = []
+
+        return {
+            "affective_domain": affective,
+            "psychomotor_skills": psychomotor,
+            "has_affective_domain": bool(affective),
+            "has_psychomotor_skills": bool(psychomotor),
+            # Fixed 5→1 column order for the tick-grid — passed as data since
+            # Django templates can't do inline arithmetic against loop values.
+            "trait_rating_scale": [5, 4, 3, 2, 1],
+        }
+
+    def get_physical_development_context(self, report):
+        """
+        Physical development / growth-measurement block, shared by all
+        four education levels — PhysicalDevelopmentFields backs every
+        term report model now, not just Nursery. Visibility uses
+        is_physical_development_visible() (same source of truth as the
+        API and the teacher recording form), so a level only shows this
+        section when the tenant has actually enabled + scoped it to that
+        level (or, for Nursery, when using the DEVELOPMENTAL report style).
+        """
+        visible = False
+        try:
+            tenant_settings = getattr(report.tenant, "settings", None)
+            education_level_code = getattr(
+                report.student, "education_level", None)
+            if tenant_settings is not None:
+                visible = is_physical_development_visible(
+                    tenant_settings, education_level_code
+                )
+        except Exception as e:
+            logger.debug(f"get_physical_development_context visible: {e}")
+
+        has_data = any([
+            report.physical_development, report.health,
+            report.cleanliness, report.general_conduct,
+            report.physical_development_comment,
+            report.height_beginning, report.height_end,
+            report.weight_beginning, report.weight_end,
+        ])
+
+        return {
+            "physical_development_visible": visible,
+            "has_physical_development_data": visible and has_data,
+            "development": {
+                "physical": report.get_physical_development_display() if report.physical_development else "",
+                "health": report.get_health_display() if report.health else "",
+                "cleanliness": report.get_cleanliness_display() if report.cleanliness else "",
+                "conduct": report.get_general_conduct_display() if report.general_conduct else "",
+                "comment": report.physical_development_comment or "",
+            },
+            "measurements": {
+                "height_beginning": report.height_beginning or "",
+                "height_end": report.height_end or "",
+                "weight_beginning": report.weight_beginning or "",
+                "weight_end": report.weight_end or "",
+            },
+        }
+
     def get_subject_min_max_map(self, ResultModel, exam_session, student_class):
         """
         One query for the whole report: return {subject_id: (class_max, class_min)}
@@ -734,6 +815,8 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                 },
                 "signatures": self.get_signatures(report),
                 "generated_date": datetime.now().strftime(_DATE_FORMAT),
+                **self.get_trait_sections(report),
+                **self.get_physical_development_context(report),
             }
 
             html = render_to_string(self.get_template("term"), context)
@@ -967,6 +1050,8 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
                 },
                 "signatures": self.get_signatures(report),
                 "generated_date": datetime.now().strftime(_DATE_FORMAT),
+                **self.get_trait_sections(report),
+                **self.get_physical_development_context(report),
             }
 
             html = render_to_string(self.get_template("term"), context)
@@ -1175,6 +1260,8 @@ class PrimaryReportGenerator(ReportGenerator):
                 },
                 "signatures": self.get_signatures(report),
                 "generated_date": datetime.now().strftime(_DATE_FORMAT),
+                **self.get_trait_sections(report),
+                **self.get_physical_development_context(report),
             }
 
             html = render_to_string(self.get_template("term"), context)
@@ -1392,26 +1479,8 @@ class NurseryReportGenerator(ReportGenerator):
                 "generated_date": datetime.now().strftime(_DATE_FORMAT),
                 # Physical development — shown only when at least one field
                 # was actually filled in, regardless of report style.
-                "has_physical_development_data": self.get_show_physical_development(report.student) and any([
-                    report.physical_development, report.health,
-                    report.cleanliness, report.general_conduct,
-                    report.physical_development_comment,
-                    report.height_beginning, report.height_end,
-                    report.weight_beginning, report.weight_end,
-                ]),
-                "development": {
-                    "physical": report.get_physical_development_display() if report.physical_development else "",
-                    "health": report.get_health_display() if report.health else "",
-                    "cleanliness": report.get_cleanliness_display() if report.cleanliness else "",
-                    "conduct": report.get_general_conduct_display() if report.general_conduct else "",
-                    "comment": report.physical_development_comment or "",
-                },
-                "measurements": {
-                    "height_beginning": report.height_beginning or "",
-                    "height_end": report.height_end or "",
-                    "weight_beginning": report.weight_beginning or "",
-                    "weight_end": report.weight_end or "",
-                },
+                **self.get_physical_development_context(report),
+                **self.get_trait_sections(report),
             }
 
             if style == "STANDARD":

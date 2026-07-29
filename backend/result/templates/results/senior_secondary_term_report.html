@@ -324,6 +324,64 @@ tbody tr:nth-child(even) {
     color: #1e40af;
 }
 
+/* ================= TRAITS (AFFECTIVE / PSYCHOMOTOR) ================= */
+.traits-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 6px 0;
+}
+
+.traits-row.single-column {
+    grid-template-columns: 1fr;
+}
+
+.trait-box {
+    border: 2px solid #1e40af;
+    border-radius: 6px;
+    padding: 4px 6px;
+    background: linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%);
+}
+
+.trait-box h3 {
+    margin: 0 0 3px;
+    font-size: 8pt;
+    font-weight: 800;
+    color: #1e40af;
+    border-bottom: 1px solid #bfdbfe;
+    padding-bottom: 2px;
+    text-transform: uppercase;
+}
+
+.trait-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 6.5pt;
+}
+
+.trait-table th, .trait-table td {
+    border: 1px solid #6b7280;
+    padding: 1.5px 2px;
+    text-align: center;
+}
+
+.trait-table thead th {
+    background: linear-gradient(180deg, #dbeafe 0%, #bfdbfe 100%);
+    font-weight: 800;
+    color: #1e3a8a;
+}
+
+.trait-table td.trait-name {
+    text-align: left;
+    padding-left: 4px;
+    font-weight: 600;
+}
+
+.trait-table td.tick-cell {
+    font-weight: 800;
+    color: #1e40af;
+    width: 12px;
+}
 /* ================= GRADE DISTRIBUTION BAR ================= */
 .grade-dist {
     margin-top: 2px;
@@ -611,6 +669,7 @@ tbody tr:nth-child(even) {
 </p>
 {% endif %}
 
+
 <!-- GRADE KEY -->
 <div class="grade-key-section">
     <span class="grade-key-title">Grading Scale:</span>
@@ -623,7 +682,57 @@ tbody tr:nth-child(even) {
         {% else %}
             <td><strong>A</strong> 80–100</td>
             <td><strong>B</strong> 70–79</td>
-            <td><strong>C</strong> 60–69</td>
+            <td><strong>C</strong> 60–69</td>{% if has_affective_domain or has_psychomotor_skills %}
+<div class="traits-row{% if not has_affective_domain or not has_psychomotor_skills %} single-column{% endif %}">
+    {% if has_affective_domain %}
+    <div class="trait-box">
+        <h3>Affective Domain</h3>
+        <table class="trait-table">
+            <thead>
+                <tr>
+                    <th></th>
+                    {% for n in trait_rating_scale %}<th>{{ n }}</th>{% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for trait in affective_domain %}
+                <tr>
+                    <td class="trait-name">{{ trait.name }}</td>
+                    {% for n in trait_rating_scale %}
+                        <td class="tick-cell">{% if trait.value == n %}&#10003;{% endif %}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {% if has_psychomotor_skills %}
+    <div class="trait-box">
+        <h3>Psychomotor Skills</h3>
+        <table class="trait-table">
+            <thead>
+                <tr>
+                    <th></th>
+                    {% for n in trait_rating_scale %}<th>{{ n }}</th>{% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for trait in psychomotor_skills %}
+                <tr>
+                    <td class="trait-name">{{ trait.name }}</td>
+                    {% for n in trait_rating_scale %}
+                        <td class="tick-cell">{% if trait.value == n %}&#10003;{% endif %}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
             <td><strong>D</strong> 50–59</td>
             <td><strong>E</strong> 40–49</td>
             <td><strong>F</strong> 0–39</td>
