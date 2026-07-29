@@ -11,14 +11,16 @@
  */
 
 import api from './api';
+import {TraitCategory, TraitRatingEntry, TraitRatingMode} from './ResultService';
 
 // ============================================================================
 // TYPE DEFINITIONS - TENANT
 // ============================================================================
 
-export type TraitCategory = 'AFFECTIVE' | 'PSYCHOMOTOR';
 
-export type TraitRatingMode = 'numeric' | 'text';
+
+
+
 export interface TraitField {
   id: number;
   tenant: string;
@@ -33,12 +35,6 @@ export interface TraitField {
   updated_at: string;
 }
 
-export interface TraitRatingEntry {
-  name: string;
-  value: number | null;
-  label: string | null;
-  display_mode: TraitRatingMode;
-}
 
 export interface Tenant {
   id: string;

@@ -3,10 +3,12 @@ import { useAuth } from '@/hooks/useAuth';
 import TeacherDashboardLayout from '@/components/layouts/TeacherDashboardLayout';
 import TeacherDashboardService from '@/services/TeacherDashboardService';
 import TeacherService from '@/services/TeacherService';
+import TenantService, { TenantSettings } from '@/services/TenantService';
 import ResultService from '@/services/ResultService';
 import type { EducationLevelType, SubjectResultParams } from '@/services/ResultService';
 import ResultCreateTab from '@/components/dashboards/teacher/ResultCreateTab';
-import NurseryDevelopmentRecordingForm from '@/components/dashboards/teacher/NurseryDevelopmentRecordingForm';
+import TraitsRecordingForm from '@/components/dashboards/teacher/TraitsRecordingForm';
+
 import useResultActionsManager from '@/components/dashboards/teacher/ResultActionsManager';
 import ComponentScoreRecordingModal from '@/components/dashboards/teacher/ComponentScoreRecordingModal';
 import { toast } from 'react-toastify';
@@ -149,6 +151,8 @@ const TeacherResults: React.FC = () => {
   const [filterSubject, setFilterSubject]           = useState('all');
   const [filterStatus, setFilterStatus]             = useState('all');
   const [filterLevel, setFilterLevel]               = useState<EducationLevel | 'all'>('all');
+  const [tenantSettings, setTenantSettings] = useState<TenantSettings | null>(null);
+
   // Show all results on initial load so teachers can see records from any term
   // without being hidden by the default FIRST-term filter.
   const [filterTerm, setFilterTerm]                 = useState<'FIRST' | 'SECOND' | 'THIRD' | 'SESSION'>('SESSION');
@@ -159,6 +163,11 @@ const TeacherResults: React.FC = () => {
   const [showComponentModal, setShowComponentModal] = useState(false);
   const [isMobile, setIsMobile]                     = useState(false);
 
+
+  useEffect(() => {
+    TenantService.getTenantSettings().then(setTenantSettings).catch(() => {});
+  }, []);
+  
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
     check();
@@ -691,16 +700,37 @@ const getTermKey = (termStr: string): 'FIRST' | 'SECOND' | 'THIRD' | 'OTHER' => 
 
   // Nursery classrooms this teacher has assignments for — used to show the
   // Development & Conduct tab and to populate its class selector.
-  const nurseryClassrooms = Array.from(
-    new Map(
-      (teacherAssignments as any[])
-        .filter(a => {
-          const lv = a.education_level || deriveLevel(a.classroom_name || '', a.grade_level_name);
-          return lv === 'NURSERY';
-        })
-        .filter(a => a.classroom_id)
-        .map(a => [a.classroom_id, { id: a.classroom_id as number, name: a.classroom_name as string }])
-    ).values()
+  // Classrooms this teacher has assignments for, grouped by education level.
+  // Only levels with at least one classroom appear as keys — drives both
+  // the tab's visibility and the level dropdown inside TraitsRecordingForm.
+  const classroomsByLevel = useMemo(() => {
+    const map: Partial<Record<EducationLevelType, { id: number; name: string }[]>> = {};
+    const seen = new Map<string, Set<number>>();
+
+    (teacherAssignments as any[]).forEach(a => {
+      if (!a.classroom_id) return;
+      const level = (a.education_level || deriveLevel(a.classroom_name || '', a.grade_level_name)) as EducationLevelType | undefined;
+      if (!level) return;
+
+      if (!map[level]) map[level] = [];
+      if (!seen.has(level)) seen.set(level, new Set());
+      const ids = seen.get(level)!;
+      if (!ids.has(a.classroom_id)) {
+        ids.add(a.classroom_id);
+        map[level]!.push({ id: a.classroom_id, name: a.classroom_name });
+      }
+    });
+
+    return map;
+  }, [teacherAssignments]);
+
+  const traitEligibleClassroomCount = Object.values(classroomsByLevel)
+    .reduce((sum, list) => sum + (list?.length ?? 0), 0);
+
+  const anyTraitSectionEnabled = !!(
+    tenantSettings?.show_physical_development ||
+    tenantSettings?.show_affective_domain ||
+    tenantSettings?.show_psychomotor
   );
 
   if (activeTab === 'development') return (
@@ -709,9 +739,10 @@ const getTermKey = (termStr: string): 'FIRST' | 'SECOND' | 'THIRD' | 'OTHER' => 
         <div className="max-w-6xl mx-auto bg-white rounded-xl shadow-lg p-4 md:p-6">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-xl font-bold text-gray-900">Development &amp; Conduct</h2>
+              <h2 className="text-xl font-bold text-gray-900">Traits &amp; Development</h2>
               <p className="text-sm text-gray-500 mt-0.5">
-                Record physical development ratings and height / weight for each Nursery learner.
+                Record physical development, affective domain, and psychomotor ratings
+                where enabled for your classes.
               </p>
             </div>
             <button onClick={() => setActiveTab('results')}
@@ -719,9 +750,9 @@ const getTermKey = (termStr: string): 'FIRST' | 'SECOND' | 'THIRD' | 'OTHER' => 
               <X className="w-4 h-4" /> Close
             </button>
           </div>
-          <NurseryDevelopmentRecordingForm
+          <TraitsRecordingForm
             onClose={() => setActiveTab('results')}
-            nurseryClassrooms={nurseryClassrooms}
+            classroomsByLevel={classroomsByLevel}
           />
         </div>
       </div>
@@ -798,14 +829,14 @@ const getTermKey = (termStr: string): 'FIRST' | 'SECOND' | 'THIRD' | 'OTHER' => 
                 <GraduationCap className="w-4 h-4" />
                 <span className="hidden sm:inline">Record by Component</span>
               </button>
-              {nurseryClassrooms.length > 0 && (
+              {anyTraitSectionEnabled && traitEligibleClassroomCount > 0 && (
                 <button
                   onClick={() => setActiveTab('development')}
                   className="px-3 md:px-4 py-2 bg-white border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50 flex items-center gap-1.5 text-sm font-medium transition-colors"
-                  title="Record Development & Conduct and Height/Weight for Nursery learners"
+                  title="Record physical development, affective domain, and psychomotor ratings"
                 >
                   <Users className="w-4 h-4" />
-                  <span className="hidden sm:inline">Development &amp; Conduct</span>
+                  <span className="hidden sm:inline">Traits &amp; Development</span>
                 </button>
               )}
               <button onClick={() => setActiveTab('record')}

@@ -59,6 +59,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
 export type ResultStatus = 'DRAFT' | 'APPROVED' | 'PUBLISHED';
 
+
 export interface AssessmentComponentInfo {
   id: number;
   name: string;
@@ -206,6 +207,46 @@ export interface ComponentScore {
   contributes_to_ca: boolean;
   display_order: number;
   score: string;
+}
+
+export type TraitCategory = 'AFFECTIVE' | 'PSYCHOMOTOR';
+export type TraitRatingMode = 'numeric' | 'text';
+
+export interface TraitRatingEntry {
+  name: string;
+  value: number | null;
+  label: string | null;
+  display_mode: TraitRatingMode;
+  trait_field_id?: number | null;
+}
+
+
+export interface DevelopmentTermReport {
+  id: string;
+  student: StudentMinimal;
+  physical_development_visible: boolean;
+  physical_development: string;
+  health: string;
+  cleanliness: string;
+  general_conduct: string;
+  physical_development_comment: string;
+  height_beginning: string | null;
+  height_end: string | null;
+  weight_beginning: string | null;
+  weight_end: string | null;
+  affective_domain: TraitRatingEntry[];
+  psychomotor_skills: TraitRatingEntry[];
+}
+
+export interface TraitFieldInfo {
+  id: number;
+  tenant: string;
+  education_level: number | null;
+  education_level_name?: string;
+  category: TraitCategory;
+  name: string;
+  display_order: number;
+  is_active: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -643,6 +684,83 @@ class ResultService {
     entries: BulkComponentScoreEntry[]
   ): Promise<unknown> {
     return api.post(`${this.resultEndpoint(level)}bulk-record-scores/`, { results: entries });
+  }
+
+
+/**
+   * Get-or-create a term report for (student, exam_session) on any level,
+   * returning the FULL read-serialized report — including the already
+   * tenant-resolved affective_domain / psychomotor_skills / 
+   * physical_development_visible fields. This is the single source of
+   * truth for "what sections should this student's row show" — no
+   * tenant-settings logic needs to be duplicated on the frontend.
+   */
+  async getOrCreateTermReport(
+    level: EducationLevelType,
+    studentId: string | number,
+    examSessionId: string | number
+  ): Promise<DevelopmentTermReport> {
+    const endpoint = this.termReportEndpoint(level);
+    const params = new URLSearchParams({
+      student: String(studentId),
+      exam_session: String(examSessionId),
+    });
+    const res: any = await api.get(`${endpoint}?${params}`);
+    const existing: any[] = res?.results ?? (Array.isArray(res) ? res : []);
+    if (existing.length > 0) return existing[0];
+    return api.post(endpoint, { student: studentId, exam_session: examSessionId });
+  }
+
+  /**
+   * Upsert physical-development / height-weight fields on ANY level's term
+   * report (generalizes the old nursery-only upsertNurseryTermReportFields).
+   * Field names are identical across all four levels — same
+   * PhysicalDevelopmentFields mixin backs every *TermReportCreateUpdateSerializer.
+   */
+  async upsertTermReportPhysicalDevelopment(
+    level: EducationLevelType,
+    termReportId: string,
+    data: Record<string, unknown>
+  ): Promise<void> {
+    await api.patch(this.termReportEndpoint(level, termReportId), data);
+  }
+
+  /**
+   * Fetch tenant-configured (or default-fallback) trait field definitions
+   * for a category, optionally scoped to one education level's numeric FK id.
+   * Mirrors backend get_trait_fields() priority but as raw config rows —
+   * use the *_domain / *_skills arrays on a term report for the resolved,
+   * ready-to-render list instead of calling this directly in most cases.
+   */
+  async getTraitFields(
+    category: TraitCategory,
+    educationLevelId?: number
+  ): Promise<TraitFieldInfo[]> {
+    const params: Record<string, unknown> = { category, is_active: true };
+    if (educationLevelId) params.education_level = educationLevelId;
+    const res: any = await api.get(`${this.base}/trait-fields/`, params);
+    if (Array.isArray(res)) return res;
+    return res?.results ?? [];
+  }
+
+  /**
+   * Submit a batch of trait ratings (1-5) for one term report / one category.
+   * Each rating entry needs EITHER trait_field_id (tenant-configured trait)
+   * OR default_trait_name (fallback trait, when tenant configured nothing
+   * for this category) — never both. Returns the resolved section, same
+   * shape as term_report.affective_domain / .psychomotor_skills.
+   */
+  async submitTraitRatings(
+    level: EducationLevelType,
+    termReportId: string,
+    category: TraitCategory,
+    ratings: Array<{ trait_field_id?: number | null; default_trait_name?: string; value: number }>
+  ): Promise<{ category: TraitCategory; ratings: TraitRatingEntry[] }> {
+    const path = LEVEL_PATH[level]; // reuses existing map: 'nursery' | 'primary' | 'junior-secondary' | 'senior-secondary'
+    return api.post(`${this.base}/${path}/term-reports/${termReportId}/trait-ratings/`, {
+      category,
+      ratings,
+    });
   }
 
   // ── EXAM SESSIONS ───────────────────────────────────────────────────────────
