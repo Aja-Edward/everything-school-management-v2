@@ -14,7 +14,8 @@ import resultSettingsService, {
   AssessmentComponent, AssessmentComponentCreateUpdate,
   TraitField, TraitFieldCreateUpdate,
 } from '@/services/ResultSettingsService';
-import tenantService, { NurseryReportStyle, TenantSettings, TraitRatingMode } from '@/services/TenantService';
+import {TraitRatingMode} from '@/services/ResultService'
+import tenantService, { NurseryReportStyle, TenantSettings } from '@/services/TenantService';
 import { AcademicSession } from '@/types/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
