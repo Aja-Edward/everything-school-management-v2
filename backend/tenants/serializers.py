@@ -26,7 +26,8 @@ class TenantSerializer(serializers.ModelSerializer):
             'status', 'is_active', 'owner_email', 'owner_name', 'owner_phone',
             'subdomain_url', 'created_at', 'activated_at'
         ]
-        read_only_fields = ['id', 'slug', 'status', 'is_active', 'created_at', 'activated_at']
+        read_only_fields = ['id', 'slug', 'status',
+                            'is_active', 'created_at', 'activated_at']
 
 
 class TenantSettingsSerializer(serializers.ModelSerializer):
@@ -83,9 +84,9 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
             "show_subject_min_max",
             "show_physical_development",
             "physical_development_applies_to",
-            "show_affective_domain",              
-            "show_psychomotor",                    
-            "psychomotor_applies_to", 
+            "show_affective_domain",
+            "show_psychomotor",
+            "psychomotor_applies_to",
             "affective_domain_applies_to",
             "affective_domain_rating_mode",
             "psychomotor_rating_mode",
@@ -142,6 +143,7 @@ class DesignSettingsSerializer(serializers.ModelSerializer):
             "high_contrast",
         ]
 
+
 class NurseryReportStyleSerializer(serializers.ModelSerializer):
     """Simplified serializer for nursery report style setting only."""
     nursery_report_style_display = serializers.CharField(
@@ -154,9 +156,12 @@ class NurseryReportStyleSerializer(serializers.ModelSerializer):
             "nursery_report_style",
             "nursery_report_style_display",
         ]
+
+
 class TenantServiceSerializer(serializers.ModelSerializer):
     """Serializer for TenantService model."""
-    service_display = serializers.CharField(source='get_service_display', read_only=True)
+    service_display = serializers.CharField(
+        source='get_service_display', read_only=True)
     is_default = serializers.ReadOnlyField()
     is_removable = serializers.ReadOnlyField()
 
@@ -172,7 +177,8 @@ class TenantServiceSerializer(serializers.ModelSerializer):
 
 class ServicePricingSerializer(serializers.ModelSerializer):
     """Serializer for ServicePricing model."""
-    service_display = serializers.CharField(source='get_service_display', read_only=True)
+    service_display = serializers.CharField(
+        source='get_service_display', read_only=True)
 
     class Meta:
         model = ServicePricing
@@ -187,7 +193,8 @@ class AvailableServiceSerializer(serializers.Serializer):
     service = serializers.CharField()
     name = serializers.CharField()
     description = serializers.CharField(allow_blank=True)
-    price_per_student = serializers.DecimalField(max_digits=10, decimal_places=2)
+    price_per_student = serializers.DecimalField(
+        max_digits=10, decimal_places=2)
     is_default = serializers.BooleanField()
     is_enabled = serializers.BooleanField()
     category = serializers.CharField()
@@ -207,7 +214,8 @@ class TenantInvoiceLineItemSerializer(serializers.ModelSerializer):
 
 class TenantPaymentSerializer(serializers.ModelSerializer):
     """Serializer for TenantPayment model."""
-    confirmed_by_name = serializers.CharField(source='confirmed_by.full_name', read_only=True)
+    confirmed_by_name = serializers.CharField(
+        source='confirmed_by.full_name', read_only=True)
 
     class Meta:
         model = TenantPayment
@@ -218,7 +226,8 @@ class TenantPaymentSerializer(serializers.ModelSerializer):
             'confirmed_by', 'confirmed_by_name', 'confirmed_at', 'confirmation_notes',
             'created_at'
         ]
-        read_only_fields = ['id', 'reference', 'confirmed_by', 'confirmed_at', 'created_at']
+        read_only_fields = ['id', 'reference',
+                            'confirmed_by', 'confirmed_at', 'created_at']
 
 
 class TenantInvoiceSerializer(serializers.ModelSerializer):
@@ -226,7 +235,8 @@ class TenantInvoiceSerializer(serializers.ModelSerializer):
     school_name = serializers.CharField(source="tenant.name", read_only=True)
     line_items = TenantInvoiceLineItemSerializer(many=True, read_only=True)
     payments = TenantPaymentSerializer(many=True, read_only=True)
-    academic_session_name = serializers.CharField(source='academic_session.name', read_only=True)
+    academic_session_name = serializers.CharField(
+        source='academic_session.name', read_only=True)
     term_name = serializers.SerializerMethodField()
 
     class Meta:
@@ -297,7 +307,8 @@ class TenantInvitationSerializer(serializers.ModelSerializer):
             "expires_at",
             "accepted_at",
         ]
-        read_only_fields = ['id', 'token', 'status', 'invited_by', 'created_at', 'accepted_at']
+        read_only_fields = ['id', 'token', 'status',
+                            'invited_by', 'created_at', 'accepted_at']
 
     def get_invited_by_name(self, obj):
         return obj.invited_by.full_name if obj.invited_by else None
@@ -314,7 +325,8 @@ class SchoolRegistrationSerializer(serializers.Serializer):
     admin_email = serializers.EmailField()
     admin_first_name = serializers.CharField(max_length=150)
     admin_last_name = serializers.CharField(max_length=150)
-    admin_phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    admin_phone = serializers.CharField(
+        max_length=20, required=False, allow_blank=True)
     password = serializers.CharField(min_length=8, write_only=True)
     confirm_password = serializers.CharField(min_length=8, write_only=True)
 
@@ -327,11 +339,13 @@ class SchoolRegistrationSerializer(serializers.Serializer):
 
     def validate(self, data):
         if data['password'] != data['confirm_password']:
-            raise serializers.ValidationError({'confirm_password': 'Passwords do not match'})
+            raise serializers.ValidationError(
+                {'confirm_password': 'Passwords do not match'})
 
         # Check if email already exists
         if User.objects.filter(email=data['admin_email']).exists():
-            raise serializers.ValidationError({'admin_email': 'Email already registered'})
+            raise serializers.ValidationError(
+                {'admin_email': 'Email already registered'})
 
         return data
 
@@ -353,7 +367,8 @@ class SchoolRegistrationSerializer(serializers.Serializer):
 
         # Enable default services
         for service in TenantService.DEFAULT_SERVICES:
-            TenantService.objects.create(tenant=tenant, service=service, is_enabled=True)
+            TenantService.objects.create(
+                tenant=tenant, service=service, is_enabled=True)
 
         # Create tenant settings
         TenantSettings.objects.create(
@@ -381,7 +396,8 @@ class SchoolRegistrationSerializer(serializers.Serializer):
         )
 
         # Create one-time setup token for subdomain redirect
-        setup_token = TenantSetupToken.create_for_user(user=admin_user, tenant=tenant)
+        setup_token = TenantSetupToken.create_for_user(
+            user=admin_user, tenant=tenant)
 
         return {
             'tenant': tenant,
@@ -418,8 +434,10 @@ class CustomDomainSerializer(serializers.Serializer):
 class ManualPaymentSerializer(serializers.Serializer):
     """Serializer for recording manual payment."""
     amount = serializers.DecimalField(max_digits=12, decimal_places=2)
-    bank_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
-    account_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    bank_name = serializers.CharField(
+        max_length=100, required=False, allow_blank=True)
+    account_name = serializers.CharField(
+        max_length=255, required=False, allow_blank=True)
     payment_proof = serializers.URLField(required=False, allow_blank=True)
     notes = serializers.CharField(required=False, allow_blank=True)
 
