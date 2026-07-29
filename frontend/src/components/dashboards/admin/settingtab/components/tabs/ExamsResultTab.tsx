@@ -12,8 +12,9 @@ import resultSettingsService, {
   GradingSystemCreateUpdate, AssessmentTypeCreateUpdate,
   GradeCreateUpdate, ExamSessionCreateUpdate, ExamTypeCreateUpdate,
   AssessmentComponent, AssessmentComponentCreateUpdate,
+  TraitField, TraitFieldCreateUpdate,
 } from '@/services/ResultSettingsService';
-import tenantService, { NurseryReportStyle, TenantSettings } from '@/services/TenantService';
+import tenantService, { NurseryReportStyle, TenantSettings, TraitRatingMode } from '@/services/TenantService';
 import { AcademicSession } from '@/types/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -92,6 +93,34 @@ const SectionHeader = ({
           <Plus className="h-3.5 w-3.5" /><span>{addLabel}</span>
         </button>
       </div>
+    </div>
+  </div>
+);
+
+const SettingsSectionHeader = ({
+  title, subtitle, icon: Icon, sectionKey, activeSections, onToggle,
+}: {
+  title: string; subtitle: string; icon: React.ElementType;
+  sectionKey: string; activeSections: Set<string>;
+  onToggle: (k: string) => void;
+}) => (
+  <div className="bg-black px-4 sm:px-8 py-4 sm:py-6">
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="bg-white/20 p-2.5 rounded-lg shrink-0"><Icon className="h-5 w-5 text-white" /></div>
+        <div className="min-w-0">
+          <h2 className="text-base sm:text-lg font-bold text-white truncate">{title}</h2>
+          <p className="text-white/70 text-xs hidden sm:block">{subtitle}</p>
+        </div>
+      </div>
+      <button
+        onClick={() => onToggle(sectionKey)}
+        className="bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-xs transition-colors shrink-0"
+      >
+        {activeSections.has(sectionKey)
+          ? <><EyeOff className="h-3.5 w-3.5" /><span>Hide</span></>
+          : <><Eye className="h-3.5 w-3.5" /><span>Show</span></>}
+      </button>
     </div>
   </div>
 );
@@ -296,7 +325,7 @@ const NurseryModeBanner = ({
 
 const ExamsResultTab: React.FC = () => {
   const [activeSections, setActiveSections] = useState<Set<string>>(
-    new Set(['assessment-components'])
+    new Set(['assessment-components', 'nursery-report-style', 'report-display-options'])
   );
 
   // ── Data ──────────────────────────────────────────────────────────────────
@@ -315,6 +344,29 @@ const ExamsResultTab: React.FC = () => {
   const [showSubjectMinMax,     setShowSubjectMinMax]     = useState(false);
   const [showPhysicalDev,       setShowPhysicalDev]       = useState(true);
   const [reportDisplaySaving,   setReportDisplaySaving]   = useState(false);
+  const [traitFields, setTraitFields] = useState<TraitField[]>([]);
+const [traitFormLoading, setTraitFormLoading] = useState(false);
+
+// Tenant-level toggle/scope/mode state — separate from local trait list
+const [showAffectiveDomain, setShowAffectiveDomain] = useState(false);
+const [affectiveAppliesTo, setAffectiveAppliesTo] = useState<string[]>([]);
+const [affectiveRatingMode, setAffectiveRatingMode] = useState<TraitRatingMode>('numeric');
+
+const [showPsychomotor, setShowPsychomotor] = useState(false);
+const [psychomotorAppliesTo, setPsychomotorAppliesTo] = useState<string[]>([]);
+const [psychomotorRatingMode, setPsychomotorRatingMode] = useState<TraitRatingMode>('numeric');
+
+const [traitSettingsSaving, setTraitSettingsSaving] = useState(false);
+const [physicalDevAppliesTo, setPhysicalDevAppliesTo] = useState<string[]>([]);
+
+// Trait field modal
+const [showTraitFieldForm, setShowTraitFieldForm] = useState(false);
+const [traitFieldCategory, setTraitFieldCategory] = useState<'AFFECTIVE' | 'PSYCHOMOTOR'>('AFFECTIVE');
+
+const blankTraitField = (category: 'AFFECTIVE' | 'PSYCHOMOTOR'): TraitFieldCreateUpdate & { id?: number } => ({
+  category, name: '', education_level: null, display_order: 0, is_active: true,
+});
+const [traitFieldForm, setTraitFieldForm] = useState(blankTraitField('AFFECTIVE'));
 
   // ── Modal visibility ──────────────────────────────────────────────────────
   const [showScoringConfigForm,   setShowScoringConfigForm]   = useState(false);
@@ -392,6 +444,7 @@ const ExamsResultTab: React.FC = () => {
         resultSettingsService.getAcademicSessions(),
         resultSettingsService.getExamTypes(),
         resultSettingsService.getAssessmentComponents(),
+
       ]);
       setGradingSystems(gs);
       setGrades(gr);
@@ -414,10 +467,23 @@ const ExamsResultTab: React.FC = () => {
         const settings = await tenantService.getTenantSettings();
         setShowSubjectMinMax(!!settings.show_subject_min_max);
         setShowPhysicalDev(settings.show_physical_development ?? true);
+        setPhysicalDevAppliesTo(settings.physical_development_applies_to ?? []);
+        setShowAffectiveDomain(!!settings.show_affective_domain);
+        setAffectiveAppliesTo(settings.affective_domain_applies_to ?? []);
+        setAffectiveRatingMode(settings.affective_domain_rating_mode ?? 'numeric');
+
+        setShowPsychomotor(!!settings.show_psychomotor);
+        setPsychomotorAppliesTo(settings.psychomotor_applies_to ?? []);
+        setPsychomotorRatingMode(settings.psychomotor_rating_mode ?? 'numeric');
       } catch {
         // keep defaults
       }
 
+    try {
+        setTraitFields(await resultSettingsService.getTraitFields());
+      } catch {
+        // empty list falls back to DEFAULT_TRAIT_FIELDS server-side anyway
+      }
       // Load education levels and academic terms
       try {
         const { default: api } = await import('@/services/api');
@@ -462,7 +528,22 @@ const ExamsResultTab: React.FC = () => {
     }
   };
 
-
+  const handlePhysicalDevScopeChange = async (levels: string[]) => {
+    const revert = physicalDevAppliesTo;
+    setPhysicalDevAppliesTo(levels);
+    setReportDisplaySaving(true);
+    try {
+      await tenantService.updateTenantSettings({
+        physical_development_applies_to: levels,
+      } as Partial<TenantSettings>);
+      toast.success('Scope updated');
+    } catch {
+      setPhysicalDevAppliesTo(revert);
+      toast.error('Failed to update scope');
+    } finally {
+      setReportDisplaySaving(false);
+    }
+  };
   const handleReportDisplayToggle = async (
     field: 'show_subject_min_max' | 'show_physical_development',
     value: boolean
@@ -484,10 +565,167 @@ const ExamsResultTab: React.FC = () => {
     }
   };
 
+  const handleTraitSettingToggle = async (
+    field: 'show_affective_domain' | 'show_psychomotor',
+    value: boolean
+  ) => {
+    if (traitSettingsSaving) return;
+    const revert = field === 'show_affective_domain' ? showAffectiveDomain : showPsychomotor;
+    const setLocal = field === 'show_affective_domain' ? setShowAffectiveDomain : setShowPsychomotor;
+
+    setLocal(value);
+    setTraitSettingsSaving(true);
+    try {
+      await tenantService.updateTenantSettings({ [field]: value } as Partial<TenantSettings>);
+      toast.success('Setting updated');
+    } catch {
+      setLocal(revert);
+      toast.error('Failed to update setting');
+    } finally {
+      setTraitSettingsSaving(false);
+    }
+  };
+
+  const handleTraitScopeChange = async (
+    field: 'affective_domain_applies_to' | 'psychomotor_applies_to',
+    levels: string[]
+  ) => {
+    const revert = field === 'affective_domain_applies_to' ? affectiveAppliesTo : psychomotorAppliesTo;
+    const setLocal = field === 'affective_domain_applies_to' ? setAffectiveAppliesTo : setPsychomotorAppliesTo;
+
+    setLocal(levels);
+    setTraitSettingsSaving(true);
+    try {
+      await tenantService.updateTenantSettings({ [field]: levels } as Partial<TenantSettings>);
+      toast.success('Scope updated');
+    } catch {
+      setLocal(revert);
+      toast.error('Failed to update scope');
+    } finally {
+      setTraitSettingsSaving(false);
+    }
+  };
+
+  const handleTraitModeChange = async (
+    field: 'affective_domain_rating_mode' | 'psychomotor_rating_mode',
+    mode: TraitRatingMode
+  ) => {
+    const revert = field === 'affective_domain_rating_mode' ? affectiveRatingMode : psychomotorRatingMode;
+    const setLocal = field === 'affective_domain_rating_mode' ? setAffectiveRatingMode : setPsychomotorRatingMode;
+
+    setLocal(mode);
+    setTraitSettingsSaving(true);
+    try {
+      await tenantService.updateTenantSettings({ [field]: mode } as Partial<TenantSettings>);
+      toast.success('Rating mode updated');
+    } catch {
+      setLocal(revert);
+      toast.error('Failed to update rating mode');
+    } finally {
+      setTraitSettingsSaving(false);
+    }
+  };
+
+  // ── TraitField CRUD ──
+  const handleCreateTraitField = async () => {
+    setTraitFormLoading(true);
+    try {
+      if (!traitFieldForm.name) { toast.error('Trait name is required'); return; }
+      const { id, ...data } = traitFieldForm;
+      await resultSettingsService.createTraitField(data);
+      toast.success('Trait added');
+      setShowTraitFieldForm(false);
+      setTraitFields(await resultSettingsService.getTraitFields());
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Failed to add trait');
+    } finally { setTraitFormLoading(false); }
+  };
+
+  const handleUpdateTraitField = async (id: number) => {
+    setTraitFormLoading(true);
+    try {
+      const { id: _, ...data } = traitFieldForm;
+      await resultSettingsService.updateTraitField(id, data);
+      toast.success('Trait updated');
+      setShowTraitFieldForm(false);
+      setTraitFields(await resultSettingsService.getTraitFields());
+    } catch { toast.error('Failed to update trait'); }
+    finally { setTraitFormLoading(false); }
+  };
+
+  const handleDeleteTraitField = async (id: number) => {
+    if (!window.confirm('Delete this trait?')) return;
+    try {
+      await resultSettingsService.deleteTraitField(id);
+      toast.success('Trait deleted');
+      setTraitFields(await resultSettingsService.getTraitFields());
+    } catch { toast.error('Failed to delete trait'); }
+  };
+
+  const handleSeedDefaults = async (category: 'AFFECTIVE' | 'PSYCHOMOTOR') => {
+    if (!window.confirm(
+      `Copy the ${category === 'AFFECTIVE' ? 'Affective Domain' : 'Psychomotor Skills'} default trait list into your own editable list?`
+    )) return;
+    try {
+      await resultSettingsService.seedDefaultTraitFields();
+      toast.success('Default traits added — you can now edit or remove them');
+      setTraitFields(await resultSettingsService.getTraitFields());
+    } catch { toast.error('Failed to seed defaults'); }
+  };
+
+
   // ─────────────────────────────────────────────────────────────────────────
   // HELPERS — education level resolution
   // ─────────────────────────────────────────────────────────────────────────
 
+  const LevelScopeSelector = ({
+    educationLevels, selected, onChange, disabled, emptyMeansAll = true,
+  }: {
+    educationLevels: EducationLevel[];
+    selected: string[];
+    onChange: (levels: string[]) => void;
+    disabled?: boolean;
+    emptyMeansAll?: boolean;
+  }) => {
+    const toggle = (levelType: string) => {
+      const next = selected.includes(levelType)
+        ? selected.filter((l) => l !== levelType)
+        : [...selected, levelType];
+      onChange(next);
+    };
+
+    return (
+      <div>
+        <div className="flex flex-wrap gap-2">
+          {educationLevels.map((l) => {
+            const active = selected.includes(l.level_type);
+            return (
+              <button
+                key={l.id}
+                type="button"
+                disabled={disabled}
+                onClick={() => toggle(l.level_type)}
+                className={`text-xs px-3 py-1.5 rounded-full font-medium border transition-colors disabled:opacity-50 ${
+                  active
+                    ? 'bg-black text-white border-black'
+                    : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                {l.name}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-xs text-gray-400 mt-2">
+          {selected.length === 0
+            ? (emptyMeansAll
+                ? 'No levels selected — applies to ALL levels.'
+                : 'No levels selected — this section will not appear anywhere via this setting.')
+            : `Restricted to: ${selected.join(', ')}`}
+        </p>
+      </div>
+    );
+  };
   /**
    * Returns a display name for a component's education_level field,
    * which may be an object (from API) or a raw ID.
@@ -818,146 +1056,431 @@ const ExamsResultTab: React.FC = () => {
           NURSERY REPORT STYLE
       ══════════════════════════════════════════════════════════════════════ */}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-        <div className="bg-black px-4 sm:px-8 py-4 sm:py-6">
-          <div className="flex items-center gap-3">
-            <div className="bg-white/20 p-2.5 rounded-lg shrink-0">
-              <LayoutTemplate className="h-5 w-5 text-white" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-base sm:text-lg font-bold text-white">Nursery Report Style</h2>
-              <p className="text-white/70 text-xs hidden sm:block">
-                Choose how Nursery term reports are scored and printed
-              </p>
-            </div>
-          </div>
-        </div>
+  <SettingsSectionHeader
+    title="Nursery Report Style"
+    subtitle="Choose how Nursery term reports are scored and printed"
+    icon={LayoutTemplate}
+    sectionKey="nursery-report-style"
+    activeSections={activeSections}
+    onToggle={toggleSection}
+  />
 
-        <div className="p-6 space-y-4">
-          <InfoBanner>
-            This only affects the Nursery report template — Primary and Secondary reports are unchanged.
-          </InfoBanner>
+  {activeSections.has('nursery-report-style') && (
+    <div className="p-6 space-y-4">
+      <InfoBanner>
+        This only affects the Nursery report template — Primary and Secondary reports are unchanged.
+      </InfoBanner>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {(['STANDARD', 'DEVELOPMENTAL'] as NurseryReportStyle[]).map((style) => {
-              const selected = nurseryReportStyle === style;
-              const label = style === 'STANDARD' ? 'Standard' : 'Developmental';
-              const desc =
-                style === 'STANDARD'
-                  ? 'Same format as Primary — subjects, CA/Exam, average, grade.'
-                  : 'Marks obtained, physical development, height/weight.';
-              return (
-                <button
-                  key={style}
-                  type="button"
-                  disabled={nurseryStyleSaving}
-                  onClick={() => handleNurseryReportStyleChange(style)}
-                  className={`text-left border rounded-xl p-4 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                    selected
-                      ? 'border-black bg-gray-50 ring-1 ring-black'
-                      : 'border-gray-200 hover:bg-gray-50'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <p className="font-semibold text-gray-900">{label}</p>
-                    {selected && <CheckCircle className="w-4 h-4 text-black shrink-0" />}
-                  </div>
-                  <p className="text-xs text-gray-500">{desc}</p>
-                </button>
-              );
-            })}
-          </div>
-
-          {nurseryStyleSaving && (
-            <p className="text-xs text-gray-400 flex items-center gap-1.5">
-              <span className="animate-spin rounded-full h-3 w-3 border-2 border-gray-300 border-t-black inline-block" />
-              Saving…
-            </p>
-          )}
-        </div>
-      </div>
-
-
-      {/* ══════════════════════════════════════════════════════════════════════
-          REPORT DISPLAY OPTIONS
-      ══════════════════════════════════════════════════════════════════════ */}
-      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-        <div className="bg-black px-4 sm:px-8 py-4 sm:py-6">
-          <div className="flex items-center gap-3">
-            <div className="bg-white/20 p-2.5 rounded-lg shrink-0">
-              <Eye className="h-5 w-5 text-white" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-base sm:text-lg font-bold text-white">Report Display Options</h2>
-              <p className="text-white/70 text-xs hidden sm:block">
-                Control extra columns and sections shown on printed term reports
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-6 space-y-4">
-          <div className="flex items-start justify-between gap-4 border border-gray-200 rounded-xl p-4">
-            <div>
-              <p className="font-semibold text-gray-900 text-sm">Class Max / Min per Subject</p>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Adds "MAX" and "MIN" columns to every subject row, showing the highest and
-                lowest score in the class for that subject. Applies to Primary, Junior
-                Secondary, Senior Secondary, and Nursery (Standard style) reports.
-              </p>
-            </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {(['STANDARD', 'DEVELOPMENTAL'] as NurseryReportStyle[]).map((style) => {
+          const selected = nurseryReportStyle === style;
+          const label = style === 'STANDARD' ? 'Standard' : 'Developmental';
+          const desc =
+            style === 'STANDARD'
+              ? 'Same format as Primary — subjects, CA/Exam, average, grade.'
+              : 'Marks obtained, physical development, height/weight.';
+          return (
             <button
+              key={style}
               type="button"
-              role="switch"
-              aria-checked={showSubjectMinMax}
-              disabled={reportDisplaySaving}
-              onClick={() => handleReportDisplayToggle('show_subject_min_max', !showSubjectMinMax)}
-              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                showSubjectMinMax ? 'bg-black' : 'bg-gray-200'
+              disabled={nurseryStyleSaving}
+              onClick={() => handleNurseryReportStyleChange(style)}
+              className={`text-left border rounded-xl p-4 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                selected ? 'border-black bg-gray-50 ring-1 ring-black' : 'border-gray-200 hover:bg-gray-50'
               }`}
             >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  showSubjectMinMax ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="font-semibold text-gray-900">{label}</p>
+                {selected && <CheckCircle className="w-4 h-4 text-black shrink-0" />}
+              </div>
+              <p className="text-xs text-gray-500">{desc}</p>
             </button>
-          </div>
-
-          <div className="flex items-start justify-between gap-4 border border-gray-200 rounded-xl p-4">
-            <div>
-              <p className="font-semibold text-gray-900 text-sm">Physical Development Section</p>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Shows the Physical Development, Health, Cleanliness, Conduct, and Height/Weight
-                section on Nursery term reports, whenever that data has been recorded for a
-                student. Turn off to hide this section entirely, even if data exists.
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={showPhysicalDev}
-              disabled={reportDisplaySaving}
-              onClick={() => handleReportDisplayToggle('show_physical_development', !showPhysicalDev)}
-              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                showPhysicalDev ? 'bg-black' : 'bg-gray-200'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  showPhysicalDev ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
-          </div>
-
-          {reportDisplaySaving && (
-            <p className="text-xs text-gray-400 flex items-center gap-1.5">
-              <span className="animate-spin rounded-full h-3 w-3 border-2 border-gray-300 border-t-black inline-block" />
-              Saving…
-            </p>
-          )}
-        </div>
+          );
+        })}
       </div>
+
+      {nurseryStyleSaving && (
+        <p className="text-xs text-gray-400 flex items-center gap-1.5">
+          <span className="animate-spin rounded-full h-3 w-3 border-2 border-gray-300 border-t-black inline-block" />
+          Saving…
+        </p>
+      )}
+    </div>
+  )}
+</div>
+
+
+  {/* ══════════════════════════════════════════════════════════════════════
+    REPORT DISPLAY OPTIONS
+══════════════════════════════════════════════════════════════════════ */}
+<div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+  <SettingsSectionHeader
+    title="Report Display Options"
+    subtitle="Control extra columns and sections shown on printed term reports"
+    icon={Eye}
+    sectionKey="report-display-options"
+    activeSections={activeSections}
+    onToggle={toggleSection}
+  />
+
+  {activeSections.has('report-display-options') && (
+    <div className="p-6 space-y-4">
+      <div className="flex items-start justify-between gap-4 border border-gray-200 rounded-xl p-4">
+        <div>
+          <p className="font-semibold text-gray-900 text-sm">Class Max / Min per Subject</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Adds "MAX" and "MIN" columns to every subject row, showing the highest and
+            lowest score in the class for that subject. Applies to Primary, Junior
+            Secondary, Senior Secondary, and Nursery (Standard style) reports.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={showSubjectMinMax}
+          disabled={reportDisplaySaving}
+          onClick={() => handleReportDisplayToggle('show_subject_min_max', !showSubjectMinMax)}
+          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+            showSubjectMinMax ? 'bg-black' : 'bg-gray-200'
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              showSubjectMinMax ? 'translate-x-6' : 'translate-x-1'
+            }`}
+          />
+        </button>
+      </div>
+
+      <div className="border border-gray-200 rounded-xl p-4 space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="font-semibold text-gray-900 text-sm">Physical Development Section</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Shows the Physical Development, Health, Cleanliness, Conduct, and Height/Weight
+            section on term reports for the levels selected below.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={showPhysicalDev}
+          disabled={reportDisplaySaving}
+          onClick={() => handleReportDisplayToggle('show_physical_development', !showPhysicalDev)}
+          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+            showPhysicalDev ? 'bg-black' : 'bg-gray-200'
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              showPhysicalDev ? 'translate-x-6' : 'translate-x-1'
+            }`}
+          />
+        </button>
+      </div>
+
+  {showPhysicalDev && (
+    <div className="pt-3 border-t border-gray-100">
+      <p className="text-sm font-medium text-gray-800 mb-2">Applies to which levels?</p>
+      <LevelScopeSelector
+        educationLevels={educationLevels}
+        selected={physicalDevAppliesTo}
+        onChange={handlePhysicalDevScopeChange}
+        disabled={reportDisplaySaving}
+        emptyMeansAll={false}
+      />
+      <InfoBanner>
+        This scope has no effect on a Nursery report using the <strong>Developmental</strong> style
+        (see Nursery Report Style above) — that style always includes Physical Development
+        regardless of this setting. This scope only controls whether the section is added to
+        reports using the <strong>Standard</strong> style, for whichever levels you select.
+      </InfoBanner>
+    </div>
+  )}
+</div>
+
+      {reportDisplaySaving && (
+        <p className="text-xs text-gray-400 flex items-center gap-1.5">
+          <span className="animate-spin rounded-full h-3 w-3 border-2 border-gray-300 border-t-black inline-block" />
+          Saving…
+        </p>
+      )}
+    </div>
+  )}
+</div>
+
+{/* ══════════════════════════════════════════════════════════════════════
+    AFFECTIVE DOMAIN
+══════════════════════════════════════════════════════════════════════ */}
+<div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+  <SectionHeader
+    title="Affective Domain"
+    subtitle="Configure the character/attitude traits section on term reports"
+    icon={Users}
+    count={traitFields.filter((t) => t.category === 'AFFECTIVE').length}
+    sectionKey="affective-domain"
+    activeSections={activeSections}
+    onToggle={toggleSection}
+    onAdd={() => { setTraitFieldCategory('AFFECTIVE'); setTraitFieldForm(blankTraitField('AFFECTIVE')); setShowTraitFieldForm(true); }}
+    addLabel="Add Trait"
+  />
+
+  {activeSections.has('affective-domain') && (
+    <div className="p-6 space-y-5">
+      <div className="flex items-start justify-between gap-4 border border-gray-200 rounded-xl p-4">
+        <div>
+          <p className="font-semibold text-gray-900 text-sm">Show Affective Domain Section</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Master switch. If off, this section never appears on any report, regardless of any other setting below.
+          </p>
+        </div>
+        <button
+          type="button" role="switch" aria-checked={showAffectiveDomain}
+          disabled={traitSettingsSaving}
+          onClick={() => handleTraitSettingToggle('show_affective_domain', !showAffectiveDomain)}
+          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
+            showAffectiveDomain ? 'bg-black' : 'bg-gray-200'
+          }`}
+        >
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+            showAffectiveDomain ? 'translate-x-6' : 'translate-x-1'
+          }`} />
+        </button>
+      </div>
+
+      {showAffectiveDomain && (
+        <>
+          <div className="border border-gray-200 rounded-xl p-4">
+            <p className="font-semibold text-gray-900 text-sm mb-2">Applies to which levels?</p>
+            <LevelScopeSelector
+              educationLevels={educationLevels}
+              selected={affectiveAppliesTo}
+              onChange={(levels) => handleTraitScopeChange('affective_domain_applies_to', levels)}
+              disabled={traitSettingsSaving}
+            />
+          </div>
+
+          <div className="border border-gray-200 rounded-xl p-4">
+            <p className="font-semibold text-gray-900 text-sm mb-2">Rating Display</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {(['numeric', 'text'] as TraitRatingMode[]).map((mode) => {
+                const selected = affectiveRatingMode === mode;
+                return (
+                  <button
+                    key={mode} type="button" disabled={traitSettingsSaving}
+                    onClick={() => handleTraitModeChange('affective_domain_rating_mode', mode)}
+                    className={`text-left border rounded-lg p-3 transition-colors disabled:opacity-50 ${
+                      selected ? 'border-black bg-gray-50 ring-1 ring-black' : 'border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    <p className="text-sm font-medium text-gray-900">
+                      {mode === 'numeric' ? 'Numeric Grid' : 'Text Label'}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {mode === 'numeric' ? '5–4–3–2–1 tick grid (current default)' : 'Excellent / Very Good / Good…'}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="border border-gray-200 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="font-semibold text-gray-900 text-sm">Traits</p>
+              <button
+                onClick={() => handleSeedDefaults('AFFECTIVE')}
+                className="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg font-medium transition-colors"
+              >
+                Start from defaults
+              </button>
+            </div>
+
+            {traitFields.filter((t) => t.category === 'AFFECTIVE').length === 0 ? (
+              <InfoBanner>
+                No traits configured — reports will use the platform default list (Attentiveness, Honesty,
+                Neatness, Politeness, Punctuality, Self Control, Obedience, Reliability, Sense of
+                Responsibility, Relationship With Others).
+              </InfoBanner>
+            ) : (
+              <div className="space-y-1.5">
+                {traitFields.filter((t) => t.category === 'AFFECTIVE')
+                  .sort((a, b) => a.display_order - b.display_order)
+                  .map((t) => (
+                    <div key={t.id} className="flex items-center justify-between text-sm border border-gray-100 rounded-lg px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-800">{t.name}</span>
+                        {t.education_level && (
+                          <span className="text-xs bg-gray-100 px-2 py-0.5 rounded-full text-gray-500">
+                            {resolveELName(t.education_level)}
+                          </span>
+                        )}
+                        {!t.is_active && <span className="text-xs text-gray-400">(inactive)</span>}
+                      </div>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => {
+                            setTraitFieldCategory('AFFECTIVE');
+                            setTraitFieldForm({
+                              id: t.id, category: 'AFFECTIVE', name: t.name,
+                              education_level: resolveELId(t.education_level) as any || null,
+                              display_order: t.display_order, is_active: t.is_active,
+                            });
+                            setShowTraitFieldForm(true);
+                          }}
+                          className="p-1 hover:bg-gray-100 rounded text-gray-500"
+                        ><Edit className="w-3.5 h-3.5" /></button>
+                        <button
+                          onClick={() => handleDeleteTraitField(t.id)}
+                          className="p-1 hover:bg-red-50 rounded text-gray-500 hover:text-red-600"
+                        ><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )}
+</div>
+
+{/* ══════════════════════════════════════════════════════════════════════
+    PSYCHOMOTOR SKILLS
+══════════════════════════════════════════════════════════════════════ */}
+<div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+  <SectionHeader
+    title="Psychomotor Skills"
+    subtitle="Configure the physical/practical skills section on term reports"
+    icon={Star}
+    count={traitFields.filter((t) => t.category === 'PSYCHOMOTOR').length}
+    sectionKey="psychomotor-skills"
+    activeSections={activeSections}
+    onToggle={toggleSection}
+    onAdd={() => { setTraitFieldCategory('PSYCHOMOTOR'); setTraitFieldForm(blankTraitField('PSYCHOMOTOR')); setShowTraitFieldForm(true); }}
+    addLabel="Add Trait"
+  />
+
+  {activeSections.has('psychomotor-skills') && (
+    <div className="p-6 space-y-5">
+      <div className="flex items-start justify-between gap-4 border border-gray-200 rounded-xl p-4">
+        <div>
+          <p className="font-semibold text-gray-900 text-sm">Show Psychomotor Section</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Master switch. If off, this section never appears on any report, regardless of any other setting below.
+          </p>
+        </div>
+        <button
+          type="button" role="switch" aria-checked={showPsychomotor}
+          disabled={traitSettingsSaving}
+          onClick={() => handleTraitSettingToggle('show_psychomotor', !showPsychomotor)}
+          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
+            showPsychomotor ? 'bg-black' : 'bg-gray-200'
+          }`}
+        >
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+            showPsychomotor ? 'translate-x-6' : 'translate-x-1'
+          }`} />
+        </button>
+      </div>
+
+      {showPsychomotor && (
+        <>
+          <div className="border border-gray-200 rounded-xl p-4">
+            <p className="font-semibold text-gray-900 text-sm mb-2">Applies to which levels?</p>
+            <LevelScopeSelector
+              educationLevels={educationLevels}
+              selected={psychomotorAppliesTo}
+              onChange={(levels) => handleTraitScopeChange('psychomotor_applies_to', levels)}
+              disabled={traitSettingsSaving}
+            />
+          </div>
+
+          <div className="border border-gray-200 rounded-xl p-4">
+            <p className="font-semibold text-gray-900 text-sm mb-2">Rating Display</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {(['numeric', 'text'] as TraitRatingMode[]).map((mode) => {
+                const selected = psychomotorRatingMode === mode;
+                return (
+                  <button
+                    key={mode} type="button" disabled={traitSettingsSaving}
+                    onClick={() => handleTraitModeChange('psychomotor_rating_mode', mode)}
+                    className={`text-left border rounded-lg p-3 transition-colors disabled:opacity-50 ${
+                      selected ? 'border-black bg-gray-50 ring-1 ring-black' : 'border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    <p className="text-sm font-medium text-gray-900">
+                      {mode === 'numeric' ? 'Numeric Grid' : 'Text Label'}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {mode === 'numeric' ? '5–4–3–2–1 tick grid (current default)' : 'Excellent / Very Good / Good…'}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="border border-gray-200 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="font-semibold text-gray-900 text-sm">Traits</p>
+              <button
+                onClick={() => handleSeedDefaults('PSYCHOMOTOR')}
+                className="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg font-medium transition-colors"
+              >
+                Start from defaults
+              </button>
+            </div>
+
+            {traitFields.filter((t) => t.category === 'PSYCHOMOTOR').length === 0 ? (
+              <InfoBanner>
+                No traits configured — reports will use the platform default list (Handling of Tools,
+                Drawing/Painting, Handwriting, Public Speaking, Speech Fluency, Sports & Games).
+              </InfoBanner>
+            ) : (
+              <div className="space-y-1.5">
+                {traitFields.filter((t) => t.category === 'PSYCHOMOTOR')
+                  .sort((a, b) => a.display_order - b.display_order)
+                  .map((t) => (
+                    <div key={t.id} className="flex items-center justify-between text-sm border border-gray-100 rounded-lg px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-800">{t.name}</span>
+                        {t.education_level && (
+                          <span className="text-xs bg-gray-100 px-2 py-0.5 rounded-full text-gray-500">
+                            {resolveELName(t.education_level)}
+                          </span>
+                        )}
+                        {!t.is_active && <span className="text-xs text-gray-400">(inactive)</span>}
+                      </div>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => {
+                            setTraitFieldCategory('PSYCHOMOTOR');
+                            setTraitFieldForm({
+                              id: t.id, category: 'PSYCHOMOTOR', name: t.name,
+                              education_level: resolveELId(t.education_level) as any || null,
+                              display_order: t.display_order, is_active: t.is_active,
+                            });
+                            setShowTraitFieldForm(true);
+                          }}
+                          className="p-1 hover:bg-gray-100 rounded text-gray-500"
+                        ><Edit className="w-3.5 h-3.5" /></button>
+                        <button
+                          onClick={() => handleDeleteTraitField(t.id)}
+                          className="p-1 hover:bg-red-50 rounded text-gray-500 hover:text-red-600"
+                        ><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )}
+</div>
 
       {/* ══════════════════════════════════════════════════════════════════════
           ASSESSMENT COMPONENTS
@@ -2050,6 +2573,77 @@ const ExamsResultTab: React.FC = () => {
         </div>
       )}
 
+
+    {showTraitFieldForm && (
+  <ModalShell
+    title={traitFieldForm.id ? 'Edit Trait' : `Add ${traitFieldCategory === 'AFFECTIVE' ? 'Affective Domain' : 'Psychomotor'} Trait`}
+    subtitle="One row/column on the printed report's trait section"
+    icon={traitFieldCategory === 'AFFECTIVE' ? Users : Star}
+    onClose={() => { setShowTraitFieldForm(false); setTraitFieldForm(blankTraitField(traitFieldCategory)); }}
+  >
+    <FormField label="Trait Name" required>
+      <input
+        type="text"
+        value={traitFieldForm.name}
+        onChange={(e) => setTraitFieldForm((f) => ({ ...f, name: e.target.value }))}
+        className={inputCls}
+        placeholder="e.g. Punctuality"
+      />
+    </FormField>
+
+    <FormField
+      label="Education Level"
+      hint="Leave blank to apply this trait to every education level"
+    >
+      <select
+        value={traitFieldForm.education_level ?? ''}
+        onChange={(e) => setTraitFieldForm((f) => ({
+          ...f, education_level: e.target.value ? Number(e.target.value) : null,
+        }))}
+        className={inputCls}
+      >
+        <option value="">All levels</option>
+        {educationLevels.map((l) => (
+          <option key={l.id} value={l.id}>{l.name}</option>
+        ))}
+      </select>
+    </FormField>
+
+    <FormField label="Display Order" hint="Lower numbers appear first">
+      <input
+        type="number"
+        min={0}
+        value={traitFieldForm.display_order}
+        onChange={(e) => setTraitFieldForm((f) => ({ ...f, display_order: Number(e.target.value) }))}
+        className={inputCls}
+      />
+    </FormField>
+
+    <label className="flex items-center gap-2 text-sm cursor-pointer">
+      <input
+        type="checkbox"
+        checked={traitFieldForm.is_active}
+        onChange={(e) => setTraitFieldForm((f) => ({ ...f, is_active: e.target.checked }))}
+        className="w-4 h-4"
+      />
+      Active
+    </label>
+
+    <div className="flex justify-end gap-3 pt-4 border-t">
+      <button
+        onClick={() => { setShowTraitFieldForm(false); setTraitFieldForm(blankTraitField(traitFieldCategory)); }}
+        className="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+      >
+        Cancel
+      </button>
+      <SaveButton
+        saving={traitFormLoading}
+        label={traitFieldForm.id ? 'Update Trait' : 'Add Trait'}
+        onClick={() => traitFieldForm.id ? handleUpdateTraitField(traitFieldForm.id) : handleCreateTraitField()}
+      />
+    </div>
+  </ModalShell>
+)}  
       {/* ── Scoring Configuration Modal ── */}
       {showScoringConfigForm && (
         <ModalShell
@@ -2171,6 +2765,7 @@ const ExamsResultTab: React.FC = () => {
         </ModalShell>
       )}
     </div>
+    
   );
 };
 

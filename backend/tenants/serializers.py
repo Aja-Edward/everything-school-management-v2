@@ -82,6 +82,9 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
             "require_token_for_result",
             "show_subject_min_max",
             "show_physical_development",
+            "physical_development_applies_to",
+            "affective_domain_rating_mode",
+            "psychomotor_rating_mode",
             # Academic Year
             "academic_year_start",
             "academic_year_end",

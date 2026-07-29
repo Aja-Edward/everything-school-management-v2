@@ -232,6 +232,31 @@ export interface AssessmentTypeCreateUpdate {
   is_active: boolean;
 }
 
+
+// ── Types ──
+export interface TraitField {
+  id: number;
+  tenant: string;
+  education_level: number | { id: number; name: string; level_type: string } | null;
+  education_level_name?: string;
+  category: 'AFFECTIVE' | 'PSYCHOMOTOR';
+  category_display?: string;
+  name: string;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TraitFieldCreateUpdate {
+  education_level?: number | null;
+  category: 'AFFECTIVE' | 'PSYCHOMOTOR';
+  name: string;
+  display_order: number;
+  is_active: boolean;
+}
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -287,6 +312,32 @@ class ResultSettingsService {
   async deleteGrade(id: string): Promise<void> {
     return api.delete(`${this.base}/grades/${id}/`);
   }
+
+
+// ── Methods (add inside the ResultSettingsService class) ──
+  // ── TraitField ──────────────────────────────────────────────────────────────
+
+async getTraitFields(category?: 'AFFECTIVE' | 'PSYCHOMOTOR'): Promise<TraitField[]> {
+  const params = category ? { category } : undefined;
+  const res = await api.get(`${this.base}/trait-fields/`, params);
+  return extractArray<TraitField>(res);
+}
+
+async createTraitField(data: TraitFieldCreateUpdate): Promise<TraitField> {
+  return api.post(`${this.base}/trait-fields/`, data);
+}
+
+async updateTraitField(id: number, data: Partial<TraitFieldCreateUpdate>): Promise<TraitField> {
+  return api.patch(`${this.base}/trait-fields/${id}/`, data);
+}
+
+async deleteTraitField(id: number): Promise<void> {
+  return api.delete(`${this.base}/trait-fields/${id}/`);
+}
+
+async seedDefaultTraitFields(): Promise<{ detail: string }> {
+  return api.post(`${this.base}/trait-fields/seed-defaults/`, { confirm: true });
+}
 
   // ── AssessmentComponent ─────────────────────────────────────────────────────
 

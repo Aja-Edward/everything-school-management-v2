@@ -67,6 +67,7 @@ from students.models import Student
 from subject.models import Subject
 from tenants.models import TenantMixin
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -263,6 +264,384 @@ class AssessmentComponent(TenantMixin, models.Model):
         if self.tenant_id is None:
             raise ValueError("tenant is required")
         super().save(*args, **kwargs)
+
+
+# ============================================================
+# TRAIT CATEGORY
+# ============================================================
+
+class TraitCategory(models.TextChoices):
+    AFFECTIVE = "AFFECTIVE", "Affective Domain"
+    PSYCHOMOTOR = "PSYCHOMOTOR", "Psychomotor Skills"
+
+
+# The exact list your current hardcoded report shows today.
+# This is the fallback ONLY — never written to the DB automatically.
+# A tenant that configures nothing gets exactly this, in this order.
+DEFAULT_TRAIT_FIELDS = {
+    TraitCategory.AFFECTIVE: [
+        "Attentiveness",
+        "Honesty",
+        "Neatness",
+        "Politeness",
+        "Punctuality/ Assembly",
+        "Self Control/ Calmness",
+        "Obedience",
+        "Reliability",
+        "Sense Of Responsibility",
+        "Relationship With Others",
+    ],
+    TraitCategory.PSYCHOMOTOR: [
+        "Handling Of Tools",
+        "Drawing/ Painting",
+        "Handwriting",
+        "Public Speaking",
+        "Speech Fluency",
+        "Sports & Games",
+    ],
+}
+
+# value -> label, matches the current 5..1 tick-grid rating scale.
+DEFAULT_RATING_SCALE = {5: "Excellent", 4: "Very Good",
+                        3: "Good", 2: "Fair", 1: "Poor"}
+
+
+# ============================================================
+# TRAIT FIELD — tenant-configurable "column"
+# ============================================================
+
+class TraitField(TenantMixin, models.Model):
+    """
+    A single tenant-defined Affective Domain / Psychomotor Skills trait
+    (i.e. one column/row label on the printed report), analogous to
+    AssessmentComponent for score columns.
+
+    education_level = None  -> applies to ALL education levels for this
+                                tenant (most schools want one shared list).
+    education_level = <FK>  -> overrides / adds a level-specific trait
+                                (e.g. a Senior Secondary "Leadership" trait
+                                that Nursery doesn't have).
+    """
+
+    education_level = models.ForeignKey(
+        EducationLevel,
+        on_delete=models.CASCADE,
+        related_name="trait_fields",
+        null=True,
+        blank=True,
+        help_text="Leave blank to apply to every education level.",
+    )
+    category = models.CharField(max_length=20, choices=TraitCategory.choices)
+    name = models.CharField(max_length=100)
+    display_order = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "results_trait_field"
+        unique_together = ["tenant", "category", "education_level", "name"]
+        ordering = ["category", "display_order", "name"]
+        indexes = [
+            models.Index(fields=["tenant", "category", "is_active"]),
+            models.Index(fields=["tenant", "education_level"]),
+        ]
+
+    def __str__(self):
+        level = self.education_level.name if self.education_level else "All Levels"
+        return f"{self.get_category_display()}: {self.name} ({level})"
+
+    def save(self, *args, **kwargs):
+        if self.tenant_id is None:
+            raise ValueError("tenant is required")
+        super().save(*args, **kwargs)
+
+
+def seed_default_trait_fields_for_tenant(tenant):
+    """
+    OPTIONAL convenience for schools that want to start from the current
+    defaults and then tweak them (rename/reorder/delete a few), instead of
+    typing a whole new list from scratch. NOT called automatically anywhere
+    — purely an opt-in "start from defaults" action exposed via an API
+    endpoint / admin button. Safe to call multiple times (get_or_create).
+    """
+    for category, names in DEFAULT_TRAIT_FIELDS.items():
+        for order, name in enumerate(names, start=10):
+            TraitField.objects.get_or_create(
+                tenant=tenant,
+                category=category,
+                education_level=None,
+                name=name,
+                defaults={"display_order": order, "is_active": True},
+            )
+
+
+def get_trait_fields(tenant, category, education_level=None):
+    """
+    Resolve the ordered list of trait fields a report should display for
+    (tenant, category, education_level).
+
+    Priority:
+      1. Tenant-configured TraitField rows for this category — level-specific
+         ones (education_level=<level>) first, then level-agnostic ones
+         (education_level=None), in display_order.
+      2. If the tenant has configured NOTHING for this category (no active
+         rows at all, for any level) -> DEFAULT_TRAIT_FIELDS.
+
+    Returns: list of dicts [{"id": int|None, "name": str, "is_default": bool}, ...]
+    "id" is None for default (non-tenant) traits.
+    """
+    qs = TraitField.objects.filter(
+        tenant=tenant, category=category, is_active=True
+    ).filter(Q(education_level=education_level) | Q(education_level__isnull=True))
+
+    configured = list(qs.order_by("display_order", "name"))
+    if configured:
+        # de-dupe by name, preferring the level-specific row over the
+        # level-agnostic one if both exist for the same name
+        by_name = {}
+        for f in configured:
+            if f.name not in by_name or f.education_level_id is not None:
+                by_name[f.name] = f
+        ordered = sorted(by_name.values(), key=lambda f: (
+            f.display_order, f.name))
+        return [{"id": f.id, "name": f.name, "is_default": False} for f in ordered]
+
+    return [
+        {"id": None, "name": name, "is_default": True}
+        for name in DEFAULT_TRAIT_FIELDS.get(category, [])
+    ]
+
+
+# ============================================================
+# TRAIT RATING — per-student value for one TraitField on one term report
+# ============================================================
+
+class TraitRating(TenantMixin, models.Model):
+    """
+    One rating value (1-5) for one student, one trait, one term report.
+
+    Uses the SAME "exactly one report FK set" pattern as ComponentScore —
+    exactly one of the four *_term_report FKs must be non-null.
+
+    trait_field is null when rating a DEFAULT (non-tenant-configured) trait;
+    in that case default_trait_name carries the trait's name instead. This
+    lets teachers record ratings for schools that never bothered configuring
+    TraitField rows, without ever writing DEFAULT_TRAIT_FIELDS into the DB.
+    """
+
+    senior_term_report = models.ForeignKey(
+        "SeniorSecondaryTermReport", null=True, blank=True,
+        on_delete=models.CASCADE, related_name="trait_ratings",
+    )
+    junior_term_report = models.ForeignKey(
+        "JuniorSecondaryTermReport", null=True, blank=True,
+        on_delete=models.CASCADE, related_name="trait_ratings",
+    )
+    primary_term_report = models.ForeignKey(
+        "PrimaryTermReport", null=True, blank=True,
+        on_delete=models.CASCADE, related_name="trait_ratings",
+    )
+    nursery_term_report = models.ForeignKey(
+        "NurseryTermReport", null=True, blank=True,
+        on_delete=models.CASCADE, related_name="trait_ratings",
+    )
+
+    category = models.CharField(max_length=20, choices=TraitCategory.choices)
+    trait_field = models.ForeignKey(
+        TraitField, null=True, blank=True,
+        on_delete=models.CASCADE, related_name="ratings",
+    )
+    default_trait_name = models.CharField(
+        max_length=100, blank=True, default="",
+        help_text="Set only when trait_field is null.",
+    )
+    value = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)]
+    )
+    entered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "results_trait_rating"
+        constraints = [
+            CheckConstraint(
+                check=(
+                    Q(senior_term_report__isnull=False, junior_term_report__isnull=True,
+                      primary_term_report__isnull=True, nursery_term_report__isnull=True)
+                    | Q(senior_term_report__isnull=True, junior_term_report__isnull=False,
+                        primary_term_report__isnull=True, nursery_term_report__isnull=True)
+                    | Q(senior_term_report__isnull=True, junior_term_report__isnull=True,
+                        primary_term_report__isnull=False, nursery_term_report__isnull=True)
+                    | Q(senior_term_report__isnull=True, junior_term_report__isnull=True,
+                        primary_term_report__isnull=True, nursery_term_report__isnull=False)
+                ),
+                name="chk_trait_rating_exactly_one_report_fk",
+            ),
+            CheckConstraint(
+                check=(
+                    Q(trait_field__isnull=False, default_trait_name="")
+                    | (Q(trait_field__isnull=True) & ~Q(default_trait_name=""))
+                ),
+                name="chk_trait_rating_field_xor_default_name",
+            ),
+            models.UniqueConstraint(
+                fields=["senior_term_report",
+                        "trait_field", "default_trait_name"],
+                condition=Q(senior_term_report__isnull=False),
+                name="uq_trait_rating_senior",
+            ),
+            models.UniqueConstraint(
+                fields=["junior_term_report",
+                        "trait_field", "default_trait_name"],
+                condition=Q(junior_term_report__isnull=False),
+                name="uq_trait_rating_junior",
+            ),
+            models.UniqueConstraint(
+                fields=["primary_term_report",
+                        "trait_field", "default_trait_name"],
+                condition=Q(primary_term_report__isnull=False),
+                name="uq_trait_rating_primary",
+            ),
+            models.UniqueConstraint(
+                fields=["nursery_term_report",
+                        "trait_field", "default_trait_name"],
+                condition=Q(nursery_term_report__isnull=False),
+                name="uq_trait_rating_nursery",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "category"]),
+        ]
+
+    def __str__(self):
+        name = self.trait_field.name if self.trait_field_id else self.default_trait_name
+        return f"{name}: {self.value}"
+
+    def clean(self):
+        set_count = sum(
+            1 for fk in [
+                self.senior_term_report_id, self.junior_term_report_id,
+                self.primary_term_report_id, self.nursery_term_report_id,
+            ] if fk is not None
+        )
+        if set_count != 1:
+            raise ValidationError(
+                "Exactly one of senior/junior/primary/nursery term_report FK must be set."
+            )
+        if bool(self.trait_field_id) == bool(self.default_trait_name):
+            raise ValidationError(
+                "Set exactly one of trait_field or default_trait_name, not both/neither."
+            )
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
+
+# Maps a concrete TermReport class -> the TraitRating FK field name that
+# points at it. Extend this dict if you ever add a 5th report type.
+_REPORT_FK_MAP = {}  # populated below, after the term report classes exist:
+#
+#   _REPORT_FK_MAP = {
+#       SeniorSecondaryTermReport: "senior_term_report",
+#       JuniorSecondaryTermReport: "junior_term_report",
+#       PrimaryTermReport: "primary_term_report",
+#       NurseryTermReport: "nursery_term_report",
+#   }
+#
+# Paste that assignment right after NurseryTermReport's class body in the
+# real results/models.py (same place NurserySessionReport.TERM_REPORT_MODEL
+# is assigned).
+
+
+def get_report_trait_section(term_report, category):
+    tenant = term_report.tenant
+    tsettings = getattr(tenant, "settings", None)
+    student = getattr(term_report, "student", None)
+
+    # String level_type code, e.g. "NURSERY" — used for toggle/scope checks
+    level_code = getattr(student, "education_level", None)
+
+    # Actual EducationLevel FK instance — required by get_trait_fields(),
+    # since TraitField.education_level is a ForeignKey, not a string.
+    student_class = getattr(student, "student_class", None)
+    education_level_obj = getattr(student_class, "education_level", None)
+
+    if tsettings is None:
+        return []
+
+    if category == TraitCategory.AFFECTIVE:
+        enabled = tsettings.show_affective_domain
+        scope = tsettings.affective_domain_applies_to or []
+        mode = tsettings.affective_domain_rating_mode
+    else:
+        enabled = tsettings.show_psychomotor
+        scope = tsettings.psychomotor_applies_to or []
+        mode = tsettings.psychomotor_rating_mode
+
+    if not enabled:
+        return []
+    if scope and level_code not in scope:
+        return []
+
+    fields = get_trait_fields(tenant, category, education_level_obj)
+
+    fk_name = _REPORT_FK_MAP[type(term_report)]
+    ratings = TraitRating.objects.filter(
+        **{fk_name: term_report}, category=category)
+    by_field_id = {r.trait_field_id: r for r in ratings if r.trait_field_id}
+    by_default_name = {
+        r.default_trait_name: r for r in ratings if not r.trait_field_id}
+
+    out = []
+    for f in fields:
+        rating = by_field_id.get(
+            f["id"]) if f["id"] else by_default_name.get(f["name"])
+        value = rating.value if rating else None
+        out.append({
+            "name": f["name"],
+            "value": value,
+            "label": DEFAULT_RATING_SCALE.get(value) if value else None,
+            "display_mode": mode,
+        })
+    return out
+
+
+def is_physical_development_visible(tenant_settings, education_level_code):
+    """
+    Determines whether the Physical Development / Growth Measurements
+    section should appear on a term report for the given education level.
+
+    Rule:
+      - Nursery reports using the DEVELOPMENTAL style ALWAYS include this
+        section — it's baked into that report style and is not gated by
+        show_physical_development or physical_development_applies_to.
+      - For every other case (including Nursery on the STANDARD style),
+        the section only appears if show_physical_development is True AND
+        education_level_code is explicitly listed in
+        physical_development_applies_to. An empty list means no levels
+        have been selected — the section will not show anywhere via this
+        setting.
+    """
+    is_nursery_developmental = (
+        education_level_code == "NURSERY"
+        and tenant_settings.nursery_report_style == "DEVELOPMENTAL"
+    )
+    if is_nursery_developmental:
+        return True
+
+    if not tenant_settings.show_physical_development:
+        return False
+
+    scope = tenant_settings.physical_development_applies_to or []
+    return education_level_code in scope
+
+
 # ============================================================
 # SCORING CONFIGURATION
 # ============================================================
@@ -2541,7 +2920,6 @@ class NurserySessionReport(TenantMixin, BaseSessionReport, models.Model):
     Session report for a Nursery student.
     compute_from_term_reports() detects overall_percentage on NurseryTermReport.
     """
-
     TERM_REPORT_MODEL = None
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -2587,6 +2965,12 @@ class NurserySessionReport(TenantMixin, BaseSessionReport, models.Model):
 
 
 NurserySessionReport.TERM_REPORT_MODEL = NurseryTermReport
+_REPORT_FK_MAP = {
+    SeniorSecondaryTermReport: "senior_term_report",
+    JuniorSecondaryTermReport: "junior_term_report",
+    PrimaryTermReport: "primary_term_report",
+    NurseryTermReport: "nursery_term_report",
+}
 
 
 # ============================================================

@@ -740,8 +740,97 @@ class TenantSettings(models.Model):
     )
     show_physical_development = models.BooleanField(
         default=True,
-        help_text="Show the Physical Development / Growth Measurements section "
-        "on Nursery term reports when data has been entered for a student.",
+        help_text="Master on/off switch for the Physical Development / Growth "
+        "Measurements section on term reports.",
+    )
+    physical_development_applies_to = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "List of EducationLevel level_type codes (e.g. ['NURSERY'], "
+            "['NURSERY','PRIMARY']) that show the Physical Development section. "
+            "Leave empty ([]) to keep the CURRENT default behaviour, which is "
+            "Nursery-only. Set explicitly to extend it to other levels — no "
+            "school is forced to change anything."
+        ),
+    )
+
+    show_physical_development = models.BooleanField(
+        default=True,
+        help_text="Master on/off switch for the Physical Development / Growth "
+        "Measurements section on term reports.",
+    )
+    physical_development_applies_to = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "List of EducationLevel level_type codes (e.g. ['NURSERY'], "
+            "['NURSERY','PRIMARY']) for which the Physical Development section "
+            "appears on STANDARD-style term reports. Empty list ([]) = no "
+            "levels selected — the section will not show anywhere via this "
+            "setting. Does not affect Nursery reports using the DEVELOPMENTAL "
+            "style, which always include physical development regardless of "
+            "this setting."
+        ),
+    )
+
+    # ── Affective Domain ────────────────────────────────────────────────
+    show_affective_domain = models.BooleanField(
+        default=False,
+        help_text=(
+            "Master on/off switch for the Affective Domain section on term "
+            "reports. If off, the section does not appear regardless of any "
+            "other Affective Domain setting."
+        ),
+    )
+    affective_domain_applies_to = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "List of EducationLevel level_type codes (e.g. ['NURSERY','PRIMARY']) "
+            "for which the Affective Domain section appears, when "
+            "show_affective_domain is True. Empty list ([]) = applies to ALL "
+            "levels. Set explicitly to restrict to specific levels. Has no "
+            "effect when show_affective_domain is False."
+        ),
+    )
+
+    # ── Psychomotor Skills ───────────────────────────────────────────────
+    show_psychomotor = models.BooleanField(
+        default=False,
+        help_text=(
+            "Master on/off switch for the Psychomotor Skills section on term "
+            "reports. If off, the section does not appear regardless of any "
+            "other Psychomotor setting."
+        ),
+    )
+    psychomotor_applies_to = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "List of EducationLevel level_type codes (e.g. ['NURSERY','PRIMARY']) "
+            "for which the Psychomotor Skills section appears, when "
+            "show_psychomotor is True. Empty list ([]) = applies to ALL levels. "
+            "Set explicitly to restrict to specific levels. Has no effect when "
+            "show_psychomotor is False."
+        ),
+    )
+
+    TRAIT_RATING_MODE_CHOICES = [
+        ("numeric", "Numeric grid (5-4-3-2-1 tick grid) — current default"),
+        ("text", "Text label (e.g. Excellent / Very Good / Good)"),
+    ]
+    affective_domain_rating_mode = models.CharField(
+        max_length=10,
+        choices=TRAIT_RATING_MODE_CHOICES,
+        default="numeric",
+        help_text="How the Affective Domain section is printed on term reports.",
+    )
+    psychomotor_rating_mode = models.CharField(
+        max_length=10,
+        choices=TRAIT_RATING_MODE_CHOICES,
+        default="numeric",
+        help_text="How the Psychomotor Skills section is printed on term reports.",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)

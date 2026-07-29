@@ -20,7 +20,9 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-
+from rest_framework.views import APIView
+from django.shortcuts import get_object_or_404
+from django.core.exceptions import PermissionDenied
 from academics.models import AcademicSession, EducationLevel, Term
 from classroom.models import Class as StudentClass
 from classroom.models import Stream, StudentEnrollment
@@ -34,6 +36,7 @@ from utils.teacher_portal_permissions import TeacherPortalCheckMixin
 
 from .filters import StudentTermResultFilter
 from .models import (
+    TraitField,
     AssessmentComponent,
     AssessmentScore,
     AssessmentType,
@@ -66,6 +69,10 @@ from .models import (
 )
 from .report_generation import get_report_generator
 from .serializers import (
+    TraitFieldSerializer,
+    TraitFieldCreateUpdateSerializer,
+    SeedDefaultTraitFieldsSerializer,
+    TraitRatingsBulkSerializer,
     AssessmentComponentCreateUpdateSerializer,
     AssessmentComponentSerializer,
     AssessmentScoreSerializer,
@@ -528,6 +535,115 @@ class GradeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         return super().get_queryset().select_related("grading_system")
 
 
+# ============================================================
+# TRAIT FIELD CONFIGURATION — tenant admin screen
+# ============================================================
+
+class TraitFieldViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    """
+    /api/result/trait-fields/?category=AFFECTIVE&education_level=<id>
+
+    Mirrors AssessmentComponentViewSet exactly: IsAuthenticated only, no
+    extra admin gate at the permission-class level (consistent with how
+    AssessmentComponentViewSet / ExamTypeViewSet / ScoringConfigurationViewSet
+    already work in this file — if you want a stricter gate on any of these
+    config viewsets, that's a separate, codebase-wide decision, not something
+    unique to trait fields).
+    """
+    queryset = TraitField.objects.all().order_by(
+        "category", "display_order", "name")
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ["category", "education_level", "is_active"]
+    search_fields = ["name"]
+
+    def get_queryset(self):
+        return super().get_queryset().select_related("education_level")
+
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return TraitFieldCreateUpdateSerializer
+        return TraitFieldSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(tenant=self.request.tenant)
+
+    def perform_update(self, serializer):
+        serializer.save(tenant=self.request.tenant)
+
+    @action(detail=False, methods=["post"], url_path="seed-defaults")
+    def seed_defaults(self, request):
+        """
+        POST /api/result/trait-fields/seed-defaults/  {"confirm": true}
+        Copies the current hardcoded defaults into this tenant's own
+        editable TraitField rows.
+        """
+        serializer = SeedDefaultTraitFieldsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(tenant=request.tenant)
+        return Response({"detail": "Default trait fields seeded."}, status=201)
+
+
+# ============================================================
+# TRAIT RATINGS — teacher entry screen, one per term report
+# ============================================================
+
+_TRAIT_TERM_REPORT_MODEL_MAP = {
+    "senior-secondary": SeniorSecondaryTermReport,
+    "junior-secondary": JuniorSecondaryTermReport,
+    "primary": PrimaryTermReport,
+    "nursery": NurseryTermReport,
+}
+
+
+class TraitRatingsRecordView(APIView):
+    """
+    POST /api/result/<level>/term-reports/<report_id>/trait-ratings/
+
+    Body:
+        {"category": "AFFECTIVE", "ratings": [{"trait_field_id": 1, "value": 5}, ...]}
+
+    <level> is one of: senior-secondary, junior-secondary, primary, nursery
+
+    Permission mirrors every other write path in this file: reuses
+    report.can_edit(request.user) — the same BaseTermReport method
+    SeniorSecondaryTermReportViewSet.approve() etc. already rely on. No new
+    permission class introduced.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, level, report_id):
+        model = _TRAIT_TERM_REPORT_MODEL_MAP.get(level)
+        if not model:
+            return Response(
+                {"detail": f"Unknown education level '{level}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        report = get_object_or_404(model, pk=report_id, tenant=request.tenant)
+
+        if not report.can_edit(request.user):
+            raise PermissionDenied(
+                "You are not allowed to record ratings on this report."
+            )
+
+        # context carries term_report so TraitRatingInputSerializer.validate()
+        # can cross-check each trait_field's education_level against this
+        # report's student — see the __init__ override on
+        # TraitRatingsBulkSerializer for how it's threaded down to the
+        # nested (many=True) field.
+        serializer = TraitRatingsBulkSerializer(
+            data=request.data, context={"term_report": report}
+        )
+        serializer.is_valid(raise_exception=True)
+        section = serializer.save(term_report=report, user=request.user)
+
+        return Response(
+            {"category": serializer.validated_data["category"],
+                "ratings": section},
+            status=status.HTTP_200_OK,
+        )
+
 # ── Assessment Component ───────────────────────────────────────────────────────
 
 
@@ -621,7 +737,7 @@ class ExamTypeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         et = self.get_object()
         et.is_active = False
         et.save(update_fields=["is_active", "updated_at"])
-        return Response(ExamTypeSerializer(et).data),
+        return Response(ExamTypeSerializer(et).data)
 
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.tenant)

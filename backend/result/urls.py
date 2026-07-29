@@ -43,6 +43,8 @@ from .views import (
     ExamTypeViewSet,
     AssessmentComponentViewSet,
     UnifiedSubjectResultViewSet,
+    TraitFieldViewSet,
+    TraitRatingsRecordView,
 )
 
 # Create the router
@@ -66,6 +68,7 @@ router.register(
     AssessmentComponentViewSet,
     basename="assessment-component",
 )
+router.register(r"trait-fields", TraitFieldViewSet, basename="trait-field")
 
 # ===== LEGACY/BASE RESULT ROUTES =====
 router.register(r"student-results", StudentResultViewSet,
@@ -184,7 +187,12 @@ router.register(
 # URL patterns
 urlpatterns = [
     path("", include(router.urls)),
+    path(
+        "<str:level>/term-reports/<uuid:report_id>/trait-ratings/",
+        TraitRatingsRecordView.as_view(),
+        name="trait-ratings-record",
+    ),
 ]
 
 # App namespace
-app_name = "results"
+app_name = "result"

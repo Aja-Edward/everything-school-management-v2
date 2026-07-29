@@ -16,6 +16,30 @@ import api from './api';
 // TYPE DEFINITIONS - TENANT
 // ============================================================================
 
+export type TraitCategory = 'AFFECTIVE' | 'PSYCHOMOTOR';
+
+export type TraitRatingMode = 'numeric' | 'text';
+export interface TraitField {
+  id: number;
+  tenant: string;
+  education_level: number | null;
+  education_level_name?: string;
+  category: TraitCategory;
+  category_display?: string;
+  name: string;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TraitRatingEntry {
+  name: string;
+  value: number | null;
+  label: string | null;
+  display_mode: TraitRatingMode;
+}
+
 export interface Tenant {
   id: string;
   name: string;
@@ -88,6 +112,16 @@ export interface TenantSettings {
   require_token_for_result: boolean;
   show_subject_min_max: boolean;
   show_physical_development: boolean;
+  physical_development_applies_to: string[];
+  show_affective_domain: boolean;
+  affective_domain_applies_to: string[]; // empty = all levels
+  affective_domain_rating_mode: TraitRatingMode;
+
+  show_psychomotor: boolean;
+  psychomotor_applies_to: string[]; // empty = all levels
+  psychomotor_rating_mode: TraitRatingMode;
+
+  
   nursery_report_style: NurseryReportStyle;
   created_at: string;
   updated_at: string;

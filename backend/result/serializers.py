@@ -13,6 +13,11 @@ from subject.models import Subject
 from subject.serializers import SubjectSerializer
 
 from .models import (
+    TraitField,
+    TraitCategory,
+    TraitRating,
+    get_report_trait_section,
+    is_physical_development_visible,
     AssessmentComponent,
     AssessmentScore,
     AssessmentType,
@@ -274,6 +279,183 @@ class GradingSystemCreateUpdateSerializer(serializers.ModelSerializer):
         return instance
 
 
+# ============================================================
+# TRAIT FIELD (tenant settings screen: "define your own columns")
+# ============================================================
+
+class TraitFieldSerializer(serializers.ModelSerializer):
+    """Read serializer. Caller must: .select_related('education_level')"""
+
+    category_display = serializers.CharField(
+        source="get_category_display", read_only=True
+    )
+    education_level_name = serializers.CharField(
+        source="education_level.name", read_only=True, allow_null=True
+    )
+
+    class Meta:
+        model = TraitField
+        fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class TraitFieldCreateUpdateSerializer(serializers.ModelSerializer):
+    education_level = serializers.PrimaryKeyRelatedField(
+        queryset=EducationLevel.objects.all(), required=False, allow_null=True
+    )
+
+    class Meta:
+        model = TraitField
+        fields = [
+            "education_level",
+            "category",
+            "name",
+            "display_order",
+            "is_active",
+        ]
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        if request and hasattr(request, "tenant"):
+            validated_data["tenant"] = request.tenant
+        return super().create(validated_data)
+
+
+class SeedDefaultTraitFieldsSerializer(serializers.Serializer):
+    """
+    POST-only convenience action: copies DEFAULT_TRAIT_FIELDS into this
+    tenant's TraitField table so an admin can start from the current
+    defaults and edit/rename/remove a few, instead of typing a fresh list.
+    Purely opt-in — never called automatically.
+    """
+    confirm = serializers.BooleanField()
+
+    def save(self, tenant):
+        from .models import seed_default_trait_fields_for_tenant
+        if self.validated_data["confirm"]:
+            seed_default_trait_fields_for_tenant(tenant)
+        return TraitField.objects.filter(tenant=tenant)
+
+
+# ============================================================
+# TRAIT RATING (teacher screen: "enter this student's ratings")
+# ============================================================
+
+class TraitRatingInputSerializer(serializers.Serializer):
+    """
+    One rating in a bulk-submit payload.
+    Exactly one of trait_field_id / default_trait_name must be supplied —
+    trait_field_id for a tenant-configured trait, default_trait_name when
+    the tenant hasn't configured that category (teacher is rating against
+    the fallback list surfaced by GET .../trait-fields/?category=...).
+    """
+    trait_field_id = serializers.IntegerField(required=False, allow_null=True)
+    default_trait_name = serializers.CharField(
+        required=False, allow_blank=True, default=""
+    )
+    value = serializers.IntegerField(min_value=1, max_value=5)
+
+    def validate(self, data):
+        has_field = bool(data.get("trait_field_id"))
+        has_default = bool(data.get("default_trait_name"))
+        if has_field == has_default:
+            raise serializers.ValidationError(
+                "Provide exactly one of trait_field_id or default_trait_name."
+            )
+        if has_field:
+            try:
+                field = TraitField.objects.get(
+                    id=data["trait_field_id"], is_active=True
+                )
+            except TraitField.DoesNotExist:
+                raise serializers.ValidationError(
+                    {"trait_field_id": "Trait field does not exist or is inactive."}
+                )
+            # Cross-check the field actually applies to this term report's
+            # education level (or is level-agnostic). Without this, a
+            # Senior-Secondary-only trait could get attached to a Nursery
+            # report via a stale/forged trait_field_id — the equivalent gap
+            # exists today in _validate_component_scores() in views.py,
+            # which accepts an education_level param but never checks it.
+            term_report = self.context.get("term_report")
+            if term_report is not None and field.education_level_id is not None:
+                report_level = getattr(
+                    getattr(term_report, "student",
+                            None), "education_level", None
+                )
+                if field.education_level.level_type != report_level:
+                    raise serializers.ValidationError(
+                        {
+                            "trait_field_id": (
+                                f"'{field.name}' is configured for "
+                                f"{field.education_level.name}, not this student's "
+                                f"education level."
+                            )
+                        }
+                    )
+            data["_field_obj"] = field
+        return data
+
+
+class TraitRatingsBulkSerializer(serializers.Serializer):
+    """
+    POST body:
+        {
+          "category": "AFFECTIVE",
+          "ratings": [
+            {"trait_field_id": 12, "value": 5},
+            {"default_trait_name": "Honesty", "value": 4}
+          ]
+        }
+
+    Upserts TraitRating rows for one term report in a single call, then
+    returns the resolved section (same shape get_report_trait_section
+    produces) so the frontend can re-render immediately without a second
+    GET.
+    """
+    category = serializers.ChoiceField(choices=TraitCategory.choices)
+    ratings = TraitRatingInputSerializer(many=True, min_length=1)
+
+    def __init__(self, *args, **kwargs):
+        # term_report is needed by TraitRatingInputSerializer.validate() for
+        # the education_level cross-check. The view passes it via context
+        # on the OUTER serializer; DRF doesn't auto-propagate context into
+        # a many=True nested field's *item* validation, so we push it down
+        # explicitly here before validation runs.
+        super().__init__(*args, **kwargs)
+        term_report = self.context.get("term_report")
+        if term_report is not None:
+            self.fields["ratings"].child.context.update(
+                {**self.context, "term_report": term_report}
+            )
+
+    def validate_ratings(self, value):
+        seen = set()
+        for item in value:
+            key = item.get("trait_field_id") or item.get("default_trait_name")
+            if key in seen:
+                raise serializers.ValidationError(
+                    f"Duplicate trait '{key}' in submission.")
+            seen.add(key)
+        return value
+
+    def save(self, term_report, user):
+        from .models import _REPORT_FK_MAP  # populated in models.py after class defs
+
+        fk_name = _REPORT_FK_MAP[type(term_report)]
+        tenant = term_report.tenant
+        category = self.validated_data["category"]
+
+        for item in self.validated_data["ratings"]:
+            TraitRating.objects.update_or_create(
+                tenant=tenant,
+                category=category,
+                trait_field=item.get("_field_obj"),
+                default_trait_name=item.get("default_trait_name") or "",
+                **{fk_name: term_report},
+                defaults={"value": item["value"], "entered_by": user},
+            )
+        return get_report_trait_section(term_report, category)
 # ============================================================
 # ASSESSMENT COMPONENT
 # ============================================================
@@ -1107,8 +1289,25 @@ class SeniorSecondaryTermReportSerializer(
     approved_by_name = serializers.CharField(
         source="approved_by.get_full_name", read_only=True, allow_null=True
     )
+
+    affective_domain = serializers.SerializerMethodField()
+    psychomotor_skills = serializers.SerializerMethodField()
+    physical_development_visible = serializers.SerializerMethodField()
     subject_results = SeniorSecondaryResultSerializer(
         many=True, read_only=True)
+
+    def get_affective_domain(self, obj):
+        return get_report_trait_section(obj, TraitCategory.AFFECTIVE)
+
+    def get_psychomotor_skills(self, obj):
+        return get_report_trait_section(obj, TraitCategory.PSYCHOMOTOR)
+
+    def get_physical_development_visible(self, obj):
+        tenant_settings = getattr(obj.tenant, "settings", None)
+        if not tenant_settings:
+            return False
+        education_level = getattr(obj.student, "education_level", None)
+        return is_physical_development_visible(tenant_settings, education_level)
 
     class Meta:
         model = SeniorSecondaryTermReport
@@ -1135,12 +1334,21 @@ class SeniorSecondaryTermReportCreateUpdateSerializer(serializers.ModelSerialize
         fields = [
             "student",
             "exam_session",
-            "stream",
+            "stream",  # senior only
             "times_opened",
             "times_present",
             "next_term_begins",
             "class_teacher_remark",
             "head_teacher_remark",
+            "physical_development",
+            "health",
+            "cleanliness",
+            "general_conduct",
+            "physical_development_comment",
+            "height_beginning",
+            "height_end",
+            "weight_beginning",
+            "weight_end",
         ]
 
 
@@ -1365,11 +1573,28 @@ class JuniorSecondaryTermReportSerializer(
     exam_session = ExamSessionSerializer(read_only=True)
     status_display = serializers.CharField(
         source="get_status_display", read_only=True)
+
+    affective_domain = serializers.SerializerMethodField()
+    psychomotor_skills = serializers.SerializerMethodField()
+    physical_development_visible = serializers.SerializerMethodField()
     approved_by_name = serializers.CharField(
         source="approved_by.get_full_name", read_only=True, allow_null=True
     )
     subject_results = JuniorSecondaryResultSerializer(
         many=True, read_only=True)
+
+    def get_affective_domain(self, obj):
+        return get_report_trait_section(obj, TraitCategory.AFFECTIVE)
+
+    def get_psychomotor_skills(self, obj):
+        return get_report_trait_section(obj, TraitCategory.PSYCHOMOTOR)
+
+    def get_physical_development_visible(self, obj):
+        tenant_settings = getattr(obj.tenant, "settings", None)
+        if not tenant_settings:
+            return False
+        education_level = getattr(obj.student, "education_level", None)
+        return is_physical_development_visible(tenant_settings, education_level)
 
     class Meta:
         model = JuniorSecondaryTermReport
@@ -1401,6 +1626,15 @@ class JuniorSecondaryTermReportCreateUpdateSerializer(serializers.ModelSerialize
             "next_term_begins",
             "class_teacher_remark",
             "head_teacher_remark",
+            "physical_development",
+            "health",
+            "cleanliness",
+            "general_conduct",
+            "physical_development_comment",
+            "height_beginning",
+            "height_end",
+            "weight_beginning",
+            "weight_end",
         ]
 
 
@@ -1614,10 +1848,27 @@ class PrimaryTermReportSerializer(_RemarkPermissionMixin, serializers.ModelSeria
     exam_session = ExamSessionSerializer(read_only=True)
     status_display = serializers.CharField(
         source="get_status_display", read_only=True)
+    affective_domain = serializers.SerializerMethodField()
+    psychomotor_skills = serializers.SerializerMethodField()
+    physical_development_visible = serializers.SerializerMethodField()
+
     approved_by_name = serializers.CharField(
         source="approved_by.get_full_name", read_only=True, allow_null=True
     )
     subject_results = PrimaryResultSerializer(many=True, read_only=True)
+
+    def get_affective_domain(self, obj):
+        return get_report_trait_section(obj, TraitCategory.AFFECTIVE)
+
+    def get_psychomotor_skills(self, obj):
+        return get_report_trait_section(obj, TraitCategory.PSYCHOMOTOR)
+
+    def get_physical_development_visible(self, obj):
+        tenant_settings = getattr(obj.tenant, "settings", None)
+        if not tenant_settings:
+            return False
+        education_level = getattr(obj.student, "education_level", None)
+        return is_physical_development_visible(tenant_settings, education_level)
 
     class Meta:
         model = PrimaryTermReport
@@ -1649,6 +1900,15 @@ class PrimaryTermReportCreateUpdateSerializer(serializers.ModelSerializer):
             "next_term_begins",
             "class_teacher_remark",
             "head_teacher_remark",
+            "physical_development",
+            "health",
+            "cleanliness",
+            "general_conduct",
+            "physical_development_comment",
+            "height_beginning",
+            "height_end",
+            "weight_beginning",
+            "weight_end",
         ]
 
 
@@ -1953,6 +2213,9 @@ class NurseryTermReportSerializer(_RemarkPermissionMixin, serializers.ModelSeria
     general_conduct_display = serializers.CharField(
         source="get_general_conduct_display", read_only=True
     )
+    affective_domain = serializers.SerializerMethodField()
+    psychomotor_skills = serializers.SerializerMethodField()
+    physical_development_visible = serializers.SerializerMethodField()
 
     # NurseryTermReport has no average_score / overall_grade fields on the
     # model (it uses overall_percentage instead). These aliases keep the
@@ -1973,6 +2236,19 @@ class NurseryTermReportSerializer(_RemarkPermissionMixin, serializers.ModelSeria
     def get_overall_grade(self, obj):
         from .models import _default_grade
         return _default_grade(self.get_average_score(obj))
+
+    def get_affective_domain(self, obj):
+        return get_report_trait_section(obj, TraitCategory.AFFECTIVE)
+
+    def get_psychomotor_skills(self, obj):
+        return get_report_trait_section(obj, TraitCategory.PSYCHOMOTOR)
+
+    def get_physical_development_visible(self, obj):
+        tenant_settings = getattr(obj.tenant, "settings", None)
+        if not tenant_settings:
+            return False
+        education_level = getattr(obj.student, "education_level", None)
+        return is_physical_development_visible(tenant_settings, education_level)
 
     class Meta:
         model = NurseryTermReport
