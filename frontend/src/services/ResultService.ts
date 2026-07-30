@@ -688,28 +688,29 @@ class ResultService {
 
 
 /**
-   * Get-or-create a term report for (student, exam_session) on any level,
-   * returning the FULL read-serialized report — including the already
-   * tenant-resolved affective_domain / psychomotor_skills / 
-   * physical_development_visible fields. This is the single source of
-   * truth for "what sections should this student's row show" — no
-   * tenant-settings logic needs to be duplicated on the frontend.
-   */
-  async getOrCreateTermReport(
-    level: EducationLevelType,
-    studentId: string | number,
-    examSessionId: string | number
-  ): Promise<DevelopmentTermReport> {
-    const endpoint = this.termReportEndpoint(level);
-    const params = new URLSearchParams({
-      student: String(studentId),
-      exam_session: String(examSessionId),
-    });
-    const res: any = await api.get(`${endpoint}?${params}`);
-    const existing: any[] = res?.results ?? (Array.isArray(res) ? res : []);
-    if (existing.length > 0) return existing[0];
-    return api.post(endpoint, { student: studentId, exam_session: examSessionId });
-  }
+ * Get-or-create a term report for (student, exam_session) on any level,
+ * returning the FULL read-serialized report — including the already
+ * tenant-resolved affective_domain / psychomotor_skills /
+ * physical_development_visible fields.
+ *
+ * Calls the dedicated backend get-or-create endpoint (atomic, permission
+ * checked against the teacher's actual classroom/subject assignment) —
+ * NOT a GET-list-then-POST round trip. The list GET is role-filtered for
+ * browsing and can transiently miss a row that legitimately exists,
+ * which would then race against the row's own unique_together constraint
+ * on the follow-up POST. See TeacherTermReportGetOrCreateView in views.py.
+ */
+async getOrCreateTermReport(
+  level: EducationLevelType,
+  studentId: string | number,
+  examSessionId: string | number
+): Promise<DevelopmentTermReport> {
+  const path = LEVEL_PATH[level];
+  return api.post(`${this.base}/${path}/term-reports/get-or-create/`, {
+    student: studentId,
+    exam_session: examSessionId,
+  });
+}
 
   /**
    * Upsert physical-development / height-weight fields on ANY level's term
@@ -1007,28 +1008,13 @@ async getAllSubjectResultsPaginated(
    * so we can't rely on the term report being created automatically.
    */
   async upsertNurseryTermReportFields(
-    studentId: string | number,
-    examSessionId: string | number,
-    data: Record<string, unknown>
-  ): Promise<void> {
-    const endpoint = this.termReportEndpoint('NURSERY');
-    const params = new URLSearchParams({
-      student: String(studentId),
-      exam_session: String(examSessionId),
-    });
-    const res: any = await api.get(`${endpoint}?${params}`);
-    const existing: any[] = res?.results ?? (Array.isArray(res) ? res : []);
-
-    if (existing.length > 0) {
-      await api.patch(this.termReportEndpoint('NURSERY', String(existing[0].id)), data);
-    } else {
-      await api.post(endpoint, {
-        student: studentId,
-        exam_session: examSessionId,
-        ...data,
-      });
-    }
-  }
+  studentId: string | number,
+  examSessionId: string | number,
+  data: Record<string, unknown>
+): Promise<void> {
+  const report = await this.getOrCreateTermReport('NURSERY', studentId, examSessionId);
+  await api.patch(this.termReportEndpoint('NURSERY', report.id), data);
+}
 
   // ── SESSION REPORTS ─────────────────────────────────────────────────────────
 

@@ -14,7 +14,6 @@ from .views import (
     SeniorSecondaryResultViewSet,
     SeniorSecondarySessionReportViewSet,
     SeniorSecondaryTermReportViewSet,
-    SeniorSecondarySessionReportViewSet,
     # Junior Secondary ViewSets
     JuniorSecondaryResultViewSet,
     JuniorSecondaryTermReportViewSet,
@@ -45,6 +44,7 @@ from .views import (
     UnifiedSubjectResultViewSet,
     TraitFieldViewSet,
     TraitRatingsRecordView,
+    TeacherTermReportGetOrCreateView,
 )
 
 # Create the router
@@ -186,12 +186,17 @@ router.register(
 
 # URL patterns
 urlpatterns = [
-    path("", include(router.urls)),
     path(
         "<str:level>/term-reports/<uuid:report_id>/trait-ratings/",
         TraitRatingsRecordView.as_view(),
         name="trait-ratings-record",
     ),
+    path(
+        "<str:level>/term-reports/get-or-create/",
+        TeacherTermReportGetOrCreateView.as_view(),
+        name="term-report-get-or-create",
+    ),
+    path("", include(router.urls)),
 ]
 
 # App namespace

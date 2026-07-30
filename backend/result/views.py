@@ -37,6 +37,8 @@ from utils.teacher_portal_permissions import TeacherPortalCheckMixin
 from .filters import StudentTermResultFilter
 from .models import (
     TraitField,
+    TraitCategory,
+    get_report_trait_section,
     AssessmentComponent,
     AssessmentScore,
     AssessmentType,
@@ -642,6 +644,40 @@ class TraitRatingsRecordView(APIView):
         except Exception:
             return False
 
+    def get(self, request, level, report_id):
+        """
+        GET /api/result/<level>/term-reports/<report_id>/trait-ratings/?category=AFFECTIVE
+
+        Returns the current resolved ratings for one category so the
+        frontend can pre-fill the form on load/refresh — mirrors the shape
+        returned by POST. Same permission rule as POST (no DRAFT-only gate).
+        """
+        model = _TRAIT_TERM_REPORT_MODEL_MAP.get(level)
+        if not model:
+            return Response(
+                {"detail": f"Unknown education level '{level}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        report = get_object_or_404(model, pk=report_id, tenant=request.tenant)
+
+        if not (_is_admin(request.user) or self._can_teacher_rate(request.user, report)):
+            raise PermissionDenied(
+                "You are not allowed to view ratings on this report."
+            )
+
+        category = request.query_params.get("category", "").upper()
+        if category not in (TraitCategory.AFFECTIVE, TraitCategory.PSYCHOMOTOR):
+            return Response(
+                {"detail": "category query param is required: AFFECTIVE or PSYCHOMOTOR."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response({
+            "category": category,
+            "ratings": get_report_trait_section(report, category),
+        })
+
     def post(self, request, level, report_id):
         model = _TRAIT_TERM_REPORT_MODEL_MAP.get(level)
         if not model:
@@ -673,6 +709,72 @@ class TraitRatingsRecordView(APIView):
                 "ratings": section},
             status=status.HTTP_200_OK,
         )
+
+
+class TeacherTermReportGetOrCreateView(APIView):
+    """
+    POST /api/results/<level>/term-reports/get-or-create/
+    Body: {"student": <id>, "exam_session": <id>}
+
+    Atomic get_or_create scoped by tenant, bypassing the GET-list's
+    role-based visibility filter (which is for browsing/listing, not for
+    "does a row already exist for the report I'm about to fill in").
+    Only allows this for a student the requesting teacher can legitimately
+    see — same class/subject-teacher check as trait ratings and remarks.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def _teacher_can_access_student(self, user, student):
+        try:
+            from teacher.models import Teacher
+            from classroom.models import ClassroomTeacherAssignment, StudentEnrollment
+
+            teacher = Teacher.objects.get(user=user)
+            enrollment = StudentEnrollment.objects.filter(
+                student=student, is_active=True
+            ).select_related("classroom").first()
+            if not enrollment:
+                return False
+            classroom = enrollment.classroom
+            if classroom.class_teacher_id == teacher.pk:
+                return True
+            return ClassroomTeacherAssignment.objects.filter(
+                teacher=teacher, classroom=classroom
+            ).exists()
+        except Exception:
+            return False
+
+    def post(self, request, level):
+        model = _TERM_REPORT_MODEL_MAP.get(level.upper().replace("-", "_"))
+        if not model:
+            return Response({"detail": "Unknown education level."}, status=400)
+
+        student_id = request.data.get("student")
+        exam_session_id = request.data.get("exam_session")
+        if not student_id or not exam_session_id:
+            return Response({"detail": "student and exam_session are required."}, status=400)
+
+        student = get_object_or_404(
+            Student, pk=student_id, tenant=request.tenant)
+
+        if not (_is_admin(request.user) or self._teacher_can_access_student(request.user, student)):
+            raise PermissionDenied("You do not have access to this student.")
+
+        report, _ = model.objects.get_or_create(
+            tenant=request.tenant,
+            student=student,
+            exam_session_id=exam_session_id,
+            defaults={"status": "DRAFT", "is_published": False},
+        )
+
+        serializer_map = {
+            SeniorSecondaryTermReport: SeniorSecondaryTermReportSerializer,
+            JuniorSecondaryTermReport: JuniorSecondaryTermReportSerializer,
+            PrimaryTermReport: PrimaryTermReportSerializer,
+            NurseryTermReport: NurseryTermReportSerializer,
+        }
+        ser_cls = serializer_map[model]
+        return Response(ser_cls(report, context={"request": request}).data)
 
 # ── Assessment Component ───────────────────────────────────────────────────────
 
