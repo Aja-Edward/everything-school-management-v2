@@ -605,12 +605,42 @@ class TraitRatingsRecordView(APIView):
 
     <level> is one of: senior-secondary, junior-secondary, primary, nursery
 
-    Permission mirrors every other write path in this file: reuses
-    report.can_edit(request.user) — the same BaseTermReport method
-    SeniorSecondaryTermReportViewSet.approve() etc. already rely on. No new
-    permission class introduced.
+    Permission: admin roles always allowed. Otherwise the requesting user
+    must be the class/subject teacher for this report's student — the same
+    check ProfessionalAssignmentViewSet._can_teacher_edit_remark() uses for
+    remarks. Deliberately does NOT gate on report.status (unlike
+    report.can_edit()) — trait ratings, like remarks, are entered by
+    teachers as part of report preparation and can lag behind an admin's
+    approve/publish action. Locking ratings to DRAFT-only would strand
+    teachers whenever admin staff approve/publish before ratings are
+    entered.
     """
     permission_classes = [IsAuthenticated]
+
+    def _can_teacher_rate(self, user, term_report):
+        """Same class/subject-teacher check as remarks — no status gate."""
+        try:
+            from teacher.models import Teacher
+            from classroom.models import ClassroomTeacherAssignment
+
+            teacher = Teacher.objects.get(user=user)
+            enrollment = (
+                StudentEnrollment.objects.filter(
+                    student=term_report.student, is_active=True
+                )
+                .select_related("classroom")
+                .first()
+            )
+            if not enrollment:
+                return False
+            classroom = enrollment.classroom
+            if classroom.class_teacher == teacher:
+                return True
+            return ClassroomTeacherAssignment.objects.filter(
+                teacher=teacher, classroom=classroom
+            ).exists()
+        except Exception:
+            return False
 
     def post(self, request, level, report_id):
         model = _TRAIT_TERM_REPORT_MODEL_MAP.get(level)
@@ -622,7 +652,7 @@ class TraitRatingsRecordView(APIView):
 
         report = get_object_or_404(model, pk=report_id, tenant=request.tenant)
 
-        if not report.can_edit(request.user):
+        if not (_is_admin(request.user) or self._can_teacher_rate(request.user, report)):
             raise PermissionDenied(
                 "You are not allowed to record ratings on this report."
             )

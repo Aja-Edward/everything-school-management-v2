@@ -85,7 +85,7 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
             "show_physical_development",
             "physical_development_applies_to",
             "show_affective_domain",
-            "show_psychomotor",
+            "show_psychomotor", 
             "psychomotor_applies_to",
             "affective_domain_applies_to",
             "affective_domain_rating_mode",
