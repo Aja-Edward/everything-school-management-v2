@@ -382,51 +382,61 @@ tbody tr:nth-child(even) {
     color: #1e40af;
     width: 12px;
 }
-/* ================= GRADE DISTRIBUTION BAR ================= */
-.grade-dist {
-    margin-top: 2px;
-}
-
-.grade-dist-title {
-    font-size: 7pt;
-    font-weight: 700;
-    color: #374151;
-    margin-bottom: 3px;
-}
-
-.grade-bar-row {
+/* ================= GRADE KEY ================= */
+.grade-key-section {
+    margin: 3px 0 4px;
     display: flex;
     align-items: center;
-    gap: 5px;
-    margin-bottom: 2px;
-    font-size: 6.8pt;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 3px 7px;
+    background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%);
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
 }
-
-.grade-bar-label {
-    width: 14px;
+ 
+.grade-key-title {
     font-weight: 800;
-    color: #1e40af;
-    text-align: right;
+    font-size: 7.2pt;
+    color: #1e3a8a;
+    white-space: nowrap;
+    margin-right: 2px;
 }
-
-.grade-bar-track {
+ 
+.grade-key-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
     flex: 1;
-    height: 7px;
-    background: #e5e7eb;
-    border-radius: 4px;
-    overflow: hidden;
 }
-
-.grade-bar-fill {
-    height: 100%;
-    background: linear-gradient(90deg, #1e40af, #3b82f6);
-    border-radius: 4px;
+ 
+.grade-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: #ffffff;
+    border: 1px solid #93c5fd;
+    border-radius: 10px;
+    padding: 1px 6px 1px 3px;
+    font-size: 6.5pt;
+    color: #1e3a8a;
+    white-space: nowrap;
+    box-shadow: 0 1px 1px rgba(30, 64, 175, 0.06);
 }
-
-.grade-bar-count {
-    width: 16px;
-    color: #6b7280;
-    text-align: left;
+ 
+.grade-chip .grade-letter {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #1e40af;
+    color: #ffffff;
+    font-weight: 800;
+    border-radius: 999px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 2.5px;
+    font-size: 6pt;
+    line-height: 1;
 }
 
 /* ================= REMARKS ================= */
@@ -668,21 +678,7 @@ tbody tr:nth-child(even) {
     MAX = highest score in class for this subject &nbsp;|&nbsp; MIN = lowest score in class for this subject
 </p>
 {% endif %}
-
-
-<!-- GRADE KEY -->
-<div class="grade-key-section">
-    <span class="grade-key-title">Grading Scale:</span>
-    <table style="width:auto; display:inline-table; margin-left:8px;">
-        <tr>
-        {% if grade_scale %}
-            {% for g in grade_scale %}
-            <td><strong>{{ g.grade }}</strong> {{ g.min }}–{{ g.max }}{% if g.remark %} ({{ g.remark }}){% endif %}</td>
-            {% endfor %}
-        {% else %}
-            <td><strong>A</strong> 80–100</td>
-            <td><strong>B</strong> 70–79</td>
-            <td><strong>C</strong> 60–69</td>{% if has_affective_domain or has_psychomotor_skills %}
+{% if has_affective_domain or has_psychomotor_skills %}
 <div class="traits-row{% if not has_affective_domain or not has_psychomotor_skills %} single-column{% endif %}">
     {% if has_affective_domain %}
     <div class="trait-box">
@@ -733,13 +729,28 @@ tbody tr:nth-child(even) {
     {% endif %}
 </div>
 {% endif %}
-            <td><strong>D</strong> 50–59</td>
-            <td><strong>E</strong> 40–49</td>
-            <td><strong>F</strong> 0–39</td>
+
+<!-- GRADE KEY -->
+<div class="grade-key-section">
+    <span class="grade-key-title">Grading Scale</span>
+    <div class="grade-key-chips">
+        {% if grade_scale %}
+            {% for g in grade_scale %}
+            <span class="grade-chip"><span class="grade-letter">{{ g.grade }}</span>{{ g.min }}–{{ g.max }}{% if g.remark %} · {{ g.remark }}{% endif %}</span>
+            {% endfor %}
+        {% else %}
+            <span class="grade-chip"><span class="grade-letter">A+</span>90–100 · Distinction</span>
+            <span class="grade-chip"><span class="grade-letter">A</span>80–89 · Excellent</span>
+            <span class="grade-chip"><span class="grade-letter">B+</span>70–79 · Very Good</span>
+            <span class="grade-chip"><span class="grade-letter">B</span>60–69 · Good</span>
+            <span class="grade-chip"><span class="grade-letter">C</span>50–59 · Average</span>
+            <span class="grade-chip"><span class="grade-letter">D</span>45–49 · Fair</span>
+            <span class="grade-chip"><span class="grade-letter">E</span>40–44 · Poor</span>
+            <span class="grade-chip"><span class="grade-letter">F</span>0–39 · Fail</span>
         {% endif %}
-        </tr>
-    </table>
+    </div>
 </div>
+
 
 <!-- PERFORMANCE SUMMARY + GRADE DISTRIBUTION -->
 <div class="bottom-grid">
