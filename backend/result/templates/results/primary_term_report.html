@@ -1020,16 +1020,63 @@ tbody tr:nth-child(even) {
 }
 
 /* ================= GRADE KEY ================= */
+/* ================= GRADE KEY ================= */
 .grade-key-section {
-    margin: 3px 0;
+    margin: 3px 0 4px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 3px 7px;
+    background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%);
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+}
+ 
+.grade-key-title {
+    font-weight: 800;
+    font-size: 7.2pt;
+    color: #1e3a8a;
+    white-space: nowrap;
+    margin-right: 2px;
+}
+ 
+.grade-key-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    flex: 1;
+}
+ 
+.grade-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: #ffffff;
+    border: 1px solid #93c5fd;
+    border-radius: 10px;
+    padding: 1px 6px 1px 3px;
+    font-size: 6.5pt;
+    color: #1e3a8a;
+    white-space: nowrap;
+    box-shadow: 0 1px 1px rgba(30, 64, 175, 0.06);
+}
+ 
+.grade-chip .grade-letter {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #1e40af;
+    color: #ffffff;
+    font-weight: 800;
+    border-radius: 999px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 2.5px;
+    font-size: 6pt;
+    line-height: 1;
 }
 
-.grade-key-title {
-    font-weight: 700;
-    font-size: 9pt;
-    color: #1e3a8a;
-    margin-bottom: 1px;
-}
 
 /* ================= SUMMARY & ATTENDANCE (SIDE BY SIDE) ================= */
 .summary-attendance-row {
