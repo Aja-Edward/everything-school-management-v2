@@ -599,9 +599,14 @@ def get_report_trait_section(term_report, category):
         r.default_trait_name: r for r in ratings if not r.trait_field_id}
 
     out = []
+
     for f in fields:
-        rating = by_field_id.get(
-            f["id"]) if f["id"] else by_default_name.get(f["name"])
+        rating = by_field_id.get(f["id"]) if f["id"] else None
+        if rating is None:
+            # Fall back to a name match even when the field is now tenant-configured —
+            # older ratings may have been saved against the default (name-only) list
+            # before this TraitField existed.
+            rating = by_default_name.get(f["name"])
         value = rating.value if rating else None
         out.append({
             "name": f["name"],
@@ -610,7 +615,6 @@ def get_report_trait_section(term_report, category):
             "display_mode": mode,
         })
     return out
-
 
 def is_physical_development_visible(tenant_settings, education_level_code):
     """
