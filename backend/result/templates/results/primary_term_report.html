@@ -1422,24 +1422,25 @@ tbody tr:nth-child(even) {
 {% endif %}
 <!-- GRADE KEY -->
 <div class="grade-key-section">
-    <span class="grade-key-title">Grading Scale:</span>
-    <table style="width:auto; display:inline-table; margin-left:8px; padding:3px;">
-        <tr>
+    <span class="grade-key-title">Grading Scale</span>
+    <div class="grade-key-chips">
         {% if grade_scale %}
             {% for g in grade_scale %}
-            <td><strong>{{ g.grade }}</strong> {{ g.min }}–{{ g.max }}{% if g.remark %} ({{ g.remark }}){% endif %}</td>
+            <span class="grade-chip"><span class="grade-letter">{{ g.grade }}</span>{{ g.min }}–{{ g.max }}{% if g.remark %} · {{ g.remark }}{% endif %}</span>
             {% endfor %}
         {% else %}
-            <td style="border: 1px solid #ccc; padding: 2px;"><strong>A</strong> 70–100</td>
-            <td style="border: 1px solid #ccc; padding: 2px;"><strong>B</strong> 60–69</td>
-            <td style="border: 1px solid #ccc; padding: 2px;"><strong>C</strong> 50–59</td>
-            <td style="border: 1px solid #ccc; padding: 2px;"><strong>D</strong> 45–49</td>
-            <td style="border: 1px solid #ccc; padding: 2px;"><strong>E</strong> 40–44</td>
-            <td style="border: 1px solid #ccc; padding: 2px;"><strong>F</strong> 0–39</td>
+            <span class="grade-chip"><span class="grade-letter">A+</span>90–100 · Distinction</span>
+            <span class="grade-chip"><span class="grade-letter">A</span>80–89 · Excellent</span>
+            <span class="grade-chip"><span class="grade-letter">B+</span>70–79 · Very Good</span>
+            <span class="grade-chip"><span class="grade-letter">B</span>60–69 · Good</span>
+            <span class="grade-chip"><span class="grade-letter">C</span>50–59 · Average</span>
+            <span class="grade-chip"><span class="grade-letter">D</span>45–49 · Fair</span>
+            <span class="grade-chip"><span class="grade-letter">E</span>40–44 · Poor</span>
+            <span class="grade-chip"><span class="grade-letter">F</span>0–39 · Fail</span>
         {% endif %}
-        </tr>
-    </table>
+    </div>
 </div>
+
 
 <!-- PERFORMANCE SUMMARY & ATTENDANCE -->
 <div class="summary-attendance-row">
