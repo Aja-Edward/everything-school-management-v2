@@ -187,30 +187,31 @@ body {
 
 /* ================= SECTION TITLE ================= */
 .section-title {
-    margin: 6px 0 4px;
+    margin: 4px 0 3px;
     font-weight: 900;
-    font-size: 9pt;
+    font-size: 8.5pt;
     color: #1e40af;
     border-bottom: 2px solid #1e40af;
-    padding-bottom: 2px;
+    padding-bottom: 1px;
 }
 
 /* ================= TABLE ================= */
 .table-wrapper {
-    margin-bottom: 5px;
+    margin-bottom: 3px;
     overflow-x: auto;
 }
 
 table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 6.8pt;
+    font-size: 7.2pt;
 }
 
 th, td {
     border: 1px solid #6b7280;
-    padding: 2px 2px;
+    padding: 2.7.0px 3px;
     text-align: center;
+    line-height: 1.15;
 }
 
 thead th {
@@ -222,7 +223,7 @@ thead th {
 .subject-name,
 th.col-subject {
     text-align: left;
-    padding-left: 6px;
+    padding-left: 7px;
     font-weight: 700;
     min-width: 100px;
 }
@@ -241,6 +242,7 @@ tbody tr:nth-child(even) {
     background: #f9fafb;
 }
 
+
 /* ================= NO-DATA NOTICE ================= */
 .no-components {
     font-style: italic;
@@ -252,15 +254,61 @@ tbody tr:nth-child(even) {
 
 /* ================= GRADE KEY ================= */
 .grade-key-section {
-    margin: 4px 0;
+    margin: 3px 0 4px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 3px 7px;
+    background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%);
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+}
+ 
+.grade-key-title {
+    font-weight: 800;
+    font-size: 7.2pt;
+    color: #1e3a8a;
+    white-space: nowrap;
+    margin-right: 2px;
+}
+ 
+.grade-key-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    flex: 1;
+}
+ 
+.grade-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: #ffffff;
+    border: 1px solid #93c5fd;
+    border-radius: 10px;
+    padding: 1px 6px 1px 3px;
+    font-size: 6.5pt;
+    color: #1e3a8a;
+    white-space: nowrap;
+    box-shadow: 0 1px 1px rgba(30, 64, 175, 0.06);
+}
+ 
+.grade-chip .grade-letter {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #1e40af;
+    color: #ffffff;
+    font-weight: 800;
+    border-radius: 999px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 2.5px;
+    font-size: 6pt;
+    line-height: 1;
 }
 
-.grade-key-title {
-    font-weight: 700;
-    font-size: 7.5pt;
-    color: #1e3a8a;
-    margin-bottom: 2px;
-}
 
 /* ================= SUMMARY & ATTENDANCE (SIDE BY SIDE) ================= */
 .summary-attendance-row {
@@ -368,31 +416,31 @@ tbody tr:nth-child(even) {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
-    margin: 6px 0;
+    margin: 4px 0;
 }
 
 .remark-block {
     border: 1.5px solid #1e40af;
-    border-radius: 5px;
-    padding: 4px 6px;
+    border-radius: 6px;
+    padding: 5px 9px;
     background: #ffffff;
 }
 
 .remark-label {
-    font-size: 7pt;
+    font-size: 7.5pt;
     font-weight: 800;
     color: #1e40af;
-    margin-bottom: 2px;
+    margin-bottom: 3px;
     border-bottom: 1px solid #bfdbfe;
-    padding-bottom: 1px;
+    padding-bottom: 2px;
 }
 
 .remark-text {
-    font-size: 7pt;
-    line-height: 1.25;
+    font-size: 7.2pt;
+    line-height: 1.4;
     color: #374151;
-    margin: 0 0 2px 0;
-    min-height: 16px;
+    margin: 0 0 5px 0;
+    min-height: 17px;
 }
 
 .signature-line {
@@ -402,23 +450,23 @@ tbody tr:nth-child(even) {
 }
 
 .signature-image {
-    max-width: 160px;
-    max-height: 45px;
+    max-width: 190px;
+    max-height: 60px;
     height: auto;
     display: block;
-    margin-bottom: 1px;
+    margin-bottom: 2px;
 }
 
 .signature-placeholder {
     display: inline-block;
     border-bottom: 1px solid #6b7280;
-    min-width: 120px;
+    min-width: 140px;
     height: 1px;
-    margin-bottom: 2px;
+    margin-bottom: 4px;
 }
 
 .signature-info {
-    font-size: 6pt;
+    font-size: 5pt;
     color: #6b7280;
     display: block;
 }
@@ -426,7 +474,7 @@ tbody tr:nth-child(even) {
 .signature-date {
     font-style: italic;
     display: block;
-    font-size: 6pt;
+    font-size: 5.5pt;
     color: #1e40af;
 }
 
@@ -657,23 +705,23 @@ tbody tr:nth-child(even) {
 {% endif %}
 <!-- GRADE KEY -->
 <div class="grade-key-section">
-    <span class="grade-key-title">Grading Scale:</span>
-    <table style="width:auto; display:inline-table; margin-left:8px;">
-        <tr>
+    <span class="grade-key-title">Grading Scale</span>
+    <div class="grade-key-chips">
         {% if grade_scale %}
             {% for g in grade_scale %}
-            <td><strong>{{ g.grade }}</strong> {{ g.min }}–{{ g.max }}{% if g.remark %} ({{ g.remark }}){% endif %}</td>
+            <span class="grade-chip"><span class="grade-letter">{{ g.grade }}</span>{{ g.min }}–{{ g.max }}{% if g.remark %} · {{ g.remark }}{% endif %}</span>
             {% endfor %}
         {% else %}
-            <td><strong>A</strong> 70–100</td>
-            <td><strong>B</strong> 60–69</td>
-            <td><strong>C</strong> 50–59</td>
-            <td><strong>D</strong> 45–49</td>
-            <td><strong>E</strong> 40–44</td>
-            <td><strong>F</strong> 0–39</td>
+            <span class="grade-chip"><span class="grade-letter">A+</span>90–100 · Distinction</span>
+            <span class="grade-chip"><span class="grade-letter">A</span>80–89 · Excellent</span>
+            <span class="grade-chip"><span class="grade-letter">B+</span>70–79 · Very Good</span>
+            <span class="grade-chip"><span class="grade-letter">B</span>60–69 · Good</span>
+            <span class="grade-chip"><span class="grade-letter">C</span>50–59 · Average</span>
+            <span class="grade-chip"><span class="grade-letter">D</span>45–49 · Fair</span>
+            <span class="grade-chip"><span class="grade-letter">E</span>40–44 · Poor</span>
+            <span class="grade-chip"><span class="grade-letter">F</span>0–39 · Fail</span>
         {% endif %}
-        </tr>
-    </table>
+    </div>
 </div>
 
 <!-- PERFORMANCE SUMMARY & ATTENDANCE -->

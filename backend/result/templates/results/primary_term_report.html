@@ -1020,7 +1020,6 @@ tbody tr:nth-child(even) {
 }
 
 /* ================= GRADE KEY ================= */
-/* ================= GRADE KEY ================= */
 .grade-key-section {
     margin: 3px 0 4px;
     display: flex;
@@ -1335,7 +1334,8 @@ tbody tr:nth-child(even) {
         <span class="info-value">{{ summary.total_students }}</span>
 
         <span class="info-label">POSITION:</span>
-        <span class="info-value">{{ summary.position }} of {{ summary.total_students }}</span>
+        {% comment %} <span class="info-value">{{ summary.position }} of {{ summary.total_students }}</span> {% endcomment %}
+        <span class="info-value">-</span>
         <span class="info-label">NEXT TERM:</span>
         <span class="info-value">{{ next_term_begins|default:"TBA" }}</span>
     </div>
@@ -1509,10 +1509,10 @@ tbody tr:nth-child(even) {
             <span class="label">Overall Grade</span>
             <span class="value">{{ summary.grade }}</span>
         </div>
-        <div class="summary-item">
+        {% comment %} <div class="summary-item">
             <span class="label">Position</span>
             <span class="value">{{ summary.position }} of {{ summary.total_students }}</span>
-        </div>
+        </div> {% endcomment %}
     </div>
 
     <div class="summary-box">
