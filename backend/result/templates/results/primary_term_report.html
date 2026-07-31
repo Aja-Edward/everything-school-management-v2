@@ -1026,7 +1026,7 @@ tbody tr:nth-child(even) {
 
 .grade-key-title {
     font-weight: 700;
-    font-size: 7pt;
+    font-size: 9pt;
     color: #1e3a8a;
     margin-bottom: 1px;
 }
@@ -1423,19 +1423,19 @@ tbody tr:nth-child(even) {
 <!-- GRADE KEY -->
 <div class="grade-key-section">
     <span class="grade-key-title">Grading Scale:</span>
-    <table style="width:auto; display:inline-table; margin-left:8px;">
+    <table style="width:auto; display:inline-table; margin-left:8px; padding:3px;">
         <tr>
         {% if grade_scale %}
             {% for g in grade_scale %}
             <td><strong>{{ g.grade }}</strong> {{ g.min }}–{{ g.max }}{% if g.remark %} ({{ g.remark }}){% endif %}</td>
             {% endfor %}
         {% else %}
-            <td><strong>A</strong> 70–100</td>
-            <td><strong>B</strong> 60–69</td>
-            <td><strong>C</strong> 50–59</td>
-            <td><strong>D</strong> 45–49</td>
-            <td><strong>E</strong> 40–44</td>
-            <td><strong>F</strong> 0–39</td>
+            <td style="border: 1px solid #ccc; padding: 2px;"><strong>A</strong> 70–100</td>
+            <td style="border: 1px solid #ccc; padding: 2px;"><strong>B</strong> 60–69</td>
+            <td style="border: 1px solid #ccc; padding: 2px;"><strong>C</strong> 50–59</td>
+            <td style="border: 1px solid #ccc; padding: 2px;"><strong>D</strong> 45–49</td>
+            <td style="border: 1px solid #ccc; padding: 2px;"><strong>E</strong> 40–44</td>
+            <td style="border: 1px solid #ccc; padding: 2px;"><strong>F</strong> 0–39</td>
         {% endif %}
         </tr>
     </table>
