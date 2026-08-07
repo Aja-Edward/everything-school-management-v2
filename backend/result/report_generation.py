@@ -30,7 +30,7 @@ compute_from_term_reports().
 
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
@@ -322,9 +322,8 @@ class ReportGenerator:
             total_days = (end - start).days + 1
             times_opened = sum(
                 1 for i in range(total_days)
-                if (start + timezone.timedelta(days=i)).weekday() < 5
+                if (start + timedelta(days=i)).weekday() < 5
             )
-
             records = Attendance.objects.filter(
                 student=student, date__range=(start, end)
             ).values("date", "session", "status")
@@ -348,7 +347,8 @@ class ReportGenerator:
                 "times_present_out": times_present_out,
             }
         except Exception as e:
-            logger.debug(f"get_attendance: {e}")
+            logger.exception(
+                f"get_attendance failed for student={student.id}, exam_session={exam_session.id}")
             return {
                 "times_opened": 0, "times_present": 0,
                 "times_present_in": 0, "times_present_out": 0,
