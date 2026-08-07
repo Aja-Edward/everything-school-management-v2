@@ -294,32 +294,18 @@ class ReportGenerator:
     def get_attendance(self, student, exam_session):
         """
         Returns a dict:
-        times_opened       — school days open this term (weeks_per_term × 5)
-        times_present       — existing stat, unchanged: total 'P' records across
-                                both sessions combined (kept for backward compatibility)
-        times_present_in    — mornings the student was marked present at roll call
-        times_present_out   — afternoons the student was marked present at
-                                dismissal roll call
-
-        times_present_in > times_present_out for the same period flags students who
-        were marked in but never confirmed at the afternoon roll call — i.e. left
-        before closing.
+        times_opened        — weekdays (Mon–Fri) between the term's start_date
+                                and end_date, inclusive. Computed from the
+                                academic calendar, not a manual setting.
+        times_present        — distinct DAYS the student was marked present
+                                ('P') in at least one session (morning or
+                                afternoon). Same unit as times_opened, so the
+                                attendance rate can never exceed 100%.
+        times_present_in     — mornings marked present at roll call.
+        times_present_out    — afternoons marked present at dismissal roll call.
         """
         try:
             from attendance.models import Attendance, AttendanceSession
-            from tenants.models import TenantSettings
-
-            times_opened = 0
-            try:
-                tenant = getattr(student, "tenant", None)
-                ts = (
-                    TenantSettings.objects.get(tenant=tenant)
-                    if tenant else TenantSettings.objects.first()
-                )
-                if ts and ts.weeks_per_term:
-                    times_opened = ts.weeks_per_term * 5
-            except Exception:
-                pass
 
             term = getattr(exam_session, "term", None)
             if term and term.start_date and term.end_date:
@@ -328,21 +314,24 @@ class ReportGenerator:
                 start, end = exam_session.start_date, exam_session.end_date
             else:
                 return {
-                    "times_opened": times_opened, "times_present": 0,
+                    "times_opened": 0, "times_present": 0,
                     "times_present_in": 0, "times_present_out": 0,
                 }
 
-            if not times_opened:
-                times_opened = (
-                    Attendance.objects.filter(date__range=(start, end))
-                    .values("date").distinct().count()
-                )
+            # Weekdays (Mon–Fri) between start and end, inclusive.
+            total_days = (end - start).days + 1
+            times_opened = sum(
+                1 for i in range(total_days)
+                if (start + timezone.timedelta(days=i)).weekday() < 5
+            )
 
             records = Attendance.objects.filter(
                 student=student, date__range=(start, end)
-            ).values("session", "status")
+            ).values("date", "session", "status")
 
-            times_present = sum(1 for r in records if r["status"] == "P")
+            present_dates = {r["date"] for r in records if r["status"] == "P"}
+            times_present = len(present_dates)
+
             times_present_in = sum(
                 1 for r in records
                 if r["session"] == AttendanceSession.MORNING and r["status"] == "P"
