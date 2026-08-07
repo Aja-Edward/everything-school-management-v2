@@ -1460,8 +1460,12 @@ class NurseryReportGenerator(ReportGenerator):
         """
         NurseryTermReport has no average_score/overall_grade columns
         (it uses overall_percentage). For STANDARD style we derive the
-        Primary-style summary on the fly from subject_results, so no
-        model/migration change is needed for this to work.
+        Primary-style summary on the fly from subject_results.
+
+        Overall grade is resolved from the same GradingSystem the subjects
+        themselves use (sampled from the first subject result that has one),
+        not a hardcoded scale — so it always matches the letter grades
+        already printed in the subject table above it.
         """
         from .models import _default_grade
         results = list(subject_results)
@@ -1470,10 +1474,24 @@ class NurseryReportGenerator(ReportGenerator):
             sum(float(r.percentage or 0) for r in results) / len(results)
             if results else 0.0
         )
+
+        first = next((r for r in results if r.grading_system_id), None)
+        gs = first.grading_system if first else None
+        if gs:
+            grade_obj = (
+                gs.grades.filter(min_score__lte=avg_pct,
+                                 max_score__gte=avg_pct)
+                .order_by("-min_score")
+                .first()
+            )
+            grade = grade_obj.grade if grade_obj else _default_grade(avg_pct)
+        else:
+            grade = _default_grade(avg_pct)
+
         return {
             "total_score": total_score,
             "average": round(avg_pct, 2),
-            "grade": _default_grade(avg_pct),
+            "grade": grade,
         }
 
     def generate_term_report(self, report_id):
