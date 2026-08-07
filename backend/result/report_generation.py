@@ -632,6 +632,15 @@ class ReportGenerator:
         )
         return f"{pos}{suffix}"
 
+    def compute_times_absent(self, times_opened, times_present):
+        """
+        Days absent = times_opened minus days present.
+        Floored at 0 as a guard against data inconsistencies (e.g. more
+        present records than school days, which shouldn't happen but
+        shouldn't render as a negative number if it does).
+        """
+        return max((times_opened or 0) - (times_present or 0), 0)
+
     def sanitize_filename(self, filename):
         s = re.sub(r"[^\w\s.-]", "", filename).strip().replace(" ", "_")
         return re.sub(r"_+", "_", s)
@@ -796,6 +805,8 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
 
             attendance_data = self.get_attendance(
                 report.student, report.exam_session)
+            final_times_opened = attendance_data["times_opened"] or report.times_opened or 0
+            final_times_present = attendance_data["times_present"] or report.times_present or 0
 
             total_students = self.count_students_in_class(
                 report.student) or report.total_students or 0
@@ -837,10 +848,11 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                 "show_subject_min_max": self.get_show_subject_min_max(report.student),
                 "grade_summary": self._grade_summary(subject_results),
                 "attendance": {
-                    "times_opened": attendance_data["times_opened"] or report.times_opened or 0,
-                    "times_present": attendance_data["times_present"] or report.times_present or 0,
+                    "times_opened": final_times_opened,
+                    "times_present": final_times_present,
                     "times_present_in": attendance_data["times_present_in"],
                     "times_present_out": attendance_data["times_present_out"],
+                    "times_absent": self.compute_times_absent(final_times_opened, final_times_present),
                 },
                 "next_term_begins": self.get_next_term_begins(report),
                 "remarks": {
@@ -1032,6 +1044,8 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
 
             attendance_data = self.get_attendance(
                 report.student, report.exam_session)
+            final_times_opened = attendance_data["times_opened"] or report.times_opened or 0
+            final_times_present = attendance_data["times_present"] or report.times_present or 0
 
             total_students = self.count_students_in_class(
                 report.student) or report.total_students or 0
@@ -1078,10 +1092,11 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
                 "grade_scale": self.build_grade_scale(subject_results),
                 "show_subject_min_max": self.get_show_subject_min_max(report.student),
                 "attendance": {
-                    "times_opened": attendance_data["times_opened"] or report.times_opened or 0,
-                    "times_present": attendance_data["times_present"] or report.times_present or 0,
+                    "times_opened": final_times_opened,
+                    "times_present": final_times_present,
                     "times_present_in": attendance_data["times_present_in"],
                     "times_present_out": attendance_data["times_present_out"],
+                    "times_absent": self.compute_times_absent(final_times_opened, final_times_present),
                 },
                 "next_term_begins": self.get_next_term_begins(report),
                 "remarks": {
@@ -1247,6 +1262,8 @@ class PrimaryReportGenerator(ReportGenerator):
 
             attendance_data = self.get_attendance(
                 report.student, report.exam_session)
+            final_times_opened = attendance_data["times_opened"] or report.times_opened or 0
+            final_times_present = attendance_data["times_present"] or report.times_present or 0
 
             class_position = self.compute_class_position(
                 report, PrimaryResult, PrimaryTermReport
@@ -1291,10 +1308,11 @@ class PrimaryReportGenerator(ReportGenerator):
                 "show_subject_min_max": self.get_show_subject_min_max(report.student),
                 "grade_scale": self.build_grade_scale(subject_results),
                 "attendance": {
-                    "times_opened": attendance_data["times_opened"] or report.times_opened or 0,
-                    "times_present": attendance_data["times_present"] or report.times_present or 0,
+                    "times_opened": final_times_opened,
+                    "times_present": final_times_present,
                     "times_present_in": attendance_data["times_present_in"],
                     "times_present_out": attendance_data["times_present_out"],
+                    "times_absent": self.compute_times_absent(final_times_opened, final_times_present),
                 },
                 "next_term_begins": self.get_next_term_begins(report),
                 "remarks": {
@@ -1495,6 +1513,8 @@ class NurseryReportGenerator(ReportGenerator):
             )
             attendance_data = self.get_attendance(
                 report.student, report.exam_session)
+            final_times_opened = attendance_data["times_opened"] or report.times_school_opened or 0
+            final_times_present = attendance_data["times_present"] or report.times_student_present or 0
 
             # ── Shared context pieces (identical for both styles) ──────────
             base_context = {
@@ -1554,10 +1574,11 @@ class NurseryReportGenerator(ReportGenerator):
                     "show_subject_min_max": self.get_show_subject_min_max(report.student),
                     "grade_scale": self.build_grade_scale(subject_results),
                     "attendance": {
-                        "times_opened": attendance_data["times_opened"] or report.times_school_opened or 0,
-                        "times_present": attendance_data["times_present"] or report.times_student_present or 0,
+                        "times_opened": final_times_opened,
+                        "times_present": final_times_present,
                         "times_present_in": attendance_data["times_present_in"],
                         "times_present_out": attendance_data["times_present_out"],
+                        "times_absent": self.compute_times_absent(final_times_opened, final_times_present),
                     },
                 }
                 template = self.get_template("term", style="STANDARD")

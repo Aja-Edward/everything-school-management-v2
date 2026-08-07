@@ -784,8 +784,7 @@ tbody tr:nth-child(even) {
         {% if attendance.times_opened %}
         <div class="summary-item">
             <span class="label">Times Absent</span>
-            <span class="value">{{ attendance.times_opened|add:"-"|add:attendance.times_present }}</span>
-            
+            <span class="value">{{ attendance.times_absent }}</span>
         </div>
         <div class="summary-item">
             <span class="label">Attendance Rate</span>
