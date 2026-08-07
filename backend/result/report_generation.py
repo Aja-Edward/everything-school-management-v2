@@ -293,56 +293,77 @@ class ReportGenerator:
 
     def get_attendance(self, student, exam_session):
         """
-        Return (times_opened, times_present).
+        Returns a dict:
+        times_opened       — school days open this term (weeks_per_term × 5)
+        times_present       — existing stat, unchanged: total 'P' records across
+                                both sessions combined (kept for backward compatibility)
+        times_present_in    — mornings the student was marked present at roll call
+        times_present_out   — afternoons the student was marked present at
+                                dismissal roll call
 
-        times_opened  = weeks_per_term × 5, read from TenantSettings.
-                        Falls back to counting distinct attendance dates in the
-                        term date range if the setting is missing.
-        times_present = count of PRESENT attendance records for this student
-                        within the term date range.
+        times_present_in > times_present_out for the same period flags students who
+        were marked in but never confirmed at the afternoon roll call — i.e. left
+        before closing.
         """
         try:
-            from attendance.models import Attendance
+            from attendance.models import Attendance, AttendanceSession
             from tenants.models import TenantSettings
 
-            # ── times_opened: weeks_per_term × 5 days ────────────────────────
             times_opened = 0
             try:
                 tenant = getattr(student, "tenant", None)
-                if tenant:
-                    ts = TenantSettings.objects.get(tenant=tenant)
-                else:
-                    ts = TenantSettings.objects.first()
+                ts = (
+                    TenantSettings.objects.get(tenant=tenant)
+                    if tenant else TenantSettings.objects.first()
+                )
                 if ts and ts.weeks_per_term:
                     times_opened = ts.weeks_per_term * 5
             except Exception:
                 pass
 
-            # ── date range for times_present ─────────────────────────────────
             term = getattr(exam_session, "term", None)
             if term and term.start_date and term.end_date:
                 start, end = term.start_date, term.end_date
             elif exam_session.start_date and exam_session.end_date:
                 start, end = exam_session.start_date, exam_session.end_date
             else:
-                return times_opened, 0
+                return {
+                    "times_opened": times_opened, "times_present": 0,
+                    "times_present_in": 0, "times_present_out": 0,
+                }
 
-            # Fallback for times_opened when setting is absent
             if not times_opened:
                 times_opened = (
                     Attendance.objects.filter(date__range=(start, end))
                     .values("date").distinct().count()
                 )
 
-            times_present = Attendance.objects.filter(
-                student=student,
-                date__range=(start, end),
-                status="P",
-            ).count()
-            return times_opened, times_present
+            records = Attendance.objects.filter(
+                student=student, date__range=(start, end)
+            ).values("session", "status")
+
+            times_present = sum(1 for r in records if r["status"] == "P")
+            times_present_in = sum(
+                1 for r in records
+                if r["session"] == AttendanceSession.MORNING and r["status"] == "P"
+            )
+            times_present_out = sum(
+                1 for r in records
+                if r["session"] == AttendanceSession.AFTERNOON and r["status"] == "P"
+            )
+
+            return {
+                "times_opened": times_opened,
+                "times_present": times_present,
+                "times_present_in": times_present_in,
+                "times_present_out": times_present_out,
+            }
         except Exception as e:
             logger.debug(f"get_attendance: {e}")
-            return 0, 0
+            return {
+                "times_opened": 0, "times_present": 0,
+                "times_present_in": 0, "times_present_out": 0,
+            }
 
     def get_student_picture(self, student):
         """Return the student's profile picture URL, or None if not set."""
@@ -363,21 +384,40 @@ class ReportGenerator:
             logger.debug(f"get_student_picture: {e}")
         return None
 
-    def get_student_section(self, student):
-        """Return the student's classroom section name (e.g. 'Diamond'), or ''."""
+    # ── NEW METHOD GOES HERE ──────────────────────────────────────────
+
+    def get_classroom_context(self, student, exam_session=None, academic_session=None):
+        """
+        Returns the school-configured classroom name (e.g. 'Grade 1', 'Pre School')
+        for a student. Pass exam_session for term reports (scopes to that exact
+        term); pass academic_session for session reports (scopes to the session,
+        using the student's most recent enrollment within it, since a student
+        could theoretically change classroom mid-session).
+        Falls back to the standard Class name if no Classroom enrollment exists.
+        """
         try:
             from classroom.models import StudentEnrollment
-            enrollment = (
-                StudentEnrollment.objects.filter(
-                    student=student, is_active=True)
-                .select_related("classroom__section")
-                .first()
+            qs = StudentEnrollment.objects.filter(
+                student=student, is_active=True
+            ).select_related("classroom__section")
+
+            session = academic_session or (
+                exam_session.academic_session if exam_session else None
             )
-            if enrollment and enrollment.classroom and enrollment.classroom.section:
-                return enrollment.classroom.section.name or ""
+            if session is not None:
+                qs = qs.filter(classroom__academic_session=session)
+            if exam_session is not None and exam_session.term_id:
+                qs = qs.filter(classroom__term=exam_session.term)
+
+            enrollment = qs.order_by("-enrollment_date").first()
+            if enrollment and enrollment.classroom:
+                return {
+                    "name": enrollment.classroom.name,
+                    "section": enrollment.classroom.section.name if enrollment.classroom.section else "",
+                }
         except Exception as e:
-            logger.debug(f"get_student_section: {e}")
-        return ""
+            logger.debug(f"get_classroom_context: {e}")
+        return {"name": _student_class_name(student), "section": ""}
 
     def count_students_in_class(self, student):
         """Count all active students in the same class, regardless of result status."""
@@ -443,12 +483,14 @@ class ReportGenerator:
         screen and the API response show.
         """
         try:
-            affective = get_report_trait_section(report, TraitCategory.AFFECTIVE)
+            affective = get_report_trait_section(
+                report, TraitCategory.AFFECTIVE)
         except Exception as e:
             logger.debug(f"get_trait_sections affective: {e}")
             affective = []
         try:
-            psychomotor = get_report_trait_section(report, TraitCategory.PSYCHOMOTOR)
+            psychomotor = get_report_trait_section(
+                report, TraitCategory.PSYCHOMOTOR)
         except Exception as e:
             logger.debug(f"get_trait_sections psychomotor: {e}")
             psychomotor = []
@@ -636,6 +678,9 @@ class ReportGenerator:
         session reports have a stream FK.
         """
         term_totals = report.term_totals or []
+        classroom_info = self.get_classroom_context(
+            report.student, academic_session=report.academic_session
+        )
         return {
             "report_type": "SESSION_REPORT",
             "report_type_label": report_type_label,
@@ -643,7 +688,8 @@ class ReportGenerator:
             "student": {
                 "name": report.student.full_name,
                 "admission_number": report.student.registration_number or "",
-                "class": _student_class_name(report.student),
+                "class": classroom_info["name"],
+                "section": classroom_info["section"],
                 "age": self.calculate_student_age(
                     getattr(report.student, "date_of_birth", None)
                 ),
@@ -759,29 +805,26 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                     }
                 )
 
-            times_opened, times_present = self.get_attendance(
-                report.student, report.exam_session
-            )
+            attendance_data = self.get_attendance(
+                report.student, report.exam_session)
 
             total_students = self.count_students_in_class(
                 report.student) or report.total_students or 0
             class_position = self.compute_class_position(
                 report, SeniorSecondaryResult, SeniorSecondaryTermReport
             )
-
+            classroom_info = self.get_classroom_context(
+                report.student, exam_session=report.exam_session
+            )
             context = {
                 "report_type": "TERM_REPORT",
                 "school": self.get_school_info(student=report.student),
                 "student": {
                     "name": report.student.full_name,
                     "admission_number": report.student.registration_number or "",
-                    "class": _student_class_name(report.student),
+                    "class": classroom_info["name"],
                     "stream": report.stream.name if report.stream else "",
-                    "section": self.get_student_section(report.student),
-                    "age": self.calculate_student_age(
-                        getattr(report.student, "date_of_birth", None)
-                    ),
-                    "picture": self.get_student_picture(report.student),
+                    "section": classroom_info["section"],
                 },
                 "term": {
                     "name": (
@@ -805,8 +848,10 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                 "show_subject_min_max": self.get_show_subject_min_max(report.student),
                 "grade_summary": self._grade_summary(subject_results),
                 "attendance": {
-                    "times_opened": times_opened or report.times_opened or 0,
-                    "times_present": times_present or report.times_present or 0,
+                    "times_opened": attendance_data["times_opened"] or report.times_opened or 0,
+                    "times_present": attendance_data["times_present"] or report.times_present or 0,
+                    "times_present_in": attendance_data["times_present_in"],
+                    "times_present_out": attendance_data["times_present_out"],
                 },
                 "next_term_begins": self.get_next_term_begins(report),
                 "remarks": {
@@ -852,14 +897,17 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
 
         try:
             term_totals = report.term_totals or []
-
+            classroom_info = self.get_classroom_context(
+                report.student, academic_session=report.academic_session
+            )
             context = {
                 "report_type": "SESSION_REPORT",
                 "school": self.get_school_info(student=report.student),
                 "student": {
                     "name": report.student.full_name,
                     "admission_number": report.student.registration_number or "",
-                    "class": _student_class_name(report.student),
+                    "class": classroom_info["name"],
+                    "section": classroom_info["section"],
                     "stream": report.stream.name if report.stream else "",
                 },
                 "session": {
@@ -993,24 +1041,25 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
                     }
                 )
 
-            times_opened, times_present = self.get_attendance(
-                report.student, report.exam_session
-            )
+            attendance_data = self.get_attendance(
+                report.student, report.exam_session)
 
             total_students = self.count_students_in_class(
                 report.student) or report.total_students or 0
             class_position = self.compute_class_position(
                 report, JuniorSecondaryResult, JuniorSecondaryTermReport
             )
-
+            classroom_info = self.get_classroom_context(
+                report.student, exam_session=report.exam_session
+            )
             context = {
                 "report_type": "TERM_REPORT",
                 "school": self.get_school_info(student=report.student),
                 "student": {
                     "name": report.student.full_name,
                     "admission_number": report.student.registration_number or "",
-                    "class": _student_class_name(report.student),
-                    "section": self.get_student_section(report.student),
+                    "class": classroom_info["name"],
+                    "section": classroom_info["section"],
                     "age": self.calculate_student_age(
                         getattr(report.student, "date_of_birth", None)
                     ),
@@ -1040,8 +1089,10 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
                 "grade_scale": self.build_grade_scale(subject_results),
                 "show_subject_min_max": self.get_show_subject_min_max(report.student),
                 "attendance": {
-                    "times_opened": times_opened or report.times_opened or 0,
-                    "times_present": times_present or report.times_present or 0,
+                    "times_opened": attendance_data["times_opened"] or report.times_opened or 0,
+                    "times_present": attendance_data["times_present"] or report.times_present or 0,
+                    "times_present_in": attendance_data["times_present_in"],
+                    "times_present_out": attendance_data["times_present_out"],
                 },
                 "next_term_begins": self.get_next_term_begins(report),
                 "remarks": {
@@ -1205,22 +1256,23 @@ class PrimaryReportGenerator(ReportGenerator):
                 report.student, report.exam_session
             )
 
-            times_opened, times_present = self.get_attendance(
-                report.student, report.exam_session
-            )
+            attendance_data = self.get_attendance(
+                report.student, report.exam_session)
 
             class_position = self.compute_class_position(
                 report, PrimaryResult, PrimaryTermReport
             )
-
+            classroom_info = self.get_classroom_context(
+                report.student, exam_session=report.exam_session
+            )
             context = {
                 "report_type": "TERM_REPORT",
                 "school": self.get_school_info(student=report.student),
                 "student": {
                     "name": report.student.full_name,
                     "admission_number": report.student.registration_number or "",
-                    "class": _student_class_name(report.student),
-                    "section": self.get_student_section(report.student),
+                    "class": classroom_info["name"],
+                    "section": classroom_info["section"],
                     "age": self.calculate_student_age(
                         getattr(report.student, "date_of_birth", None)
                     ),
@@ -1250,8 +1302,10 @@ class PrimaryReportGenerator(ReportGenerator):
                 "show_subject_min_max": self.get_show_subject_min_max(report.student),
                 "grade_scale": self.build_grade_scale(subject_results),
                 "attendance": {
-                    "times_opened": times_opened or report.times_opened or 0,
-                    "times_present": times_present or report.times_present or 0,
+                    "times_opened": attendance_data["times_opened"] or report.times_opened or 0,
+                    "times_present": attendance_data["times_present"] or report.times_present or 0,
+                    "times_present_in": attendance_data["times_present_in"],
+                    "times_present_out": attendance_data["times_present_out"],
                 },
                 "next_term_begins": self.get_next_term_begins(report),
                 "remarks": {
@@ -1447,6 +1501,11 @@ class NurseryReportGenerator(ReportGenerator):
                 .prefetch_related("component_scores__component")
                 .order_by("subject__name")
             )
+            classroom_info = self.get_classroom_context(
+                report.student, exam_session=report.exam_session
+            )
+            attendance_data = self.get_attendance(
+                report.student, report.exam_session)
 
             # ── Shared context pieces (identical for both styles) ──────────
             base_context = {
@@ -1455,8 +1514,8 @@ class NurseryReportGenerator(ReportGenerator):
                 "student": {
                     "name": report.student.full_name,
                     "admission_number": report.student.registration_number or "",
-                    "class": _student_class_name(report.student),
-                    "section": self.get_student_section(report.student),
+                    "class": classroom_info["name"],
+                    "section": classroom_info["section"],
                     "age": self.calculate_student_age(
                         getattr(report.student, "date_of_birth", None)
                     ),
@@ -1506,8 +1565,10 @@ class NurseryReportGenerator(ReportGenerator):
                     "show_subject_min_max": self.get_show_subject_min_max(report.student),
                     "grade_scale": self.build_grade_scale(subject_results),
                     "attendance": {
-                        "times_opened": report.times_school_opened or 0,
-                        "times_present": report.times_student_present or 0,
+                        "times_opened": attendance_data["times_opened"] or report.times_school_opened or 0,
+                        "times_present": attendance_data["times_present"] or report.times_student_present or 0,
+                        "times_present_in": attendance_data["times_present_in"],
+                        "times_present_out": attendance_data["times_present_out"],
                     },
                 }
                 template = self.get_template("term", style="STANDARD")
@@ -1542,8 +1603,10 @@ class NurseryReportGenerator(ReportGenerator):
                         "total_students": report.total_students_in_class or 0,
                     },
                     "attendance": {
-                        "times_opened": report.times_school_opened or 0,
-                        "times_present": report.times_student_present or 0,
+                        "times_opened": attendance_data["times_opened"] or report.times_school_opened or 0,
+                        "times_present": attendance_data["times_present"] or report.times_student_present or 0,
+                        "times_present_in": attendance_data["times_present_in"],
+                        "times_present_out": attendance_data["times_present_out"],
                     },
                 }
                 template = self.get_template("term", style="DEVELOPMENTAL")

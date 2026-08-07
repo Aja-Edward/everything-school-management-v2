@@ -616,6 +616,7 @@ def get_report_trait_section(term_report, category):
         })
     return out
 
+
 def is_physical_development_visible(tenant_settings, education_level_code):
     """
     Determines whether the Physical Development / Growth Measurements
@@ -1802,6 +1803,25 @@ class TermReportFields(PhysicalDevelopmentFields, models.Model):
         )
         agg_map = {row["pk"]: row for row in agg_qs}
 
+        ResultModel = cls._meta.get_field("subject_results").related_model
+
+        gs_rows = (
+            ResultModel.objects.filter(
+                term_report__in=queryset, status__in=("APPROVED", "PUBLISHED")
+            )
+            .order_by("term_report_id", "id")
+            .values("term_report_id", "grading_system_id")
+        )
+        first_gs_id = {}
+        for row in gs_rows:
+            first_gs_id.setdefault(
+                row["term_report_id"], row["grading_system_id"])
+
+        gs_ids = set(first_gs_id.values())
+        gs_map = {
+            gs.id: gs
+            for gs in GradingSystem.objects.filter(id__in=gs_ids).prefetch_related("grades")
+        }
         reports = list(
             queryset.only("pk", "total_score",
                           "average_score", "overall_grade")
