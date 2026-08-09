@@ -261,11 +261,11 @@ tbody tr:nth-child(even) {
 }
 
 .traits-row.cols-3 {
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: 2fr 1fr 0.5fr;
 }
 
 .traits-row.cols-2 {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 2fr 1fr;
 }
 
 .traits-row.cols-1 {
@@ -333,10 +333,13 @@ tbody tr:nth-child(even) {
 }
 
 .grade-chip {
+    display: inline-flex;
     align-items: center;
+    gap: 3px;
     background: #ffffff;
-    
-   
+    border: 1px solid #93c5fd;
+    border-radius: 10px;
+    padding: none;
     font-size: 6.5pt;
     color: #1e3a8a;
     white-space: nowrap;
