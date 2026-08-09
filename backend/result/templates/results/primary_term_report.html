@@ -248,64 +248,6 @@ tbody tr:nth-child(even) {
     padding: 4px;
 }
 
-/* ================= GRADE KEY ================= */
-.grade-key-section {
-    margin: 3px 0 4px;
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 4px;
-    padding: 3px 7px;
-    background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%);
-    border: 1px solid #bfdbfe;
-    border-radius: 8px;
-}
- 
-.grade-key-title {
-    font-weight: 800;
-    font-size: 7.2pt;
-    color: #1e3a8a;
-    white-space: nowrap;
-    margin-right: 2px;
-}
- 
-.grade-key-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    flex: 1;
-}
- 
-.grade-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    background: #ffffff;
-    border: 1px solid #93c5fd;
-    border-radius: 10px;
-    padding: 1px 6px 1px 3px;
-    font-size: 6.5pt;
-    color: #1e3a8a;
-    white-space: nowrap;
-    box-shadow: 0 1px 1px rgba(30, 64, 175, 0.06);
-}
- 
-.grade-chip .grade-letter {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: #1e40af;
-    color: #ffffff;
-    font-weight: 800;
-    border-radius: 999px;
-    min-width: 14px;
-    height: 14px;
-    padding: 0 2.5px;
-    font-size: 6pt;
-    line-height: 1;
-}
-
-
 /* ================= SUMMARY & ATTENDANCE (SIDE BY SIDE) ================= */
 .summary-attendance-row {
     display: grid;
@@ -328,15 +270,23 @@ tbody tr:nth-child(even) {
     font-size: 8.5pt;
 }
 
-/* ================= TRAITS (AFFECTIVE / PSYCHOMOTOR) ================= */
+/* ================= TRAITS ROW (Affective / Psychomotor / Grading Scale) ================= */
 .traits-row {
     display: grid;
-    grid-template-columns: 1fr 1fr;
     gap: 8px;
     margin: 4px 0;
+    align-items: start;
 }
 
-.traits-row.single-column {
+.traits-row.cols-3 {
+    grid-template-columns: 1fr 1fr 1fr;
+}
+
+.traits-row.cols-2 {
+    grid-template-columns: 1fr 1fr;
+}
+
+.traits-row.cols-1 {
     grid-template-columns: 1fr;
 }
 
@@ -388,6 +338,48 @@ tbody tr:nth-child(even) {
     width: 12px;
     border-bottom: 1px solid #bfdbfe;
     padding-bottom: 2px;
+}
+
+/* ================= GRADE KEY (now a column inside .traits-row) ================= */
+.grade-key-box {
+    display: flex;
+    flex-direction: column;
+}
+
+.grade-key-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-content: flex-start;
+}
+
+.grade-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: #ffffff;
+    border: 1px solid #93c5fd;
+    border-radius: 10px;
+    padding: 1px 6px 1px 3px;
+    font-size: 6.5pt;
+    color: #1e3a8a;
+    white-space: nowrap;
+    box-shadow: 0 1px 1px rgba(30, 64, 175, 0.06);
+}
+
+.grade-chip .grade-letter {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #1e40af;
+    color: #ffffff;
+    font-weight: 800;
+    border-radius: 999px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 2.5px;
+    font-size: 6pt;
+    line-height: 1;
 }
 
 .summary-item {
@@ -645,8 +637,14 @@ tbody tr:nth-child(even) {
 </p>
 {% endif %}
 
-{% if has_affective_domain or has_psychomotor_skills %}
-<div class="traits-row{% if not has_affective_domain or not has_psychomotor_skills %} single-column{% endif %}">
+<!-- TRAITS + GRADING SCALE: three columns in one row (auto-adjusts if a domain is missing) -->
+{% if has_affective_domain and has_psychomotor_skills %}
+<div class="traits-row cols-3">
+{% elif has_affective_domain or has_psychomotor_skills %}
+<div class="traits-row cols-2">
+{% else %}
+<div class="traits-row cols-1">
+{% endif %}
     {% if has_affective_domain %}
     <div class="trait-box">
         <h3>Affective Domain</h3>
@@ -694,26 +692,26 @@ tbody tr:nth-child(even) {
         </table>
     </div>
     {% endif %}
-</div>
-{% endif %}
-<!-- GRADE KEY -->
-<div class="grade-key-section">
-    <span class="grade-key-title">Grading Scale</span>
-    <div class="grade-key-chips">
-        {% if grade_scale %}
-            {% for g in grade_scale %}
-            <span class="grade-chip"><span class="grade-letter">{{ g.grade }}</span>{{ g.min }}–{{ g.max }}{% if g.remark %} · {{ g.remark }}{% endif %}</span>
-            {% endfor %}
-        {% else %}
-            <span class="grade-chip"><span class="grade-letter">A+</span>90–100 · Distinction</span>
-            <span class="grade-chip"><span class="grade-letter">A</span>80–89 · Excellent</span>
-            <span class="grade-chip"><span class="grade-letter">B+</span>70–79 · Very Good</span>
-            <span class="grade-chip"><span class="grade-letter">B</span>60–69 · Good</span>
-            <span class="grade-chip"><span class="grade-letter">C</span>50–59 · Average</span>
-            <span class="grade-chip"><span class="grade-letter">D</span>45–49 · Fair</span>
-            <span class="grade-chip"><span class="grade-letter">E</span>40–44 · Poor</span>
-            <span class="grade-chip"><span class="grade-letter">F</span>0–39 · Fail</span>
-        {% endif %}
+
+    <!-- GRADE KEY -->
+    <div class="trait-box grade-key-box">
+        <h3>Grading Scale</h3>
+        <div class="grade-key-chips">
+            {% if grade_scale %}
+                {% for g in grade_scale %}
+                <span class="grade-chip"><span class="grade-letter">{{ g.grade }}</span>{{ g.min }}–{{ g.max }}{% if g.remark %} · {{ g.remark }}{% endif %}</span>
+                {% endfor %}
+            {% else %}
+                <span class="grade-chip"><span class="grade-letter">A+</span>90–100 · Distinction</span>
+                <span class="grade-chip"><span class="grade-letter">A</span>80–89 · Excellent</span>
+                <span class="grade-chip"><span class="grade-letter">B+</span>70–79 · Very Good</span>
+                <span class="grade-chip"><span class="grade-letter">B</span>60–69 · Good</span>
+                <span class="grade-chip"><span class="grade-letter">C</span>50–59 · Average</span>
+                <span class="grade-chip"><span class="grade-letter">D</span>45–49 · Fair</span>
+                <span class="grade-chip"><span class="grade-letter">E</span>40–44 · Poor</span>
+                <span class="grade-chip"><span class="grade-letter">F</span>0–39 · Fail</span>
+            {% endif %}
+        </div>
     </div>
 </div>
 
