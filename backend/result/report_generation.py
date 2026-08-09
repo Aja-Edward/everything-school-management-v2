@@ -295,12 +295,18 @@ class ReportGenerator:
         """
         Returns a dict:
         times_opened        — weekdays (Mon–Fri) between the term's start_date
-                                and end_date, inclusive. Computed from the
-                                academic calendar, not a manual setting.
-        times_present        — distinct DAYS the student was marked present
-                                ('P') in at least one session (morning or
-                                afternoon). Same unit as times_opened, so the
-                                attendance rate can never exceed 100%.
+                                and end_date, inclusive, multiplied by 2. The
+                                school "opens" twice each weekday (a morning
+                                roll call and an afternoon roll call), so the
+                                session-count is double the day-count.
+                                Computed from the academic calendar, not a
+                                manual setting.
+        times_present        — sum of morning + afternoon sessions the
+                                student was marked present ('P'), i.e.
+                                times_present_in + times_present_out. This
+                                keeps times_present in the same session-count
+                                unit as times_opened, so the attendance rate
+                                can never exceed 100%.
         times_present_in     — mornings marked present at roll call.
         times_present_out    — afternoons marked present at dismissal roll call.
         """
@@ -318,18 +324,19 @@ class ReportGenerator:
                     "times_present_in": 0, "times_present_out": 0,
                 }
 
-            # Weekdays (Mon–Fri) between start and end, inclusive.
+            # Weekdays (Mon–Fri) between start and end, inclusive, then
+            # doubled since each weekday has two roll calls (morning +
+            # afternoon) — the school effectively "opens" twice a day.
             total_days = (end - start).days + 1
-            times_opened = sum(
+            weekdays = sum(
                 1 for i in range(total_days)
                 if (start + timedelta(days=i)).weekday() < 5
             )
+            times_opened = weekdays * 2
+
             records = Attendance.objects.filter(
                 student=student, date__range=(start, end)
             ).values("date", "session", "status")
-
-            present_dates = {r["date"] for r in records if r["status"] == "P"}
-            times_present = len(present_dates)
 
             times_present_in = sum(
                 1 for r in records
@@ -339,6 +346,10 @@ class ReportGenerator:
                 1 for r in records
                 if r["session"] == AttendanceSession.AFTERNOON and r["status"] == "P"
             )
+            # times_present is always the sum of both sessions, not distinct
+            # days present, so it stays in the same session-count unit as
+            # times_opened above.
+            times_present = times_present_in + times_present_out
 
             return {
                 "times_opened": times_opened,
@@ -623,6 +634,41 @@ class ReportGenerator:
             logger.debug(f"build_grade_scale: {e}")
         return []
 
+    def compute_overall_grade(self, subject_results, average_score, fallback=""):
+        """
+        Derive the overall grade from the school's configured GradingSystem,
+        using the same min/max score bands each subject grade is looked up
+        against — instead of trusting a separately stored overall_grade
+        value that can drift out of sync with the school's grading scale
+        (e.g. a report showing "A" for a 76% average when the school's own
+        scale puts 76% in a different band).
+
+        Mirrors the lookup NurseryReportGenerator._overall_grade() already
+        does for Nursery. Samples the grading_system from the first subject
+        result that has one (all subjects on a report normally share the
+        same grading system), then finds the band containing average_score.
+
+        Falls back to `fallback` (typically the stored report.overall_grade)
+        if no grading system / matching band can be resolved, so a report
+        is never left with a blank grade.
+        """
+        try:
+            first = next(
+                (r for r in subject_results if r.grading_system_id), None)
+            gs = first.grading_system if first else None
+            if gs:
+                grade_obj = (
+                    gs.grades.filter(
+                        min_score__lte=average_score, max_score__gte=average_score)
+                    .order_by("-min_score")
+                    .first()
+                )
+                if grade_obj:
+                    return grade_obj.grade
+        except Exception as e:
+            logger.debug(f"compute_overall_grade: {e}")
+        return fallback
+
     def format_grade_suffix(self, position):
         if not position:
             return ""
@@ -840,7 +886,10 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
                     "total_subjects": len(subjects_data),
                     "total_score": float(report.total_score or 0),
                     "average": float(report.average_score or 0),
-                    "grade": report.overall_grade or "",
+                    "grade": self.compute_overall_grade(
+                        subject_results, float(report.average_score or 0),
+                        fallback=report.overall_grade or "",
+                    ),
                     "position": class_position,
                     "total_students": total_students,
                 },
@@ -1085,7 +1134,10 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
                     "total_subjects": len(subjects_data),
                     "total_score": float(report.total_score or 0),
                     "average": float(report.average_score or 0),
-                    "grade": report.overall_grade or "",
+                    "grade": self.compute_overall_grade(
+                        subject_results, float(report.average_score or 0),
+                        fallback=report.overall_grade or "",
+                    ),
                     "position": class_position,
                     "total_students": total_students,
                 },
@@ -1301,7 +1353,10 @@ class PrimaryReportGenerator(ReportGenerator):
                     "total_subjects": len(subjects_data),
                     "total_score": float(report.total_score or 0),
                     "average": float(report.average_score or 0),
-                    "grade": report.overall_grade or "",
+                    "grade": self.compute_overall_grade(
+                        subject_results, float(report.average_score or 0),
+                        fallback=report.overall_grade or "",
+                    ),
                     "position": class_position,
                     "total_students": total_students,
                 },
