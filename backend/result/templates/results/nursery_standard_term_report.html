@@ -162,6 +162,9 @@ body {
     background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
 }
 
+/* Fixed-width label/value grid — every label column and every value
+   column is the same width throughout, so fields line up into neat
+   rows regardless of how much text an individual value holds. */
 .info-grid {
     display: grid;
     grid-template-columns: 62px 1fr 62px 1fr 62px 1fr;
@@ -249,6 +252,64 @@ tbody tr:nth-child(even) {
     padding: 4px;
 }
 
+/* ================= GRADE KEY ================= */
+.grade-key-section {
+    margin: 3px 0 4px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 3px 7px;
+    background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%);
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+}
+ 
+.grade-key-title {
+    font-weight: 800;
+    font-size: 7.2pt;
+    color: #1e3a8a;
+    white-space: nowrap;
+    margin-right: 2px;
+}
+ 
+.grade-key-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    flex: 1;
+}
+ 
+.grade-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: #ffffff;
+    border: 1px solid #93c5fd;
+    border-radius: 10px;
+    padding: 1px 6px 1px 3px;
+    font-size: 6.5pt;
+    color: #1e3a8a;
+    white-space: nowrap;
+    box-shadow: 0 1px 1px rgba(30, 64, 175, 0.06);
+}
+ 
+.grade-chip .grade-letter {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #1e40af;
+    color: #ffffff;
+    font-weight: 800;
+    border-radius: 999px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 2.5px;
+    font-size: 6pt;
+    line-height: 1;
+}
+
+
 /* ================= SUMMARY & ATTENDANCE (SIDE BY SIDE) ================= */
 .summary-attendance-row {
     display: grid;
@@ -264,44 +325,28 @@ tbody tr:nth-child(even) {
     background: linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%);
 }
 
-/* ================= TRAITS ROW (Affective / Psychomotor / Grading Scale) ================= */
+/* ================= TRAITS (AFFECTIVE / PSYCHOMOTOR) ================= */
 .traits-row {
     display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 8px;
     margin: 6px 0;
-    /* Deliberately no align-items override here: the grid default
-       (stretch) makes every box in the row match the height of the
-       tallest one, so Affective / Psychomotor / Grading Scale always
-       end at the same bottom edge regardless of row count. */
 }
 
-.traits-row.cols-3 {
-    grid-template-columns: 1.7fr 1.1fr 0.7fr;
-}
-
-.traits-row.cols-2 {
-    grid-template-columns: 1.6fr 1fr;
-}
-
-.traits-row.cols-1 {
+.traits-row.single-column {
     grid-template-columns: 1fr;
 }
 
 .trait-box {
-    display: flex;
-    flex-direction: column;
     border: 2px solid #1e40af;
     border-radius: 6px;
     padding: 4px 6px;
     background: linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%);
-    min-width: 0;
-    overflow: hidden;
 }
 
 .trait-box h3 {
-    flex: none;
     margin: 0 0 3px;
-    font-size: 7.3pt;
+    font-size: 8pt;
     font-weight: 800;
     color: #1e40af;
     border-bottom: 1px solid #bfdbfe;
@@ -309,38 +354,16 @@ tbody tr:nth-child(even) {
     text-transform: uppercase;
 }
 
-/* Vertically centers a shorter table/chip-list within a box that has
-   been stretched taller by its neighbour, instead of leaving a dead
-   gap stuck at the bottom. */
-.trait-box-body {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    min-height: 0;
-}
-
 .trait-table {
     width: 100%;
-    table-layout: fixed;
     border-collapse: collapse;
-    font-size: 6.1pt;
-}
-
-/* Name column gets most of the width on purpose — with only a
-   checkmark in each rating column, 5 columns need very little room,
-   so the name column can take the majority share and still leave
-   comfortable width for "5 4 3 2 1". This wide a margin keeps trait
-   names on one line even across renderers with different font
-   metrics (e.g. wkhtmltopdf vs. a browser engine). */
-.trait-table col.name-col {
-    width: 58%;
+    font-size: 6.5pt;
 }
 
 .trait-table th, .trait-table td {
     border: 1px solid #6b7280;
-    padding: 1.6px 2px;
+    padding: 1.5px 2px;
     text-align: center;
-    vertical-align: middle;
 }
 
 .trait-table thead th {
@@ -353,104 +376,12 @@ tbody tr:nth-child(even) {
     text-align: left;
     padding-left: 4px;
     font-weight: 600;
-    line-height: 1.2;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 
 .trait-table td.tick-cell {
     font-weight: 800;
     color: #1e40af;
-    font-size: 7.2pt;
-}
-
-/* ================= RATING LEGEND ================= */
-.rating-legend {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px;
-    margin: 3px 0 0;
-    padding: 3px 6px;
-}
-
-.rating-legend .legend-title {
-    font-size: 6.5pt;
-    font-weight: 700;
-    color: #374151;
-    margin-right: 2px;
-}
-
-.legend-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    background: #ffffff;
-    border: 1px solid #93c5fd;
-    border-radius: 10px;
-    padding: 1.5px 6px 1.5px 3px;
-    font-size: 6.3pt;
-    color: #1e3a8a;
-    white-space: nowrap;
-}
-
-.legend-chip .legend-num {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: #1e40af;
-    color: #ffffff;
-    font-weight: 800;
-    border-radius: 999px;
-    min-width: 13px;
-    height: 13px;
-    padding: 0 2px;
-    font-size: 5.8pt;
-    line-height: 1;
-}
-
-/* ================= GRADE KEY (now a column inside .traits-row) ================= */
-.grade-key-box {
-    display: flex;
-    flex-direction: column;
-}
-
-.grade-key-chips {
-    flex: 1;
-    display: flex;
-    flex-wrap: wrap;
-    align-content: center;
-    gap: 4px;
-}
-
-.grade-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    background: #ffffff;
-    border: 1px solid #93c5fd;
-    border-radius: 10px;
-    padding: 2px 6px 2px 3px;
-    font-size: 6.5pt;
-    color: #1e3a8a;
-    white-space: nowrap;
-    box-shadow: 0 1px 1px rgba(30, 64, 175, 0.06);
-}
-
-.grade-chip .grade-letter {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: #1e40af;
-    color: #ffffff;
-    font-weight: 800;
-    border-radius: 999px;
-    min-width: 14px;
-    height: 14px;
-    padding: 0 2.5px;
-    font-size: 6pt;
-    line-height: 1;
+    width: 12px;
 }
 
 .summary-box h3 {
@@ -652,18 +583,22 @@ tbody tr:nth-child(even) {
                 <tr>
                     <th class="col-subject" rowspan="2">SUBJECT</th>
 
+                    {# ── CA components grouped under one spanning header ── #}
+                    {# Only show_in_printed_report=True components appear as columns #}
                     {% if first.visible_ca_components %}
                         <th colspan="{{ first.visible_ca_components|length }}">
                             CONTINUOUS ASSESSMENT
                         </th>
                     {% endif %}
 
+                    {# ── Non-CA (exam) components get their own header cell ── #}
                     {% for c in first.visible_exam_components %}
                         <th rowspan="2">{{ c.short_name }}<br>({{ c.max|floatformat:0 }})</th>
                     {% endfor %}
 
                     <th rowspan="2">CA</th>
                     <th rowspan="2">TOTAL</th>
+                    {# ── Class min/max columns, only when the tenant has enabled them ── #}
                     {% if show_subject_min_max %}
                         <th rowspan="2">MAX</th>
                         <th rowspan="2">MIN</th>
@@ -673,6 +608,7 @@ tbody tr:nth-child(even) {
                     <th rowspan="2">REMARK</th>
                 </tr>
                 <tr>
+                    {# ── Individual CA sub-headers (visible only) ── #}
                     {% for c in first.visible_ca_components %}
                         <th>{{ c.short_name }}<br>({{ c.max|floatformat:0 }})</th>
                     {% endfor %}
@@ -716,23 +652,12 @@ tbody tr:nth-child(even) {
 </p>
 {% endif %}
 
-<!-- TRAITS + GRADING SCALE -->
-{% if has_affective_domain and has_psychomotor_skills %}
-<div class="traits-row cols-3">
-{% elif has_affective_domain or has_psychomotor_skills %}
-<div class="traits-row cols-2">
-{% else %}
-<div class="traits-row cols-1">
-{% endif %}
+{% if has_affective_domain or has_psychomotor_skills %}
+<div class="traits-row{% if not has_affective_domain or not has_psychomotor_skills %} single-column{% endif %}">
     {% if has_affective_domain %}
     <div class="trait-box">
         <h3>Affective Domain</h3>
-        <div class="trait-box-body">
         <table class="trait-table">
-            <colgroup>
-                <col class="name-col">
-                {% for n in trait_rating_scale %}<col>{% endfor %}
-            </colgroup>
             <thead>
                 <tr>
                     <th></th>
@@ -750,19 +675,13 @@ tbody tr:nth-child(even) {
                 {% endfor %}
             </tbody>
         </table>
-        </div>
     </div>
     {% endif %}
 
     {% if has_psychomotor_skills %}
     <div class="trait-box">
         <h3>Psychomotor Skills</h3>
-        <div class="trait-box-body">
         <table class="trait-table">
-            <colgroup>
-                <col class="name-col">
-                {% for n in trait_rating_scale %}<col>{% endfor %}
-            </colgroup>
             <thead>
                 <tr>
                     <th></th>
@@ -780,49 +699,30 @@ tbody tr:nth-child(even) {
                 {% endfor %}
             </tbody>
         </table>
-        </div>
     </div>
-    {% endif %}
-
-    <!-- GRADE KEY -->
-    <div class="trait-box grade-key-box">
-        <h3>Grading Scale</h3>
-        <div class="grade-key-chips">
-            {% if grade_scale %}
-                {% for g in grade_scale %}
-                <span class="grade-chip"><span class="grade-letter">{{ g.grade }}</span>{{ g.min }}–{{ g.max }}{% if g.remark %} · {{ g.remark }}{% endif %}</span>
-                {% endfor %}
-            {% else %}
-                <span class="grade-chip"><span class="grade-letter">A+</span>90–100 · Distinction</span>
-                <span class="grade-chip"><span class="grade-letter">A</span>80–89 · Excellent</span>
-                <span class="grade-chip"><span class="grade-letter">B+</span>70–79 · Very Good</span>
-                <span class="grade-chip"><span class="grade-letter">B</span>60–69 · Good</span>
-                <span class="grade-chip"><span class="grade-letter">C</span>50–59 · Average</span>
-                <span class="grade-chip"><span class="grade-letter">D</span>45–49 · Fair</span>
-                <span class="grade-chip"><span class="grade-letter">E</span>40–44 · Poor</span>
-                <span class="grade-chip"><span class="grade-letter">F</span>0–39 · Fail</span>
-            {% endif %}
-        </div>
-    </div>
-</div>
-
-{% if has_affective_domain or has_psychomotor_skills %}
-<!-- RATING GUIDE (explains what the numbers in Affective/Psychomotor tables mean) -->
-<div class="rating-legend">
-    <span class="legend-title">Rating Guide:</span>
-    {% if trait_rating_legend %}
-        {% for item in trait_rating_legend %}
-        <span class="legend-chip"><span class="legend-num">{{ item.value }}</span>{{ item.label }}</span>
-        {% endfor %}
-    {% else %}
-        <span class="legend-chip"><span class="legend-num">5</span>Excellent</span>
-        <span class="legend-chip"><span class="legend-num">4</span>Very Good</span>
-        <span class="legend-chip"><span class="legend-num">3</span>Good</span>
-        <span class="legend-chip"><span class="legend-num">2</span>Fair</span>
-        <span class="legend-chip"><span class="legend-num">1</span>Poor</span>
     {% endif %}
 </div>
 {% endif %}
+<!-- GRADE KEY -->
+<div class="grade-key-section">
+    <span class="grade-key-title">Grading Scale</span>
+    <div class="grade-key-chips">
+        {% if grade_scale %}
+            {% for g in grade_scale %}
+            <span class="grade-chip"><span class="grade-letter">{{ g.grade }}</span>{{ g.min }}–{{ g.max }}{% if g.remark %} · {{ g.remark }}{% endif %}</span>
+            {% endfor %}
+        {% else %}
+            <span class="grade-chip"><span class="grade-letter">A+</span>90–100 · Distinction</span>
+            <span class="grade-chip"><span class="grade-letter">A</span>80–89 · Excellent</span>
+            <span class="grade-chip"><span class="grade-letter">B+</span>70–79 · Very Good</span>
+            <span class="grade-chip"><span class="grade-letter">B</span>60–69 · Good</span>
+            <span class="grade-chip"><span class="grade-letter">C</span>50–59 · Average</span>
+            <span class="grade-chip"><span class="grade-letter">D</span>45–49 · Fair</span>
+            <span class="grade-chip"><span class="grade-letter">E</span>40–44 · Poor</span>
+            <span class="grade-chip"><span class="grade-letter">F</span>0–39 · Fail</span>
+        {% endif %}
+    </div>
+</div>
 
 <!-- PERFORMANCE SUMMARY & ATTENDANCE -->
 <div class="summary-attendance-row">
@@ -846,7 +746,8 @@ tbody tr:nth-child(even) {
         </div>
         <div class="summary-item">
             <span class="label">Position</span>
-            <span class="value">-</span>
+            {% comment %} <span class="value">{{ summary.position }} of {{ summary.total_students }}</span> {% endcomment %}
+            <span class="value">{{ summary.position }} of {{ summary.total_students }}</span>
         </div>
     </div>
 
@@ -876,12 +777,14 @@ tbody tr:nth-child(even) {
         <div class="summary-item">
             <span class="label">Attendance Rate</span>
             <span class="value">{% widthratio attendance.times_present attendance.times_opened 100 %}%</span>
+            
         </div>
         {% endif %}
     </div>
 </div>
 
 {% if has_physical_development_data %}
+<!-- PHYSICAL DEVELOPMENT (nursery-specific, shown only when data was entered) -->
 <div class="section-title">Physical Development</div>
 <div class="summary-attendance-row">
     <div class="summary-box">
