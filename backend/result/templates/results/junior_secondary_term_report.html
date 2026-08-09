@@ -261,11 +261,11 @@ tbody tr:nth-child(even) {
 }
 
 .traits-row.cols-3 {
-    grid-template-columns: 2fr 1fr 0.5fr;
+    grid-template-columns: 1.6fr 1fr 0.7fr;
 }
 
 .traits-row.cols-2 {
-    grid-template-columns: 2fr 1fr;
+    grid-template-columns: 1.6fr 1fr;
 }
 
 .traits-row.cols-1 {
@@ -277,6 +277,8 @@ tbody tr:nth-child(even) {
     border-radius: 6px;
     padding: 5px 7px;
     background: linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%);
+    min-width: 0;
+    overflow: hidden;
 }
 
 .trait-box h3 {
@@ -291,6 +293,7 @@ tbody tr:nth-child(even) {
 
 .trait-table {
     width: 100%;
+    table-layout: fixed;
     border-collapse: collapse;
     font-size: 6.5pt;
 }
@@ -311,6 +314,8 @@ tbody tr:nth-child(even) {
     text-align: left;
     padding-left: 4px;
     font-weight: 600;
+    word-break: break-word;
+    overflow-wrap: break-word;
 }
 
 .trait-table td.tick-cell {
@@ -339,7 +344,7 @@ tbody tr:nth-child(even) {
     background: #ffffff;
     border: 1px solid #93c5fd;
     border-radius: 10px;
-    padding: none;
+    padding: 2px 6px 2px 3px;
     font-size: 6.5pt;
     color: #1e3a8a;
     white-space: nowrap;
