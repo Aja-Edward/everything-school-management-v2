@@ -327,26 +327,26 @@ tbody tr:nth-child(even) {
 
 /* ================= TRAITS (AFFECTIVE / PSYCHOMOTOR / GRADING SCALE) ================= */
 .traits-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    display: flex;
+    align-items: stretch;
     gap: 8px;
     margin: 6px 0;
-    align-items: stretch;
 }
 
-.traits-row.two-column {
-    grid-template-columns: 1fr 1fr;
-}
-
+.traits-row.two-column,
 .traits-row.single-column {
-    grid-template-columns: 1fr;
+    /* flexbox already distributes width evenly across however many
+       boxes are present, so no column-count override is needed —
+       these classes are kept only for backward compatibility. */
 }
 
 .trait-box {
+    flex: 1 1 0;
     border: 2px solid #1e40af;
     border-radius: 6px;
     padding: 4px 6px;
     background: linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%);
+    overflow: visible;
 }
 
 .trait-box h3 {
@@ -363,6 +363,12 @@ tbody tr:nth-child(even) {
     width: 100%;
     border-collapse: collapse;
     font-size: 6.5pt;
+    table-layout: fixed;
+}
+
+.trait-table th:first-child,
+.trait-table td.trait-name {
+    width: 46%;
 }
 
 .trait-table th, .trait-table td {
