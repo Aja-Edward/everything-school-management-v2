@@ -268,12 +268,15 @@ tbody tr:nth-child(even) {
 .traits-row {
     display: grid;
     gap: 8px;
-    margin: 7px 0;
-    align-items: start;
+    margin: 6px 0;
+    /* Deliberately no align-items override here: the grid default
+       (stretch) makes every box in the row match the height of the
+       tallest one, so Affective / Psychomotor / Grading Scale always
+       end at the same bottom edge regardless of row count. */
 }
 
 .traits-row.cols-3 {
-    grid-template-columns: 1.6fr 1fr 0.7fr;
+    grid-template-columns: 1.7fr 1.1fr 0.7fr;
 }
 
 .traits-row.cols-2 {
@@ -285,17 +288,20 @@ tbody tr:nth-child(even) {
 }
 
 .trait-box {
+    display: flex;
+    flex-direction: column;
     border: 2px solid #1e40af;
     border-radius: 6px;
-    padding: 5px 7px;
+    padding: 4px 6px;
     background: linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%);
     min-width: 0;
     overflow: hidden;
 }
 
 .trait-box h3 {
-    margin: 0 0 4px;
-    font-size: 8pt;
+    flex: none;
+    margin: 0 0 3px;
+    font-size: 7.3pt;
     font-weight: 800;
     color: #1e40af;
     border-bottom: 1px solid #bfdbfe;
@@ -303,23 +309,36 @@ tbody tr:nth-child(even) {
     text-transform: uppercase;
 }
 
+/* Vertically centers a shorter table/chip-list within a box that has
+   been stretched taller by its neighbour, instead of leaving a dead
+   gap stuck at the bottom. */
+.trait-box-body {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    min-height: 0;
+}
+
 .trait-table {
     width: 100%;
     table-layout: fixed;
     border-collapse: collapse;
-    font-size: 6.8pt;
+    font-size: 6.1pt;
 }
 
-/* Name column gets a real fixed share of the width; the fixed layout
-   automatically splits the remaining space evenly across the rating
-   columns, which is what keeps the tick marks aligned. */
+/* Name column gets most of the width on purpose — with only a
+   checkmark in each rating column, 5 columns need very little room,
+   so the name column can take the majority share and still leave
+   comfortable width for "5 4 3 2 1". This wide a margin keeps trait
+   names on one line even across renderers with different font
+   metrics (e.g. wkhtmltopdf vs. a browser engine). */
 .trait-table col.name-col {
-    width: 48%;
+    width: 58%;
 }
 
 .trait-table th, .trait-table td {
     border: 1px solid #6b7280;
-    padding: 3px 2px;
+    padding: 1.6px 2px;
     text-align: center;
     vertical-align: middle;
 }
@@ -334,14 +353,16 @@ tbody tr:nth-child(even) {
     text-align: left;
     padding-left: 4px;
     font-weight: 600;
-    line-height: 1.25;
-    overflow-wrap: break-word;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .trait-table td.tick-cell {
     font-weight: 800;
     color: #1e40af;
-    font-size: 8.5pt;
+    font-size: 7.2pt;
 }
 
 /* ================= RATING LEGEND ================= */
@@ -396,10 +417,11 @@ tbody tr:nth-child(even) {
 }
 
 .grade-key-chips {
+    flex: 1;
     display: flex;
     flex-wrap: wrap;
+    align-content: center;
     gap: 4px;
-    align-content: flex-start;
 }
 
 .grade-chip {
@@ -705,6 +727,7 @@ tbody tr:nth-child(even) {
     {% if has_affective_domain %}
     <div class="trait-box">
         <h3>Affective Domain</h3>
+        <div class="trait-box-body">
         <table class="trait-table">
             <colgroup>
                 <col class="name-col">
@@ -727,12 +750,14 @@ tbody tr:nth-child(even) {
                 {% endfor %}
             </tbody>
         </table>
+        </div>
     </div>
     {% endif %}
 
     {% if has_psychomotor_skills %}
     <div class="trait-box">
         <h3>Psychomotor Skills</h3>
+        <div class="trait-box-body">
         <table class="trait-table">
             <colgroup>
                 <col class="name-col">
@@ -755,6 +780,7 @@ tbody tr:nth-child(even) {
                 {% endfor %}
             </tbody>
         </table>
+        </div>
     </div>
     {% endif %}
 
