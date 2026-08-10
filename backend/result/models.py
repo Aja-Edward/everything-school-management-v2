@@ -1805,6 +1805,9 @@ class TermReportFields(PhysicalDevelopmentFields, models.Model):
 
         ResultModel = cls._meta.get_field("subject_results").related_model
 
+        # First (approved/published) subject result's grading system per
+        # report — same "sample one" convention calculate_metrics() uses,
+        # just done in bulk instead of one query per report.
         gs_rows = (
             ResultModel.objects.filter(
                 term_report__in=queryset, status__in=("APPROVED", "PUBLISHED")
@@ -1831,7 +1834,14 @@ class TermReportFields(PhysicalDevelopmentFields, models.Model):
             if row.get("_count"):
                 r.total_score = row["_total"] or 0
                 r.average_score = row["_avg"] or 0
-                r.overall_grade = _default_grade(float(r.average_score))
+                # Use the school's actual GradingSystem bands for this
+                # report's percentage, same as calculate_metrics() —
+                # falls back to _default_grade only when no grading
+                # system could be resolved (e.g. no approved subjects).
+                gs_id = first_gs_id.get(r.pk)
+                gs = gs_map.get(gs_id) if gs_id else None
+                r.overall_grade = r._grade_for_percentage(
+                    r.average_score, gs)
 
         cls.objects.bulk_update(
             reports,
@@ -1925,6 +1935,11 @@ class BaseSessionReport(BaseTermReport, models.Model):
         totals = []
         overall_sum = Decimal(0)
         term_count = 0
+        # Sample a GradingSystem from the term reports' own subject results,
+        # the same way calculate_metrics()/bulk_calculate_metrics() do for
+        # term reports, so the session report's overall_grade matches the
+        # school's configured scale instead of the fixed default bands.
+        sampled_grading_system = None
 
         for report in term_reports:
             term = report.exam_session.term
@@ -1939,6 +1954,15 @@ class BaseSessionReport(BaseTermReport, models.Model):
             else:
                 avg = float(report.average_score or 0)
                 total = float(report.total_score or 0)
+
+            if sampled_grading_system is None:
+                first_result = (
+                    report.subject_results.filter(grading_system__isnull=False)
+                    .select_related("grading_system")
+                    .first()
+                )
+                if first_result:
+                    sampled_grading_system = first_result.grading_system
 
             totals.append(
                 {
@@ -1957,7 +1981,23 @@ class BaseSessionReport(BaseTermReport, models.Model):
             Decimal(str(t["total_score"])) for t in totals)
         self.overall_average = overall_sum / \
             term_count if term_count else Decimal(0)
-        self.overall_grade = _default_grade(float(self.overall_average))
+
+        if sampled_grading_system:
+            grade_obj = (
+                sampled_grading_system.grades.filter(
+                    min_score__lte=self.overall_average,
+                    max_score__gte=self.overall_average,
+                )
+                .order_by("-min_score")
+                .first()
+            )
+            self.overall_grade = (
+                grade_obj.grade if grade_obj else _default_grade(
+                    float(self.overall_average))
+            )
+        else:
+            self.overall_grade = _default_grade(float(self.overall_average))
+
         self.save(
             update_fields=[
                 "term_totals",
