@@ -651,6 +651,13 @@ class ReportGenerator:
         Falls back to `fallback` (typically the stored report.overall_grade)
         if no grading system / matching band can be resolved, so a report
         is never left with a blank grade.
+
+        Matches the highest band whose min_score qualifies, rather than
+        requiring min_score <= average_score <= max_score. Bands are
+        entered as whole-number ranges (70-79, 80-89, ...) but averages
+        are decimals — an exact-range match leaves gaps a decimal average
+        can fall into (79.7 matches neither 70-79 nor 80-89), causing a
+        silent fallback and the wrong letter grade.
         """
         try:
             first = next(
@@ -658,8 +665,7 @@ class ReportGenerator:
             gs = first.grading_system if first else None
             if gs:
                 grade_obj = (
-                    gs.grades.filter(
-                        min_score__lte=average_score, max_score__gte=average_score)
+                    gs.grades.filter(min_score__lte=average_score)
                     .order_by("-min_score")
                     .first()
                 )
@@ -1459,6 +1465,10 @@ class NurseryReportGenerator(ReportGenerator):
         NurseryTermReport has no grading_system FK — grading systems live
         on NurseryResult rows. We sample the first subject result's grading
         system for the percentage→grade lookup. Falls back to "N/A".
+
+        Matches the highest band whose min_score qualifies (see
+        compute_overall_grade above for why an exact min<=pct<=max match
+        leaves gaps a decimal percentage can fall into).
         """
         try:
             pct = float(report.overall_percentage or 0)
@@ -1467,9 +1477,11 @@ class NurseryReportGenerator(ReportGenerator):
             ).first()
             if first_result and first_result.grading_system:
                 gs = first_result.grading_system
-                grade_obj = gs.grades.filter(
-                    min_score__lte=pct, max_score__gte=pct
-                ).first()
+                grade_obj = (
+                    gs.grades.filter(min_score__lte=pct)
+                    .order_by("-min_score")
+                    .first()
+                )
                 if grade_obj:
                     return grade_obj.grade
         except Exception as e:
@@ -1520,7 +1532,9 @@ class NurseryReportGenerator(ReportGenerator):
         Overall grade is resolved from the same GradingSystem the subjects
         themselves use (sampled from the first subject result that has one),
         not a hardcoded scale — so it always matches the letter grades
-        already printed in the subject table above it.
+        already printed in the subject table above it. Matches the highest
+        band whose min_score qualifies rather than an exact min<=avg<=max
+        range, which leaves gaps a decimal average can fall into.
         """
         from .models import _default_grade
         results = list(subject_results)
@@ -1534,8 +1548,7 @@ class NurseryReportGenerator(ReportGenerator):
         gs = first.grading_system if first else None
         if gs:
             grade_obj = (
-                gs.grades.filter(min_score__lte=avg_pct,
-                                 max_score__gte=avg_pct)
+                gs.grades.filter(min_score__lte=avg_pct)
                 .order_by("-min_score")
                 .first()
             )

@@ -146,14 +146,31 @@ class GradingSystem(TenantMixin, models.Model):
         return self.name
 
     def get_grade(self, percentage):
+        """
+        Return the grade label for *percentage*, using the highest band
+        whose min_score the percentage qualifies for.
+
+        Bands are entered as whole-number ranges (e.g. 70-79, 80-89) but
+        percentages are decimals. Requiring min_score <= percentage <=
+        max_score leaves gaps a decimal score can fall into (79.7 matches
+        neither 70-79 nor 80-89) and silently produces no grade. Matching
+        on min_score alone treats bands as contiguous downward from the
+        top, which is how these scales are meant to work — no gaps.
+        """
         if percentage is None:
             return None
         try:
-            for grade_obj in self.grades.order_by("-min_score"):
-                if grade_obj.min_score <= percentage <= grade_obj.max_score:
-                    return grade_obj.grade
-            last = self.grades.order_by("-min_score").last()
-            return last.grade if last else None
+            grade_obj = (
+                self.grades.filter(min_score__lte=percentage)
+                .order_by("-min_score")
+                .first()
+            )
+            if grade_obj:
+                return grade_obj.grade
+            # Percentage below every band's min_score (e.g. negative or
+            # below the lowest tier's floor) — fall back to the lowest tier.
+            lowest = self.grades.order_by("min_score").first()
+            return lowest.grade if lowest else None
         except Exception as exc:
             logger.error("Error getting grade for %s: %s", self.name, exc)
             return None
@@ -1169,7 +1186,7 @@ class BaseResult(models.Model):
             self.grade_point = None
             return
         grade_obj = (
-            gs.grades.filter(min_score__lte=pct, max_score__gte=pct)
+            gs.grades.filter(min_score__lte=pct)
             .order_by("-min_score")
             .first()
         )
@@ -1723,12 +1740,21 @@ class TermReportFields(PhysicalDevelopmentFields, models.Model):
         """
         Resolve a grade string for *percentage*.
         Pass the grading_system directly to avoid an extra query.
+
+        Matches the highest band whose min_score the percentage qualifies
+        for, rather than requiring min_score <= percentage <= max_score.
+        Bands are entered as whole-number ranges (70-79, 80-89, ...) but
+        percentages are decimals, so an exact-range match leaves gaps
+        (79.7 matches neither 70-79 nor 80-89) that silently fall through
+        to _default_grade below and produce the wrong letter.
         """
         if grading_system:
             try:
-                grade_obj = grading_system.grades.filter(
-                    min_score__lte=percentage, max_score__gte=percentage
-                ).first()
+                grade_obj = (
+                    grading_system.grades.filter(min_score__lte=percentage)
+                    .order_by("-min_score")
+                    .first()
+                )
                 if grade_obj:
                     return grade_obj.grade
             except Exception:
@@ -1983,10 +2009,12 @@ class BaseSessionReport(BaseTermReport, models.Model):
             term_count if term_count else Decimal(0)
 
         if sampled_grading_system:
+            # Highest band whose min_score qualifies — see _grade_for_percentage
+            # for why an exact min<=score<=max match leaves gaps a decimal
+            # average can fall into.
             grade_obj = (
                 sampled_grading_system.grades.filter(
                     min_score__lte=self.overall_average,
-                    max_score__gte=self.overall_average,
                 )
                 .order_by("-min_score")
                 .first()
