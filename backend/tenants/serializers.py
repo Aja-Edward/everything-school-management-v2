@@ -85,7 +85,7 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
             "show_physical_development",
             "physical_development_applies_to",
             "show_affective_domain",
-            "show_psychomotor", 
+            "show_psychomotor",
             "psychomotor_applies_to",
             "affective_domain_applies_to",
             "affective_domain_rating_mode",
@@ -377,7 +377,7 @@ class SchoolRegistrationSerializer(serializers.Serializer):
         )
 
         # Generate username
-        username = generate_unique_username('superadmin')
+        username = generate_unique_username('superadmin', tenant=tenant)
 
         # Create super admin user
         admin_user = User.objects.create_user(
