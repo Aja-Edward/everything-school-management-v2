@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { KeyRound, ArrowRight, AlertCircle, CheckCircle, Loader2, HelpCircle } from 'lucide-react';
 import api from '@/services/api';
+import { useDesign } from '@/contexts/DesignContext';
 
 interface TokenVerificationData {
   is_valid: boolean;
@@ -18,10 +19,13 @@ interface PortalLoginProps {
 }
 
 const PortalLogin: React.FC<PortalLoginProps> = ({ onSuccess }) => {
+  const {settings: designSettings} = useDesign();
   const [token, setToken] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
+  const primaryColor = designSettings?.primary_color || '#4F46E5';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,7 +74,7 @@ const PortalLogin: React.FC<PortalLoginProps> = ({ onSuccess }) => {
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-800 overflow-hidden">
 
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-8 text-center">
+        <div className="px-6 py-8 text-center" style={{ background: primaryColor }}>
           <div className="inline-flex items-center justify-center w-14 h-14 bg-white/20 backdrop-blur rounded-2xl mb-4">
             <KeyRound className="w-7 h-7 text-white" />
           </div>
@@ -128,10 +132,10 @@ const PortalLogin: React.FC<PortalLoginProps> = ({ onSuccess }) => {
               type="submit"
               disabled={!token.trim() || loading || success}
               className="w-full py-3 rounded-xl font-semibold text-sm text-white
-                bg-gradient-to-r from-blue-600 to-indigo-600
-                hover:from-blue-700 hover:to-indigo-700
+                hover: background-black
                 disabled:opacity-60 disabled:cursor-not-allowed
                 flex items-center justify-center gap-2 transition-all duration-200"
+                style={{ background: primaryColor }}
             >
               {loading ? (
                 <><Loader2 className="w-4 h-4 animate-spin" /> Verifying…</>

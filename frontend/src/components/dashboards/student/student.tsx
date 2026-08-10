@@ -13,29 +13,13 @@ import {
   Award, 
   HelpCircle, 
   Info,
-  ChevronDown,
-  ChevronRight,
-  Search,
-  Filter,
-  MoreVertical,
-  Edit,
-  Trash2,
-  Eye,
-  Download,
-  Share,
-  Star,
   Clock,
   CheckCircle,
   XCircle,
   AlertCircle,
   TrendingUp,
   TrendingDown,
-  Activity,
-  Target,
-  Zap,
-  Trophy,
-  Bookmark,
-  ClipboardList
+ 
 } from 'lucide-react';
 
 const StudentProfile = () => {
