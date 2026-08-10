@@ -28,21 +28,24 @@ def seed_all_tenant_defaults(sender, instance, created, **kwargs):
         return
 
     # Prevent concurrent seeding for the same tenant using a Postgres advisory lock.
+    def _advisory_lock_key(tid):
+        """pg_try_advisory_lock needs a bigint; Tenant.id is a UUID, so
+        fold it down to a signed 64-bit int deterministically."""
+        import hashlib
+        digest = hashlib.md5(str(tid).encode()).digest()[:8]
+        return int.from_bytes(digest, byteorder="big", signed=True)
+
     def _try_acquire_lock(tid):
-        try:
-            with connection.cursor() as cur:
-                cur.execute("SELECT pg_try_advisory_lock(%s)", [tid])
-                return cur.fetchone()[0]
-        except Exception:
-            return False
+        key = _advisory_lock_key(tid)
+        with connection.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock(%s)", [key])
+            return cur.fetchone()[0]
 
     def _release_lock(tid):
-        try:
-            with connection.cursor() as cur:
-                cur.execute("SELECT pg_advisory_unlock(%s)", [tid])
-                return cur.fetchone()[0]
-        except Exception:
-            return False
+        key = _advisory_lock_key(tid)
+        with connection.cursor() as cur:
+            cur.execute("SELECT pg_advisory_unlock(%s)", [key])
+            return cur.fetchone()[0]
 
     if not _try_acquire_lock(instance.id):
         logger.info(
