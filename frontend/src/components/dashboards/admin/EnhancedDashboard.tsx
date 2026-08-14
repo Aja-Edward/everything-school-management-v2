@@ -31,8 +31,8 @@ import {
   AlertBanner
 } from './widgets';
 import GenderChart from  './widgets/Genderchart';
-import EducationLevelChart from './widgets/EducationLevelChart'; // ← NEW
-import PopulationTrendChart from './widgets/PopulationTrendChart'; // ← NEW
+import EducationLevelChart from './widgets/EducationLevelChart'; 
+import PopulationTrendChart from './widgets/PopulationTrendChart'; 
 
 interface EnhancedDashboardProps {
   dashboardStats: any;

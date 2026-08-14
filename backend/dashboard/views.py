@@ -1,3 +1,5 @@
+from urllib import request
+
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -18,9 +20,19 @@ from result.models import StudentResult
 from schoolSettings.models import SchoolAnnouncement
 from classroom.models import ClassroomTeacherAssignment
 from fee.models import Payment, FeeStructure, StudentFee
+from functools import wraps
 
 
 logger = logging.getLogger(__name__)
+
+
+def require_tenant(view_func):
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if not getattr(request, 'tenant', None):
+            return Response({"error": "No tenant context"}, status=400)
+        return view_func(request, *args, **kwargs)
+    return wrapper
 
 
 # ============================================================================
@@ -96,30 +108,31 @@ def admin_dashboard_summary(request):
         # ============================================
 
         # Student statistics (single query with aggregation)
-        student_stats = Student.objects.aggregate(
+        tenant = request.tenant
+        student_stats = Student.objects.filter(tenant=tenant).aggregate(
             total=Count("id"),
             active=Count("id", filter=Q(is_active=True)),
             inactive=Count("id", filter=Q(is_active=False)),
         )
 
         # Teacher statistics
-        teacher_stats = Teacher.objects.aggregate(
+        teacher_stats = Teacher.objects.filter(tenant=tenant).aggregate(
             total=Count("id"),
             active=Count("id", filter=Q(is_active=True)),
             inactive=Count("id", filter=Q(is_active=False)),
         )
 
         # Parent statistics
-        parent_stats = ParentProfile.objects.aggregate(
+        parent_stats = ParentProfile.objects.filter(tenant=tenant).aggregate(
             total=Count("id"),
             active=Count("id", filter=Q(user__is_active=True)),
         )
 
         # Classroom count
-        classroom_count = Classroom.objects.count()
+        classroom_count = Classroom.objects.filter(tenant=tenant).count()
 
         # Today's attendance summary (single optimized query)
-        attendance_today = Attendance.objects.filter(date=today).aggregate(
+        attendance_today = Attendance.objects.filter(tenant=tenant, date=today).aggregate(
             total=Count("id"),
             present=Count("id", filter=Q(status="P")),
             absent=Count("id", filter=Q(status="A")),
@@ -130,7 +143,8 @@ def admin_dashboard_summary(request):
         attendance_rate = 0
         if attendance_today["total"] > 0:
             attendance_rate = round(
-                (attendance_today["present"] / attendance_today["total"]) * 100, 1
+                (attendance_today["present"] /
+                 attendance_today["total"]) * 100, 1
             )
 
         # ============================================
@@ -138,6 +152,7 @@ def admin_dashboard_summary(request):
         # ============================================
 
         todays_lessons = Lesson.objects.filter(
+            tenant=tenant,
             date=today, status="scheduled"
         ).aggregate(
             total=Count("id"),
@@ -149,7 +164,7 @@ def admin_dashboard_summary(request):
         # ============================================
 
         recent_announcements = (
-            SchoolAnnouncement.objects.filter(is_active=True)
+            SchoolAnnouncement.objects.filter(tenant=tenant, is_active=True)
             .order_by("-created_at")
             .values("id", "title", "created_at", "announcement_type", "is_pinned")[:5]
         )
@@ -171,9 +186,11 @@ def admin_dashboard_summary(request):
 
         # Check for pending results
         pending_exams = (
-            Exam.objects.filter(exam_date__lt=today, status__code="completed")
+            Exam.objects.filter(
+                tenant=tenant, exam_date__lt=today, status__code="completed")
             .exclude(
-                id__in=StudentResult.objects.values_list("exam_session_id", flat=True)
+                id__in=StudentResult.objects.values_list(
+                    "exam_session_id", flat=True)
             )
             .count()
         )
@@ -252,9 +269,9 @@ def teacher_dashboard_summary(request, teacher_id=None):
         # ============================================
         # 🚀 OPTIMIZED QUERY: Single query with prefetch
         # ============================================
-
+        tenant = request.tenant
         teacher = (
-            Teacher.objects.select_related("user")
+            Teacher.objects.filter(tenant=tenant).select_related("user")
             .prefetch_related(
                 Prefetch(
                     "classroom_assignments",
@@ -266,7 +283,7 @@ def teacher_dashboard_summary(request, teacher_id=None):
                         ).prefetch_related(
                             Prefetch(
                                 "classroom__students",
-                                queryset=Student.objects.filter(is_active=True).only(
+                                queryset=Student.objects.filter(tenant=tenant, is_active=True).only(
                                     "id"
                                 ),
                             )
@@ -306,7 +323,8 @@ def teacher_dashboard_summary(request, teacher_id=None):
         today = timezone.now().date()
 
         todays_lessons = (
-            Lesson.objects.filter(teacher_id=teacher_id, date=today, status="scheduled")
+            Lesson.objects.filter(tenant=tenant, teacher_id=teacher_id,
+                                  date=today, status="scheduled")
             .select_related("classroom", "subject")
             .order_by("start_time")
             .values(
@@ -325,6 +343,7 @@ def teacher_dashboard_summary(request, teacher_id=None):
 
         last_week = today - timedelta(days=7)
         completed_lessons = Lesson.objects.filter(
+            tenant=tenant,
             teacher_id=teacher_id,
             date__gte=last_week,
             date__lte=today,
@@ -332,6 +351,7 @@ def teacher_dashboard_summary(request, teacher_id=None):
         ).count()
 
         attendance_records = Attendance.objects.filter(
+            tenant=tenant,
             teacher_id=teacher_id,
             date__gte=last_week,
             date__lte=today,
@@ -343,7 +363,8 @@ def teacher_dashboard_summary(request, teacher_id=None):
         # 📦 RESPONSE
         # ============================================
         todays_lessons_list = list(
-            Lesson.objects.filter(teacher_id=teacher_id, date=today, status="scheduled")
+            Lesson.objects.filter(tenant=tenant, teacher_id=teacher_id,
+                                  date=today, status="scheduled")
             .select_related("classroom", "subject")
             .order_by("start_time")
             .values(
@@ -364,7 +385,8 @@ def teacher_dashboard_summary(request, teacher_id=None):
                 "classroom_name": a.classroom.name,
                 "subject_id": a.subject.id,
                 "subject_name": a.subject.name,
-                "student_count": len(a.classroom.students.all()),  # ✅ no extra query
+                # ✅ no extra query
+                "student_count": len(a.classroom.students.all()),
             }
             for a in assignments
         ]
@@ -431,13 +453,13 @@ def parent_dashboard_summary(request, parent_id=None):
         # ============================================
         # 🚀 OPTIMIZED QUERY: Prefetch all children data
         # ============================================
-
+        tenant = request.tenant
         parent = (
-            ParentProfile.objects.select_related("user")
+            ParentProfile.objects.filter(tenant=tenant).select_related("user")
             .prefetch_related(
                 Prefetch(
                     "children",
-                    queryset=Student.objects.filter(is_active=True).select_related(
+                    queryset=Student.objects.filter(tenant=tenant, is_active=True).select_related(
                         "user", "student_class", "section"
                     ),
                 )
@@ -472,7 +494,8 @@ def parent_dashboard_summary(request, parent_id=None):
         for child in children:
             # Today's attendance
             attendance_today = (
-                Attendance.objects.filter(student=child, date=today)
+                Attendance.objects.filter(
+                    tenant=tenant, student=child, date=today)
                 .values("status")
                 .first()
             )
@@ -482,7 +505,7 @@ def parent_dashboard_summary(request, parent_id=None):
             if child.classroom:
                 todays_lessons = (
                     Lesson.objects.filter(
-                        classroom=child.classroom, date=today, status="scheduled"
+                        tenant=tenant, classroom=child.classroom, date=today, status="scheduled"
                     )
                     .select_related("subject", "teacher__user")
                     .values(
@@ -497,7 +520,7 @@ def parent_dashboard_summary(request, parent_id=None):
 
             # Recent results (last 5)
             recent_results = (
-                StudentResult.objects.filter(student=child)
+                StudentResult.objects.filter(tenant=tenant, student=child)
                 .select_related("exam_session__subject")
                 .order_by("-exam_session__exam_date")
                 .values(
@@ -580,6 +603,7 @@ def student_dashboard_summary(request, student_id=None):
 
     try:
         # Get student ID
+        tenant = request.tenant
         if not student_id:
             student_id = get_student_id_from_user(request.user)
             if not student_id:
@@ -589,19 +613,20 @@ def student_dashboard_summary(request, student_id=None):
         # 🚀 OPTIMIZED QUERY
         # ============================================
 
-        student = Student.objects.select_related("user", "classroom").get(id=student_id)
+        student = Student.objects.filter(tenant=tenant).select_related(
+            "user", "classroom").get(id=student_id)
 
         today = timezone.now().date()
 
         # ============================================
         # 📅 TODAY'S SCHEDULE
         # ============================================
-
+        tenant = request.tenant
         todays_lessons = []
         if student.classroom:
             todays_lessons = (
                 Lesson.objects.filter(
-                    classroom=student.classroom, date=today, status="scheduled"
+                    tenant=tenant, classroom=student.classroom, date=today, status="scheduled"
                 )
                 .select_related("subject", "teacher__user")
                 .order_by("start_time")
@@ -623,7 +648,7 @@ def student_dashboard_summary(request, student_id=None):
         last_week = today - timedelta(days=7)
         attendance_summary = (
             Attendance.objects.filter(
-                student=student, date__gte=last_week, date__lte=today
+                tenant=tenant, student=student, date__gte=last_week, date__lte=today
             )
             .values("status")
             .annotate(count=Count("id"))
@@ -643,7 +668,7 @@ def student_dashboard_summary(request, student_id=None):
         # ============================================
 
         recent_results = (
-            StudentResult.objects.filter(student=student)
+            StudentResult.objects.filter(tenant=tenant, student=student)
             .select_related("exam_session__subject")
             .order_by("-exam_session__exam_date")
             .values(
@@ -659,7 +684,7 @@ def student_dashboard_summary(request, student_id=None):
 
         # Calculate average
         avg_score = (
-            StudentResult.objects.filter(student=student).aggregate(
+            StudentResult.objects.filter(tenant=tenant, student=student).aggregate(
                 avg=Avg("total_score")
             )["avg"]
             or 0
@@ -674,6 +699,7 @@ def student_dashboard_summary(request, student_id=None):
         if student.classroom:
             upcoming_exams = (
                 Exam.objects.filter(
+                    tenant=tenant,
                     classroom=student.classroom,
                     exam_date__gte=today,
                     exam_date__lte=next_two_weeks,
@@ -794,17 +820,21 @@ def teacher_dashboard_extended(request, teacher_id=None):
         thirty_days_ago = today - timedelta(days=30)
 
         # Attendance history
+        tenant = request.tenant
         attendance_data = (
-            Attendance.objects.filter(teacher_id=teacher_id, date__gte=thirty_days_ago)
+            Attendance.objects.filter(
+                tenant=tenant, teacher_id=teacher_id, date__gte=thirty_days_ago)
             .values("date", "status")
             .annotate(count=Count("id"))
             .order_by("-date")
         )
 
         # Upcoming lessons
+        tenant = request.tenant
         next_week = today + timedelta(days=7)
         upcoming_lessons = (
             Lesson.objects.filter(
+                tenant=tenant,
                 teacher_id=teacher_id,
                 date__gt=today,
                 date__lte=next_week,
@@ -825,14 +855,15 @@ def teacher_dashboard_extended(request, teacher_id=None):
         # Announcements and events
         announcements = (
             SchoolAnnouncement.objects.filter(
-                is_active=True, target_audience__in=["all", "teachers"]
+                tenant=tenant, is_active=True, target_audience__in=["all", "teachers"]
             )
             .order_by("-created_at")
             .values("id", "title", "content", "created_at")[:5]
         )
 
         upcoming_events = (
-            Event.objects.filter(start_date__gte=timezone.now().date(), is_active=True)
+            Event.objects.filter(
+                tenant=tenant, start_date__gte=timezone.now().date(), is_active=True)
             .order_by("start_date")
             .values("id", "title", "start_date", "end_date")[:5]
         )
@@ -849,7 +880,8 @@ def teacher_dashboard_extended(request, teacher_id=None):
         )
 
     except Exception as e:
-        logger.error(f"❌ Teacher extended dashboard error: {str(e)}", exc_info=True)
+        logger.error(
+            f"❌ Teacher extended dashboard error: {str(e)}", exc_info=True)
         return Response(
             {"error": "Failed to load extended data", "detail": str(e)}, status=500
         )
@@ -863,21 +895,24 @@ def parent_dashboard_extended(request, parent_id=None):
     GET /api/dashboard/parent/{parent_id}/extended/
     """
     try:
+        tenant = request.tenant
         if not parent_id:
             parent_id = get_parent_id_from_user(request.user)
             if not parent_id:
                 return Response({"error": "Parent profile not found"}, status=404)
 
         # Get all children
-        children = Student.objects.filter(parent_profiles__id=parent_id, is_active=True)
+        children = Student.objects.filter(
+            tenant=tenant, parent_profiles__id=parent_id, is_active=True)
 
         # Detailed attendance for all children (last 30 days)
         thirty_days_ago = timezone.now().date() - timedelta(days=30)
-
+        tenant = request.tenant
         children_attendance = []
         for child in children:
             attendance = (
-                Attendance.objects.filter(student=child, date__gte=thirty_days_ago)
+                Attendance.objects.filter(
+                    tenant=tenant, student=child, date__gte=thirty_days_ago)
                 .values("date", "status")
                 .order_by("-date")
             )
@@ -899,7 +934,8 @@ def parent_dashboard_extended(request, parent_id=None):
         )
 
     except Exception as e:
-        logger.error(f"❌ Parent extended dashboard error: {str(e)}", exc_info=True)
+        logger.error(
+            f"❌ Parent extended dashboard error: {str(e)}", exc_info=True)
         return Response(
             {"error": "Failed to load extended data", "detail": str(e)}, status=500
         )
@@ -919,16 +955,19 @@ def student_dashboard_extended(request, student_id=None):
                 return Response({"error": "Student profile not found"}, status=404)
 
         # Full attendance history (last 60 days)
+        tenant = request.tenant
         sixty_days_ago = timezone.now().date() - timedelta(days=60)
         attendance_history = (
-            Attendance.objects.filter(student_id=student_id, date__gte=sixty_days_ago)
+            Attendance.objects.filter(
+                tenant=tenant, student_id=student_id, date__gte=sixty_days_ago)
             .values("date", "status")
             .order_by("-date")
         )
 
         # All results this term
+        tenant = request.tenant
         all_results = (
-            StudentResult.objects.filter(student_id=student_id)
+            StudentResult.objects.filter(tenant=tenant, student_id=student_id)
             .select_related("subject", "exam_session")
             .order_by("-created_at")
             .values(
@@ -952,7 +991,8 @@ def student_dashboard_extended(request, student_id=None):
         )
 
     except Exception as e:
-        logger.error(f"❌ Student extended dashboard error: {str(e)}", exc_info=True)
+        logger.error(
+            f"❌ Student extended dashboard error: {str(e)}", exc_info=True)
         return Response(
             {"error": "Failed to load extended data", "detail": str(e)}, status=500
         )
@@ -966,12 +1006,13 @@ def admin_dashboard_extended(request):
     GET /api/dashboard/admin/extended/
     """
     try:
+        tenant = request.tenant
         today = timezone.now().date()
         last_month = today - timedelta(days=30)
 
         # Attendance trends (last 30 days)
         attendance_trends = (
-            Attendance.objects.filter(date__gte=last_month)
+            Attendance.objects.filter(tenant=tenant, date__gte=last_month)
             .values("date")
             .annotate(
                 total=Count("id"),
@@ -983,7 +1024,8 @@ def admin_dashboard_extended(request):
 
         # Recent enrollments - with classroom ForeignKey
         recent_students = (
-            Student.objects.filter(admission_date__gte=last_month)
+            Student.objects.filter(
+                tenant=tenant, admission_date__gte=last_month)
             .select_related("user", "classroom")
             .order_by("-admission_date")
             .values(
@@ -1005,7 +1047,8 @@ def admin_dashboard_extended(request):
         )
 
     except Exception as e:
-        logger.error(f"❌ Admin extended dashboard error: {str(e)}", exc_info=True)
+        logger.error(
+            f"❌ Admin extended dashboard error: {str(e)}", exc_info=True)
         return Response(
             {"error": "Failed to load extended data", "detail": str(e)}, status=500
         )
@@ -1035,6 +1078,7 @@ def admin_dashboard_enhanced_stats(request):
     """
 
     try:
+        tenant = request.tenant
         today = timezone.now().date()
         last_30_days = today - timedelta(days=30)
         last_7_days = today - timedelta(days=7)
@@ -1044,16 +1088,20 @@ def admin_dashboard_enhanced_stats(request):
         # 💰 PAYMENT STATISTICS
         # ============================================
 
-        total_fees_expected = StudentFee.objects.exclude(
+        total_fees_expected = StudentFee.objects.filter(
+            tenant=tenant
+        ).exclude(
             status='CANCELLED'
         ).aggregate(
             total=Sum('amount_due')
         )['total'] or 0
 
-        payment_stats = Payment.objects.aggregate(
+        payment_stats = Payment.objects.filter(tenant=tenant).aggregate(
             total_collected=Sum('amount', filter=Q(verified=True)),
-            total_pending=Sum('amount', filter=Q(verified=False, status='PENDING')),
-            total_failed=Sum('amount', filter=Q(verified=False, gateway_status='FAILED')),
+            total_pending=Sum('amount', filter=Q(
+                verified=False, status='PENDING')),
+            total_failed=Sum('amount', filter=Q(
+                verified=False, gateway_status='FAILED')),
             payments_this_month=Sum('amount', filter=Q(
                 verified=True,
                 payment_date__gte=current_month_start
@@ -1064,12 +1112,14 @@ def admin_dashboard_enhanced_stats(request):
         )
 
         overdue_amount = StudentFee.objects.filter(
+            tenant=tenant,
             is_overdue=True,
             status__in=['PENDING', 'PARTIAL', 'OVERDUE']
         ).aggregate(total=Sum(F('amount_due') - F('amount_paid')))['total'] or 0
 
         payment_trends = (
             Payment.objects.filter(
+                tenant=tenant,
                 verified=True,
                 payment_date__gte=last_30_days
             )
@@ -1089,7 +1139,8 @@ def admin_dashboard_enhanced_stats(request):
             'total_overdue': float(overdue_amount),
             'this_month_collected': float(payment_stats['payments_this_month'] or 0),
             'collection_rate': round(
-                (float(payment_stats['total_collected'] or 0) / float(total_fees_expected) * 100)
+                (float(payment_stats['total_collected']
+                 or 0) / float(total_fees_expected) * 100)
                 if total_fees_expected > 0 else 0,
                 1
             ),
@@ -1111,7 +1162,7 @@ def admin_dashboard_enhanced_stats(request):
         # ============================================
 
         attendance_trends = (
-            Attendance.objects.filter(date__gte=last_30_days)
+            Attendance.objects.filter(tenant=tenant, date__gte=last_30_days)
             .values('date')
             .annotate(
                 total=Count('id'),
@@ -1125,7 +1176,8 @@ def admin_dashboard_enhanced_stats(request):
 
         attendance_chart_data = []
         for day in attendance_trends:
-            rate = round((day['present'] / day['total'] * 100) if day['total'] > 0 else 0, 1)
+            rate = round((day['present'] / day['total'] * 100)
+                         if day['total'] > 0 else 0, 1)
             attendance_chart_data.append({
                 'date': day['date'].isoformat(),
                 'total': day['total'],
@@ -1137,6 +1189,7 @@ def admin_dashboard_enhanced_stats(request):
             })
 
         attendance_overall = Attendance.objects.filter(
+            tenant=tenant,
             date__gte=last_30_days
         ).aggregate(
             total=Count('id'),
@@ -1166,24 +1219,26 @@ def admin_dashboard_enhanced_stats(request):
         # ============================================
 
         grade_distribution = (
-            StudentResult.objects.all()
+            StudentResult.objects.filter(tenant=tenant)
             .values('grade')
             .annotate(count=Count('id'))
             .order_by('grade')
         )
 
-        total_results = StudentResult.objects.count()
+        total_results = StudentResult.objects.filter(tenant=tenant).count()
         passing_grades = ["A", "B", "C", "D"]
 
         pass_count = StudentResult.objects.filter(
-            grade__in=passing_grades
+            tenant=tenant, grade__in=passing_grades
         ).count()
 
         fail_count = total_results - pass_count
-        pass_rate = round((pass_count / total_results * 100) if total_results > 0 else 0, 1)
+        pass_rate = round((pass_count / total_results * 100)
+                          if total_results > 0 else 0, 1)
 
         subject_performance = (
-            StudentResult.objects.values('subject__name')
+            StudentResult.objects.filter(tenant=tenant)
+            .values('subject__name')
             .annotate(
                 avg_score=Avg('total_score'),
                 count=Count('id')
@@ -1222,7 +1277,8 @@ def admin_dashboard_enhanced_stats(request):
 
         # Recent student enrollments - with classroom ForeignKey
         recent_students = (
-            Student.objects.filter(admission_date__gte=last_7_days)
+            Student.objects.filter(
+                tenant=tenant, admission_date__gte=last_7_days)
             .select_related("user", "student_class", "section")
             .order_by("-admission_date")[:5]
         )
@@ -1248,7 +1304,8 @@ def admin_dashboard_enhanced_stats(request):
         # Recent exam completions
         try:
             recent_exams = (
-                Exam.objects.filter(exam_date__gte=last_7_days, status__code="completed")
+                Exam.objects.filter(
+                    tenant=tenant, exam_date__gte=last_7_days, status__code="completed")
                 .select_related("subject", "grade_level", "section")
                 .order_by("-exam_date")[:5]
             )
@@ -1270,6 +1327,7 @@ def admin_dashboard_enhanced_stats(request):
         # Recent announcements
         recent_announcements = (
             SchoolAnnouncement.objects.filter(
+                tenant=tenant,
                 is_active=True,
                 created_at__gte=last_7_days
             )
@@ -1290,7 +1348,8 @@ def admin_dashboard_enhanced_stats(request):
 
         # Recent teacher onboarding
         recent_teachers = (
-            Teacher.objects.filter(created_at__date__gte=last_7_days)
+            Teacher.objects.filter(
+                tenant=tenant, created_at__date__gte=last_7_days)
             .select_related("user")
             .order_by("-created_at")[:5]
         )
@@ -1309,7 +1368,8 @@ def admin_dashboard_enhanced_stats(request):
 
         # Recent parent registrations
         recent_parents = (
-            ParentProfile.objects.filter(created_at__date__gte=last_7_days)
+            ParentProfile.objects.filter(
+                tenant=tenant, created_at__date__gte=last_7_days)
             .select_related("user")
             .order_by("-created_at")[:5]
         )
@@ -1345,6 +1405,7 @@ def admin_dashboard_enhanced_stats(request):
 
         if overdue_amount > 0:
             overdue_count = StudentFee.objects.filter(
+                tenant=tenant,
                 is_overdue=True,
                 status__in=['PENDING', 'PARTIAL', 'OVERDUE']
             ).count()
@@ -1360,9 +1421,11 @@ def admin_dashboard_enhanced_stats(request):
             })
 
         pending_results_count = (
-            Exam.objects.filter(exam_date__lt=today, status__code="completed")
+            Exam.objects.filter(
+                tenant=tenant, exam_date__lt=today, status__code="completed")
             .exclude(
-                id__in=StudentResult.objects.values_list("exam_session_id", flat=True)
+                id__in=StudentResult.objects.values_list(
+                    "exam_session_id", flat=True)
             )
             .count()
         )
@@ -1378,7 +1441,7 @@ def admin_dashboard_enhanced_stats(request):
                 'action_url': '/admin/results'
             })
 
-        classrooms_without_teachers = Classroom.objects.annotate(
+        classrooms_without_teachers = Classroom.objects.filter(tenant=tenant).annotate(
             teacher_count=Count('classroomteacherassignment')
         ).filter(teacher_count=0).count()
 
@@ -1394,9 +1457,11 @@ def admin_dashboard_enhanced_stats(request):
             })
 
         inactive_students_with_debt = Student.objects.filter(
+            tenant=tenant,
             is_active=False
         ).filter(
             id__in=StudentFee.objects.filter(
+                tenant=tenant,
                 status__in=['PENDING', 'PARTIAL', 'OVERDUE']
             ).values_list('student_id', flat=True)
         ).count()
@@ -1423,9 +1488,9 @@ def admin_dashboard_enhanced_stats(request):
             "recent_activities": activities[:20],
             "alerts": alerts,
             "summary": {
-                "total_students": Student.objects.filter(is_active=True).count(),
-                "total_teachers": Teacher.objects.filter(is_active=True).count(),
-                "total_classrooms": Classroom.objects.count(),
+                "total_students": Student.objects.filter(tenant=tenant, is_active=True).count(),
+                "total_teachers": Teacher.objects.filter(tenant=tenant, is_active=True).count(),
+                "total_classrooms": Classroom.objects.filter(tenant=tenant).count(),
                 "attendance_rate": overall_attendance_rate,
                 "collection_rate": payment_data["collection_rate"],
                 "pass_rate": pass_rate,
@@ -1444,7 +1509,8 @@ def admin_dashboard_enhanced_stats(request):
         return Response(response_data)
 
     except Exception as e:
-        logger.error(f"❌ Enhanced admin dashboard stats error: {str(e)}", exc_info=True)
+        logger.error(
+            f"❌ Enhanced admin dashboard stats error: {str(e)}", exc_info=True)
         return Response(
             {
                 'error': 'Failed to generate enhanced dashboard statistics',
@@ -1461,21 +1527,21 @@ def admin_dashboard_enhanced_stats(request):
 
 def get_user_role(user):
     """Determine user role"""
-
+    tenant = request.tenant
     if user.is_superuser or user.is_staff:
         return "admin"
 
     if hasattr(user, "role"):
         return user.role
 
-    if hasattr(user, "teacher_profile") or Teacher.objects.filter(user=user).exists():
+    if hasattr(user, "teacher_profile") or Teacher.objects.filter(tenant=tenant, user=user).exists():
         return "teacher"
     elif (
         hasattr(user, "parent_profile")
-        or ParentProfile.objects.filter(user=user).exists()
+        or ParentProfile.objects.filter(tenant=tenant, user=user).exists()
     ):
         return "parent"
-    elif hasattr(user, "student_profile") or Student.objects.filter(user=user).exists():
+    elif hasattr(user, "student_profile") or Student.objects.filter(tenant=tenant, user=user).exists():
         return "student"
 
     return "unknown"
@@ -1483,31 +1549,32 @@ def get_user_role(user):
 
 def get_teacher_id_from_user(user):
     """Get teacher ID from user object"""
-
+    tenant = request.tenant  # Assuming tenant is available in the request context
     if hasattr(user, "teacher_profile"):
         return user.teacher_profile.id
 
-    teacher = Teacher.objects.filter(user=user).first()
+    teacher = Teacher.objects.filter(tenant=tenant, user=user).first()
     return teacher.id if teacher else None
 
 
 def get_parent_id_from_user(user):
     """Get parent ID from user object"""
+    tenant = request.tenant  # Assuming tenant is available in the request context
 
     if hasattr(user, "parent_profile"):
         return user.parent_profile.id
 
-    parent = ParentProfile.objects.filter(user=user).first()
+    parent = ParentProfile.objects.filter(tenant=tenant, user=user).first()
     return parent.id if parent else None
 
 
 def get_student_id_from_user(user):
     """Get student ID from user object"""
-
+    tenant = request.tenant  # Assuming tenant is available in the request context
     if hasattr(user, "student_profile"):
         return user.student_profile.id
 
-    student = Student.objects.filter(user=user).first()
+    student = Student.objects.filter(tenant=tenant, user=user).first()
     return student.id if student else None
 
 
@@ -1543,25 +1610,26 @@ def admin_dashboard_optimized(request):
         # ==================================================================
         # 📊 STATISTICS (Aggregated - Single Query)
         # ==================================================================
+        tenant = request.tenant
 
-        student_stats = Student.objects.aggregate(
+        student_stats = Student.objects.filter(tenant=tenant).aggregate(
             total=Count("id"),
             active=Count("id", filter=Q(is_active=True)),
             inactive=Count("id", filter=Q(is_active=False)),
         )
 
-        teacher_stats = Teacher.objects.aggregate(
+        teacher_stats = Teacher.objects.filter(tenant=tenant).aggregate(
             total=Count("id"),
             active=Count("id", filter=Q(is_active=True)),
             inactive=Count("id", filter=Q(is_active=False)),
         )
 
-        parent_stats = ParentProfile.objects.aggregate(
+        parent_stats = ParentProfile.objects.filter(tenant=tenant).aggregate(
             total=Count("id"),
             active=Count("id", filter=Q(user__is_active=True)),
         )
 
-        classroom_count = Classroom.objects.count()
+        classroom_count = Classroom.objects.filter(tenant=tenant).count()
 
         # ==================================================================
         # 👥 USERS DATA (Optimized with select_related)
@@ -1573,7 +1641,8 @@ def admin_dashboard_optimized(request):
 
         # Students - optimized query with student_class ForeignKey
         students = (
-            Student.objects.select_related("user", "student_class", "section")
+            Student.objects.filter(tenant=tenant).select_related(
+                "user", "student_class", "section")
             .only(
                 "id",
                 "registration_number",
@@ -1592,7 +1661,7 @@ def admin_dashboard_optimized(request):
                 "section__id",
                 "section__name",
             )
-            .order_by("-admission_date")[offset : offset + page_size]
+            .order_by("-admission_date")[offset: offset + page_size]
         )
 
         students_data = [
@@ -1627,7 +1696,7 @@ def admin_dashboard_optimized(request):
 
         # Teachers - optimized query
         teachers = (
-            Teacher.objects.select_related('user')
+            Teacher.objects.filter(tenant=tenant).select_related('user')
             .only(
                 'id', 'employee_id', 'phone_number', 'is_active',
                 'hire_date', 'created_at', 'updated_at',
@@ -1662,7 +1731,7 @@ def admin_dashboard_optimized(request):
 
         # Parents - optimized query
         parents = (
-            ParentProfile.objects.select_related('user')
+            ParentProfile.objects.filter(tenant=tenant).select_related('user')
             .only(
                 'id', 'phone', 'address', 'created_at', 'updated_at',
                 'user__id', 'user__first_name', 'user__last_name',
@@ -1699,6 +1768,7 @@ def admin_dashboard_optimized(request):
 
         last_30_days = today - timedelta(days=30)
         attendance_summary = Attendance.objects.filter(
+            tenant=tenant,
             date__gte=last_30_days
         ).aggregate(
             total=Count('id'),
@@ -1729,7 +1799,8 @@ def admin_dashboard_optimized(request):
         # ==================================================================
 
         classrooms = (
-            Classroom.objects.select_related("section", "section__class_grade")
+            Classroom.objects.filter(tenant=tenant).select_related(
+                "section", "section__class_grade")
             .only(
                 "id",
                 "name",
@@ -1763,7 +1834,7 @@ def admin_dashboard_optimized(request):
         # ==================================================================
 
         from messaging.models import Message as MessagingMessage
-        messages = MessagingMessage.objects.select_related(
+        messages = MessagingMessage.objects.filter(tenant=tenant).select_related(
             'sender'
         ).only(
             'id', 'subject', 'content', 'created_at', 'is_read',
@@ -1859,7 +1930,8 @@ def admin_dashboard_optimized(request):
         return Response(response_data)
 
     except Exception as e:
-        logger.error(f"❌ Optimized admin dashboard error: {str(e)}", exc_info=True)
+        logger.error(
+            f"❌ Optimized admin dashboard error: {str(e)}", exc_info=True)
         return Response(
             {"error": "Failed to load optimized dashboard", "detail": str(e)},
             status=500,
