@@ -65,19 +65,32 @@ class Command(BaseCommand):
                 self.stdout.write("    [dry-run] no writes performed\n")
                 continue
 
-            # Acquire an advisory lock per-tenant to avoid concurrent seeding/race conditions
+            # Acquire an advisory lock per-tenant to avoid concurrent seeding/race conditions.
+            # pg_try_advisory_lock takes a bigint and Postgres has no implicit
+            # cast from uuid, so Tenant.id must be folded down first -- passing
+            # the raw UUID raised, was swallowed by the except below, and made
+            # every tenant look like it was already being seeded.
+            def _advisory_lock_key(tid):
+                import hashlib
+                digest = hashlib.md5(str(tid).encode()).digest()[:8]
+                return int.from_bytes(digest, byteorder="big", signed=True)
+
             def _try_acquire_lock(tid):
                 try:
                     with connection.cursor() as cur:
-                        cur.execute("SELECT pg_try_advisory_lock(%s)", [tid])
+                        cur.execute("SELECT pg_try_advisory_lock(%s)",
+                                    [_advisory_lock_key(tid)])
                         return cur.fetchone()[0]
-                except Exception:
+                except Exception as exc:
+                    self.stderr.write(self.style.WARNING(
+                        f"    advisory lock failed: {exc}"))
                     return False
 
             def _release_lock(tid):
                 try:
                     with connection.cursor() as cur:
-                        cur.execute("SELECT pg_advisory_unlock(%s)", [tid])
+                        cur.execute("SELECT pg_advisory_unlock(%s)",
+                                    [_advisory_lock_key(tid)])
                         return cur.fetchone()[0]
                 except Exception:
                     return False
