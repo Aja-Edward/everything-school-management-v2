@@ -482,28 +482,35 @@ class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
 
         # ✅ ADD education_level to each classroom assignment
         if "classroom_assignments" in data:
-            for assignment in data["classroom_assignments"]:
-                try:
-                    classroom_id = assignment.get("classroom_id")
-                    if classroom_id:
-                        from classroom.models import Classroom
+            from classroom.models import Classroom
 
-                        classroom = Classroom.objects.select_related(
-                            "section__grade_level"
-                        ).get(id=classroom_id)
+            assignments = data["classroom_assignments"]
+            classroom_ids = [
+                a.get("classroom_id") for a in assignments if a.get("classroom_id")
+            ]
 
-                        # ✅ FIXED: Access education_level through grade_level
-                        assignment["education_level"] = (
-                            classroom.section.grade_level.education_level
-                            if classroom.section and classroom.section.grade_level
-                            else None
-                        )
+            # One query for every classroom in the payload. This previously ran
+            # a .get() per assignment inside the loop, and each one raised:
+            # the path was "section__grade_level", but Section relates to
+            # Class via class_grade, so education_level silently came back
+            # None for every assignment.
+            classrooms = {}
+            if classroom_ids:
+                classrooms = {
+                    c.id: c
+                    for c in Classroom.objects.filter(
+                        id__in=classroom_ids
+                    ).select_related("section__class_grade__grade_level")
+                }
 
-                except Exception as e:
-                    logger.warning(
-                        f"Could not get education_level for classroom {classroom_id}: {e}"
-                    )
-                    assignment["education_level"] = None
+            for assignment in assignments:
+                classroom = classrooms.get(assignment.get("classroom_id"))
+                section = getattr(classroom, "section", None)
+                class_grade = getattr(section, "class_grade", None)
+                grade_level = getattr(class_grade, "grade_level", None)
+                assignment["education_level"] = getattr(
+                    grade_level, "education_level", None
+                )
 
         return Response(data)
 

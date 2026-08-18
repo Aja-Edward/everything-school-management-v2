@@ -152,7 +152,7 @@ def admin_dashboard_summary(request):
         # ============================================
 
         todays_lessons = Lesson.objects.filter(
-            tenant=tenant,
+            classroom__tenant=tenant,
             date=today, status="scheduled"
         ).aggregate(
             total=Count("id"),
@@ -323,7 +323,7 @@ def teacher_dashboard_summary(request, teacher_id=None):
         today = timezone.now().date()
 
         todays_lessons = (
-            Lesson.objects.filter(tenant=tenant, teacher_id=teacher_id,
+            Lesson.objects.filter(classroom__tenant=tenant, teacher_id=teacher_id,
                                   date=today, status="scheduled")
             .select_related("classroom", "subject")
             .order_by("start_time")
@@ -343,7 +343,7 @@ def teacher_dashboard_summary(request, teacher_id=None):
 
         last_week = today - timedelta(days=7)
         completed_lessons = Lesson.objects.filter(
-            tenant=tenant,
+            classroom__tenant=tenant,
             teacher_id=teacher_id,
             date__gte=last_week,
             date__lte=today,
@@ -363,7 +363,7 @@ def teacher_dashboard_summary(request, teacher_id=None):
         # 📦 RESPONSE
         # ============================================
         todays_lessons_list = list(
-            Lesson.objects.filter(tenant=tenant, teacher_id=teacher_id,
+            Lesson.objects.filter(classroom__tenant=tenant, teacher_id=teacher_id,
                                   date=today, status="scheduled")
             .select_related("classroom", "subject")
             .order_by("start_time")
@@ -505,7 +505,7 @@ def parent_dashboard_summary(request, parent_id=None):
             if child.classroom:
                 todays_lessons = (
                     Lesson.objects.filter(
-                        tenant=tenant, classroom=child.classroom, date=today, status="scheduled"
+                        classroom__tenant=tenant, classroom=child.classroom, date=today, status="scheduled"
                     )
                     .select_related("subject", "teacher__user")
                     .values(
@@ -626,7 +626,7 @@ def student_dashboard_summary(request, student_id=None):
         if student.classroom:
             todays_lessons = (
                 Lesson.objects.filter(
-                    tenant=tenant, classroom=student.classroom, date=today, status="scheduled"
+                    classroom__tenant=tenant, classroom=student.classroom, date=today, status="scheduled"
                 )
                 .select_related("subject", "teacher__user")
                 .order_by("start_time")
@@ -834,7 +834,7 @@ def teacher_dashboard_extended(request, teacher_id=None):
         next_week = today + timedelta(days=7)
         upcoming_lessons = (
             Lesson.objects.filter(
-                tenant=tenant,
+                classroom__tenant=tenant,
                 teacher_id=teacher_id,
                 date__gt=today,
                 date__lte=next_week,
