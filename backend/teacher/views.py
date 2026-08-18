@@ -508,8 +508,15 @@ class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                 section = getattr(classroom, "section", None)
                 class_grade = getattr(section, "class_grade", None)
                 grade_level = getattr(class_grade, "grade_level", None)
-                assignment["education_level"] = getattr(
-                    grade_level, "education_level", None
+                education_level = getattr(grade_level, "education_level", None)
+
+                # Emit a string, not the EducationLevel instance -- DRF cannot
+                # serialize a model here and raises TypeError at render time.
+                # Prefer level_type to match the convention of the
+                # Student.education_level property; fall back to the name.
+                assignment["education_level"] = (
+                    getattr(education_level, "level_type", None)
+                    or getattr(education_level, "name", None)
                 )
 
         return Response(data)
