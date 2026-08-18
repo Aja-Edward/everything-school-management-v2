@@ -3591,6 +3591,16 @@ class UnifiedSubjectResultViewSet(TenantFilterMixin, viewsets.ViewSet):
         term_name = request.query_params.get("term_name", "").strip()
         session_name = request.query_params.get("session_name", "").strip()
 
+        # Optional subject narrowing. Parsed strictly: a non-numeric value is
+        # ignored rather than raising, matching how the other filters behave.
+        subject_f = None
+        _raw_subject = request.query_params.get("subject", "").strip()
+        if _raw_subject:
+            try:
+                subject_f = int(_raw_subject)
+            except (TypeError, ValueError):
+                subject_f = None
+
         levels = (
             [level_f]
             if level_f and level_f in _RESULT_MODEL_MAP
@@ -3617,6 +3627,12 @@ class UnifiedSubjectResultViewSet(TenantFilterMixin, viewsets.ViewSet):
 
             qs = _apply_role_filter(qs, self, request.user)
 
+            # Subject filter. Needed so a client can page this endpoint while
+            # narrowing to one subject -- without it, subject selection has to
+            # happen client-side, which is only correct if the client holds
+            # every row. Ignored when not a valid integer id.
+            if subject_f:
+                qs = qs.filter(subject_id=subject_f)
             if status_f and status_f in (DRAFT, APPROVED, PUBLISHED):
                 qs = qs.filter(status=status_f)
             if search:

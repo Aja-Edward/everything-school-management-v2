@@ -905,6 +905,8 @@ async getAllSubjectResultsPaginated(
     search?: string;
     term_name?: string;
     session_name?: string;
+    /** Narrow to one subject id. Server-side, so it composes with paging. */
+    subject?: string | number;
   }
 ): Promise<PaginatedResponse<AnySubjectResult & { education_level: EducationLevelType }>> {
   const res = await api.get(`${this.base}/subject-results/`, params ?? {});
