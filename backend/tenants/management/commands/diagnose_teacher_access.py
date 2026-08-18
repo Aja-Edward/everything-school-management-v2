@@ -139,6 +139,11 @@ class Command(BaseCommand):
             n_active = my_assignments.filter(is_active=True).count()
             subjects = (
                 my_assignments.filter(is_active=True)
+                # .order_by() clears Meta.ordering. Without it Django adds the
+                # ordering columns to the SELECT, so DISTINCT applies to
+                # (classroom, subject, name) and the same subject name comes
+                # back once per classroom.
+                .order_by()
                 .values_list("subject__name", flat=True)
                 .distinct()
             )
