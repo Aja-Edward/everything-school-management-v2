@@ -294,7 +294,7 @@ const EnhancedResultRecording: React.FC<EnhancedResultRecordingProps> = ({
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Assessment Types</p>
-                <p className="text-2xl font-bold text-gray-900">{assessmentTypes.length}</p>
+                <p className="text-2xl font-bold text-gray-900">{levelComponents.length}</p>
               </div>
               <div className="bg-orange-100 p-3 rounded-lg">
                 <FileText className="h-6 w-6 text-orange-600" />

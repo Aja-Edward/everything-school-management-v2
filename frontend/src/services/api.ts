@@ -295,13 +295,16 @@ const api = {
   get: (endpoint: string, params?: Record<string, any>) =>
     makeRequestWithRetry('GET', endpoint, undefined, params),
 
-  post: (endpoint: string, data: any) =>
+  // data is optional: action endpoints such as mark_as_read take no body,
+  // and every call site already relied on that at runtime. Declaring it
+  // required produced a dozen TS2554 errors for code that was correct.
+  post: (endpoint: string, data?: any) =>
     makeRequestWithRetry('POST', endpoint, data),
 
-  put: (endpoint: string, data: any) =>
+  put: (endpoint: string, data?: any) =>
     makeRequestWithRetry('PUT', endpoint, data),
 
-  patch: (endpoint: string, data: any) =>
+  patch: (endpoint: string, data?: any) =>
     makeRequestWithRetry('PATCH', endpoint, data),
 
   delete: (endpoint: string, data?: any) =>
