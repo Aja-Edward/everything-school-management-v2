@@ -1968,7 +1968,10 @@ class SeniorSecondaryTermReportViewSet(
     queryset = SeniorSecondaryTermReport.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ["student", "exam_session",
+    # exam_session__term lets the student Academics tab filter by term:
+    # it sends ?term=<id>, and DjangoFilterBackend silently ignores
+    # unknown params, so the term selector was a no-op.
+    filterset_fields = ["student", "exam_session", "exam_session__term",
                         "status", "is_published", "stream"]
     search_fields = ["student__user__first_name", "student__user__last_name"]
 
@@ -2399,7 +2402,11 @@ class JuniorSecondaryTermReportViewSet(
     queryset = JuniorSecondaryTermReport.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ["student", "exam_session", "status", "is_published"]
+    # exam_session__term lets the student Academics tab filter by term:
+    # it sends ?term=<id>, and DjangoFilterBackend silently ignores
+    # unknown params, so the term selector was a no-op.
+    filterset_fields = ["student", "exam_session", "exam_session__term",
+                        "status", "is_published"]
     search_fields = ["student__user__first_name", "student__user__last_name"]
 
     def get_serializer_class(self):
@@ -2796,7 +2803,11 @@ class PrimaryTermReportViewSet(
     queryset = PrimaryTermReport.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ["student", "exam_session", "status", "is_published"]
+    # exam_session__term lets the student Academics tab filter by term:
+    # it sends ?term=<id>, and DjangoFilterBackend silently ignores
+    # unknown params, so the term selector was a no-op.
+    filterset_fields = ["student", "exam_session", "exam_session__term",
+                        "status", "is_published"]
     search_fields = ["student__user__first_name", "student__user__last_name"]
 
     def get_serializer_class(self):
@@ -3257,7 +3268,11 @@ class NurseryTermReportViewSet(
     queryset = NurseryTermReport.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ["student", "exam_session", "status", "is_published"]
+    # exam_session__term lets the student Academics tab filter by term:
+    # it sends ?term=<id>, and DjangoFilterBackend silently ignores
+    # unknown params, so the term selector was a no-op.
+    filterset_fields = ["student", "exam_session", "exam_session__term",
+                        "status", "is_published"]
     search_fields = ["student__user__first_name", "student__user__last_name"]
 
     def get_serializer_class(self):

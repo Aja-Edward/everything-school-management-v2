@@ -265,7 +265,7 @@ const StudentAcademics: React.FC = () => {
     setReportLoading(true);
     try {
       const res = await api.get(
-        `/results/${levelPath_}/term-reports/?term=${selectedTermId}`
+        `/results/${levelPath_}/term-reports/?exam_session__term=${selectedTermId}`
       );
       const list: TermReport[] = Array.isArray(res) ? res : (res.results || []);
       setTermReport(list.length > 0 ? list[0] : null);
@@ -286,7 +286,7 @@ const StudentAcademics: React.FC = () => {
       try {
         const results = await Promise.all(
           terms.map(t =>
-            api.get(`/results/${levelPath_}/term-reports/?term=${t.id}`)
+            api.get(`/results/${levelPath_}/term-reports/?exam_session__term=${t.id}`)
               .then((res: any) => {
                 const list: TermReport[] = Array.isArray(res) ? res : (res.results || []);
                 const r = list[0];
