@@ -286,7 +286,7 @@ class ResultSettingsService {
     return api.post(`${this.base}/grading-systems/`, data);
   }
 
-  async updateGradingSystem(id: string, data: GradingSystemCreateUpdate): Promise<GradingSystem> {
+  async updateGradingSystem(id: string, data: Partial<GradingSystemCreateUpdate>): Promise<GradingSystem> {
     return api.patch(`${this.base}/grading-systems/${id}/`, data);
   }
 
@@ -305,7 +305,7 @@ class ResultSettingsService {
     return api.post(`${this.base}/grades/`, data);
   }
 
-  async updateGrade(id: string, data: GradeCreateUpdate): Promise<GradeRange> {
+  async updateGrade(id: string, data: Partial<GradeCreateUpdate>): Promise<GradeRange> {
     return api.patch(`${this.base}/grades/${id}/`, data);
   }
 
@@ -416,7 +416,7 @@ async seedDefaultTraitFields(): Promise<{ detail: string }> {
     return api.post(`${this.base}/exam-sessions/`, data);
   }
 
-  async updateExamSession(id: string, data: ExamSessionCreateUpdate): Promise<ExamSession> {
+  async updateExamSession(id: string, data: Partial<ExamSessionCreateUpdate>): Promise<ExamSession> {
     return api.patch(`${this.base}/exam-sessions/${id}/`, data);
   }
 
@@ -433,6 +433,21 @@ async seedDefaultTraitFields(): Promise<{ detail: string }> {
   async getScoringConfigurations(params?: Record<string, unknown>): Promise<ScoringConfiguration[]> {
     const res = await api.get(`${this.base}/scoring-configurations/`, params);
     return extractArray<ScoringConfiguration>(res);
+  }
+
+  /**
+   * Scoring configurations for one education level.
+   *
+   * useResultService wrapped this name and JuniorSecondaryResult calls it on
+   * every load, but it was never implemented here -- the call threw
+   * "is not a function" and aborted the rest of that page's data fetch.
+   * ScoringConfigurationViewSet lists education_level in filterset_fields, so
+   * the narrowing happens server-side.
+   */
+  async getScoringConfigurationsByEducationLevel(
+    educationLevel: string
+  ): Promise<ScoringConfiguration[]> {
+    return this.getScoringConfigurations({ education_level: educationLevel });
   }
 
   async createScoringConfiguration(data: ScoringConfigurationCreateUpdate): Promise<ScoringConfiguration> {
@@ -465,7 +480,7 @@ async seedDefaultTraitFields(): Promise<{ detail: string }> {
     return api.post(`${this.base}/assessment-types/`, data);
   }
 
-  async updateAssessmentType(id: string, data: AssessmentTypeCreateUpdate): Promise<AssessmentType> {
+  async updateAssessmentType(id: string, data: Partial<AssessmentTypeCreateUpdate>): Promise<AssessmentType> {
     return api.patch(`${this.base}/assessment-types/${id}/`, data);
   }
 
