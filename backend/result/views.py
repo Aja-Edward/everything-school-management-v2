@@ -1027,44 +1027,77 @@ class BaseResultViewSetMixin:
         )
         try:
             teacher = Teacher.objects.get(user=user)
-            assigned_classrooms = Classroom.objects.filter(
-                Q(class_teacher=teacher)
-                | Q(classroomteacherassignment__teacher=teacher)
-            ).distinct()
-
-            if not assigned_classrooms.exists():
-                return queryset.none()
-
-            student_qs = StudentEnrollment.objects.filter(
-                classroom__in=assigned_classrooms, is_active=True
-            ).values("student_id")
-
-            if not student_qs.exists():
-                return queryset.none()
-
-            assigned_subject_qs = (
-                ClassroomTeacherAssignment.objects.filter(teacher=teacher)
-                .exclude(subject__isnull=True)
-                .values("subject_id")
-                .distinct()
-            )
-
-            if assigned_subject_qs.exists():
-                return queryset.filter(
-                    subject_id__in=assigned_subject_qs,
-                    student_id__in=student_qs,
-                )
-
-            # No explicit subject assignments — class teacher sees all students
-            return queryset.filter(student_id__in=student_qs)
-
         except Teacher.DoesNotExist:
             return queryset.none()
+
+        try:
+            return self._teacher_visibility_queryset(
+                teacher, queryset, Classroom, ClassroomTeacherAssignment
+            )
         except Exception as exc:
             logger.error(
                 "Error filtering for teacher %s: %s", user.username, exc, exc_info=True
             )
             return queryset.none()
+
+    def _teacher_visibility_queryset(
+        self, teacher, queryset, Classroom, ClassroomTeacherAssignment
+    ):
+        """
+        Results this teacher may see.
+
+        Matches the (classroom, subject) PAIR, not the cross-product.
+
+        The previous version filtered subject_id__in=<every subject taught
+        anywhere> AND student_id__in=<every student in any assigned
+        classroom>. For a teacher taking Maths in JSS1 and English in JSS2
+        that also returned English for JSS1 students and Maths for JSS2
+        students -- subjects they do not teach to those students. The frontend
+        compensated by re-filtering per subject client-side, which is why the
+        list looked right while the API itself was too permissive.
+        """
+        visibility = Q()
+        matched = False
+
+        pairs = (
+            ClassroomTeacherAssignment.objects.filter(
+                teacher=teacher, is_active=True)
+            .exclude(subject__isnull=True)
+            .values_list("classroom_id", "subject_id")
+            .distinct()
+        )
+        for classroom_id, subject_id in pairs:
+            # subject_id is on the result row itself, so each OR branch binds
+            # its own subject to its own classroom.
+            visibility |= Q(
+                subject_id=subject_id,
+                student__studentenrollment__classroom_id=classroom_id,
+                student__studentenrollment__is_active=True,
+            )
+            matched = True
+
+        # Classrooms where this teacher sees every subject: the form/class
+        # teacher, plus any assignment carrying no specific subject.
+        all_subject_classrooms = set(
+            Classroom.objects.filter(class_teacher=teacher).values_list(
+                "id", flat=True)
+        ) | set(
+            ClassroomTeacherAssignment.objects.filter(
+                teacher=teacher, is_active=True, subject__isnull=True
+            ).values_list("classroom_id", flat=True)
+        )
+        if all_subject_classrooms:
+            visibility |= Q(
+                student__studentenrollment__classroom_id__in=all_subject_classrooms,
+                student__studentenrollment__is_active=True,
+            )
+            matched = True
+
+        if not matched:
+            return queryset.none()
+
+        # distinct(): the enrollment join can multiply rows.
+        return queryset.filter(visibility).distinct()
 
     # ── Single-record create / update helpers ─────────────────────────────────
 
