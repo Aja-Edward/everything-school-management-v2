@@ -633,32 +633,49 @@ class SectionFilterMixin:
 
             # DEFAULT: Try common foreign key relationships
             else:
-                # Try student relationship
+                # allowed_education_levels holds strings, but which kind varies
+                # by caller: EducationLevel.name ('Senior Secondary') from the
+                # collected set, or level_type codes ('SENIOR_SECONDARY') from
+                # the fallback below. Match either rather than assuming one.
+                def _level_q(prefix):
+                    return Q(
+                        **{f"{prefix}__name__in": allowed_education_levels}
+                    ) | Q(
+                        **{f"{prefix}__level_type__in": allowed_education_levels}
+                    )
+
+                # Try student relationship.
+                # Student.education_level is a @property returning a string, so
+                # it cannot be queried; the FK path runs through student_class.
+                # The old lookup raised and the broad except below turned that
+                # into an empty queryset -- teachers saw zero attendance.
                 if hasattr(queryset.model, "student"):
                     filtered = queryset.filter(
-                        student__education_level__in=allowed_education_levels
+                        _level_q("student__student_class__education_level")
                     )
                     logger.info(
                         f"✅ Filtered {model_name} (via student): {filtered.count()}"
                     )
                     return filtered
 
-                # Try classroom relationship (via section)
+                # Try classroom relationship (via section).
+                # Section relates to Class through class_grade, not grade_level.
                 elif hasattr(queryset.model, "classroom"):
                     filtered = queryset.filter(
-                        classroom__section__grade_level__education_level__in=allowed_education_levels
+                        _level_q(
+                            "classroom__section__class_grade__education_level")
                     )
                     logger.info(
                         f"✅ Filtered {model_name} (via classroom): {filtered.count()}"
                     )
                     return filtered
 
-                # Try education_level field directly.
-                # allowed_education_levels contains EducationLevel.name strings (e.g. 'Senior Secondary'),
-                # NOT integer PKs, so we must use __name__in not __in (which expects PKs).
+                # Try education_level field directly. Never bare __in here:
+                # that expects PKs and raises "Field 'id' expected a number but
+                # got 'Senior Secondary'".
                 elif hasattr(queryset.model, "education_level"):
                     filtered = queryset.filter(
-                        education_level__name__in=allowed_education_levels
+                        _level_q("education_level")
                     )
                     logger.info(
                         f"✅ Filtered {model_name} (via education_level__name): {filtered.count()}"
