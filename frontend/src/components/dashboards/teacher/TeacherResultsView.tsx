@@ -5,7 +5,7 @@ import TeacherDashboardService from '@/services/TeacherDashboardService';
 import TeacherService from '@/services/TeacherService';
 import TenantService, { TenantSettings } from '@/services/TenantService';
 import ResultService from '@/services/ResultService';
-import type { EducationLevelType, SubjectResultParams } from '@/services/ResultService';
+import type { EducationLevelType } from '@/services/ResultService';
 import ResultCreateTab from '@/components/dashboards/teacher/ResultCreateTab';
 import TraitsRecordingForm from '@/components/dashboards/teacher/TraitsRecordingForm';
 
@@ -53,16 +53,6 @@ interface ExtendedAssignment {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Map frontend EducationLevel to the ResultService EducationLevelType */
-const toServiceLevel = (level: EducationLevel): EducationLevelType => {
-  const map: Record<EducationLevel, EducationLevelType> = {
-    NURSERY:           'NURSERY',
-    PRIMARY:           'PRIMARY',
-    JUNIOR_SECONDARY:  'JUNIOR_SECONDARY',
-    SENIOR_SECONDARY:  'SENIOR_SECONDARY',
-  };
-  return map[level];
-};
 
 /**
  * Keyword/pattern match against one piece of text. Shared by the
@@ -311,103 +301,48 @@ const TeacherResults: React.FC = () => {
         return;
       }
 
-      async function fetchAllPages(
-  fetcher: (params: any) => Promise<any>,
-  params: SubjectResultParams
-): Promise<any[]> {
-  const allResults: any[] = [];
-  let currentParams: Record<string, string | number | boolean> = {
-    ...params,
-    page_size: '100',
-    page: '1',
-  };
-
-  while (true) {
-    const response = await fetcher(currentParams);
-
-    if (Array.isArray(response)) {
-      allResults.push(...response);
-      break;
-    }
-
-    const page = response?.results ?? response?.data ?? [];
-    allResults.push(...page);
-
-    if (!response?.next) break;
-
-    const nextUrl = new URL(response.next);
-    const nextPage = nextUrl.searchParams.get('page') ?? '2';
-    currentParams = { ...currentParams, page: nextPage };
-  }
-
-  return allResults;
-}
-
-      // ── Fetch results per level + subject (uses fetchAllPages) ─────────────
-    const fetchPromises = (Object.entries(subjectsByLevel) as [EducationLevel, number[]][])
-      .filter(([, ids]) => ids.length > 0)
-      .flatMap(([level, ids]) =>
-        ids.map((subjectId) => {
-          const params: SubjectResultParams = { subject: String(subjectId) };
-          const serviceLevel = toServiceLevel(level);
-
-          return fetchAllPages(             // ← swapped in here
-            (p) => ResultService.getSubjectResults(serviceLevel, p),
-            params
-          ).then((data) => ({
-            data,
-            subjectId,
-            level,
-            classroomIds:   Array.from(classroomIdsBySubject.get(subjectId) || []),
-            classroomNames: Array.from(classroomNamesBySubject.get(subjectId) || []),
-          }))
-          .catch((err) => {
-            console.error(`❌ Failed to fetch ${level} results for subject ${subjectId}:`, err);
-            return { data: [], subjectId, level, classroomIds: [], classroomNames: [] };
-          });
-        })
-      );
-
-
-      const settled = await Promise.allSettled(fetchPromises);
-
-      // ── Collect results for this teacher's subjects ────────────────────────
-      // The backend _apply_role_filter already restricts results to this teacher's
-      // assigned subjects and students, so no further classroom filtering is needed.
+      // ── Fetch every result this teacher can see, in ONE paged stream ─────
+      // Previously this fanned out: one fetchAllPages loop PER SUBJECT, each
+      // internally walking every page, all in parallel. A subject teacher
+      // covering the school fired dozens of requests (the logs showed 12
+      // concurrent calls at ~58KB each) to assemble one page of UI.
+      //
+      // The unified endpoint returns the same rows with the same serializers,
+      // tagged with education_level, and the backend role filter now matches
+      // (classroom, subject) pairs exactly -- so a single stream returns
+      // precisely this teacher's results with no client-side narrowing.
       const raw: any[] = [];
-      settled.forEach((res) => {
-        if (res.status !== 'fulfilled') return;
-        const { data, classroomIds, classroomNames, subjectId, level } = res.value;
-        console.log('DEBUG TeacherResultsView.loadTeacherData: fetched results batch', {
-          subjectId,
-          level,
-          receivedCount: Array.isArray(data) ? data.length : ((data as any)?.length ?? 0),
-          classroomIds,
-          classroomNames,
-        });
+      const PAGE_SIZE = 200;
 
-        const idSet   = new Set(classroomIds.map(Number));
-        const nameSet = new Set(classroomNames.map((n: string) => n.trim()));
+      try {
+        let page = 1;
+        let fetched = 0;
+        let total = Infinity;
 
-        data.forEach((result: any) => {
-          if (!result.student?.id) return;
+        while (fetched < total) {
+          const res = await ResultService.getAllSubjectResultsPaginated({
+            page,
+            page_size: PAGE_SIZE,
+          });
 
-          // If no classroom filter exists for this subject, include everything
-          if (idSet.size === 0 && nameSet.size === 0) { raw.push(result); return; }
+          const batch = Array.isArray(res?.results) ? res.results : [];
+          raw.push(...batch);
 
-          // Match by classroom ID from the student's active enrollment
-          const resultClassroomId = Number(result.student?.classroom_id || 0);
-          if (resultClassroomId > 0 && idSet.has(resultClassroomId)) { raw.push(result); return; }
+          // The unified endpoint hardcodes next/previous to null, so paging
+          // has to key off count -- checking `next` would stop after page 1.
+          total = Number.isFinite(Number(res?.count)) ? Number(res.count) : batch.length;
+          fetched += batch.length;
 
-          // Match by classroom name from the student's active enrollment
-          const resultClassroomName = (result.student?.classroom_name || '').trim();
-          if (resultClassroomName && nameSet.has(resultClassroomName)) { raw.push(result); return; }
-
-          // Fallback: classroom data unavailable in response — include the result.
-          // The backend has already verified this teacher can see it.
-          if (!resultClassroomId && !resultClassroomName) { raw.push(result); return; }
-        });
-      });
+          if (batch.length === 0) break;      // defensive: never spin
+          if (fetched >= total) break;
+          page += 1;
+        }
+      } catch (err) {
+        console.error('Failed to load teacher results:', err);
+        setError('Failed to load results');
+        setResults([]);
+        return;
+      }
 
       // ── Normalize ──────────────────────────────────────────────────────────
       const normalized: StudentResult[] = raw.map((r: any): StudentResult => {
