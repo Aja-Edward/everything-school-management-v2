@@ -583,6 +583,23 @@ class ClassroomTeacherAssignment(TenantMixin, models.Model):
             models.Index(fields=["tenant", "subject"]),
         ]
 
+    def save(self, *args, **kwargs):
+        # Derive tenant from the classroom when it was not set explicitly.
+        # TenantMixin leaves tenant nullable and only auto-fills it when a
+        # request happens to be attached, so assignments were being written
+        # with tenant_id = NULL. TenantFilterMixin filters with
+        # .filter(tenant=tenant), which excludes NULL rows -- so those
+        # assignments became invisible to the very school that owns them,
+        # and teachers saw no subjects. Every creation path goes through
+        # save(), so deriving it here closes the hole for good.
+        if self.tenant_id is None and self.classroom_id:
+            self.tenant_id = (
+                Classroom.objects.filter(pk=self.classroom_id)
+                .values_list("tenant_id", flat=True)
+                .first()
+            )
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.teacher} - {self.subject} ({self.classroom})"
 
