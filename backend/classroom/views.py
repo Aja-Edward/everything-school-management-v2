@@ -616,8 +616,17 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
     """
 
     queryset = Classroom.objects.all().annotate(
+        # Mirrors ClassroomDetailSerializer.get_current_enrollment exactly,
+        # including the student__is_active check, so the serializer can read
+        # this annotation instead of issuing its own COUNT per classroom.
+        # distinct=True because the other prefetch joins can multiply rows.
         current_enrollment_count=Count(
-            "studentenrollment", filter=Q(studentenrollment__is_active=True)
+            "studentenrollment",
+            filter=Q(
+                studentenrollment__is_active=True,
+                studentenrollment__student__is_active=True,
+            ),
+            distinct=True,
         )
     )
     serializer_class = ClassroomSerializer
@@ -654,6 +663,19 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                     is_active=True
                 ).select_related("teacher__user", "subject"),
                 to_attr="active_assignments",
+            ),
+            # ClassroomDetailSerializer exposes student_enrollments from
+            # studentenrollment_set, which was not prefetched: every enrollment
+            # then issued its own queries for student, student.user,
+            # student.student_class and student.stream. That was ~100 queries
+            # to render two classrooms.
+            Prefetch(
+                "studentenrollment_set",
+                queryset=StudentEnrollment.objects.select_related(
+                    "student__user",
+                    "student__student_class",
+                    "student__stream",
+                ),
             ),
         )
         return queryset.order_by("section__class_grade__order", "name")

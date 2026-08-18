@@ -870,6 +870,12 @@ class ClassroomDetailSerializer(ClassroomSerializer):
         ]
 
     def get_current_enrollment(self, obj):
+        # Use the queryset annotation when present -- ClassroomViewSet computes
+        # current_enrollment_count with identical filters. Falling through to a
+        # COUNT here meant one extra query per classroom on every list render.
+        annotated = getattr(obj, "current_enrollment_count", None)
+        if annotated is not None:
+            return annotated
         return obj.studentenrollment_set.filter(
             is_active=True, student__is_active=True
         ).count()
