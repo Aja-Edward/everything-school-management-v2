@@ -153,15 +153,39 @@ class Command(BaseCommand):
 
     # ── per-tenant checks ────────────────────────────────────────────────────
 
-    def fetch_zone_cname_map(self):
+    def verify_token_scope(self):
         """
-        Pull every CNAME in the zone once, paginated, instead of querying per
-        tenant. Returns {full_domain: record} or None if the zone is unreadable.
+        Ask Cloudflare to describe the token itself. A token can read zone
+        metadata while lacking DNS permissions entirely, which fails the
+        CNAME write silently inside provision_subdomain().
         """
         try:
             cf = CloudflareClient()
-        except Exception:
-            return None
+            resp = requests.get(
+                f"{CloudflareClient.BASE_URL}/user/tokens/verify",
+                headers=cf._headers(),
+                timeout=15,
+            )
+            data = resp.json()
+            if data.get("success"):
+                return {"status": OK,
+                        "detail": f"token status: {data['result'].get('status')}"}
+            return {"status": FAIL,
+                    "detail": f"HTTP {resp.status_code}: {data.get('errors')}"}
+        except Exception as exc:
+            return {"status": FAIL, "detail": str(exc)}
+
+    def fetch_zone_cname_map(self):
+        """
+        Pull every CNAME in the zone once, paginated, instead of querying per
+        tenant. Returns (records, error) where records is {full_domain: record}
+        or None. The error string is surfaced verbatim rather than swallowed --
+        a permission failure here is itself the diagnosis.
+        """
+        try:
+            cf = CloudflareClient()
+        except Exception as exc:
+            return None, f"client init failed: {exc}"
 
         records = {}
         page = 1
@@ -173,11 +197,16 @@ class Command(BaseCommand):
                     params={"type": "CNAME", "per_page": 100, "page": page},
                     timeout=20,
                 )
+            except Exception as exc:
+                return None, f"request failed: {exc}"
+
+            try:
                 data = resp.json()
             except Exception:
-                return None
+                return None, f"HTTP {resp.status_code}, non-JSON body: {resp.text[:200]}"
+
             if not data.get("success"):
-                return None
+                return None, f"HTTP {resp.status_code}, errors={data.get('errors')}"
 
             for rec in data.get("result", []):
                 records[rec["name"].lower()] = rec
@@ -187,9 +216,9 @@ class Command(BaseCommand):
                 break
             page += 1
 
-        return records
+        return records, None
 
-    def check_tenant(self, tenant, cname_map):
+    def check_tenant(self, tenant, cname_map, dns_error=None):
         full_domain = f"{tenant.slug}.{ROOT_DOMAIN}"
         row = {
             "slug": tenant.slug,
@@ -203,8 +232,11 @@ class Command(BaseCommand):
 
         # ── 1. Cloudflare DNS ────────────────────────────────────────────────
         if cname_map is None:
-            row["dns"] = {"status": SKIP,
-                          "detail": "zone unreadable - check Cloudflare credentials"}
+            row["dns"] = {
+                "status": FAIL,
+                "detail": f"could not list zone DNS records: {dns_error}",
+            }
+            row["problems"].append("cannot read zone DNS records")
         else:
             rec = cname_map.get(full_domain.lower())
             if not rec:
@@ -321,9 +353,17 @@ class Command(BaseCommand):
         tenants = list(tenants)
 
         live = self.probe_live_credentials()
-        cname_map = self.fetch_zone_cname_map()
+        live["cloudflare token"] = self.verify_token_scope()
+        cname_map, dns_error = self.fetch_zone_cname_map()
+        if dns_error:
+            live["cloudflare dns"] = {"status": FAIL, "detail": dns_error}
+        else:
+            live["cloudflare dns"] = {
+                "status": OK,
+                "detail": f"listed {len(cname_map)} CNAME record(s) in zone",
+            }
 
-        rows = [self.check_tenant(t, cname_map) for t in tenants]
+        rows = [self.check_tenant(t, cname_map, dns_error) for t in tenants]
         if opts["broken_only"]:
             rows = [r for r in rows if not r["healthy"]]
 
@@ -361,7 +401,9 @@ class Command(BaseCommand):
             w("  Live API check:")
             for svc, res in live.items():
                 style = self.style.SUCCESS if res["status"] == OK else self.style.ERROR
-                w(f"    {style(res['status']):<6}  {svc:<12} {res['detail']}")
+                # Pad before styling: ANSI escapes count toward format width.
+                badge = style(f"{res['status']:<6}")
+                w(f"    {badge}  {svc:<18} {res['detail']}")
 
     def _print_tenants(self, rows, total, broken_only):
         w = self.stdout.write
@@ -391,14 +433,20 @@ class Command(BaseCommand):
                     WARN: self.style.WARNING,
                     SKIP: self.style.WARNING,
                 }.get(res["status"], self.style.WARNING)
-                w(f"             {style(res['status']):<6} {check:<7} {res['detail']}")
+                # Pad before styling: ANSI escapes count toward format width.
+                badge = style(f"{res['status']:<6}")
+                w(f"             {badge} {check:<7} {res['detail']}")
 
         broken = [r for r in rows if not r["healthy"]]
         w("")
         w("-" * 78)
-        w(f"  {total} tenant(s) checked | "
-          f"{total - len(broken) if not broken_only else '?'} healthy | "
-          f"{len(broken)} broken")
+        if broken_only:
+            # rows were filtered, so healthy count comes from the totals.
+            w(f"  {total} tenant(s) checked | {total - len(broken)} healthy "
+              f"(not shown) | {len(broken)} broken")
+        else:
+            w(f"  {total} tenant(s) checked | {total - len(broken)} healthy | "
+              f"{len(broken)} broken")
         if broken:
             w("")
             w("  Broken: " + ", ".join(r["slug"] for r in broken))
