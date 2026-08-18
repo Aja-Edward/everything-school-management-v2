@@ -22,6 +22,8 @@ interface TermInfo {
   academic_session: string | number;
   start_date?: string;
   end_date?: string;
+  /** Set by the backend on the term currently in progress. */
+  is_current?: boolean;
 }
 
 interface AcademicSessionInfo {
@@ -250,9 +252,12 @@ const StudentAcademics: React.FC = () => {
         if (!alive) return;
         setTerms(Array.isArray(termsData) ? termsData : []);
 
-        // default to the most recent term
+        // Default to the term actually in progress. The endpoint orders by
+        // term_type__display_order, so taking the last entry always selected
+        // Third Term -- which shows nothing for most of the school year.
         if (termsData.length > 0) {
-          setSelectedTermId(termsData[termsData.length - 1].id);
+          const current = termsData.find(t => t.is_current);
+          setSelectedTermId((current ?? termsData[termsData.length - 1]).id);
         }
       } catch (e) {
         if (alive) setError(e instanceof Error ? e.message : 'Failed to load data');
