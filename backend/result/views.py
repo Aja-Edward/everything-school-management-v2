@@ -744,8 +744,67 @@ class TeacherTermReportGetOrCreateView(APIView):
         except Exception:
             return False
 
+    def _optimized_report(self, model, level_key, pk):
+        """
+        Re-fetch the report with the eager loading the serializers require.
+
+        get_or_create() returns a bare instance, so rendering it walked every
+        relation one row at a time: ~315 queries and over two seconds for a
+        single report, dominated by AssessmentComponent lookups (one per
+        component score) and the StudentMinimalSerializer enrollment fallback
+        (one per student, each logging a warning).
+
+        The eager loading below is exactly what NurseryResultSerializer's
+        docstring specifies for its caller.
+        """
+        result_model = _RESULT_MODEL_MAP.get(level_key)
+
+        subject_results_qs = None
+        if result_model is not None:
+            subject_results_qs = (
+                result_model.objects.select_related(
+                    "student__user",
+                    "student__student_class",
+                    "subject",
+                    "exam_session__academic_session",
+                    "exam_session__exam_type",
+                    "grading_system",
+                    "entered_by",
+                    "approved_by",
+                    "term_report",
+                )
+                .prefetch_related(
+                    "grading_system__grades",
+                    Prefetch(
+                        "component_scores",
+                        queryset=ComponentScore.objects.select_related(
+                            "component"),
+                    ),
+                    _active_enrollments_prefetch(),
+                )
+            )
+
+        prefetches = [_active_enrollments_prefetch()]
+        if subject_results_qs is not None:
+            prefetches.append(
+                Prefetch("subject_results", queryset=subject_results_qs)
+            )
+
+        return (
+            model.objects.select_related(
+                "student__user",
+                "student__student_class",
+                "exam_session__academic_session",
+                "exam_session__exam_type",
+                "approved_by",
+            )
+            .prefetch_related(*prefetches)
+            .get(pk=pk)
+        )
+
     def post(self, request, level):
-        model = _TERM_REPORT_MODEL_MAP.get(level.upper().replace("-", "_"))
+        level_key = level.upper().replace("-", "_")
+        model = _TERM_REPORT_MODEL_MAP.get(level_key)
         if not model:
             return Response({"detail": "Unknown education level."}, status=400)
 
@@ -774,6 +833,19 @@ class TeacherTermReportGetOrCreateView(APIView):
             NurseryTermReport: NurseryTermReportSerializer,
         }
         ser_cls = serializer_map[model]
+
+        # Render from an eagerly-loaded instance, not the bare get_or_create
+        # result. Falls back to the unoptimised object if the re-fetch fails
+        # for any reason -- correctness of the response matters more than the
+        # query count.
+        try:
+            report = self._optimized_report(model, level_key, report.pk)
+        except Exception:
+            logger.exception(
+                "Term report re-fetch for eager loading failed; "
+                "serializing unoptimised instance for report %s", report.pk
+            )
+
         return Response(ser_cls(report, context={"request": request}).data)
 
 # ── Assessment Component ───────────────────────────────────────────────────────
