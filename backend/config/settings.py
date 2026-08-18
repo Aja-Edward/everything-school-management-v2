@@ -164,7 +164,6 @@ INSTALLED_APPS = [
     # Your apps
     "messaging",
     "security",
-    "debug_toolbar",
     "utils",
     "common",
     "userprofile.apps.UserprofileConfig",
@@ -205,7 +204,6 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     # 2. Sessions early (auth needs it)
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "debug_toolbar.middleware.DebugToolbarMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     # 3. Auth (needs session)
@@ -217,6 +215,20 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+# django-debug-toolbar is a development-only tool: it was previously installed
+# and in the middleware chain unconditionally, including in production on
+# Render. Load it only under DEBUG so it never ships to the live instance.
+if DEBUG:
+    INSTALLED_APPS.append("debug_toolbar")
+    # Must run early, but after CORS/security — mirrors the previous position.
+    MIDDLEWARE.insert(
+        MIDDLEWARE.index(
+            "django.contrib.sessions.middleware.SessionMiddleware") + 1,
+        "debug_toolbar.middleware.DebugToolbarMiddleware",
+    )
+    INTERNAL_IPS = ["127.0.0.1", "localhost"]
+
 # ============================================
 # TENANT MIDDLEWARE - PUBLIC PATHS
 # ============================================

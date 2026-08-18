@@ -1300,12 +1300,38 @@ class BaseResultViewSetMixin:
         if errors:
             return _error_response("Validation failed. No scores were saved.", errors)
 
+        tenant = getattr(request, "tenant", None)
+
+        # Pre-load every AssessmentComponent referenced in this payload in one
+        # query. This loop previously issued AssessmentComponent.objects.get()
+        # per individual score, so a class of 40 students x 3 components meant
+        # 120 identical round-trips inside a single transaction.
+        component_ids = {
+            s["component_id"]
+            for _, _, _, scores_data, _, _ in validated
+            for s in scores_data
+            if s.get("component_id")
+        }
+        component_map = {
+            c.id: c
+            for c in AssessmentComponent.objects.filter(id__in=component_ids)
+        }
+
+        # Resolve the tenant's fallback grading system once rather than
+        # re-querying it for every entry that omits one.
+        from result.models import GradingSystem as GS
+        _default_gs = (
+            GS.objects.filter(is_active=True, tenant=tenant)
+            .order_by("id")
+            .first()
+        )
+        default_grading_system_id = _default_gs.id if _default_gs else None
+
         try:
             with transaction.atomic():
                 count = 0
                 saved_results = []  # collect to ensure term reports exist after the loop
                 for student_id, subject_id, exam_session_id, scores_data, teacher_remark, grading_system_id in validated:
-                    tenant = getattr(request, "tenant", None)
                     lookup = {
                         "tenant": tenant,
                         "student_id": student_id,
@@ -1317,10 +1343,7 @@ class BaseResultViewSetMixin:
                     # Resolve grading system — required for new rows (NOT NULL constraint).
                     # Use the provided ID first; fall back to the tenant's first active system.
                     if not grading_system_id:
-                        from result.models import GradingSystem as GS
-                        default_gs = GS.objects.filter(
-                            is_active=True, tenant=request.tenant,).order_by("id").first()
-                        grading_system_id = default_gs.id if default_gs else None
+                        grading_system_id = default_grading_system_id
 
                     defaults = {}
                     if grading_system_id:
@@ -1330,9 +1353,11 @@ class BaseResultViewSetMixin:
                         **lookup, defaults=defaults)
 
                     for s in scores_data:
-                        component = AssessmentComponent.objects.get(
-                            id=s["component_id"]
-                        )
+                        component = component_map.get(s["component_id"])
+                        if component is None:
+                            raise AssessmentComponent.DoesNotExist(
+                                f"AssessmentComponent {s['component_id']} not found"
+                            )
                         ComponentScore.objects.update_or_create(
                             **{fk_name: result, "component": component},
                             defaults={"score": s["score"], "tenant": tenant},
@@ -1457,8 +1482,27 @@ class BaseResultViewSetMixin:
             education_level, self.get_serializer_class()
         )
 
+        # Duplicate-detection set. Scope it to the current tenant AND to the
+        # exam sessions actually present in the payload — an unscoped
+        # values_list() here pulled every result row for every school on the
+        # platform into memory on each upload, which was both a tenant leak
+        # and the main driver of the out-of-memory restarts.
+        tenant = getattr(request, "tenant", None)
+        payload_session_ids = {
+            raw.get("exam_session")
+            for raw in results_data
+            if isinstance(raw, dict) and raw.get("exam_session")
+        }
+
+        existing_qs = ModelClass.objects.all()
+        if tenant is not None:
+            existing_qs = existing_qs.filter(tenant=tenant)
+        if payload_session_ids:
+            existing_qs = existing_qs.filter(
+                exam_session_id__in=payload_session_ids)
+
         existing_keys = set(
-            ModelClass.objects.values_list(
+            existing_qs.values_list(
                 "student_id", "subject_id", "exam_session_id"
             )
         )
@@ -1513,7 +1557,6 @@ class BaseResultViewSetMixin:
         try:
             with transaction.atomic():
                 raw_instances = [inst for inst, _ in validated_instances]
-                tenant = getattr(request, "tenant", None)
                 for instance, _ in validated_instances:
                     if not instance.tenant_id:
                         instance.tenant = tenant
