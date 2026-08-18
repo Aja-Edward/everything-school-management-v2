@@ -109,6 +109,49 @@ const LEVEL_PATH: Record<EducationLevelType, string> = {
   SENIOR_SECONDARY: 'senior-secondary',
 };
 
+const EDUCATION_LEVELS: EducationLevelType[] = [
+  'NURSERY',
+  'PRIMARY',
+  'JUNIOR_SECONDARY',
+  'SENIOR_SECONDARY',
+];
+
+/**
+ * Resolve an education level to the exact key the results API expects.
+ *
+ * This MUST NOT guess. Each education level is a separate database table with
+ * its own auto-increment ids, so id 42 exists in all four as four different
+ * students' results — and the level is what selects the table. The previous
+ * `?? 'SENIOR_SECONDARY'` fallback meant an unrecognised value silently
+ * deleted a senior-secondary result instead of the one the teacher clicked.
+ *
+ * 'Senior Secondary' (the display name used elsewhere in the codebase)
+ * uppercases to 'SENIOR SECONDARY', which missed the map and hit that
+ * fallback — so this was reachable, not theoretical.
+ *
+ * Accepts the spellings that legitimately occur — 'SENIOR_SECONDARY',
+ * 'senior-secondary', 'Senior Secondary' — and throws on anything else.
+ */
+export function resolveEducationLevel(
+  value: string | null | undefined
+): EducationLevelType {
+  const normalized = String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_');
+
+  const match = EDUCATION_LEVELS.find((level) => level === normalized);
+  if (!match) {
+    throw new Error(
+      `Unrecognised education level ${JSON.stringify(value)}. ` +
+        `Expected one of: ${EDUCATION_LEVELS.join(', ')}. ` +
+        `Refusing to guess — the education level selects which results table ` +
+        `is read or written, and guessing wrong affects another student's record.`
+    );
+  }
+  return match;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SHARED TYPES
 // ─────────────────────────────────────────────────────────────────────────────
@@ -959,11 +1002,8 @@ async getAllSubjectResultsPaginated(
    * educationLevel may be the API-path string (e.g. 'SENIOR_SECONDARY').
    */
   async deleteStudentResult(resultId: string, educationLevel: string): Promise<void> {
-    const levelMap: Record<string, EducationLevelType> = {
-      NURSERY: 'NURSERY', PRIMARY: 'PRIMARY',
-      JUNIOR_SECONDARY: 'JUNIOR_SECONDARY', SENIOR_SECONDARY: 'SENIOR_SECONDARY',
-    };
-    const level = levelMap[educationLevel.toUpperCase()] ?? 'SENIOR_SECONDARY';
+    // Throws rather than defaulting: see resolveEducationLevel.
+    const level = resolveEducationLevel(educationLevel);
     return this.deleteSubjectResult(level, resultId);
   }
 
@@ -977,11 +1017,9 @@ async getAllSubjectResultsPaginated(
     exam_session: string;
     education_level: string;
   }): Promise<string | null> {
-    const levelMap: Record<string, EducationLevelType> = {
-      NURSERY: 'NURSERY', PRIMARY: 'PRIMARY',
-      JUNIOR_SECONDARY: 'JUNIOR_SECONDARY', SENIOR_SECONDARY: 'SENIOR_SECONDARY',
-    };
-    const level = levelMap[params.education_level.toUpperCase()] ?? 'SENIOR_SECONDARY';
+    // Same reasoning as deleteStudentResult: a wrong level here returns an id
+    // from the wrong table, which the caller then deletes.
+    const level = resolveEducationLevel(params.education_level);
     try {
       const results = await this.getSubjectResults(level, {
         student: params.student,
