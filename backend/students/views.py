@@ -280,15 +280,35 @@ def get_my_classroom_for_result(request):
 
     GET /api/students/my-classroom/
     """
+    # TenantMiddleware cannot always resolve a tenant here. It runs before DRF
+    # authenticates, so request.user is still anonymous at that point and the
+    # middleware's user fallback never fires; a caller that omits
+    # X-Tenant-Slug therefore arrives with request.tenant = None. Looking the
+    # student up with tenant=None then raised DoesNotExist and this endpoint
+    # returned education_level: null, which the student Academics tab treated
+    # as "unknown level" and silently defaulted to primary.
+    #
+    # Fall back to the authenticated user's own tenant, as academics/views.py
+    # already does, so the answer does not depend on the caller's headers.
+    tenant = getattr(request, "tenant", None)
+    if tenant is None:
+        tenant = getattr(request.user, "tenant", None)
+
     try:
-        tenant = getattr(request, "tenant", None)
+        lookup = {"user": request.user}
+        if tenant is not None:
+            lookup["tenant"] = tenant
         student = Student.objects.select_related(
             "user",
             "student_class",
             "student_class__education_level",
             "section",
-        ).get(user=request.user, tenant=tenant)
+        ).get(**lookup)
     except Student.DoesNotExist:
+        logger.warning(
+            "my-classroom: no Student for user %s (tenant=%s)",
+            request.user, tenant,
+        )
         return Response({"classroom": None, "education_level": None})
 
     # Derive a normalised education level string (e.g. "SENIOR_SECONDARY")
