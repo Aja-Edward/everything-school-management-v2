@@ -671,7 +671,17 @@ def user_profile(request):
 @api_view(["GET"])
 @permission_classes([IsAdminUser])
 def list_admins(request):
-    """List all admin users including section admins"""
+    """
+    List admin users for the caller's school.
+
+    Tenant-scoped: a school admin must only ever see their own school's
+    admins. IsAdminUser only checks is_staff, and every tenant admin is
+    created with is_staff=True, so the permission class alone does NOT
+    provide isolation -- the queryset has to do it.
+
+    Platform admins (is_superuser, per IsPlatformAdmin) are the sole
+    exception and still see every admin across the platform.
+    """
     try:
         admin_roles = [
             "superadmin",
@@ -683,8 +693,26 @@ def list_admins(request):
             "nursery_admin",
         ]
 
-        admins = User.objects.filter(
-            role__in=admin_roles).order_by("-date_joined")
+        admins = User.objects.filter(role__in=admin_roles)
+
+        if not request.user.is_superuser:
+            # Prefer the resolved request tenant, fall back to the user's own.
+            tenant = getattr(request, "tenant", None) or getattr(
+                request.user, "tenant", None)
+            if tenant is None:
+                # Fail closed. Returning an unscoped list here would leak
+                # every school's admins to whoever asked.
+                logger.warning(
+                    "list_admins: no tenant resolved for user %s -- refusing "
+                    "to return an unscoped admin list.", request.user
+                )
+                return Response(
+                    {"detail": "Unable to determine your school."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            admins = admins.filter(tenant=tenant)
+
+        admins = admins.order_by("-date_joined")
 
         admin_list = []
         for admin in admins:
