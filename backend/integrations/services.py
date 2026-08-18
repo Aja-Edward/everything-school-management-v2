@@ -45,13 +45,13 @@ def provision_subdomain(tenant) -> dict:
         else:
             result["dns"] = {"ok": True, "detail": "CNAME created"}
     except ProvisioningError as exc:
+        # Summarised once below at WARNING; no need to also log it here.
         result["dns"] = {"ok": False, "detail": str(exc)}
-        logger.error("Cloudflare DNS provisioning failed for %s: %s",
-                     full_domain, exc)
     except Exception as exc:
         result["dns"] = {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
-        logger.exception(
-            "Cloudflare DNS provisioning error for %s", full_domain)
+        logger.debug(
+            "Cloudflare DNS provisioning error for %s", full_domain,
+            exc_info=True)
 
     # ── 2. Vercel attach (attempted even if step 1 failed) ───────────────────
     vercel = None
@@ -92,16 +92,31 @@ def provision_subdomain(tenant) -> dict:
         except Exception as exc:
             result["vercel"]["detail"] += f" | verify failed: {exc}"
 
-    result["ok"] = result["dns"]["ok"] and result["verified"]
+    # Success is defined by Vercel reporting the domain as verified, because
+    # that is what issues the certificate and makes the site load.
+    #
+    # The per-school Cloudflare record is deliberately NOT part of this test:
+    # the zone carries a wildcard (*.ROOT_DOMAIN -> Vercel), so every
+    # subdomain already resolves without an individual record. Creating one is
+    # belt-and-braces in case the wildcard is ever removed, so a failure there
+    # is a warning, not a provisioning failure.
+    result["ok"] = result["verified"]
+
+    if not result["dns"]["ok"]:
+        logger.warning(
+            "Cloudflare record not created for %s (%s). Non-fatal: the zone "
+            "wildcard covers this subdomain. Grant the API token Zone:DNS:Edit "
+            "to restore per-record provisioning.",
+            full_domain, result["dns"]["detail"],
+        )
 
     if result["ok"]:
         logger.info("Subdomain provisioned and verified: %s", full_domain)
     else:
         logger.error(
-            "Subdomain provisioning INCOMPLETE for %s -- dns=%s (%s), "
-            "vercel=%s (%s), verified=%s",
+            "Subdomain provisioning INCOMPLETE for %s -- vercel=%s (%s), "
+            "verified=%s",
             full_domain,
-            result["dns"]["ok"], result["dns"]["detail"],
             result["vercel"]["ok"], result["vercel"]["detail"],
             result["verified"],
         )

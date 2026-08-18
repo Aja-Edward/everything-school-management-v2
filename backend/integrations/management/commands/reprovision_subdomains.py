@@ -109,6 +109,9 @@ class Command(BaseCommand):
                 w(f"            {style(mark)} {step:<7} {s['detail'] or '-'}")
             w(f"            {'ok  ' if res['verified'] else 'FAIL'} verified"
               f" {'certificate will issue' if res['verified'] else 'NO certificate'}")
+            if not res["dns"]["ok"] and res["ok"]:
+                w("            note: DNS record not created, but the zone "
+                  "wildcard covers this subdomain -- not fatal")
 
         if as_json:
             w(_json.dumps(results, indent=2))
