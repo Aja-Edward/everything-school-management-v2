@@ -19,7 +19,7 @@ def seed_all_tenant_defaults(sender, instance, created, **kwargs):
     Single receiver that seeds ALL defaults for a new tenant in the
     correct dependency order:
 
-        GradeLevel → EducationLevel → TermTypes → ExamTypes → AssessmentComponents
+        EducationLevel → GradeLevel → TermTypes → ExamTypes → AssessmentComponents
 
     Wrapped in a single transaction so a failure in any step rolls
     everything back and leaves no half-seeded tenant.
@@ -54,13 +54,17 @@ def seed_all_tenant_defaults(sender, instance, created, **kwargs):
 
     try:
         with transaction.atomic():
-            # ── 1. Grade levels (no dependencies) ────────────────────────────
-            seed_grade_levels(instance)
-            logger.info(f"[{instance.slug}] ✅ Grade levels seeded")
-
-            # ── 2. Education levels (depends on grade levels) ─────────────────
+            # ── 1. Education levels (no dependencies) ────────────────────────
+            # MUST run before grade levels: seed_grade_levels() iterates
+            # EducationLevel.objects.filter(tenant=tenant), so running it first
+            # iterated an empty queryset, silently created zero grade levels,
+            # and still logged success.
             seed_education_levels(instance)
             logger.info(f"[{instance.slug}] ✅ Education levels seeded")
+
+            # ── 2. Grade levels (depends on education levels) ────────────────
+            seed_grade_levels(instance)
+            logger.info(f"[{instance.slug}] ✅ Grade levels seeded")
 
             # ── 3. Term types (depends on nothing, but logically after levels) ─
             seed_default_term_types(instance)

@@ -89,13 +89,16 @@ class Command(BaseCommand):
 
             try:
                 with transaction.atomic():
-                    if not step or step == 'grades':
-                        seed_grade_levels(tenant)
-                        self.stdout.write("    ✓ grade levels")
-
+                    # Education levels MUST come first: seed_grade_levels()
+                    # iterates this tenant's EducationLevel rows, so the old
+                    # order created zero grade levels while reporting success.
                     if not step or step == 'levels':
                         seed_education_levels(tenant)
                         self.stdout.write("    ✓ education levels")
+
+                    if not step or step == 'grades':
+                        seed_grade_levels(tenant)
+                        self.stdout.write("    ✓ grade levels")
 
                     if not step or step == 'terms':
                         seed_default_term_types(tenant)

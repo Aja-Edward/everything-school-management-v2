@@ -20,10 +20,16 @@ class CookieJWTAuthentication(SecureJWTAuthentication):  # ✅ changed base clas
     def authenticate(self, request: Request):
         raw_token = request.COOKIES.get(settings.AUTH_COOKIE_ACCESS)
 
-        logger.warning(f"🍪 All cookies: {list(request.COOKIES.keys())}")
-        logger.warning(
-            f"🍪 Looking for cookie: '{settings.AUTH_COOKIE_ACCESS}'")
-        logger.warning(f"🍪 Found token: {bool(raw_token)}")
+        # Debug tracing, not warnings: this runs on every authenticated
+        # request. Guarded so the cookie list is not built when DEBUG logging
+        # is off, and demoted so it can actually be filtered by level.
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "🍪 cookie auth: present=%s, looking for '%s', found=%s",
+                list(request.COOKIES.keys()),
+                settings.AUTH_COOKIE_ACCESS,
+                bool(raw_token),
+            )
 
         if raw_token is None:
             return super().authenticate(request)

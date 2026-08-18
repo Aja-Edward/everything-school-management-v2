@@ -218,6 +218,36 @@ class Command(BaseCommand):
 
         return records, None
 
+    def resolve_public_cname(self, domain):
+        """
+        Resolve the CNAME over public DNS. This is independent of the
+        Cloudflare API, so it still works when the API token lacks DNS
+        permissions -- and it is the ground truth for whether the record
+        actually exists as far as the internet is concerned.
+
+        Returns (target, error). target is None when there is no CNAME.
+        """
+        try:
+            import dns.resolver
+        except ImportError:
+            return None, "dnspython not installed"
+
+        try:
+            answers = dns.resolver.resolve(domain, "CNAME")
+            targets = [str(r.target).rstrip(".") for r in answers]
+            return (targets[0] if targets else None), None
+        except dns.resolver.NXDOMAIN:
+            return None, "NXDOMAIN (no such record)"
+        except dns.resolver.NoAnswer:
+            # Name exists but has no CNAME -- could be an A record instead.
+            try:
+                dns.resolver.resolve(domain, "A")
+                return None, "no CNAME, but an A record exists"
+            except Exception:
+                return None, "no CNAME record"
+        except Exception as exc:
+            return None, f"lookup failed: {type(exc).__name__}"
+
     def check_tenant(self, tenant, cname_map, dns_error=None):
         full_domain = f"{tenant.slug}.{ROOT_DOMAIN}"
         row = {
@@ -232,11 +262,28 @@ class Command(BaseCommand):
 
         # ── 1. Cloudflare DNS ────────────────────────────────────────────────
         if cname_map is None:
-            row["dns"] = {
-                "status": FAIL,
-                "detail": f"could not list zone DNS records: {dns_error}",
-            }
-            row["problems"].append("cannot read zone DNS records")
+            # The Cloudflare listing failed zone-wide. That is reported once in
+            # the live-check block; stamping it on every tenant would wrongly
+            # mark healthy schools as broken. Fall back to public DNS, which
+            # needs no API permissions and is what actually matters.
+            target, dns_err = self.resolve_public_cname(full_domain)
+            if target:
+                proxied_hint = "" if target == VERCEL_CNAME_TARGET else \
+                    f" (expected {VERCEL_CNAME_TARGET})"
+                row["dns"] = {
+                    "status": OK if target == VERCEL_CNAME_TARGET else WARN,
+                    "detail": f"public DNS: CNAME -> {target}{proxied_hint}"
+                              " [Cloudflare API unreadable, see live check]",
+                }
+                if target != VERCEL_CNAME_TARGET:
+                    row["problems"].append("DNS points at unexpected target")
+            else:
+                row["dns"] = {
+                    "status": FAIL,
+                    "detail": f"public DNS: {dns_err}"
+                              " [Cloudflare API unreadable, see live check]",
+                }
+                row["problems"].append("missing DNS record")
         else:
             rec = cname_map.get(full_domain.lower())
             if not rec:

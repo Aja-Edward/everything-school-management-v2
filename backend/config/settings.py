@@ -685,6 +685,9 @@ PAYSTACK_PUBLIC_KEY = os.getenv("PAYSTACK_PUBLIC_KEY")
 # LOGGING
 # ============================================
 
+# Verbose per-request loggers follow DEBUG unless LOG_LEVEL overrides them.
+_VERBOSE_LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG" if DEBUG else "INFO").upper()
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -705,19 +708,24 @@ LOGGING = {
         "level": "INFO",
     },
     "loggers": {
+        # These three were pinned to DEBUG unconditionally, which in production
+        # emitted 4-6 lines per request from TenantMiddleware alone. They now
+        # follow DEBUG, so local development is unchanged while the live
+        # instance stops paying the I/O and string-formatting cost on every
+        # request. Override with LOG_LEVEL if you need verbose output in prod.
         "django.request": {
             "handlers": ["console"],
-            "level": "DEBUG",
+            "level": _VERBOSE_LOG_LEVEL,
             "propagate": False,
         },
         "rest_framework_simplejwt": {
             "handlers": ["console"],
-            "level": "DEBUG",
+            "level": _VERBOSE_LOG_LEVEL,
             "propagate": False,
         },
         "tenants": {
             "handlers": ["console"],
-            "level": "DEBUG",
+            "level": _VERBOSE_LOG_LEVEL,
             "propagate": False,
         },
         "security": {
