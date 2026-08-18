@@ -8,7 +8,7 @@ import {
   BookOpen, TrendingUp, Award, Users, ChevronDown,
   AlertCircle, Loader2, BarChart2, RefreshCw,
 } from 'lucide-react';
-import api, { API_BASE_URL } from '@/services/api';
+import api from '@/services/api';
 import { useDesign } from '@/contexts/DesignContext';
 
 // ============================================================================
@@ -107,7 +107,8 @@ function resolveLevelPath(raw: string): string {
   if (up.includes('PRIMARY')) return 'primary';
   if (up.includes('JUNIOR') || up.includes('JSS')) return 'junior-secondary';
   if (up.includes('SENIOR') || up.includes('SSS')) return 'senior-secondary';
-  return 'primary';
+  // No guess: an unrecognised level must not silently resolve to primary.
+  return '';
 }
 
 // ============================================================================
@@ -191,7 +192,9 @@ const StudentAcademics: React.FC = () => {
   const [selectedSessionId, setSelectedSessionId] = useState<string | number | null>(null);
   const [selectedTermId, setSelectedTermId] = useState<string | number | null>(null);
   const [educationLevel, setEducationLevel] = useState<string>('');
-  const [levelPath_, setLevelPath_] = useState<string>('primary');
+  // Empty until the student's real level is known. Defaulting to a level
+  // means querying another education level's results table.
+  const [levelPath_, setLevelPath_] = useState<string>('');
 
   const [termReport, setTermReport] = useState<TermReport | null>(null);
   const [trendData, setTrendData] = useState<TermTrend[]>([]);
@@ -199,11 +202,6 @@ const StudentAcademics: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [reportLoading, setReportLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const fetchOpts: RequestInit = {
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-  };
 
   // ── bootstrap: fetch session, terms, classroom ────────────────────────────
   useEffect(() => {
@@ -213,33 +211,41 @@ const StudentAcademics: React.FC = () => {
         setLoading(true);
         setError(null);
 
-        const [sessionRes, classRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/classrooms/academic-sessions/current/`, fetchOpts),
-          fetch(`${API_BASE_URL}/students/my-classroom/`, fetchOpts),
+        // Use the api client, not raw fetch: it attaches X-Tenant-Slug (and
+        // auth). API requests go to the Render host, where the custom-domain
+        // lookup does not match, so the tenant is resolved FROM THAT HEADER.
+        // Without it my-classroom ran Student.objects.get(user, tenant=None),
+        // raised DoesNotExist, returned education_level: null, and the level
+        // silently fell back to 'primary' -- querying the wrong results table.
+        const [session, classroom] = await Promise.all([
+          api.get('/classrooms/academic-sessions/current/') as Promise<AcademicSessionInfo>,
+          api.get('/students/my-classroom/').catch(() => null),
         ]);
 
-        if (!sessionRes.ok) throw new Error('Could not load academic session');
-
-        const session: AcademicSessionInfo = await sessionRes.json();
-        const classroom = classRes.ok ? await classRes.json() : null;
+        if (!session?.id) throw new Error('Could not load academic session');
 
         if (!alive) return;
 
         setSessions([session]);
         setSelectedSessionId(session.id);
 
-        if (classroom?.education_level) {
-          const el = String(classroom.education_level);
-          setEducationLevel(el);
-          setLevelPath_(resolveLevelPath(el));
+        const el = classroom?.education_level
+          ? String(classroom.education_level)
+          : '';
+        const resolved = el ? resolveLevelPath(el) : '';
+        if (!resolved) {
+          // Better to say so than to guess a level and query another
+          // education level's results table.
+          throw new Error(
+            'Could not determine your education level, so results cannot be loaded.'
+          );
         }
+        setEducationLevel(el);
+        setLevelPath_(resolved);
 
-        const termsRes = await fetch(
-          `${API_BASE_URL}/classrooms/academic-sessions/${session.id}/terms/`,
-          fetchOpts
+        const termsData: TermInfo[] = await api.get(
+          `/classrooms/academic-sessions/${session.id}/terms/`
         );
-        if (!termsRes.ok) throw new Error('Could not load terms');
-        const termsData: TermInfo[] = await termsRes.json();
 
         if (!alive) return;
         setTerms(Array.isArray(termsData) ? termsData : []);
