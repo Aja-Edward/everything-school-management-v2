@@ -9,35 +9,103 @@ ROOT_DOMAIN = getattr(settings, "ROOT_DOMAIN", "nuventacloud.com")
 VERCEL_CNAME_TARGET = "cname.vercel-dns.com"
 
 
-def provision_subdomain(tenant) -> bool:
+def provision_subdomain(tenant) -> dict:
     """
-    Provisions {tenant.slug}.nuventacloud.com:
-    1. Creates a DNS-only CNAME in Cloudflare pointing to Vercel.
-    2. Registers the domain with the Vercel project.
-    Returns True on success, False if it failed (logged, not raised,
-    so tenant creation never blocks on this).
+    Provision {tenant.slug}.{ROOT_DOMAIN}:
+      1. Create a DNS-only CNAME in Cloudflare pointing at Vercel.
+      2. Attach the domain to the Vercel project.
+      3. Confirm Vercel actually holds it, since that is what triggers the
+         certificate.
+
+    The two remote steps are INDEPENDENT. The previous version returned early
+    when Cloudflare failed, so a DNS hiccup meant Vercel was never called and
+    no certificate could ever issue. They are attempted separately now and the
+    per-step outcome is reported.
+
+    Never raises: tenant creation must not fail because a third-party API is
+    having a bad minute. Returns a structured result so callers (and the
+    reprovision command) can see exactly which step failed and why.
     """
     full_domain = f"{tenant.slug}.{ROOT_DOMAIN}"
-    cf = CloudflareClient()
-    vercel = VercelClient()
+    result = {
+        "domain": full_domain,
+        "dns": {"ok": False, "detail": ""},
+        "vercel": {"ok": False, "detail": ""},
+        "verified": False,
+        "ok": False,
+    }
 
+    # ── 1. Cloudflare DNS ────────────────────────────────────────────────────
     try:
-        cf.create_cname_record(
+        cf = CloudflareClient()
+        record = cf.create_cname_record(
             name=tenant.slug, target=VERCEL_CNAME_TARGET, proxied=False)
-    except ProvisioningError:
+        if isinstance(record, dict) and record.get("already_exists"):
+            result["dns"] = {"ok": True, "detail": "record already existed"}
+        else:
+            result["dns"] = {"ok": True, "detail": "CNAME created"}
+    except ProvisioningError as exc:
+        result["dns"] = {"ok": False, "detail": str(exc)}
+        logger.error("Cloudflare DNS provisioning failed for %s: %s",
+                     full_domain, exc)
+    except Exception as exc:
+        result["dns"] = {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
         logger.exception(
-            "Cloudflare DNS provisioning failed for %s", full_domain)
-        return False
+            "Cloudflare DNS provisioning error for %s", full_domain)
 
+    # ── 2. Vercel attach (attempted even if step 1 failed) ───────────────────
+    vercel = None
     try:
-        vercel.add_domain(full_domain)
-    except ProvisioningError:
-        logger.exception(
-            "Vercel domain provisioning failed for %s", full_domain)
-        return False
+        vercel = VercelClient()
+        added = vercel.add_domain(full_domain)
+        if added.get("conflict"):
+            # Benign (already ours) or fatal (held elsewhere) -- step 3 decides.
+            result["vercel"] = {
+                "ok": False,
+                "detail": f"409 conflict from Vercel: {added.get('raw')}",
+            }
+        else:
+            result["vercel"] = {"ok": True, "detail": "domain added"}
+    except ProvisioningError as exc:
+        result["vercel"] = {"ok": False, "detail": str(exc)}
+        logger.error("Vercel domain provisioning failed for %s: %s",
+                     full_domain, exc)
+    except Exception as exc:
+        result["vercel"] = {
+            "ok": False, "detail": f"{type(exc).__name__}: {exc}"}
+        logger.exception("Vercel domain provisioning error for %s", full_domain)
 
-    logger.info("Subdomain provisioned: %s", full_domain)
-    return True
+    # ── 3. Confirm Vercel really holds the domain ────────────────────────────
+    # Adding is asynchronous and a 409 is ambiguous, so trust only this read.
+    if vercel is not None:
+        try:
+            info = vercel.get_domain(full_domain)
+            if info is None:
+                result["verified"] = False
+                result["vercel"]["detail"] += " | not attached to project"
+            else:
+                result["vercel"]["ok"] = True
+                result["verified"] = bool(info.get("verified"))
+                if not result["verified"]:
+                    result["vercel"]["detail"] += (
+                        " | attached but unverified -- no certificate yet")
+        except Exception as exc:
+            result["vercel"]["detail"] += f" | verify failed: {exc}"
+
+    result["ok"] = result["dns"]["ok"] and result["verified"]
+
+    if result["ok"]:
+        logger.info("Subdomain provisioned and verified: %s", full_domain)
+    else:
+        logger.error(
+            "Subdomain provisioning INCOMPLETE for %s -- dns=%s (%s), "
+            "vercel=%s (%s), verified=%s",
+            full_domain,
+            result["dns"]["ok"], result["dns"]["detail"],
+            result["vercel"]["ok"], result["vercel"]["detail"],
+            result["verified"],
+        )
+    return result
 
 
 def check_custom_domain_status(tenant) -> str:

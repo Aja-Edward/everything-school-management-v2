@@ -23,7 +23,17 @@ class VercelClient:
         return {"teamId": self.team_id} if self.team_id else {}
 
     def add_domain(self, domain: str) -> dict:
-        """Add a domain (subdomain or custom domain) to the Vercel project."""
+        """
+        Add a domain (subdomain or custom domain) to the Vercel project.
+
+        A 409 is NOT treated as success. Vercel returns 409 both when the
+        domain is already on this project (benign) and when another project
+        or team holds it (fatal -- no certificate will ever issue here).
+        The two are indistinguishable from the status code alone, so the
+        conflict is reported and the caller confirms the real state with
+        get_domain(). Swallowing the 409 as success is what let unprovisioned
+        schools look provisioned.
+        """
         url = f"{self.BASE_URL}/v10/projects/{self.project_id}/domains"
         resp = requests.post(
             url,
@@ -32,21 +42,30 @@ class VercelClient:
             json={"name": domain},
             timeout=15,
         )
-        if resp.status_code not in (200, 201):
-            # Vercel returns 409 if domain already exists elsewhere - treat as non-fatal
-            if resp.status_code == 409:
-                return {"already_exists": True, "raw": resp.json()}
-            raise ProvisioningError(
-                f"Vercel add_domain failed: {resp.status_code} {resp.text}")
-        return resp.json()
+        if resp.status_code in (200, 201):
+            return resp.json()
 
-    def get_domain(self, domain: str) -> dict:
+        if resp.status_code == 409:
+            return {"conflict": True, "status_code": 409, "raw": resp.text[:500]}
+
+        raise ProvisioningError(
+            f"Vercel add_domain failed: HTTP {resp.status_code} {resp.text[:500]}"
+        )
+
+    def get_domain(self, domain: str) -> dict | None:
+        """
+        Fetch a domain from the project. Returns None when the domain is not
+        attached (404), rather than raising -- 'not attached' is an expected
+        state during provisioning, not an error.
+        """
         url = f"{self.BASE_URL}/v9/projects/{self.project_id}/domains/{domain}"
         resp = requests.get(url, headers=self._headers(),
                             params=self._params(), timeout=15)
+        if resp.status_code == 404:
+            return None
         if resp.status_code != 200:
             raise ProvisioningError(
-                f"Vercel get_domain failed: {resp.status_code} {resp.text}")
+                f"Vercel get_domain failed: HTTP {resp.status_code} {resp.text[:500]}")
         return resp.json()
 
     def remove_domain(self, domain: str) -> None:

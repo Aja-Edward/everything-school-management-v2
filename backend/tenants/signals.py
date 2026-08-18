@@ -90,8 +90,34 @@ def seed_all_tenant_defaults(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender=Tenant)
 def provision_tenant_subdomain(sender, instance, created, **kwargs):
-    if created:
-        provision_subdomain(instance)
+    """
+    Kick off subdomain provisioning for a newly created tenant.
+
+    Deferred to on_commit for two reasons:
+      * Registration runs inside @transaction.atomic, so calling out to
+        Cloudflare and Vercel inline held a Postgres connection open across
+        up to 30s of third-party HTTP.
+      * If that transaction later rolled back, the DNS record it had already
+        created survived as an orphan, and the next attempt on the same slug
+        hit an 'already exists' conflict.
+
+    Exceptions are contained so provisioning can never break registration --
+    the tenant exists either way, and the reprovision command repairs it.
+    """
+    if not created:
+        return
+
+    def _provision():
+        try:
+            provision_subdomain(instance)
+        except Exception:
+            logger.exception(
+                "[%s] Subdomain provisioning raised unexpectedly; "
+                "run 'manage.py reprovision_subdomains --slug %s' to retry",
+                instance.slug, instance.slug,
+            )
+
+    transaction.on_commit(_provision)
 # ── Seeder functions (also used by the management command) ────────────────────
 
 
