@@ -202,6 +202,10 @@ SITE_ID = 1
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",          # 1. CORS first, always
     "django.middleware.security.SecurityMiddleware",
+    # Diagnostic only. Removes itself from the chain unless
+    # QUERY_COUNT_LOGGING=true, so it is free when off. Sits high up so it
+    # counts queries from TenantMiddleware and auth as well as the view.
+    "middleware.query_count.QueryCountMiddleware",
     # 2. Sessions early (auth needs it)
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
