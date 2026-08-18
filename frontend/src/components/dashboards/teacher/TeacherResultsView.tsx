@@ -624,9 +624,6 @@ const getTermKey = (termStr: string): 'FIRST' | 'SECOND' | 'THIRD' | 'OTHER' => 
     return matchSearch && matchSubject && matchStatus && matchLevel;
   });
 
-  console.log("filteredResults:", filtered);
-  console.table(filtered); // nicer for arrays of objects
-
   return filtered;
 }, [
   results,
@@ -637,6 +634,86 @@ const getTermKey = (termStr: string): 'FIRST' | 'SECOND' | 'THIRD' | 'OTHER' => 
   filterStatus,
   filterLevel
 ]);
+
+  // ── Pagination ────────────────────────────────────────────────────────────
+  // A subject teacher can cover the whole school, so filteredResults may hold
+  // thousands of rows. Rendering them all produced an unusable page and a very
+  // large DOM. Only a page is rendered at a time.
+  const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
+  const totalPages = Math.max(1, Math.ceil(filteredResults.length / pageSize));
+
+  // Any filter change can shrink the list below the current page, which would
+  // otherwise leave the teacher staring at an empty table.
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, filterSubject, filterStatus, filterLevel, filterTerm, filterSession, pageSize]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const pagedResults = useMemo(
+    () => filteredResults.slice((page - 1) * pageSize, page * pageSize),
+    [filteredResults, page, pageSize]
+  );
+
+  const rangeStart = filteredResults.length === 0 ? 0 : (page - 1) * pageSize + 1;
+  const rangeEnd = Math.min(page * pageSize, filteredResults.length);
+
+  const PaginationControls = () =>
+    filteredResults.length === 0 ? null : (
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 border-t border-gray-100 bg-gray-50/50">
+        <div className="flex items-center gap-2 text-xs md:text-sm text-gray-600">
+          <span>Rows per page</span>
+          <select
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            className="border border-gray-200 rounded-md px-2 py-1 bg-white"
+          >
+            {PAGE_SIZE_OPTIONS.map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setPage(1)}
+            disabled={page === 1}
+            className="px-2 py-1 text-xs md:text-sm rounded-md border border-gray-200 bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+          >
+            First
+          </button>
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page === 1}
+            className="px-2 py-1 text-xs md:text-sm rounded-md border border-gray-200 bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+          >
+            Previous
+          </button>
+          <span className="px-2 text-xs md:text-sm text-gray-600 whitespace-nowrap">
+            Page {page} of {totalPages}
+          </span>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+            className="px-2 py-1 text-xs md:text-sm rounded-md border border-gray-200 bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+          >
+            Next
+          </button>
+          <button
+            onClick={() => setPage(totalPages)}
+            disabled={page >= totalPages}
+            className="px-2 py-1 text-xs md:text-sm rounded-md border border-gray-200 bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+          >
+            Last
+          </button>
+        </div>
+      </div>
+    );
   const stats = useMemo(() => {
     const total     = results.length;
     const published = results.filter((r) => r.status === 'PUBLISHED').length;
@@ -970,14 +1047,14 @@ const getTermKey = (termStr: string): 'FIRST' | 'SECOND' | 'THIRD' | 'OTHER' => 
             /* Card view */
             <div className="space-y-3">
               <p className="text-xs md:text-sm text-gray-600 px-1">
-                {filteredResults.length} of {results.length} results
-                
+                Showing {rangeStart}-{rangeEnd} of {filteredResults.length} results
+                {filteredResults.length !== results.length && ` (filtered from ${results.length})`}
               </p>
               {filteredResults.length === 0 ? (
                 <div className="bg-white rounded-lg"><EmptyState /></div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {filteredResults.map((result) => (
+                  {pagedResults.map((result) => (
                     
                     <div key={result.id} className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
                       <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-3 border-b border-gray-100">
@@ -1040,6 +1117,11 @@ const getTermKey = (termStr: string): 'FIRST' | 'SECOND' | 'THIRD' | 'OTHER' => 
                   ))}
                 </div>
               )}
+              {filteredResults.length > 0 && (
+                <div className="bg-white rounded-lg border border-gray-100 overflow-hidden">
+                  <PaginationControls />
+                </div>
+              )}
             </div>
           ) : (
             /* Table view */
@@ -1047,7 +1129,10 @@ const getTermKey = (termStr: string): 'FIRST' | 'SECOND' | 'THIRD' | 'OTHER' => 
               <div className="p-3 md:p-4 border-b border-gray-100 flex items-center justify-between">
                 <div>
                   <h2 className="text-base md:text-lg font-semibold text-gray-900">Student Results</h2>
-                  <p className="text-xs md:text-sm text-gray-500">{filteredResults.length} of {results.length} results</p>
+                  <p className="text-xs md:text-sm text-gray-500">
+                    Showing {rangeStart}-{rangeEnd} of {filteredResults.length} results
+                    {filteredResults.length !== results.length && ` (filtered from ${results.length})`}
+                  </p>
                 </div>
               </div>
 
@@ -1075,7 +1160,7 @@ const getTermKey = (termStr: string): 'FIRST' | 'SECOND' | 'THIRD' | 'OTHER' => 
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-100">
-                      {filteredResults.map((result, idx) => (
+                      {pagedResults.map((result, idx) => (
                         <tr key={result.id} className={`hover:bg-blue-50/40 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
                           <td className="px-3 py-2.5" style={{ minWidth: 200 }}>
                             <div className="flex items-center gap-2">
@@ -1132,6 +1217,7 @@ const getTermKey = (termStr: string): 'FIRST' | 'SECOND' | 'THIRD' | 'OTHER' => 
                   </table>
                 </div>
               )}
+              <PaginationControls />
             </div>
           )}
         </div>
