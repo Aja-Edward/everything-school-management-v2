@@ -16,6 +16,34 @@ const hexToRgb = (hex: string) => {
     : null;
 };
 
+/**
+ * Build a Tailwind-style 50..950 scale from the school's single brand colour.
+ *
+ * The Design Settings screen lets a school pick primary_color, but
+ * tailwind.config.js defined `primary` as a fixed indigo palette, so nothing
+ * ever consumed the choice. These variables are what that palette now reads.
+ *
+ * Values are emitted as space-separated RGB channels ("79 70 229") rather than
+ * hex, so Tailwind can compose them with opacity modifiers such as
+ * bg-primary-600/50 via rgb(var(--x) / <alpha-value>).
+ */
+const PRIMARY_STOPS: Array<[number, number]> = [
+  // [shade, mix] — negative mixes toward white, positive toward black
+  [50, -0.95], [100, -0.9], [200, -0.75], [300, -0.6], [400, -0.3],
+  [500, 0], [600, 0.12], [700, 0.26], [800, 0.4], [900, 0.53], [950, 0.7],
+];
+
+const primaryScale = (hex: string): Array<[number, string]> => {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return [];
+  return PRIMARY_STOPS.map(([shade, mix]) => {
+    const target = mix < 0 ? 255 : 0;
+    const amount = Math.abs(mix);
+    const ch = (v: number) => Math.round(v + (target - v) * amount);
+    return [shade, `${ch(rgb.r)} ${ch(rgb.g)} ${ch(rgb.b)}`] as [number, string];
+  });
+};
+
 const DEFAULT_SETTINGS: DesignSettings = {
   primary_color: '#3B82F6',
   theme: 'default',
@@ -80,6 +108,11 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       );
       root.style.setProperty('--primary-shadow', `0 10px 15px -3px ${s.primary_color}25`);
     }
+
+    // Drive the Tailwind `primary` palette from the school's colour.
+    primaryScale(s.primary_color).forEach(([shade, channels]) => {
+      root.style.setProperty(`--color-primary-${shade}`, channels);
+    });
 
     // Theme
     const themeClass = s.theme === 'default' ? 'theme-default' : `theme-${s.theme}`;
