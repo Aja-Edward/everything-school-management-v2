@@ -123,7 +123,7 @@ const PortalLogin: React.FC<PortalLoginProps> = ({ onSuccess }) => {
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-slate-700
                   bg-gray-50 dark:bg-slate-800 text-gray-900 dark:text-white
                   font-mono text-base tracking-wider placeholder-gray-400 dark:placeholder-gray-500
-                  focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500
+                  focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500
                   disabled:opacity-60 transition-all"
               />
             </div>
