@@ -22,6 +22,7 @@ from .models import (
     GradeLevel,
     Classroom,
     ClassroomTeacherAssignment,
+    ClassroomCoTeacher,
     StudentEnrollment,
     ClassSchedule,
     Section,
@@ -651,12 +652,24 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
             "section__class_grade__grade_level",  # ✅
             "academic_session",
             "term",
+            # ClassroomSerializer reads term.term_type per row.
+            "term__term_type",
             "class_teacher__user",
             "stream",
             "stream__stream_type_new",
         ).prefetch_related(
             "students",
             "schedules",
+            # SubjectSerializer(many=True) on the classroom, one query per row
+            # without this.
+            "subjects",
+            # get_co_teachers reads this relation; prefetch it with the teacher
+            # chain it serializes.
+            Prefetch(
+                "co_teacher_assignments",
+                queryset=ClassroomCoTeacher.objects.select_related(
+                    "teacher__user"),
+            ),
             Prefetch(
                 "classroomteacherassignment_set",
                 queryset=ClassroomTeacherAssignment.objects.filter(

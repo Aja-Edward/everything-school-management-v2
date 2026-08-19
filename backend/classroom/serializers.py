@@ -836,7 +836,10 @@ class ClassroomSerializer(serializers.ModelSerializer):
                 "teacher_employee_id": a.teacher.employee_id,
                 "assigned_date": str(a.assigned_date),
             }
-            for a in obj.co_teacher_assignments.select_related("teacher__user").all()
+            # .all() so the viewset's Prefetch is used; calling
+            # .select_related() here would build a new queryset and
+            # re-query per classroom, ignoring it.
+            for a in obj.co_teacher_assignments.all()
         ]
 
     def validate_max_capacity(self, value):
