@@ -602,7 +602,13 @@ useEffect(() => {
                       </td>
                       {educationLevel === 'NURSERY' && (
                         <td className={`px-4 py-3 text-sm italic ${themeClasses.textSecondary}`}>
-                          {sr.academic_comment || '—'}
+                          {/* Same precedence as the PDF
+                              (report_generation.py: teacher_remark or
+                              academic_comment). Teachers' per-subject
+                              remarks are saved to teacher_remark, so
+                              reading only academic_comment showed a dash
+                              on screen while the PDF showed the remark. */}
+                          {sr.teacher_remark || sr.academic_comment || '—'}
                         </td>
                       )}
                     </tr>
