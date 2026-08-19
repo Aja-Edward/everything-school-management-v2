@@ -647,7 +647,7 @@ export default function PrimaryResult({
     return (
       <div className="flex justify-center items-center h-64">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
           <p>Loading result data...</p>
           {examSessionId && (
             <p className="text-sm text-gray-600 mt-2">Loading exam session: {examSessionId}</p>
@@ -684,7 +684,7 @@ export default function PrimaryResult({
       <div className="mb-4 flex gap-4 flex-wrap">
         <button
           onClick={enableEnhancedFeatures ? generateEnhancedPDF : downloadPDF}
-          className="px-4 py-2 bg-indigo-700 text-white rounded shadow hover:bg-indigo-800 transition-colors"
+          className="px-4 py-2 bg-primary-700 text-white rounded shadow hover:bg-primary-800 transition-colors"
         >
           {enableEnhancedFeatures ? 'Generate Enhanced PDF' : 'Download PDF'}
         </button>
@@ -703,7 +703,7 @@ export default function PrimaryResult({
             </span>
           )}
           {examSession && (
-            <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+            <span className="px-2 py-1 bg-primary-100 text-primary-800 rounded text-xs font-medium">
               Session: {examSession.name}
             </span>
           )}
@@ -729,7 +729,7 @@ export default function PrimaryResult({
                   className="w-16 h-16 object-contain rounded-full"
                 />
               ) : (
-                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-xs font-bold">
+                <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center text-primary-600 text-xs font-bold">
                   {schoolSettings?.school_name?.split(' ').map((word: string) => word[0]).join('') || 'LOGO'}
                 </div>
               )}
@@ -737,7 +737,7 @@ export default function PrimaryResult({
 
             {/* School name block - 70% width, centered */}
             <div className="text-center relative z-10">
-              <h1 className="text-3xl font-bold text-blue-900 mb-2">
+              <h1 className="text-3xl font-bold text-primary-900 mb-2">
                 {schoolInfo?.school_name?.toUpperCase() || "SCHOOL NAME HERE"}
               </h1>
               <p className="text-xs text-gray-600">
@@ -747,13 +747,13 @@ export default function PrimaryResult({
                 {schoolSettings?.phone || "(123) 456-7890"} | {schoolSettings?.email || "info@school.com"}
               </p>
               {schoolSettings?.motto && (
-                <p className="text-xs italic text-blue-700 mt-1">{schoolSettings.motto}</p>
+                <p className="text-xs italic text-primary-700 mt-1">{schoolSettings.motto}</p>
               )}
             </div>
           </div>
 
           {/* Student report block - below the grid */}
-          <div className="text-blue-900">
+          <div className="text-primary-900">
             <h5 className="text-sm font-semibold">PRIMARY SCHOOL TERMLY REPORT</h5>
             <p className="text-xs">
               {(data as any).exam_session?.term_display || data.term?.name || '1st Term'}, {(data as any).exam_session?.academic_session_name || data.term?.session || data.term?.year || '2025'} Academic Session
@@ -834,7 +834,7 @@ export default function PrimaryResult({
         </div>
 
         {/* Academic Performance title */}
-        <div className="text-center font-semibold text-base mb-2 text-blue-900 rounded-lg relative z-10">
+        <div className="text-center font-semibold text-base mb-2 text-primary-900 rounded-lg relative z-10">
           ACADEMIC PERFORMANCE
         </div>
 
@@ -1062,7 +1062,7 @@ export default function PrimaryResult({
           <div className="flex-1 pr-6">
             <div className="mb-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
               <div className="mb-2 text-xs font-semibold text-slate-700">
-                Total Scores: <span className="w-20 text-center font-bold text-blue-800">
+                Total Scores: <span className="w-20 text-center font-bold text-primary-800">
                   {(() => {
                     const displayTotal = totalScore || data.total_score || 0;
                     console.log('🔍 [PrimaryResult] Display - Total score:', displayTotal);
@@ -1071,7 +1071,7 @@ export default function PrimaryResult({
                 </span>
               </div>
               <div className="mb-2 text-xs font-semibold text-slate-700">
-                Average Scores: <span className="w-20 text-center font-bold text-blue-800">
+                Average Scores: <span className="w-20 text-center font-bold text-primary-800">
                   {(() => {
                     const displayAverage = averageScore || data.average_score || 0;
                     console.log('🔍 [PrimaryResult] Display - Average score:', displayAverage);
@@ -1080,7 +1080,7 @@ export default function PrimaryResult({
                 </span>
               </div>
               <div className="text-xs font-semibold text-slate-700">
-                Grade: <span className="w-20 text-center font-bold text-blue-800">
+                Grade: <span className="w-20 text-center font-bold text-primary-800">
                   {data.overall_grade || (averageScore || data.average_score ? getGradeForScore(averageScore || data.average_score).grade : 'F')}
                 </span>
               </div>
@@ -1088,7 +1088,7 @@ export default function PrimaryResult({
 
             {/* Physical Development Table */}
             <div className="border-2 border-slate-800 rounded-lg overflow-hidden" style={{ width: '360px' }}>
-              <div className="text-center font-bold py-2 text-xs bg-blue-900 text-white">
+              <div className="text-center font-bold py-2 text-xs bg-primary-900 text-white">
                 PHYSICAL DEVELOPMENT
               </div>
               

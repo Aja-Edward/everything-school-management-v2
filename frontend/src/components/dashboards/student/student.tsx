@@ -125,13 +125,13 @@ const StudentProfile = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-primary-50">
       {/* Header */}
       <div className="bg-white shadow-sm border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-4">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+              <div className="w-10 h-10 bg-gradient-to-br from-primary-400 to-primary-700 rounded-lg flex items-center justify-center">
                 <User className="w-6 h-6 text-white" />
               </div>
               <div>
@@ -165,7 +165,7 @@ const StudentProfile = () => {
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
               {/* Student Profile Card */}
               <div className="text-center mb-6">
-                <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full mx-auto mb-4 flex items-center justify-center">
+                <div className="w-20 h-20 bg-gradient-to-br from-primary-400 to-primary-700 rounded-full mx-auto mb-4 flex items-center justify-center">
                   <User className="w-10 h-10 text-white" />
                 </div>
                 <h3 className="text-lg font-semibold text-slate-900">{studentData.name}</h3>
@@ -264,7 +264,7 @@ const StudentProfile = () => {
                       <span className="text-2xl font-bold text-slate-900">{subject.score}%</span>
                       <div className="w-16 h-2 bg-slate-200 rounded-full overflow-hidden">
                         <div 
-                          className="h-full bg-gradient-to-r from-blue-500 to-purple-600 rounded-full"
+                          className="h-full bg-gradient-to-r from-primary-400 to-primary-700 rounded-full"
                           style={{ width: `${subject.score}%` }}
                         ></div>
                       </div>

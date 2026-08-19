@@ -246,7 +246,7 @@ const StudentsComponent = () => {
 
   const renderInitialsAvatar = (student: Student) => (
     <div
-      className={`w-10 h-10 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full flex items-center justify-center ${
+      className={`w-10 h-10 bg-gradient-to-r from-primary-400 to-primary-700 rounded-full flex items-center justify-center ${
         student.profile_picture ? 'hidden' : ''
       }`}
     >
@@ -407,7 +407,7 @@ const StudentsComponent = () => {
             </button>
             <button
               onClick={() => navigate('/admin/students/add')}
-              className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+              className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
             >
               <Plus className="w-4 h-4" />
               <span>Add Student</span>
@@ -445,7 +445,7 @@ const StudentsComponent = () => {
               <input
                 type="text"
                 placeholder="Search students..."
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -455,20 +455,20 @@ const StudentsComponent = () => {
                 onClick={() => setShowFilters((v) => !v)}
                 className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
                   showFilters || activeFilterCount > 0
-                    ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                    ? 'bg-primary-600 text-white hover:bg-primary-700'
                     : 'text-gray-600 bg-gray-100 hover:bg-gray-200'
                 }`}
               >
                 <Filter className="w-4 h-4" />
                 <span>Filter</span>
                 {activeFilterCount > 0 && (
-                  <span className="bg-white text-indigo-600 px-2 py-0.5 rounded-full text-xs font-medium">
+                  <span className="bg-white text-primary-600 px-2 py-0.5 rounded-full text-xs font-medium">
                     {activeFilterCount}
                   </span>
                 )}
               </button>
               <select
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
               >
@@ -485,7 +485,7 @@ const StudentsComponent = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Education Level</label>
                 <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   value={educationLevelFilter}
                   onChange={(e) => setEducationLevelFilter(e.target.value)}
                 >
@@ -498,7 +498,7 @@ const StudentsComponent = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Class</label>
                 <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   value={classFilter}
                   onChange={(e) => setClassFilter(e.target.value)}
                 >
@@ -513,7 +513,7 @@ const StudentsComponent = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Section</label>
                 <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   value={sectionFilter}
                   onChange={(e) => setSectionFilter(e.target.value)}
                 >

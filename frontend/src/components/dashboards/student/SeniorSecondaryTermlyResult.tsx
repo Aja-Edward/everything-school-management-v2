@@ -612,7 +612,7 @@ export default function SeniorSecondaryTermlyResult({
     return (
       <div className="flex justify-center items-center h-64">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading result data...</p>
         </div>
       </div>
@@ -674,7 +674,7 @@ export default function SeniorSecondaryTermlyResult({
           <button
             onClick={downloadPDF}
             disabled={isGeneratingPDF}
-            className="px-4 py-2 bg-indigo-700 text-white rounded shadow hover:bg-indigo-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="px-4 py-2 bg-primary-700 text-white rounded shadow hover:bg-primary-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {isGeneratingPDF ? (
               <>
@@ -720,7 +720,7 @@ export default function SeniorSecondaryTermlyResult({
           className="w-16 h-16 object-contain rounded-full"
         />
       ) : (
-        <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-xs font-bold">
+        <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center text-primary-600 text-xs font-bold">
           {schoolSettings?.school_name?.split(' ').map((word: string) => word[0]).join('') || 'LOGO'}
         </div>
       )}
@@ -728,7 +728,7 @@ export default function SeniorSecondaryTermlyResult({
 
     {/* School name block - 70% width, centered */}
     <div className="text-center">
-      <h1 className="text-2xl font-bold text-blue-900">
+      <h1 className="text-2xl font-bold text-primary-900">
         {schoolSettings?.school_name?.toUpperCase() || "SCHOOL NAME"}
       </h1>
       <p className="text-xs text-gray-600">
@@ -738,13 +738,13 @@ export default function SeniorSecondaryTermlyResult({
       {schoolSettings?.phone || "(123) 456-7890"} | {schoolSettings?.email || "info@school.com"}
       </p>
       {schoolSettings?.motto && (
-        <p className="text-xs italic text-blue-700 mt-1">{schoolSettings.motto}</p>
+        <p className="text-xs italic text-primary-700 mt-1">{schoolSettings.motto}</p>
       )}
     </div>
   </div>
 
   {/* Student report block - below the grid */}
-  <h2 className="text-xl font-bold mb-2 text-blue-800">STUDENT'S TERMLY REPORT</h2>
+  <h2 className="text-xl font-bold mb-2 text-primary-800">STUDENT'S TERMLY REPORT</h2>
   <p className="text-sm">
     {(resultData as any).exam_session?.term_display || resultData.term?.name || 'Term'} Term, {(resultData as any).exam_session?.academic_session_name || resultData.term?.academic_session?.name || 'Academic Session'} Academic Session
   </p>
@@ -774,7 +774,7 @@ export default function SeniorSecondaryTermlyResult({
 
           <div className="flex flex-wrap items-center">
             <span className="font-semibold">Average Score: </span>
-            <span className="ml-2 px-2 py-1 bg-blue-100 rounded font-medium">
+            <span className="ml-2 px-2 py-1 bg-primary-100 rounded font-medium">
               {Math.round(averageScore * 100) / 100}
             </span>
 
@@ -823,63 +823,63 @@ export default function SeniorSecondaryTermlyResult({
       <thead>
         <tr>
           <th
-            className="border-2 border-gray-800 px-1 py-2 text-left bg-blue-50 font-bold"
+            className="border-2 border-gray-800 px-1 py-2 text-left bg-primary-50 font-bold"
             rowSpan={2}
             style={{ verticalAlign: "middle" }}
           >
             <div className="font-semibold text-xs leading-tight">Subject</div>
           </th>
 
-          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-blue-50 font-bold" colSpan={4}>
+          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-primary-50 font-bold" colSpan={4}>
             <div className="font-semibold text-xs">Test/Examination Scores</div>
           </th>
 
-          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-blue-50 font-bold" rowSpan={2}>
+          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-primary-50 font-bold" rowSpan={2}>
             <div className="font-semibold text-xs leading-tight">Term<br />Total</div>
           </th>
 
-          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-blue-50 font-bold" rowSpan={2}>
+          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-primary-50 font-bold" rowSpan={2}>
             <div className="font-semibold text-xs leading-tight">Class<br />Average</div>
           </th>
 
-          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-blue-50 font-bold" rowSpan={2}>
+          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-primary-50 font-bold" rowSpan={2}>
             <div className="font-semibold text-xs leading-tight">Highest</div>
           </th>
 
-          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-blue-50 font-bold" rowSpan={2}>
+          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-primary-50 font-bold" rowSpan={2}>
             <div className="font-semibold text-xs leading-tight">Lowest</div>
           </th>
 
-          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-blue-50 font-bold" rowSpan={2}>
+          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-primary-50 font-bold" rowSpan={2}>
             <div className="font-semibold text-xs leading-tight">Position</div>
           </th>
 
-          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-blue-50 font-bold" rowSpan={2}>
+          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-primary-50 font-bold" rowSpan={2}>
             <div className="font-semibold text-xs leading-tight">Grade</div>
           </th>
 
-          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-blue-50 font-bold" rowSpan={2}>
+          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-primary-50 font-bold" rowSpan={2}>
             <div className="font-semibold text-xs leading-tight">Teacher's<br />Remark</div>
           </th>
         </tr>
 
         <tr>
-          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-blue-100 font-bold">
+          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-primary-100 font-bold">
             <div className="text-xs leading-tight">
               {scoringConfig?.first_test_max_score || 10}<br />1st Test
             </div>
           </th>
-          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-blue-100 font-bold">
+          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-primary-100 font-bold">
             <div className="text-xs leading-tight">
               {scoringConfig?.second_test_max_score || 10}<br />2nd Test
             </div>
           </th>
-          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-blue-100 font-bold">
+          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-primary-100 font-bold">
             <div className="text-xs leading-tight">
               {scoringConfig?.third_test_max_score || 10}<br />3rd Test
             </div>
           </th>
-          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-blue-100 font-bold">
+          <th className="border-2 border-gray-800 px-1 py-1 text-center bg-primary-100 font-bold">
             <div className="text-xs leading-tight">
               {scoringConfig?.exam_max_score || 70}<br />Exam
             </div>
@@ -889,7 +889,7 @@ export default function SeniorSecondaryTermlyResult({
 
       <tbody>
         {subjectScores.map((row, idx) => (
-          <tr key={idx} className={`${idx % 2 === 0 ? "bg-white" : "bg-gray-50"} hover:bg-blue-25`}>
+          <tr key={idx} className={`${idx % 2 === 0 ? "bg-white" : "bg-gray-50"} hover:bg-primary-25`}>
             <td className="border border-gray-600 px-1 py-1 align-top text-xs font-medium">
               <div className="leading-tight break-words">{row.subject}</div>
             </td>
@@ -899,14 +899,14 @@ export default function SeniorSecondaryTermlyResult({
             <td className="border border-gray-600 px-1 py-1 text-center text-xs">{row.t3}</td>
             <td className="border border-gray-600 px-1 py-1 text-center text-xs">{row.exam}</td>
 
-            <td className="border border-gray-600 px-1 py-1 text-center font-bold text-blue-700 bg-blue-25 text-xs">
+            <td className="border border-gray-600 px-1 py-1 text-center font-bold text-primary-700 bg-primary-25 text-xs">
               {row.total}
             </td>
             <td className="border border-gray-600 px-1 py-1 text-center text-xs">{row.classAverage}</td>
             <td className="border border-gray-600 px-1 py-1 text-center text-green-600 font-medium text-xs">{row.highest}</td>
             <td className="border border-gray-600 px-1 py-1 text-center text-red-600 font-medium text-xs">{row.lowest}</td>
             <td className="border border-gray-600 px-1 py-1 text-center font-medium text-xs">{row.position}</td>
-            <td className="border border-gray-600 px-1 py-1 text-center font-bold text-blue-600 text-xs">{row.grade}</td>
+            <td className="border border-gray-600 px-1 py-1 text-center font-bold text-primary-600 text-xs">{row.grade}</td>
             <td className="border border-gray-600 px-1 py-1 text-xs">
               <div className="leading-tight break-words">{row.teacherRemark}</div>
             </td>
@@ -920,14 +920,14 @@ export default function SeniorSecondaryTermlyResult({
         {/* Footer remarks and signatures */}
         <div className="mt-3 text-sm space-y-4">
           <div>
-            <div className="font-bold text-blue-900 mb-2">Form Master's Remark:</div>
+            <div className="font-bold text-primary-900 mb-2">Form Master's Remark:</div>
             <div className="text-gray-800 bg-gray-50 p-3 rounded border italic">
               {resultData.class_teacher_remark || "Keep up the excellent work and maintain your high standards."}
             </div>
           </div>
 
           <div>
-            <div className="font-bold text-blue-900 mb-2">Principal's Remarks:</div>
+            <div className="font-bold text-primary-900 mb-2">Principal's Remarks:</div>
             <div className="text-gray-800 bg-gray-50 p-3 rounded border italic">
               {resultData.head_teacher_remark || "Outstanding performance. Continue to strive for excellence."}
             </div>

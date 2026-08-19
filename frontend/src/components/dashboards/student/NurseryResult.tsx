@@ -81,7 +81,7 @@ type NurseryResultProps = {
 const SchoolLogo = ({ logoUrl, school_name }: { logoUrl?: string; school_name?: string }) => {
   if (logoUrl) {
     return (
-      <div className="w-16 h-16 rounded-xl overflow-hidden shadow-lg border-2 border-indigo-600">
+      <div className="w-16 h-16 rounded-xl overflow-hidden shadow-lg border-2 border-primary-600">
         <img 
           src={logoUrl} 
           alt={`${school_name || 'School'} Logo`}
@@ -126,7 +126,7 @@ const WatermarkLogo = ({ logoUrl, school_name }: { logoUrl?: string; school_name
   if (logoUrl) {
     return (
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.08] z-0">
-        <div className="w-96 h-96 rounded-full overflow-hidden border-4 border-indigo-200">
+        <div className="w-96 h-96 rounded-full overflow-hidden border-4 border-primary-200">
           <img 
             src={logoUrl} 
             alt="Watermark"
@@ -140,12 +140,12 @@ const WatermarkLogo = ({ logoUrl, school_name }: { logoUrl?: string; school_name
   return (
     <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.08] z-0">
       <div className="text-center">
-        <div className="w-96 h-96 rounded-full flex items-center justify-center border-4 border-indigo-200 bg-gradient-to-br from-indigo-100 to-indigo-200 mb-4">
-          <div className="text-8xl font-black text-indigo-600">
+        <div className="w-96 h-96 rounded-full flex items-center justify-center border-4 border-primary-200 bg-gradient-to-br from-primary-100 to-primary-200 mb-4">
+          <div className="text-8xl font-black text-primary-600">
             {school_name?.split(' ').map(word => word[0]).join('').slice(0, 3) || 'SCH'}
           </div>
         </div>
-        <div className="text-4xl font-bold text-indigo-400 tracking-wider">
+        <div className="text-4xl font-bold text-primary-400 tracking-wider">
           {school_name?.toUpperCase() || 'SCHOOL NAME'}
         </div>
       </div>
@@ -389,7 +389,7 @@ export default function NurseryResult({ data, showOnlyPublished = false }: Nurse
     return (
       <div className="flex justify-center items-center h-64">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500 mx-auto mb-4"></div>
           <p>Loading school settings and grading system...</p>
         </div>
       </div>
@@ -412,7 +412,7 @@ export default function NurseryResult({ data, showOnlyPublished = false }: Nurse
       <div className="mb-4 flex justify-between items-center max-w-[794px] mx-auto">
         <button
           onClick={downloadPDF}
-          className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 transition-all duration-200 font-medium"
+          className="px-6 py-2.5 bg-primary-600 text-white rounded-lg shadow-md hover:bg-primary-700 transition-all duration-200 font-medium"
         >
           Download PDF
         </button>
@@ -439,14 +439,14 @@ export default function NurseryResult({ data, showOnlyPublished = false }: Nurse
         <div className="relative z-10 p-8">
           
           {/* HEADER */}
-          <div className="flex items-center justify-between mb-6 pb-4 border-b-2 border-indigo-100">
+          <div className="flex items-center justify-between mb-6 pb-4 border-b-2 border-primary-100">
             <SchoolLogo 
               logoUrl={schoolSettings?.logo} 
             school_name={schoolSettings?.school_name} 
             />
             
             <div className="flex-1 text-center mx-6">
-              <h1 className="text-2xl font-black mb-1 text-indigo-900 tracking-tight">
+              <h1 className="text-2xl font-black mb-1 text-primary-900 tracking-tight">
                 {schoolSettings?.school_name?.toUpperCase() || 'SCHOOL NAME'}
               </h1>
               <p className="text-xs text-slate-600 font-medium mb-1">
@@ -460,7 +460,7 @@ export default function NurseryResult({ data, showOnlyPublished = false }: Nurse
               {schoolSettings?.motto && (
                 <p className="text-xs text-slate-500 italic mb-2">"{schoolSettings.motto}"</p>
               )}
-              <div className="bg-gradient-to-r from-indigo-600 to-indigo-700 text-white py-2 px-6 rounded-lg inline-block shadow-md mt-2">
+              <div className="bg-gradient-to-r from-primary-600 to-primary-700 text-white py-2 px-6 rounded-lg inline-block shadow-md mt-2">
                 <p className="text-xs font-semibold">{data.term?.name || 'First'} Term, {data.term?.session || data.term?.year || '2025'} Academic Session</p>
               </div>
             </div>
@@ -469,38 +469,38 @@ export default function NurseryResult({ data, showOnlyPublished = false }: Nurse
           </div>
 
           {/* STUDENT INFORMATION */}
-          <div className="mb-5 p-4 rounded-lg bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-200">
-            <div className="text-center font-bold mb-3 text-sm text-indigo-900 tracking-wide">
+          <div className="mb-5 p-4 rounded-lg bg-gradient-to-br from-primary-50 to-primary-100 border border-primary-200">
+            <div className="text-center font-bold mb-3 text-sm text-primary-900 tracking-wide">
               PUPIL'S INFORMATION
             </div>
             <div className="grid grid-cols-3 gap-3 text-xs">
               <div className="flex items-center">
                 <span className="font-semibold text-slate-700 mr-2">NAME:</span>
-                <span className="border-b border-indigo-300 flex-1 text-slate-800 font-medium pb-0.5">
+                <span className="border-b border-primary-300 flex-1 text-slate-800 font-medium pb-0.5">
                   {data.student?.name || data.student?.full_name || ""}
                 </span>
               </div>
               <div className="flex items-center">
                 <span className="font-semibold text-slate-700 mr-2">CLASS:</span>
-                <span className="border-b border-indigo-300 flex-1 text-slate-800 font-medium pb-0.5">
+                <span className="border-b border-primary-300 flex-1 text-slate-800 font-medium pb-0.5">
                   {data.student?.class || ""}
                 </span>
               </div>
               <div className="flex items-center">
                 <span className="font-semibold text-slate-700 mr-2">TERM:</span>
-                <span className="border-b border-indigo-300 flex-1 text-slate-800 font-medium pb-0.5">
+                <span className="border-b border-primary-300 flex-1 text-slate-800 font-medium pb-0.5">
                   {data.term?.name || ""} TERM
                 </span>
               </div>
               <div className="flex items-center">
                 <span className="font-semibold text-slate-700 mr-2">HOUSE:</span>
-                <span className="border-b border-indigo-300 flex-1 text-slate-800 font-medium pb-0.5">
+                <span className="border-b border-primary-300 flex-1 text-slate-800 font-medium pb-0.5">
                   {data.student?.house || ""}
                 </span>
               </div>
               <div className="flex items-center">
                 <span className="font-semibold text-slate-700 mr-2">POSITION:</span>
-                <span className="border-b border-indigo-300 flex-1 text-slate-800 font-medium pb-0.5">
+                <span className="border-b border-primary-300 flex-1 text-slate-800 font-medium pb-0.5">
                   {data.class_position !== null && data.class_position !== undefined
                     ? `${data.class_position}${getOrdinalSuffix(data.class_position)}`
                     : "N/A"}
@@ -508,19 +508,19 @@ export default function NurseryResult({ data, showOnlyPublished = false }: Nurse
               </div>
               <div className="flex items-center">
                 <span className="font-semibold text-slate-700 mr-2">TOTAL PUPILS:</span>
-                <span className="border-b border-indigo-300 flex-1 text-slate-800 font-medium pb-0.5">
+                <span className="border-b border-primary-300 flex-1 text-slate-800 font-medium pb-0.5">
                   {data.total_students || "N/A"}
                 </span>
               </div>
               <div className="flex items-center">
                 <span className="font-semibold text-slate-700 mr-2 text-[10px]">SCHOOL OPENED:</span>
-                <span className="border-b border-indigo-300 flex-1 text-slate-800 font-medium pb-0.5">
+                <span className="border-b border-primary-300 flex-1 text-slate-800 font-medium pb-0.5">
                   {data.attendance?.times_opened || ""}
                 </span>
               </div>
               <div className="flex items-center">
                 <span className="font-semibold text-slate-700 mr-2 text-[10px]">TIMES PRESENT:</span>
-                <span className="border-b border-indigo-300 flex-1 text-slate-800 font-medium pb-0.5">
+                <span className="border-b border-primary-300 flex-1 text-slate-800 font-medium pb-0.5">
                   {data.attendance?.times_present || ""}
                 </span>
               </div>
@@ -565,7 +565,7 @@ export default function NurseryResult({ data, showOnlyPublished = false }: Nurse
 
           {/* ACADEMIC PERFORMANCE */}
           <div className="mb-5 rounded-lg overflow-hidden shadow-md border border-slate-200">
-            <div className="text-center font-bold py-2 text-white text-xs bg-gradient-to-r from-indigo-600 to-indigo-700">
+            <div className="text-center font-bold py-2 text-white text-xs bg-gradient-to-r from-primary-600 to-primary-700">
               ACADEMIC PERFORMANCE
             </div>
             <table className="w-full border-collapse bg-white text-[10px]">
@@ -680,7 +680,7 @@ export default function NurseryResult({ data, showOnlyPublished = false }: Nurse
             <div className="p-4 rounded-lg bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200">
               <div className="text-center">
                 <span className="font-bold text-slate-700 block mb-2 text-sm">NEXT TERM BEGINS</span>
-                <div className="bg-white h-10 rounded-md flex items-center justify-center border border-blue-300 text-sm font-semibold text-indigo-900">
+                <div className="bg-white h-10 rounded-md flex items-center justify-center border border-blue-300 text-sm font-semibold text-slate-800">
                   {correctedNextTermBegins ? new Date(correctedNextTermBegins).toLocaleDateString() : (data.next_term_begins ? new Date(data.next_term_begins).toLocaleDateString() : '')}
                 </div>
               </div>

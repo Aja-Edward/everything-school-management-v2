@@ -199,7 +199,7 @@ const StudentPortal = () => {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <div className="w-16 h-16 border-4 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Loading Student Portal</h3>
           <p className="text-sm text-gray-600 dark:text-gray-400">Please wait while we fetch your information...</p>
         </div>
@@ -501,7 +501,7 @@ const PortalContent = ({
       {portalStep === 'selection' && verifiedTokenData && (
         <div className="space-y-6">
           {/* Token Verification Success Banner */}
-          <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl p-6 text-white shadow-lg">
+          <div className="bg-gradient-to-br from-primary-600 to-primary-700 rounded-xl p-6 text-white shadow-lg">
             <div className="flex items-start gap-4">
               <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
                 <GraduationCap size={24} />

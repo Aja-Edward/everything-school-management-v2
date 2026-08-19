@@ -303,7 +303,7 @@ export default function SeniorSecondarySessionReport({
     return (
       <div className="flex justify-center items-center h-64">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading session result data...</p>
         </div>
       </div>
@@ -367,7 +367,7 @@ export default function SeniorSecondarySessionReport({
           <button
             onClick={downloadPDF}
             disabled={isGeneratingPDF}
-            className="px-4 py-2 bg-blue-600 text-white rounded shadow hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="px-4 py-2 bg-primary-600 text-white rounded shadow hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {isGeneratingPDF ? (
               <>
@@ -414,17 +414,17 @@ export default function SeniorSecondarySessionReport({
                 className="w-20 h-20 object-contain"
               />
             ) : (
-              <div className="text-center font-bold text-blue-600">
+              <div className="text-center font-bold text-primary-600">
                 {schoolSettings?.school_name?.split(' ').map((word: string) => word[0]).join('').slice(0, 3) || 'LOGO'}
               </div>
             )}
           </div>
           <div className="text-center flex-1">
-            <h1 className="text-4xl font-bold text-blue-900 mb-2">
+            <h1 className="text-4xl font-bold text-primary-900 mb-2">
               {schoolSettings?.school_name?.toUpperCase() || "SCHOOL NAME"}
             </h1>
             <p className="m-2">{schoolSettings?.motto || "Knowledge at its spring"}</p>
-            <p className="text-sm text-blue-600 font-semibold mb-1">
+            <p className="text-sm text-primary-600 font-semibold mb-1">
               {schoolSettings?.address || "School Address, City, State"}
             </p>
             {schoolSettings?.phone && schoolSettings?.email && (
@@ -440,8 +440,8 @@ export default function SeniorSecondarySessionReport({
         </div>
 
         {/* Summary Line */}
-        <div className="mt-4 text-sm text-blue-990 flex justify-between border-b pb-1">
-          <h2 className="text-xl text-blue-900 font-bold">
+        <div className="mt-4 text-sm text-primary-990 flex justify-between border-b pb-1">
+          <h2 className="text-xl text-primary-900 font-bold">
             Summary of Annual Academic Report {academicSession.name}
           </h2>
         </div>
@@ -477,9 +477,9 @@ export default function SeniorSecondarySessionReport({
 
           {/* Configuration Info */}
           {gradingSystem && (
-            <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-              <h3 className="font-semibold text-sm mb-2 text-blue-900">Grading System: {gradingSystem.name}</h3>
-              <div className="text-xs space-y-1 text-blue-800">
+            <div className="mt-4 p-3 bg-primary-50 rounded-lg border border-primary-200">
+              <h3 className="font-semibold text-sm mb-2 text-primary-900">Grading System: {gradingSystem.name}</h3>
+              <div className="text-xs space-y-1 text-primary-800">
                 <div><span className="font-medium">Score Range:</span> {gradingSystem.min_score} - {gradingSystem.max_score}</div>
                 <div><span className="font-medium">Pass Mark:</span> {gradingSystem.pass_mark}</div>
                 <div><span className="font-medium">Type:</span> {gradingSystem.grading_type}</div>
@@ -492,49 +492,49 @@ export default function SeniorSecondarySessionReport({
         <table className="mt-6 w-full border-collapse text-xs">
           <thead>
             <tr>
-              <th rowSpan={2} className="border-2 border-gray-800 px-2 py-1 bg-blue-50 font-bold">
+              <th rowSpan={2} className="border-2 border-gray-800 px-2 py-1 bg-primary-50 font-bold">
                 Subject
               </th>
-              <th colSpan={4} className="border-2 border-gray-800 px-2 py-1 bg-blue-50 font-bold">
+              <th colSpan={4} className="border-2 border-gray-800 px-2 py-1 bg-primary-50 font-bold">
                 Termly Cumulative Average
               </th>
-              <th rowSpan={2} className="border-2 border-gray-800 px-2 py-1 bg-blue-50 font-bold">
+              <th rowSpan={2} className="border-2 border-gray-800 px-2 py-1 bg-primary-50 font-bold">
                 Obtainable
               </th>
-              <th rowSpan={2} className="border-2 border-gray-800 px-2 py-1 bg-blue-50 font-bold">
+              <th rowSpan={2} className="border-2 border-gray-800 px-2 py-1 bg-primary-50 font-bold">
                 Obtained
               </th>
-              <th rowSpan={2} className="border-2 border-gray-800 px-2 py-1 bg-blue-50 font-bold">
+              <th rowSpan={2} className="border-2 border-gray-800 px-2 py-1 bg-primary-50 font-bold">
                 Class Avg
               </th>
-              <th rowSpan={2} className="border-2 border-gray-800 px-2 py-1 bg-blue-50 font-bold">
+              <th rowSpan={2} className="border-2 border-gray-800 px-2 py-1 bg-primary-50 font-bold">
                 Highest in Class
               </th>
-              <th rowSpan={2} className="border-2 border-gray-800 px-2 py-1 bg-blue-50 font-bold">
+              <th rowSpan={2} className="border-2 border-gray-800 px-2 py-1 bg-primary-50 font-bold">
                 Lowest in Class
               </th>
-              <th rowSpan={2} className="border-2 border-gray-800 px-2 py-1 bg-blue-50 font-bold">
+              <th rowSpan={2} className="border-2 border-gray-800 px-2 py-1 bg-primary-50 font-bold">
                 Position
               </th>
-              <th rowSpan={2} className="border-2 border-gray-800 px-2 py-1 bg-blue-50 font-bold">
+              <th rowSpan={2} className="border-2 border-gray-800 px-2 py-1 bg-primary-50 font-bold">
                 Teacher's Remark
               </th>
             </tr>
             <tr>
-              <th className="border-2 border-gray-800 px-2 py-1 bg-blue-100 font-bold">1st Term</th>
-              <th className="border-2 border-gray-800 px-2 py-1 bg-blue-100 font-bold">2nd Term</th>
-              <th className="border-2 border-gray-800 px-2 py-1 bg-blue-100 font-bold">3rd Term</th>
-              <th className="border-2 border-gray-800 px-2 py-1 bg-blue-100 font-bold">Average of Year</th>
+              <th className="border-2 border-gray-800 px-2 py-1 bg-primary-100 font-bold">1st Term</th>
+              <th className="border-2 border-gray-800 px-2 py-1 bg-primary-100 font-bold">2nd Term</th>
+              <th className="border-2 border-gray-800 px-2 py-1 bg-primary-100 font-bold">3rd Term</th>
+              <th className="border-2 border-gray-800 px-2 py-1 bg-primary-100 font-bold">Average of Year</th>
             </tr>
           </thead>
           <tbody>
             {subjectScores.map((row, index) => (
-              <tr key={index} className={`${index % 2 === 0 ? "bg-white" : "bg-gray-50"} hover:bg-blue-25`}>
+              <tr key={index} className={`${index % 2 === 0 ? "bg-white" : "bg-gray-50"} hover:bg-primary-25`}>
                 <td className="border border-gray-600 px-2 py-1 font-medium">{row.subject}</td>
                 <td className="border border-gray-600 px-2 py-1 text-center">{row.term1}</td>
                 <td className="border border-gray-600 px-2 py-1 text-center">{row.term2}</td>
                 <td className="border border-gray-600 px-2 py-1 text-center">{row.term3}</td>
-                <td className="border border-gray-600 px-2 py-1 text-center font-bold text-blue-700">
+                <td className="border border-gray-600 px-2 py-1 text-center font-bold text-primary-700">
                   {row.yearAverage}
                 </td>
                 <td className="border border-gray-600 px-2 py-1 text-center">{row.obtainable}</td>
@@ -554,14 +554,14 @@ export default function SeniorSecondarySessionReport({
         {/* Remarks */}
         <div className="mt-8 text-sm space-y-4">
           <div>
-            <div className="font-bold text-blue-900 mb-2">Form Master's Remark:</div>
+            <div className="font-bold text-primary-900 mb-2">Form Master's Remark:</div>
             <div className="text-gray-800 bg-gray-50 p-3 rounded border italic">
               {resultData.class_teacher_remark || resultData.teacher_remark || "No remark provided."}
             </div>
           </div>
 
           <div>
-            <div className="font-bold text-blue-900 mb-2">Principal's Remarks:</div>
+            <div className="font-bold text-primary-900 mb-2">Principal's Remarks:</div>
             <div className="text-gray-800 bg-gray-50 p-3 rounded border italic">
               {resultData.head_teacher_remark || "No remark provided."}
             </div>

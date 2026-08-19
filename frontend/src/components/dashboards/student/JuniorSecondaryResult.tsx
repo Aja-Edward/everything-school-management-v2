@@ -338,7 +338,7 @@ export default function JuniorSecondaryResult({
     return (
       <div className="flex justify-center items-center h-64">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4" />
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4" />
           <p>Loading result data…</p>
         </div>
       </div>
@@ -362,7 +362,7 @@ export default function JuniorSecondaryResult({
       <div className="mb-4">
         <button
           onClick={enableEnhancedFeatures ? generateEnhancedPDF : downloadPDF}
-          className="px-4 py-2 bg-indigo-700 text-white rounded shadow hover:bg-indigo-800 transition-colors"
+          className="px-4 py-2 bg-primary-700 text-white rounded shadow hover:bg-primary-800 transition-colors"
         >
           Download PDF
         </button>
@@ -382,7 +382,7 @@ export default function JuniorSecondaryResult({
               {schoolSettings?.logo ? (
                 <img src={schoolSettings.logo} alt="School Logo" className="w-16 h-16 object-contain rounded-full" />
               ) : schoolSettings?.school_name ? (
-                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-xs font-bold">
+                <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center text-primary-600 text-xs font-bold">
                   {(schoolSettings.school_name as string).split(' ').map((w: string) => w[0]).join('')}
                 </div>
               ) : null}
@@ -390,7 +390,7 @@ export default function JuniorSecondaryResult({
 
             <div className="text-center relative z-10">
               {schoolInfo?.school_name && (
-                <h1 className="text-3xl font-bold text-blue-900 mb-2">
+                <h1 className="text-3xl font-bold text-primary-900 mb-2">
                   {(schoolInfo.school_name as string).toUpperCase()}
                 </h1>
               )}
@@ -403,12 +403,12 @@ export default function JuniorSecondaryResult({
                 </p>
               )}
               {schoolSettings?.motto && (
-                <p className="text-xs italic text-blue-700 mt-1">{schoolSettings.motto as string}</p>
+                <p className="text-xs italic text-primary-700 mt-1">{schoolSettings.motto as string}</p>
               )}
             </div>
           </div>
 
-          <div className="bg-blue-900 text-white py-1 px-2 rounded-lg inline-block">
+          <div className="bg-primary-900 text-white py-1 px-2 rounded-lg inline-block">
             <h5 className="text-sm font-semibold">STUDENT'S TERMLY REPORT</h5>
             <p className="text-xs">
               {data.term?.name}{data.term?.name && (data.term?.session || data.term?.year) ? ', ' : ''}
@@ -474,7 +474,7 @@ export default function JuniorSecondaryResult({
         </div>
 
         {/* ── Academic Performance ── */}
-        <div className="text-center font-semibold text-base mb-2 text-blue-900 relative z-10">
+        <div className="text-center font-semibold text-base mb-2 text-primary-900 relative z-10">
           ACADEMIC PERFORMANCE
         </div>
 
@@ -612,13 +612,13 @@ export default function JuniorSecondaryResult({
             <div className="mb-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
               <div className="mb-2 text-xs font-semibold text-slate-700">
                 Total Scores:{' '}
-                <span className="inline-block w-20 text-center font-bold text-blue-800">
+                <span className="inline-block w-20 text-center font-bold text-primary-800">
                   {totalScore > 0 ? Math.round(totalScore) : ''}
                 </span>
               </div>
               <div className="mb-2 text-xs font-semibold text-slate-700">
                 Average Scores:{' '}
-                <span className="inline-block w-20 text-center font-bold text-blue-800">
+                <span className="inline-block w-20 text-center font-bold text-primary-800">
                   {averageScore > 0 ? Math.round(averageScore * 100) / 100 : ''}
                 </span>
               </div>
@@ -631,7 +631,7 @@ export default function JuniorSecondaryResult({
             </div>
 
             <div className="border-2 border-slate-800 rounded-lg overflow-hidden" style={{ width: '360px' }}>
-              <div className="text-center font-bold py-2 text-xs bg-blue-900 text-white">
+              <div className="text-center font-bold py-2 text-xs bg-primary-900 text-white">
                 PHYSICAL DEVELOPMENT
               </div>
               <table className="w-full border-collapse bg-white">
