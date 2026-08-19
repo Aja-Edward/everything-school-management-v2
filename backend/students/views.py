@@ -910,6 +910,17 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             and str(self.request.user.id) == str(user_filter)
         )
 
+        # A student may only ever see their own record, so treat any student
+        # request as a self-query even without ?user=. Detail routes such as
+        # /students/students/77/ carry no query params, so they fell through to
+        # section filtering -- which has no education-level branch for students
+        # -- and returned zero rows, 404ing a student on her own record.
+        if not is_self_query and self.request.user.is_authenticated:
+            role = str(getattr(self.request.user, "role", "") or "").lower()
+            if role == "student":
+                is_self_query = True
+                user_filter = self.request.user.id
+
         logger.info(
             f"🔍 StudentViewSet.get_queryset: user_filter={user_filter}, user.id={self.request.user.id}, is_self_query={is_self_query}"
         )
