@@ -142,7 +142,9 @@ const StudentResultDisplay2: React.FC<StudentResultDisplayProps> = ({
     textSecondary: isDarkMode ? 'text-gray-300' : 'text-gray-600',
     textTertiary: isDarkMode ? 'text-gray-400' : 'text-gray-500',
     border: isDarkMode ? 'border-gray-700' : 'border-gray-200',
-    buttonPrimary: 'bg-blue-600 hover:bg-blue-700 text-white',
+    // Brand: primary action. primary-* is driven by the school's
+    // primary_color via DesignContext + tailwind.config.
+    buttonPrimary: 'bg-primary-600 hover:bg-primary-700 text-white',
     buttonSecondary: isDarkMode 
       ? 'bg-gray-700 hover:bg-gray-600 text-white' 
       : 'bg-gray-200 hover:bg-gray-300 text-gray-700',
@@ -403,7 +405,7 @@ useEffect(() => {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
+          <Loader2 className="w-8 h-8 animate-spin text-primary-600 mx-auto mb-4" />
           <p className={themeClasses.textSecondary}>
             {authLoading ? 'Authenticating...' : settingsLoading ? 'Loading settings...' : 'Loading results...'}
           </p>

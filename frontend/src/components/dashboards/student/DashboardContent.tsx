@@ -117,7 +117,7 @@ const DashboardContent = () => {
     return (
       <div className="bg-white dark:bg-gray-900 rounded-2xl p-8 shadow-sm border border-gray-200 dark:border-gray-800">
         <div className="flex flex-col items-center justify-center h-64">
-          <div className="w-12 h-12 border-3 border-blue-600 border-t-transparent rounded-full animate-spin mb-4" />
+          <div className="w-12 h-12 border-3 border-primary-600 border-t-transparent rounded-full animate-spin mb-4" />
           <span className="text-gray-600 dark:text-gray-400 font-medium text-sm">Loading dashboard...</span>
         </div>
       </div>
@@ -135,7 +135,7 @@ const DashboardContent = () => {
           <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm">{error}</p>
           <button
             onClick={() => window.location.reload()}
-            className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 font-medium text-sm"
+            className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors duration-200 font-medium text-sm"
           >
             Retry
           </button>
