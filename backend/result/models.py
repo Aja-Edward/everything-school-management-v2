@@ -576,7 +576,12 @@ _REPORT_FK_MAP = {}  # populated below, after the term report classes exist:
 # is assigned).
 
 
-def get_report_trait_section(term_report, category):
+def get_report_trait_section(term_report, category, cache=None):
+    """
+    cache: optional per-request dict. Serializers pass their shared
+    context dict, so the trait-field lookup runs once per
+    (tenant, category, education level) instead of once per report.
+    """
     tenant = term_report.tenant
     tsettings = getattr(tenant, "settings", None)
     student = getattr(term_report, "student", None)
@@ -606,11 +611,27 @@ def get_report_trait_section(term_report, category):
     if scope and level_code not in scope:
         return []
 
-    fields = get_trait_fields(tenant, category, education_level_obj)
+    if cache is None:
+        fields = get_trait_fields(tenant, category, education_level_obj)
+    else:
+        key = ("trait_fields", getattr(tenant, "pk", None), category,
+               getattr(education_level_obj, "pk", None))
+        if key not in cache:
+            cache[key] = get_trait_fields(tenant, category, education_level_obj)
+        fields = cache[key]
 
     fk_name = _REPORT_FK_MAP[type(term_report)]
-    ratings = TraitRating.objects.filter(
-        **{fk_name: term_report}, category=category)
+    # Read through the relation so a prefetch_related("trait_ratings") on the
+    # queryset is actually used. Filtering TraitRating.objects directly built a
+    # fresh query per report per category -- 40 for a page of 20 -- and ignored
+    # the prefetch entirely. Falls back to a query when not prefetched.
+    if "trait_ratings" in getattr(term_report, "_prefetched_objects_cache", {}):
+        ratings = [
+            r for r in term_report.trait_ratings.all() if r.category == category
+        ]
+    else:
+        ratings = TraitRating.objects.filter(
+            **{fk_name: term_report}, category=category)
     by_field_id = {r.trait_field_id: r for r in ratings if r.trait_field_id}
     by_default_name = {
         r.default_trait_name: r for r in ratings if not r.trait_field_id}

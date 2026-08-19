@@ -1297,10 +1297,18 @@ class SeniorSecondaryTermReportSerializer(
         many=True, read_only=True)
 
     def get_affective_domain(self, obj):
-        return get_report_trait_section(obj, TraitCategory.AFFECTIVE)
+        # self.context is shared across many=True children, so this memo is
+        # per request: the trait-field lookup runs once per level, not per report.
+        return get_report_trait_section(
+            obj, TraitCategory.AFFECTIVE,
+            cache=self.context.setdefault("_trait_cache", {}),
+        )
 
     def get_psychomotor_skills(self, obj):
-        return get_report_trait_section(obj, TraitCategory.PSYCHOMOTOR)
+        return get_report_trait_section(
+            obj, TraitCategory.PSYCHOMOTOR,
+            cache=self.context.setdefault("_trait_cache", {}),
+        )
 
     def get_physical_development_visible(self, obj):
         tenant_settings = getattr(obj.tenant, "settings", None)
@@ -1584,10 +1592,18 @@ class JuniorSecondaryTermReportSerializer(
         many=True, read_only=True)
 
     def get_affective_domain(self, obj):
-        return get_report_trait_section(obj, TraitCategory.AFFECTIVE)
+        # self.context is shared across many=True children, so this memo is
+        # per request: the trait-field lookup runs once per level, not per report.
+        return get_report_trait_section(
+            obj, TraitCategory.AFFECTIVE,
+            cache=self.context.setdefault("_trait_cache", {}),
+        )
 
     def get_psychomotor_skills(self, obj):
-        return get_report_trait_section(obj, TraitCategory.PSYCHOMOTOR)
+        return get_report_trait_section(
+            obj, TraitCategory.PSYCHOMOTOR,
+            cache=self.context.setdefault("_trait_cache", {}),
+        )
 
     def get_physical_development_visible(self, obj):
         tenant_settings = getattr(obj.tenant, "settings", None)
@@ -1858,10 +1874,18 @@ class PrimaryTermReportSerializer(_RemarkPermissionMixin, serializers.ModelSeria
     subject_results = PrimaryResultSerializer(many=True, read_only=True)
 
     def get_affective_domain(self, obj):
-        return get_report_trait_section(obj, TraitCategory.AFFECTIVE)
+        # self.context is shared across many=True children, so this memo is
+        # per request: the trait-field lookup runs once per level, not per report.
+        return get_report_trait_section(
+            obj, TraitCategory.AFFECTIVE,
+            cache=self.context.setdefault("_trait_cache", {}),
+        )
 
     def get_psychomotor_skills(self, obj):
-        return get_report_trait_section(obj, TraitCategory.PSYCHOMOTOR)
+        return get_report_trait_section(
+            obj, TraitCategory.PSYCHOMOTOR,
+            cache=self.context.setdefault("_trait_cache", {}),
+        )
 
     def get_physical_development_visible(self, obj):
         tenant_settings = getattr(obj.tenant, "settings", None)
@@ -2238,10 +2262,18 @@ class NurseryTermReportSerializer(_RemarkPermissionMixin, serializers.ModelSeria
         return _default_grade(self.get_average_score(obj))
 
     def get_affective_domain(self, obj):
-        return get_report_trait_section(obj, TraitCategory.AFFECTIVE)
+        # self.context is shared across many=True children, so this memo is
+        # per request: the trait-field lookup runs once per level, not per report.
+        return get_report_trait_section(
+            obj, TraitCategory.AFFECTIVE,
+            cache=self.context.setdefault("_trait_cache", {}),
+        )
 
     def get_psychomotor_skills(self, obj):
-        return get_report_trait_section(obj, TraitCategory.PSYCHOMOTOR)
+        return get_report_trait_section(
+            obj, TraitCategory.PSYCHOMOTOR,
+            cache=self.context.setdefault("_trait_cache", {}),
+        )
 
     def get_physical_development_visible(self, obj):
         tenant_settings = getattr(obj.tenant, "settings", None)
