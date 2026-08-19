@@ -532,6 +532,16 @@ class Classroom(TenantMixin, models.Model):
 
     @property
     def current_enrollment(self):
+        # Prefer the queryset annotation. ClassroomViewSet annotates
+        # current_enrollment_count with identical filters, but three
+        # SerializerMethodFields (is_full, available_spots,
+        # enrollment_percentage) read this property instead, so each classroom
+        # still issued up to three COUNT queries per render. Reading the
+        # annotation here fixes every consumer at once rather than patching
+        # them one by one.
+        annotated = getattr(self, "current_enrollment_count", None)
+        if annotated is not None:
+            return annotated
         return self.studentenrollment_set.filter(
             is_active=True, student__is_active=True
         ).count()
