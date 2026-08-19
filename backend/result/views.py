@@ -2001,6 +2001,10 @@ class SeniorSecondaryTermReportViewSet(
                 "exam_session__exam_type",
                 "exam_session__term",
                 "exam_session__term__term_type",
+                # get_report_trait_section reads tenant.settings for every
+                # report; without these it was 22 tenant lookups per page.
+                "tenant",
+                "tenant__settings",
                 "published_by",
                 "approved_by",
                 "stream",
@@ -2008,6 +2012,9 @@ class SeniorSecondaryTermReportViewSet(
             )
             .prefetch_related(
                 _active_enrollments_prefetch(),
+                # affective_domain / psychomotor_skills filter TraitRating per
+                # report per category -- 40 queries for a page of 20.
+                "trait_ratings",
                 Prefetch(
                     "subject_results",
                     queryset=SeniorSecondaryResult.objects.select_related(
@@ -2447,11 +2454,18 @@ class JuniorSecondaryTermReportViewSet(
                 "exam_session__exam_type",
                 "exam_session__term",
                 "exam_session__term__term_type",
+                # get_report_trait_section reads tenant.settings for every
+                # report; without these it was 22 tenant lookups per page.
+                "tenant",
+                "tenant__settings",
                 "published_by",
                 "approved_by",
             )
             .prefetch_related(
                 _active_enrollments_prefetch(),
+                # affective_domain / psychomotor_skills filter TraitRating per
+                # report per category -- 40 queries for a page of 20.
+                "trait_ratings",
                 Prefetch(
                     "subject_results",
                     queryset=JuniorSecondaryResult.objects.select_related(
@@ -2862,11 +2876,18 @@ class PrimaryTermReportViewSet(
                 "exam_session__exam_type",
                 "exam_session__term",
                 "exam_session__term__term_type",
+                # get_report_trait_section reads tenant.settings for every
+                # report; without these it was 22 tenant lookups per page.
+                "tenant",
+                "tenant__settings",
                 "published_by",
                 "approved_by",
             )
             .prefetch_related(
                 _active_enrollments_prefetch(),
+                # affective_domain / psychomotor_skills filter TraitRating per
+                # report per category -- 40 queries for a page of 20.
+                "trait_ratings",
                 Prefetch(
                     "subject_results",
                     queryset=PrimaryResult.objects.select_related(
@@ -3337,11 +3358,18 @@ class NurseryTermReportViewSet(
                 "exam_session__exam_type",
                 "exam_session__term",
                 "exam_session__term__term_type",
+                # get_report_trait_section reads tenant.settings for every
+                # report; without these it was 22 tenant lookups per page.
+                "tenant",
+                "tenant__settings",
                 "published_by",
                 "approved_by",
             )
             .prefetch_related(
                 _active_enrollments_prefetch(),
+                # affective_domain / psychomotor_skills filter TraitRating per
+                # report per category -- 40 queries for a page of 20.
+                "trait_ratings",
                 Prefetch(
                     "subject_results",
                     queryset=NurseryResult.objects.select_related(
