@@ -2000,6 +2000,7 @@ class SeniorSecondaryTermReportViewSet(
                 "exam_session__academic_session",
                 "exam_session__exam_type",
                 "exam_session__term",
+                "exam_session__term__term_type",
                 "published_by",
                 "approved_by",
                 "stream",
@@ -2010,14 +2011,27 @@ class SeniorSecondaryTermReportViewSet(
                 Prefetch(
                     "subject_results",
                     queryset=SeniorSecondaryResult.objects.select_related(
+                        "student",
+                        "student__user",
+                        "student__student_class",
+                        "student__student_class__education_level",
                         "subject",
+                        "exam_session",
+                        "exam_session__academic_session",
+                        "exam_session__exam_type",
+                        "exam_session__term",
+                        "exam_session__term__term_type",
                         "grading_system",
-                        "stream",
-                        "stream__stream_type_new",
                         "entered_by",
                         "approved_by",
+                        "published_by",
+                        "term_report",
+                        "stream",
+                        "stream__stream_type_new",
+
                     ).prefetch_related(
                         "grading_system__grades",
+                        _active_enrollments_prefetch(),
                         Prefetch("component_scores",
                                  queryset=_component_score_qs()),
                     ),
@@ -2432,6 +2446,7 @@ class JuniorSecondaryTermReportViewSet(
                 "exam_session__academic_session",
                 "exam_session__exam_type",
                 "exam_session__term",
+                "exam_session__term__term_type",
                 "published_by",
                 "approved_by",
             )
@@ -2440,12 +2455,25 @@ class JuniorSecondaryTermReportViewSet(
                 Prefetch(
                     "subject_results",
                     queryset=JuniorSecondaryResult.objects.select_related(
+                        "student",
+                        "student__user",
+                        "student__student_class",
+                        "student__student_class__education_level",
                         "subject",
+                        "exam_session",
+                        "exam_session__academic_session",
+                        "exam_session__exam_type",
+                        "exam_session__term",
+                        "exam_session__term__term_type",
                         "grading_system",
                         "entered_by",
                         "approved_by",
+                        "published_by",
+                        "term_report",
+
                     ).prefetch_related(
                         "grading_system__grades",
+                        _active_enrollments_prefetch(),
                         Prefetch("component_scores",
                                  queryset=_component_score_qs()),
                     ),
@@ -2833,6 +2861,7 @@ class PrimaryTermReportViewSet(
                 "exam_session__academic_session",
                 "exam_session__exam_type",
                 "exam_session__term",
+                "exam_session__term__term_type",
                 "published_by",
                 "approved_by",
             )
@@ -2843,14 +2872,23 @@ class PrimaryTermReportViewSet(
                     queryset=PrimaryResult.objects.select_related(
                         "student",
                         "student__user",
+                        "student__student_class",
+                        "student__student_class__education_level",
                         "subject",
-                        "grading_system",
                         "exam_session",
+                        "exam_session__academic_session",
+                        "exam_session__exam_type",
+                        "exam_session__term",
+                        "exam_session__term__term_type",
+                        "grading_system",
                         "entered_by",
                         "approved_by",
                         "published_by",
+                        "term_report",
+
                     ).prefetch_related(
                         "grading_system__grades",
+                        _active_enrollments_prefetch(),
                         Prefetch("component_scores",
                                  queryset=_component_score_qs()),
                     ),
@@ -3298,6 +3336,7 @@ class NurseryTermReportViewSet(
                 "exam_session__academic_session",
                 "exam_session__exam_type",
                 "exam_session__term",
+                "exam_session__term__term_type",
                 "published_by",
                 "approved_by",
             )
@@ -3306,12 +3345,22 @@ class NurseryTermReportViewSet(
                 Prefetch(
                     "subject_results",
                     queryset=NurseryResult.objects.select_related(
+                        "student",
+                        "student__user",
+                        "student__student_class",
+                        "student__student_class__education_level",
                         "subject",
+                        "exam_session",
+                        "exam_session__academic_session",
+                        "exam_session__exam_type",
+                        "exam_session__term",
+                        "exam_session__term__term_type",
                         "grading_system",
                         "entered_by",
                         "approved_by",
                         "published_by",
                         "term_report",
+
                     ).prefetch_related(
                         "grading_system__grades",
                         # NurseryResult now inherits BaseResult — component_scores exists.
