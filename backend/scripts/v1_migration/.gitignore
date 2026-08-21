@@ -1,0 +1,5 @@
+# The exported CSVs contain student and parent personal data - names, dates of
+# birth, home addresses and phone numbers, most of them belonging to minors.
+# The scripts that regenerate them are tracked; the data itself never is.
+data/
+*.csv
