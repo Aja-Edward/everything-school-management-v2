@@ -299,13 +299,28 @@ const PerformanceService = {
       { method: 'GET', credentials: 'include' }
     );
     if (!res.ok) throw new Error('Failed to generate PDF');
+
+    // Surface a server-side error instead of downloading it as a broken .pdf
+    const contentType = res.headers.get('Content-Type') ?? '';
+    if (!contentType.includes('application/pdf')) {
+      throw new Error(`Expected a PDF, got ${contentType || 'no content type'}`);
+    }
+
     const blob = await res.blob();
+    if (blob.size === 0) throw new Error('The server returned an empty PDF.');
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `PD_Report_${teacherName.replace(/ /g, '_')}.pdf`;
+
+    // The anchor has to be in the document, and the object URL has to outlive
+    // the click — revoking it on the next line truncates the download, which
+    // is why the file arrived unopenable.
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
   },
 
   getPDSummary(params?: { teacher?: number }) {

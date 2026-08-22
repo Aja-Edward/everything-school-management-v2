@@ -162,6 +162,11 @@ class StaffActivityLogViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     - Staff users (teacher role): see only their own logs, can create/edit pending logs.
     - Admins: see all logs, can approve/reject (cannot create on behalf of staff).
     """
+    # A class-level queryset is required so TenantFilterMixin.get_queryset()
+    # has something to filter — without it super() raises.
+    queryset = StaffActivityLog.objects.select_related(
+        "teacher__user", "category", "reviewed_by"
+    )
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ["status", "category", "activity_date"]
@@ -174,11 +179,11 @@ class StaffActivityLogViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     ordering = ["-activity_date", "-created_at"]
 
     def get_queryset(self):
-        qs = StaffActivityLog.objects.select_related(
-            "teacher__user", "category", "reviewed_by"
-        )
+        # super() runs TenantFilterMixin, which scopes this to the request's
+        # school. Building a fresh queryset here would skip that entirely.
+        qs = super().get_queryset()
         if _is_admin(self.request.user):
-            return qs   # admins see all (tenant filtered by TenantFilterMixin)
+            return qs   # every log for this school
         teacher = _get_teacher_for_user(self.request.user)
         if teacher:
             return qs.filter(teacher=teacher)

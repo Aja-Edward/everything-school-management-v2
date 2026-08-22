@@ -794,3 +794,11 @@ class BulkUploadRecord(TenantMixin, models.Model):
     @property
     def is_done(self):
         return self.status in ("completed", "failed")
+
+    # This model is a standalone copy of common.AbstractBulkUploadRecord rather
+    # than a subclass, so the stall check has to be wired up explicitly.
+    def mark_failed_if_stalled(self):
+        """Fail this record if it has stopped making progress."""
+        from common.models import fail_if_stalled
+
+        return fail_if_stalled(self)

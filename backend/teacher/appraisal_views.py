@@ -119,6 +119,11 @@ class AppraisalCriteriaViewSet(TenantFilterMixin, viewsets.ModelViewSet):
 # ── Performance Appraisal ─────────────────────────────────────────────────────
 
 class PerformanceAppraisalViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    # A class-level queryset is required so TenantFilterMixin.get_queryset()
+    # has something to filter — without it super() raises.
+    queryset = PerformanceAppraisal.objects.select_related(
+        "teacher__user", "appraiser"
+    ).prefetch_related("scores__criteria")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ["status", "period", "appraiser_role", "teacher"]
@@ -130,9 +135,9 @@ class PerformanceAppraisalViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     ordering = ["-created_at"]
 
     def get_queryset(self):
-        qs = PerformanceAppraisal.objects.select_related(
-            "teacher__user", "appraiser"
-        ).prefetch_related("scores__criteria")
+        # super() runs TenantFilterMixin, which scopes this to the request's
+        # school. Building a fresh queryset here would skip that entirely.
+        qs = super().get_queryset()
         if _is_admin(self.request.user):
             return qs
         teacher = _get_teacher(self.request.user)
@@ -233,6 +238,9 @@ class PerformanceAppraisalViewSet(TenantFilterMixin, viewsets.ModelViewSet):
 # ── Staff Notes ───────────────────────────────────────────────────────────────
 
 class StaffNoteViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    # A class-level queryset is required so TenantFilterMixin.get_queryset()
+    # has something to filter — without it super() raises.
+    queryset = StaffNote.objects.select_related("teacher__user", "issued_by")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ["note_type", "category", "is_acknowledged", "teacher"]
@@ -245,7 +253,9 @@ class StaffNoteViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     ordering = ["-created_at"]
 
     def get_queryset(self):
-        qs = StaffNote.objects.select_related("teacher__user", "issued_by")
+        # super() runs TenantFilterMixin, which scopes this to the request's
+        # school. Building a fresh queryset here would skip that entirely.
+        qs = super().get_queryset()
         if _is_admin(self.request.user):
             return qs
         teacher = _get_teacher(self.request.user)

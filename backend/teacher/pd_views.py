@@ -107,6 +107,11 @@ class PDReviewSerializer(drf_serializers.Serializer):
 # ─── ViewSet ──────────────────────────────────────────────────────────────────
 
 class ProfessionalDevelopmentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    # A class-level queryset is required so TenantFilterMixin.get_queryset()
+    # has something to filter — without it super() raises.
+    queryset            = ProfessionalDevelopment.objects.select_related(
+        "teacher__user", "reviewed_by"
+    )
     permission_classes  = [IsAuthenticated]
     filter_backends     = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields    = ["dev_type", "approval_status", "teacher"]
@@ -115,7 +120,9 @@ class ProfessionalDevelopmentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     ordering            = ["-date_completed", "-created_at"]
 
     def get_queryset(self):
-        qs = ProfessionalDevelopment.objects.select_related("teacher__user", "reviewed_by")
+        # super() runs TenantFilterMixin, which scopes this to the request's
+        # school. Building a fresh queryset here would skip that entirely.
+        qs = super().get_queryset()
         if _is_admin(self.request.user):
             return qs
         teacher = _get_teacher(self.request.user)
@@ -272,7 +279,10 @@ class ProfessionalDevelopmentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         if not teacher_id:
             return Response({"error": "teacher query param required."}, status=400)
         try:
-            teacher = Teacher.objects.select_related("user").get(pk=teacher_id)
+            teacher = Teacher.objects.select_related("user").get(
+                pk=teacher_id,
+                tenant=getattr(request, "tenant", None),
+            )
         except Teacher.DoesNotExist:
             return Response({"error": "Teacher not found."}, status=404)
 
