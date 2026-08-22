@@ -11,6 +11,8 @@ import type {
 } from "@/types/studentBulkUpload";
 
 const POLL_INTERVAL = 2_000;
+/** Stop polling once the backend has reported no progress for this long. */
+const STALL_TIMEOUT_MS = 5 * 60 * 1_000;
 
 export function useBulkUpload(): UseBulkUploadReturn {
   const [uploadId, setUploadId]         = useState<number | null>(null);
@@ -32,9 +34,21 @@ export function useBulkUpload(): UseBulkUploadReturn {
   const startPolling = useCallback(
     (id: number): void => {
       stopPolling();
+
+      // Track when the backend last reported something new, so a job that
+      // never gets picked up ends in an error instead of polling forever.
+      let lastSnapshot = "";
+      let lastChangeAt = Date.now();
+
       pollTimer.current = setInterval(async () => {
         try {
           const data = await bulkUploadService.getStatus(id);
+
+          const snapshot = `${data.status}:${data.total_rows}:${data.processed_rows}`;
+          if (snapshot !== lastSnapshot) {
+            lastSnapshot = snapshot;
+            lastChangeAt = Date.now();
+          }
 
           setProgress(data.progress ?? 0);
           setStats({
@@ -51,9 +65,25 @@ export function useBulkUpload(): UseBulkUploadReturn {
             if (data.status === "failed") {
               setErrorMessage(data.result?.error ?? "Upload processing failed.");
             }
+          } else if (Date.now() - lastChangeAt > STALL_TIMEOUT_MS) {
+            stopPolling();
+            setErrorMessage(
+              "Processing has not moved for 5 minutes. The background worker " +
+              "may be down — please try the upload again."
+            );
+            setPhase("error");
           }
         } catch (err) {
           console.warn("Poll error:", err);
+          // Keep retrying through a blip, but don't poll a dead endpoint forever.
+          if (Date.now() - lastChangeAt > STALL_TIMEOUT_MS) {
+            stopPolling();
+            setErrorMessage(
+              "Lost contact with the server while checking progress. " +
+              "Please try the upload again."
+            );
+            setPhase("error");
+          }
         }
       }, POLL_INTERVAL);
     },

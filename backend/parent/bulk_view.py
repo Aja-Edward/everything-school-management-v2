@@ -166,32 +166,28 @@ def bulk_upload_parents(request):
         status="pending",
     )
 
-    # Enqueue Celery task
+    # Hand the job to a Celery worker, or to a background thread when no
+    # worker is consuming the queue — publishing to a queue nobody reads
+    # would leave this record on "pending" forever.
+    from common.dispatch import dispatch_task
     from parent.tasks import process_bulk_parent_upload
-    task_id = None
-    try:
-        task = process_bulk_parent_upload.delay(
-            upload_record_id=record.pk,
-            tenant_id=str(tenant.id),
-            file_path=file_url,   # Cloudinary URL — accessible from any container
-            file_ext=ext,
-            uploaded_by_id=user.pk,
+
+    task_id = dispatch_task(
+        process_bulk_parent_upload,
+        upload_record_id=record.pk,
+        tenant_id=str(tenant.id),
+        file_path=file_url,   # Cloudinary URL — accessible from any container
+        file_ext=ext,
+        uploaded_by_id=user.pk,
+    )
+
+    if task_id:
+        # Stamp the Celery id for debugging, but only while the task has not
+        # started — once it is running the worker owns result_data.
+        BulkUploadRecord.objects.filter(pk=record.pk, status="pending").update(
+            result_data={"celery_task_id": task_id}
         )
-        task_id = task.id
-        record.result_data = {"celery_task_id": task_id}
-        record.save(update_fields=["result_data"])
-    except Exception as celery_err:
-        logger.warning(
-            "Celery unavailable (%s). Running synchronously.",
-            celery_err,
-        )
-        process_bulk_parent_upload(
-            upload_record_id=record.pk,
-            tenant_id=str(tenant.id),
-            file_path=file_url,
-            file_ext=ext,
-            uploaded_by_id=user.pk,
-        )
+
     return JsonResponse(
         {
             "upload_id": record.pk,
@@ -231,6 +227,10 @@ def bulk_upload_status(request, upload_id):
         record = BulkUploadRecord.objects.get(pk=upload_id, tenant=tenant)
     except BulkUploadRecord.DoesNotExist:
         return JsonResponse({"error": "Upload record not found."}, status=404)
+
+    # A record whose worker never picked it up — or died mid-run — would stay
+    # non-terminal forever and the frontend would keep polling it forever.
+    record.mark_failed_if_stalled()
 
     payload = {
         "upload_id": record.pk,

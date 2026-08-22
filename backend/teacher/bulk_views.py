@@ -105,30 +105,20 @@ def bulk_upload_teachers(request):
         status="pending",
     )
 
-    # Enqueue Celery task
+    # Hand the job to a Celery worker, or to a background thread when no
+    # worker is consuming the queue — publishing to a queue nobody reads
+    # would leave this record on "pending" forever.
+    from common.dispatch import dispatch_task
     from teacher.tasks import process_bulk_teacher_upload
-    task_id = None
-    try:
-        task = process_bulk_teacher_upload.delay(
-            upload_record_id=record.pk,
-            tenant_id=str(tenant.id),
-            file_path=file_url,   # Cloudinary URL — accessible from any container
-            file_ext=ext,
-            uploaded_by_id=request.user.pk,
-        )
-        task_id = task.id
-    except Exception as celery_err:
-        logger.warning(
-            "Celery unavailable (%s). Running synchronously.",
-            celery_err,
-        )
-        process_bulk_teacher_upload(
-            upload_record_id=record.pk,
-            tenant_id=str(tenant.id),
-            file_path=file_url,
-            file_ext=ext,
-            uploaded_by_id=request.user.pk,
-        )
+
+    task_id = dispatch_task(
+        process_bulk_teacher_upload,
+        upload_record_id=record.pk,
+        tenant_id=str(tenant.id),
+        file_path=file_url,   # Cloudinary URL — accessible from any container
+        file_ext=ext,
+        uploaded_by_id=request.user.pk,
+    )
 
     return Response(
         {
@@ -161,8 +151,6 @@ def bulk_upload_status(request, upload_id):
         result.imported   [ { row, full_name, username, password, ... } ]
     """
     from teacher.models import BulkUploadRecord
-    from django.utils import timezone
-    from datetime import timedelta
 
     tenant = _get_tenant(request)
     try:
@@ -170,20 +158,11 @@ def bulk_upload_status(request, upload_id):
     except BulkUploadRecord.DoesNotExist:
         return Response({"error": "Upload record not found."}, status=404)
 
-    # If stuck in pending/processing for > 5 minutes, the Celery worker likely
-    # never picked up the task (no worker running). Mark it failed so the
-    # frontend stops polling.
-    if record.status in ("pending", "processing"):
-        age = timezone.now() - record.created_at
-        if age > timedelta(minutes=5):
-            record.status = "failed"
-            record.result_data = {
-                "error": (
-                    "Processing timed out. No Celery worker picked up the task. "
-                    "Please redeploy or contact support."
-                )
-            }
-            record.save(update_fields=["status", "result_data"])
+    # A record whose worker never picked it up — or died mid-run — would stay
+    # non-terminal forever and the frontend would keep polling it forever.
+    # Keyed on updated_at, which every processed row bumps, so an upload that
+    # simply takes a long time is not killed while it is still making progress.
+    record.mark_failed_if_stalled()
 
     payload = {
         "upload_id": record.pk,

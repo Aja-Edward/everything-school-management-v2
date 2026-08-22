@@ -11,6 +11,8 @@ import type {
 } from "@/types/parentBulkUpload";
 
 const POLL_INTERVAL_MS = 2000;
+/** Stop polling once the backend has reported no progress for this long. */
+const STALL_TIMEOUT_MS = 5 * 60 * 1000;
 
 export function useParentBulkUpload(): UseParentBulkUploadReturn {
   const [uploadId,     setUploadId]     = useState<number | null>(null);
@@ -30,9 +32,20 @@ export function useParentBulkUpload(): UseParentBulkUploadReturn {
   };
 
   const startPolling = useCallback((id: number) => {
+    // Track when the backend last reported something new, so a job that never
+    // gets picked up ends in an error instead of polling forever.
+    let lastSnapshot = "";
+    let lastChangeAt = Date.now();
+
     pollRef.current = setInterval(async () => {
       try {
         const status = await bulkUploadService.getStatus(id);
+
+        const snapshot = `${status.status}:${status.total_rows}:${status.processed_rows}`;
+        if (snapshot !== lastSnapshot) {
+          lastSnapshot = snapshot;
+          lastChangeAt = Date.now();
+        }
 
         setProgress(status.progress ?? 0);
         setStats({
@@ -59,6 +72,13 @@ export function useParentBulkUpload(): UseParentBulkUploadReturn {
           stopPolling();
           setErrorMessage(
             status.result?.error ?? "Processing failed. Please try again."
+          );
+          setPhase("error");
+        } else if (Date.now() - lastChangeAt > STALL_TIMEOUT_MS) {
+          stopPolling();
+          setErrorMessage(
+            "Processing has not moved for 5 minutes. The background worker " +
+            "may be down — please try the upload again."
           );
           setPhase("error");
         } else {
