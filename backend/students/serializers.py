@@ -908,6 +908,7 @@ class StudentCreateSerializer(serializers.ModelSerializer):
             )
 
             ParentStudentRelationship.objects.create(
+                tenant=current_tenant,
                 parent=parent_profile,
                 student=student,
                 relationship=relationship or "Guardian",

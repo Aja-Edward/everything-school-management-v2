@@ -424,8 +424,9 @@ def _create_student_from_cleaned(tenant, cleaned):
         admission_date=cleaned["admission_date"],
     )
 
-    # Link parent
+    # Link parent — tenant must be set, several views scope this table by it
     ParentStudentRelationship.objects.get_or_create(
+        tenant=tenant,
         parent=cleaned["parent_profile"],
         student=student,
         defaults={
