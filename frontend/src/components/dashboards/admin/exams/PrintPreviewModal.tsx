@@ -275,8 +275,13 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
               {/* Margins */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Margins</label>
-                <div className="grid grid-cols-3 gap-1">
-                  {(['narrow', 'normal', 'wide'] as const).map(v => (
+                <div className="grid grid-cols-4 gap-1">
+                  {([
+                    ['tight',  '6mm'],
+                    ['narrow', '13mm'],
+                    ['normal', '25mm'],
+                    ['wide',   '38mm'],
+                  ] as const).map(([v, hint]) => (
                     <button
                       key={v}
                       onClick={() => setPrintSettings(p => ({ ...p, margin: v }))}
@@ -285,12 +290,62 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
                           ? 'bg-blue-600 text-white border-blue-600'
                           : 'border-gray-300 text-gray-600 hover:bg-gray-100'
                       }`}
+                      title={`${v} — about ${hint} on every side`}
                     >
                       {v}
                     </button>
                   ))}
                 </div>
-                <p className="text-xs text-gray-400 mt-1">Normal = 1 inch all sides</p>
+
+                <button
+                  onClick={() =>
+                    setPrintSettings(p => ({
+                      ...p,
+                      margin: 'custom',
+                      margin_mm: p.margin_mm ?? { top: 10, right: 10, bottom: 10, left: 10 },
+                    }))
+                  }
+                  className={`w-full mt-1 py-1.5 rounded border text-xs font-medium transition-colors ${
+                    printSettings.margin === 'custom'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  Custom
+                </button>
+
+                {printSettings.margin === 'custom' && (
+                  <div className="grid grid-cols-4 gap-1 mt-1">
+                    {(['top', 'right', 'bottom', 'left'] as const).map(side => (
+                      <label key={side} className="flex flex-col gap-0.5">
+                        <span className="text-[10px] text-gray-500 capitalize">{side}</span>
+                        <input
+                          type="number"
+                          min={5}
+                          max={50}
+                          value={printSettings.margin_mm?.[side] ?? 10}
+                          onChange={e =>
+                            setPrintSettings(p => ({
+                              ...p,
+                              margin_mm: {
+                                top: 10, right: 10, bottom: 10, left: 10,
+                                ...p.margin_mm,
+                                [side]: Number(e.target.value),
+                              },
+                            }))
+                          }
+                          className="w-full border border-gray-300 rounded px-1.5 py-1 text-xs"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                )}
+
+                <p className="text-xs text-gray-400 mt-1">
+                  {printSettings.margin === 'custom'
+                    ? 'Millimetres per side. Kept between 5 and 50 — most printers cannot print the outer few millimetres.'
+                    : 'Tight fits the most on a page; normal is 1 inch all round.'}
+                </p>
               </div>
 
               {/* Toggles */}

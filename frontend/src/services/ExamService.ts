@@ -70,7 +70,12 @@ export interface PrintSettings {
   line_height: number;        // 1.0 | 1.5 | 2.0
   option_layout: 'auto' | 'inline' | 'stacked';
   column_layout: 1 | 2;
-  margin: 'normal' | 'narrow' | 'wide';
+  margin: 'tight' | 'narrow' | 'normal' | 'wide' | 'custom';
+  /**
+   * Per-side margins in millimetres, used when margin === 'custom'.
+   * Lets a school squeeze a paper onto fewer sheets.
+   */
+  margin_mm?: { top: number; right: number; bottom: number; left: number };
   show_marks: boolean;
   show_instructions: boolean;
 }

@@ -17,20 +17,32 @@ const ApprovalModal: React.FC<Props> = ({ open, exam, onApprove, onReject, onClo
 
   if (!open || !exam) return null;
 
-  // Check if exam is in a valid state for approval/rejection
-  // Use the backend's is_pending_approval flag if available, otherwise check status
-  const isPending = (exam as any).is_pending_approval === true || 
-                    exam.status === 'pending_approval' || exam.status === 'scheduled'
-                    exam.status_display?.toLowerCase().includes('pending');
-  
+  /**
+   * Exam status is a foreign key, serialized as { id, name, code, ... }.
+   * Comparing or lower-casing it directly throws and takes the modal down.
+   * Older exams may still carry a plain string.
+   */
+  const statusCode = (status: any): string =>
+    typeof status === 'string'
+      ? status.toLowerCase()
+      : String(status?.code ?? status?.name ?? '').toLowerCase();
 
- // Get the exam status as a lowercase string for comparisons
-  const examStatus = (exam.status_display || exam.status || '').toLowerCase();
+  const examStatus = statusCode(exam.status_display ?? exam.status);
+
+  // The backend only approves exams sitting at pending_approval, so mirror that
+  // exactly — offering the action for other states just fails at the server.
+  const isPending =
+    (exam as any).is_pending_approval === true || examStatus === 'pending_approval';
 
   // Get readable status
   const getStatusDisplay = () => {
-    const status = exam.status_display || exam.status || 'Unknown';
-    return status.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+    const label =
+      typeof exam.status_display === 'string' && exam.status_display
+        ? exam.status_display
+        : (exam.status as any)?.name ?? examStatus ?? 'Unknown';
+    return String(label)
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (l) => l.toUpperCase());
   };
 
   // Get status badge color

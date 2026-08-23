@@ -101,10 +101,35 @@ const FONT_MAP: Record<string, string> = {
 };
 
 const MARGIN_MAP: Record<string, string> = {
+  tight:  '0.25in',
   narrow: '0.5in',
   normal: '1in',
   wide:   '1.5in',
 };
+
+/** Most printers can't image the outer ~5mm, and the page number needs room. */
+const MIN_MARGIN_MM = 5;
+const MAX_MARGIN_MM = 50;
+
+const clampMm = (value: unknown, fallback = 10): number => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(MAX_MARGIN_MM, Math.max(MIN_MARGIN_MM, Math.round(n)));
+};
+
+/** The @page margin shorthand for the chosen setting. */
+function resolveMargin(ps: PrintSettings): string {
+  if (ps.margin === 'custom') {
+    const m = ps.margin_mm;
+    return [
+      clampMm(m?.top),
+      clampMm(m?.right),
+      clampMm(m?.bottom),
+      clampMm(m?.left),
+    ].map(v => `${v}mm`).join(' ');
+  }
+  return MARGIN_MAP[ps.margin] ?? '1in';
+}
 
 /**
  * Build dynamic CSS from print settings.
@@ -112,7 +137,7 @@ const MARGIN_MAP: Record<string, string> = {
  */
 function buildPrintCss(ps: PrintSettings): string {
   const font    = FONT_MAP[ps.font_family] ?? FONT_MAP.times_new_roman;
-  const margin  = MARGIN_MAP[ps.margin]    ?? '1in';
+  const margin  = resolveMargin(ps);
   const columns = ps.column_layout === 2
     ? 'column-count: 2; column-gap: 1.5em;'
     : '';
