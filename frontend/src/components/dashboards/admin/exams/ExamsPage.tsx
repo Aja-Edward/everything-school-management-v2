@@ -275,6 +275,20 @@ const handleEditExam = useCallback((exam: Exam) => {
       ? status.toLowerCase()
       : String(status?.code ?? status?.name ?? '').toLowerCase();
 
+  /**
+   * Render a foreign key as text.
+   *
+   * subject, grade_level, exam_type and difficulty_level are all nested
+   * objects like { id, name, code, ... }. Putting one straight into JSX throws
+   * React error #31 and the ErrorBoundary swallows the whole page, so anything
+   * that might be an FK goes through here.
+   */
+  const displayName = (value: any): string => {
+    if (value === null || value === undefined || value === '') return '--';
+    if (typeof value === 'string' || typeof value === 'number') return String(value);
+    return value.name ?? value.title ?? value.code ?? '--';
+  };
+
   /** Human-readable status. Rendering the raw object throws in React. */
   const statusLabel = (status: any): string =>
     typeof status === 'string'
@@ -569,11 +583,11 @@ const handleEditExam = useCallback((exam: Exam) => {
                 <div className="grid grid-cols-2 gap-3 mb-4">
                   <div className="flex items-center gap-2 text-sm text-slate-600">
                     <BookOpen className="w-4 h-4 text-slate-400" />
-                    <span>{exam.subject_name || exam.subject || "--"}</span>
+                    <span>{exam.subject_name || displayName(exam.subject)}</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-slate-600">
                     <GraduationCap className="w-4 h-4 text-slate-400" />
-                    <span>{exam.grade_level_name || exam.grade_level || "--"}</span>
+                    <span>{exam.grade_level_name || displayName(exam.grade_level)}</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-slate-600">
                     <Calendar className="w-4 h-4 text-slate-400" />
@@ -645,15 +659,15 @@ const handleEditExam = useCallback((exam: Exam) => {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2 text-sm text-slate-700">
                           <BookOpen className="w-4 h-4 text-slate-400" />
-                          {exam.subject_name || exam.subject || "--"}
+                          {exam.subject_name || displayName(exam.subject)}
                         </div>
                         <div className="flex items-center gap-2 text-sm text-slate-600 mt-1">
                           <GraduationCap className="w-4 h-4 text-slate-400" />
-                          {exam.grade_level_name || exam.grade_level || "--"}
+                          {exam.grade_level_name || displayName(exam.grade_level)}
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="text-sm text-slate-700">{exam.exam_type_display || exam.exam_type || "--"}</div>
+                        <div className="text-sm text-slate-700">{exam.exam_type_display || displayName(exam.exam_type)}</div>
                         <div className="text-sm text-slate-500 mt-1">
                           {exam.exam_date ? new Date(exam.exam_date).toLocaleDateString() : "--"}
                         </div>
