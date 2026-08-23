@@ -403,6 +403,23 @@ function generateStudentCopy(
     .question-content {
       display: inline;
     }
+    /* Question text comes from the rich-text editor wrapped in <p>, which is a
+       block element — so the text dropped to the line below its number and left
+       the number stranded on a line of its own. Run the first paragraph inline
+       with the number; later paragraphs still start on their own line. */
+    .question-content > p {
+      margin: 0;
+      display: inline;
+    }
+    /* The whitespace between the number and the text collapses once the
+       paragraph is inline, so hold the gap open explicitly. */
+    .question-content {
+      margin-left: 0.35em;
+    }
+    .question-content > p + p {
+      display: block;
+      margin-top: 4px;
+    }
 
     /* Images in questions */
     .question-content img, img {
@@ -691,6 +708,10 @@ function generateTeacherCopy(
     .section-instruction { margin: 6px 0 8px 0; font-weight: bold; font-size: 13px; padding: 4px 0; }
 
     .question { margin: 8px 0; padding-left: 10px; page-break-inside: avoid; }
+    /* See the student copy: keep the question text on the same line as its number. */
+    .question-content > p { margin: 0; display: inline; }
+    .question-content { margin-left: 0.35em; }
+    .question-content > p + p { display: block; margin-top: 4px; }
     .question-content { display: inline; }
 
     .question-content img, img { max-width: 100%; height: auto; margin: 10px 0; display: block; border: 1px solid #ddd; border-radius: 4px; padding: 4px; background: #fff; }
