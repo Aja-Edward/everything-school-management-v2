@@ -22,6 +22,26 @@ class TenantFilterMixin:
     CRITICAL: This ensures data from one tenant is never visible to another tenant.
     """
 
+    def perform_create(self, serializer):
+        """
+        Stamp the tenant when creating through a tenant-scoped viewset.
+
+        TenantMixin makes the field nullable, so a serializer that never sets
+        it saves a row belonging to no school. Those rows vanish from the
+        school that created them and slip through any query that filters by
+        tenant — the mismatch reads as "it saved but I can't see it".
+
+        A viewset that overrides perform_create is responsible for passing the
+        tenant itself.
+        """
+        model = getattr(getattr(serializer, "Meta", None), "model", None)
+        tenant = getattr(self.request, "tenant", None)
+
+        if tenant is not None and model is not None and hasattr(model, "tenant"):
+            serializer.save(tenant=tenant)
+        else:
+            serializer.save()
+
     def get_queryset(self):
         """Override to add tenant filtering"""
         queryset = super().get_queryset()

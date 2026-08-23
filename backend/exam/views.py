@@ -387,10 +387,17 @@ class ExamViewSet(
         return queryset.none()
 
     def perform_create(self, serializer):
+        # Exam is tenant-scoped, and its tenant field is nullable, so failing to
+        # set it here saves an exam belonging to no school — invisible to the
+        # school that created it, and unfiltered everywhere else.
+        tenant = getattr(self.request, "tenant", None)
+        if not tenant:
+            raise ValidationError("Tenant context required to create an exam.")
+
         # Auto-assign the tenant's default/active exam schedule if none supplied.
         # This prevents the Exam.clean() "No exam schedule available" error when
         # teachers create exams without selecting a schedule in the form.
-        extra = {}
+        extra = {"tenant": tenant}
         if not serializer.validated_data.get('exam_schedule'):
             schedule = (
                 ExamSchedule.objects.filter(
