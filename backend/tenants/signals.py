@@ -78,6 +78,15 @@ def seed_all_tenant_defaults(sender, instance, created, **kwargs):
             _seed_assessment_components(instance)
             logger.info(f"[{instance.slug}] ✅ Assessment components seeded")
 
+            # ── 6. Exam lookups (depends on tenant only) ──────────────────────
+            # Step 4 seeds result.ExamType. These are the exam app's own
+            # ExamType/DifficultyLevel/ExamStatus tables, which back the exam
+            # form dropdowns and the status transitions — without them the
+            # dropdowns render empty and start/end/cancel cannot resolve a
+            # status.
+            _seed_exam_lookups(instance)
+            logger.info(f"[{instance.slug}] ✅ Exam lookups seeded")
+
     except Exception as e:
         logger.error(
             f"[{instance.slug}] ❌ Seeding failed: {e}",
@@ -196,6 +205,32 @@ COMPONENT_DEFAULTS = {
         },
     ],
 }
+
+
+def _seed_exam_lookups(tenant):
+    """
+    Seed exam.ExamType / DifficultyLevel / ExamStatus for a tenant.
+
+    Shares its definitions with the seed_exam_defaults management command so
+    new tenants and existing ones end up with identical rows.
+    """
+    from exam.management.commands.seed_exam_defaults import (
+        DIFFICULTY_LEVELS,
+        EXAM_STATUSES,
+        EXAM_TYPES,
+    )
+    from exam.models import DifficultyLevel, ExamStatus, ExamType
+
+    for model, rows in (
+        (ExamType, EXAM_TYPES),
+        (DifficultyLevel, DIFFICULTY_LEVELS),
+        (ExamStatus, EXAM_STATUSES),
+    ):
+        for row in rows:
+            defaults = {k: v for k, v in row.items() if k != "code"}
+            model.objects.get_or_create(
+                tenant=tenant, code=row["code"], defaults=defaults
+            )
 
 
 def _seed_exam_types(tenant):
