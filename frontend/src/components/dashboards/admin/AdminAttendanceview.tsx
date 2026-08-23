@@ -27,6 +27,7 @@ import {
   AttendanceSession,
 } from '@/services/AttendanceService';
 import StudentService, { Student } from '@/services/StudentService';
+import { API_BASE_URL } from '@/services/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -171,12 +172,19 @@ const AttendanceDashboard: React.FC = () => {
     setError(null);
     try {
       const params = buildApiParams();
-      // Use raw api call to preserve count for pagination
+      // Raw call so the paginated envelope (count) survives for pagination.
+      // It still has to go through API_BASE_URL and carry the tenant header —
+      // a relative '/api/...' path is answered by the static host with
+      // index.html, and without the header request.tenant is None.
+      const headers: Record<string, string> = {};
+      const tenantSlug = localStorage.getItem('tenantSlug');
+      if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
+
       const res = await fetch(
-        `/api/attendance/attendance/?${new URLSearchParams(
+        `${API_BASE_URL}/attendance/attendance/?${new URLSearchParams(
           Object.entries(params).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)])
         )}`,
-        { credentials: 'include' }
+        { credentials: 'include', headers }
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
