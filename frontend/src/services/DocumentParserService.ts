@@ -12,6 +12,8 @@
  * CSRF token is read from the readable `csrftoken` cookie and sent as `X-CSRFToken`.
  */
 
+import { API_BASE_URL } from './api';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -156,7 +158,7 @@ export async function parseExamDocument(file: File): Promise<ParsedExamData> {
  * Fetch the backend's document parser library availability status.
  */
 export async function getDocumentParserStatus(): Promise<ParserLibraryStatus> {
-  const response = await fetch('/api/exams/parser-status/', {
+  const response = await fetch(`${API_BASE_URL}/exams/parser-status/`, {
     method: 'GET',
     credentials: 'include',
     headers: buildHeaders(),
@@ -305,7 +307,7 @@ async function parseDocumentViaBackend(file: File, documentType: DocumentType): 
   let response: Response;
 
   try {
-    response = await fetch('/api/exams/parse-document/', {
+    response = await fetch(`${API_BASE_URL}/exams/parse-document/`, {
       method: 'POST',
       body: formData,
       credentials: 'include',

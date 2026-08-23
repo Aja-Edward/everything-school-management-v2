@@ -1,4 +1,4 @@
-import api from './api';
+import api, { API_BASE_URL, buildHeaders } from './api';
 
 // Exam Types
 export interface Exam {
@@ -888,3 +888,65 @@ export class ExamService {
   }
 }
 
+
+// ---------------------------------------------------------------------------
+// Server-side PDF export
+// ---------------------------------------------------------------------------
+
+/**
+ * Render an exam paper to PDF on the server and download it.
+ *
+ * The HTML comes from examHtmlGenerator — the same markup the print preview
+ * shows — so the PDF matches the preview exactly. Unlike the browser's print
+ * dialog, this produces a real PDF with deterministic pagination and page
+ * numbers, and no browser-added URL/date headers.
+ */
+export async function downloadExamPdf(
+  examId: number,
+  html: string,
+  copyType: 'student' | 'teacher' = 'student',
+): Promise<void> {
+  const headers = await buildHeaders('POST');
+
+  const res = await fetch(`${API_BASE_URL}/exams/${examId}/export-pdf/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers,
+    body: JSON.stringify({ html, copy_type: copyType }),
+  });
+
+  if (!res.ok) {
+    let message = `PDF export failed (HTTP ${res.status}).`;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch {
+      // Response wasn't JSON — keep the status-based message.
+    }
+    throw new Error(message);
+  }
+
+  // A non-PDF body means something upstream answered instead of the API.
+  const contentType = res.headers.get('Content-Type') ?? '';
+  if (!contentType.includes('application/pdf')) {
+    throw new Error(`Expected a PDF, got ${contentType || 'no content type'}`);
+  }
+
+  const blob = await res.blob();
+  if (blob.size === 0) throw new Error('The server returned an empty PDF.');
+
+  const disposition = res.headers.get('Content-Disposition');
+  const match = disposition?.match(/filename="?([^"]+)"?/);
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = match?.[1] ?? `exam_${examId}.pdf`;
+
+  // The anchor must be in the document, and the object URL has to outlive the
+  // click — revoking it immediately truncates the download.
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}

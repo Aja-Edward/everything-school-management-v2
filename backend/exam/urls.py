@@ -17,6 +17,7 @@ from .document_views import (
     parse_exam_document,
     document_parser_status,
 )
+from .pdf_views import export_exam_pdf
 
 # Create router for ViewSets
 router = DefaultRouter()
@@ -294,6 +295,11 @@ custom_patterns = [
         "parser-status/",
         document_parser_status,
         name="document-parser-status",
+    ),
+    path(
+        "<int:exam_id>/export-pdf/",
+        export_exam_pdf,
+        name="exam-export-pdf",
     ),
 ]
 

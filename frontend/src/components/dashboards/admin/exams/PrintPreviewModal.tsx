@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Printer, Settings2 } from 'lucide-react';
-import { Exam, PrintSettings, DEFAULT_PRINT_SETTINGS } from '@/services/ExamService';
+import { X, Printer, Settings2, FileDown } from 'lucide-react';
+import { Exam, PrintSettings, DEFAULT_PRINT_SETTINGS, downloadExamPdf } from '@/services/ExamService';
 import { generateExamHtml } from '@/utils/examHtmlGenerator';
 import { useSettings } from '@/contexts/SettingsContext';
 import { normalizeExamDataForDisplay } from '@/utils/examDataNormalizer';
@@ -19,6 +19,8 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
 
   const [copyType,     setCopyType]     = useState<'student' | 'teacher'>('student');
   const [printSettings, setPrintSettings] = useState<PrintSettings>({ ...DEFAULT_PRINT_SETTINGS });
+  const [downloading,  setDownloading]  = useState(false);
+  const [pdfError,     setPdfError]     = useState<string | null>(null);
   const [showPanel,    setShowPanel]    = useState(false);
   const [saving,       setSaving]       = useState(false);
   const [html,         setHtml]         = useState('');
@@ -52,6 +54,21 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
 
   const handlePrint = () => {
     iframeRef.current?.contentWindow?.print();
+  };
+
+  // Server-rendered PDF — same HTML as the preview, but with real pagination
+  // and page numbers instead of whatever the browser's print dialog produces.
+  const handleDownloadPdf = async () => {
+    if (!exam?.id || !html) return;
+    setPdfError(null);
+    setDownloading(true);
+    try {
+      await downloadExamPdf(exam.id, html, copyType);
+    } catch (err) {
+      setPdfError(err instanceof Error ? err.message : 'Could not download the PDF.');
+    } finally {
+      setDownloading(false);
+    }
   };
 
   const handleSaveSettings = async () => {
@@ -117,15 +134,35 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
             )}
             <button
               onClick={handlePrint}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors"
             >
               <Printer size={13} /> Print
+            </button>
+            <button
+              onClick={handleDownloadPdf}
+              disabled={downloading || !html}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              <FileDown size={13} /> {downloading ? 'Building PDF…' : 'Download PDF'}
             </button>
             <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors">
               <X size={18} />
             </button>
           </div>
         </div>
+
+        {pdfError && (
+          <div className="px-5 py-2 bg-red-50 border-b border-red-200 text-xs text-red-700 flex items-center justify-between flex-shrink-0">
+            <span>{pdfError}</span>
+            <button
+              onClick={() => setPdfError(null)}
+              className="text-red-500 hover:text-red-700"
+              aria-label="Dismiss error"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
 
         <div className="flex flex-1 overflow-hidden">
           {/* ── Format panel ── */}
