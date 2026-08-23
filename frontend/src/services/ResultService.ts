@@ -49,7 +49,7 @@
  *   GET    /api/results/analytics/subject_performance/?exam_session_id=<uuid>&education_level=<LEVEL>
  */
 
-import api from './api';
+import api, { getTenantSlug } from './api';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -607,7 +607,7 @@ function getCsrfToken(): string | null {
 function buildHeaders(opts: { csrf?: boolean; json?: boolean } = {}): Record<string, string> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (opts.json) headers['Content-Type'] = 'application/json';
-  const slug = localStorage.getItem('tenantSlug');
+  const slug = getTenantSlug();
   if (slug) headers['X-Tenant-Slug'] = slug;
   if (opts.csrf) {
     const csrf = getCsrfToken();

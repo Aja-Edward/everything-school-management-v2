@@ -3,6 +3,32 @@
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
+/** Subdomains that are never a school. */
+const RESERVED_SUBDOMAINS = new Set(['www', 'app', 'api', 'admin', 'staging']);
+
+/**
+ * The tenant slug to send as X-Tenant-Slug.
+ *
+ * Prefers what TenantContext stored, and falls back to the subdomain the app
+ * is served from. The API runs on a different host to the school subdomain, so
+ * the backend cannot infer the tenant itself — with an empty localStorage every
+ * tenant-scoped request comes back 403 "Tenant context required", which reads
+ * as a permissions problem rather than a missing header.
+ */
+export const getTenantSlug = (): string | null => {
+  const stored = localStorage.getItem('tenantSlug');
+  if (stored) return stored;
+
+  const labels = window.location.hostname.split('.');
+  // school.localhost in development, school.nuventacloud.com in production.
+  const isDevSubdomain = labels.length === 2 && labels[1] === 'localhost';
+  if (!isDevSubdomain && labels.length < 3) return null;
+
+  const slug = labels[0];
+  if (!slug || RESERVED_SUBDOMAINS.has(slug)) return null;
+  return slug;
+};
+
 // ─── CSRF token ───────────────────────────────────────────────────────────────
 
 let csrfToken: string | null = null;
@@ -68,7 +94,7 @@ export const storeTokens = (tokens: { access?: string; refresh?: string }): void
 
 const attemptTokenRefresh = async (): Promise<boolean> => {
   try {
-    const tenantSlug = localStorage.getItem('tenantSlug');
+    const tenantSlug = getTenantSlug();
     const response = await fetch(`${API_BASE_URL}/auth/refresh/`, {
       method: 'POST',
       credentials: 'include',
@@ -166,7 +192,7 @@ export const buildHeaders = async (method: string): Promise<Record<string, strin
     'Content-Type': 'application/json',
   };
 
-  const tenantSlug = localStorage.getItem('tenantSlug');
+  const tenantSlug = getTenantSlug();
   if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
 
   if (method !== 'GET') {

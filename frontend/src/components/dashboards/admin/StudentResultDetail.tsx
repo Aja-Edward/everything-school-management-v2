@@ -23,7 +23,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useGlobalTheme } from '@/contexts/GlobalThemeContext';
 import StudentService, { Student } from '@/services/StudentService';
 import { ExamSession} from '@/types/types'
-import ResultService from '@/services/ResultService';
+import ResultService, { EducationLevelType } from '@/services/ResultService';
 import {SubjectInfo} from '@/types/types'
 import { toast } from 'react-toastify';
 import { Exam } from '@/services/ExamService';
@@ -182,36 +182,20 @@ const loadData = async () => {
 
     let finalResults: Result[] = [];
 
-    try {
-      // Pass the string version of studentId to ResultService
-      console.log('Attempting to get student-specific results with education level...');
-      const specificResults = await ResultService.getStudentResults({ 
-        student: studentId, // Use the string version
-        education_level: studentData.education_level
-      });
-      console.log('Student-specific results:', specificResults);
-      
-      if (specificResults && Array.isArray(specificResults) && specificResults.length > 0) {
-        finalResults = specificResults;
-      }
-      console.log('Results after student-specific fetch:', finalResults);
-    } catch (error) {
-      console.log('Student-specific results failed:', error);
-    }
+    // Results are stored per education level, so the level selects the
+    // endpoint. The old getStudentResults/getResultsByStudent pair both hit
+    // this same one — the second was a retry of the first, not a fallback.
+    const level = studentData.education_level as EducationLevelType;
 
-    // If no specific results found, try the alternative method
-    if (finalResults.length === 0) {
-      try {
-        console.log('Attempting alternative method with getResultsByStudent...');
-        const altResults = await ResultService.getResultsByStudent(
-          studentId, // Use the string version
-          studentData.education_level
-        );
-        console.log('Alternative results:', altResults);
-        finalResults = altResults;
-      } catch (error) {
-        console.log('Alternative results fetch failed:', error);
+    try {
+      const specificResults = await ResultService.getSubjectResults(level, {
+        student: studentId,
+      });
+      if (Array.isArray(specificResults)) {
+        finalResults = specificResults as unknown as Result[];
       }
+    } catch (error) {
+      console.error('Failed to load results for this student:', error);
     }
 
     console.log('Final results for student:', finalResults);
@@ -238,9 +222,15 @@ const loadData = async () => {
     setUpdatingStatus(resultId);
     
     if (newStatus === 'APPROVED') {
-      await ResultService.approveResult(resultId, educationLevel);
+      await ResultService.approveSubjectResult(
+        educationLevel as EducationLevelType,
+        resultId,
+      );
     } else if (newStatus === 'PUBLISHED') {
-      await ResultService.publishResult(resultId, educationLevel);
+      await ResultService.publishSubjectResult(
+        educationLevel as EducationLevelType,
+        resultId,
+      );
     } else {
       throw new Error(`Unsupported status change: ${newStatus}`);
     }

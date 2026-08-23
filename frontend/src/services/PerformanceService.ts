@@ -1,4 +1,4 @@
-import api, { API_BASE_URL } from './api';
+import api, { API_BASE_URL, getTenantSlug } from './api';
 
 const BASE = '/api/teachers';
 
@@ -298,7 +298,7 @@ const PerformanceService = {
     // can only be resolved from this header — without it request.tenant is None
     // and the backend can't find the teacher.
     const headers: Record<string, string> = {};
-    const tenantSlug = localStorage.getItem('tenantSlug');
+    const tenantSlug = getTenantSlug();
     if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
 
     // Must go through API_BASE_URL. A relative '/api/...' path is served by the

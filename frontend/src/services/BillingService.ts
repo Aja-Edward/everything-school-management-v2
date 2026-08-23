@@ -5,7 +5,7 @@
  * ============================================================================
  */
 
-import api, { API_BASE_URL } from './api';
+import api, { API_BASE_URL, getTenantSlug } from './api';
 import type {
   Invoice,
   CreateInvoiceRequest,
@@ -63,7 +63,7 @@ export const getInvoice = async (invoiceId: string): Promise<Invoice> => {
  * api.ts handles JSON only, so we replicate its headers manually here.
  */
 export const downloadInvoicePDF = async (invoiceId: string): Promise<Blob> => {
-  const tenantSlug = localStorage.getItem('tenantSlug') || '';
+  const tenantSlug = getTenantSlug() || '';
 
   const response = await fetch(
     `${API_BASE_URL}/billing/invoices/${invoiceId}/pdf/`,

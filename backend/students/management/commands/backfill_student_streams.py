@@ -26,7 +26,10 @@ class Command(BaseCommand):
         parser.add_argument(
             "--upload-id",
             type=int,
-            help="BulkUploadRecord id — reads the file the students came from.",
+            help=(
+                "BulkUploadRecord id. Defaults to the school's most recent "
+                "completed student upload."
+            ),
         )
         parser.add_argument("--file", help="Local path or URL, instead of --upload-id.")
         parser.add_argument(
@@ -53,22 +56,18 @@ class Command(BaseCommand):
             raise CommandError(f"No tenant matches '{options['tenant']}'.")
 
         source = options.get("file")
-        if options.get("upload_id"):
-            try:
-                record = BulkUploadRecord.objects.get(
-                    pk=options["upload_id"], tenant=tenant
-                )
-            except BulkUploadRecord.DoesNotExist:
-                raise CommandError(
-                    f"No upload {options['upload_id']} for this school."
-                )
-            source = record.file_path
-            ext = record.file_ext
-            self.stdout.write(f"Reading upload {record.pk}: {record.original_filename}")
-        elif source:
+        if source:
             ext = os.path.splitext(source)[1].lower() or ".xlsx"
         else:
-            raise CommandError("Pass --upload-id or --file.")
+            record = self._resolve_upload(
+                BulkUploadRecord, tenant, options.get("upload_id")
+            )
+            source = record.file_path
+            ext = record.file_ext
+            self.stdout.write(
+                f"Reading upload {record.pk}: {record.original_filename} "
+                f"({record.imported_rows} students imported)"
+            )
 
         local_path = _download_if_url(source, ext)
         try:
@@ -141,6 +140,26 @@ class Command(BaseCommand):
                     f"{', '.join(sorted(unresolved_names))} — run seed_streams first"
                 )
             )
+
+    @staticmethod
+    def _resolve_upload(BulkUploadRecord, tenant, upload_id):
+        """The named upload, or the school's most recent completed one."""
+        if upload_id:
+            try:
+                return BulkUploadRecord.objects.get(pk=upload_id, tenant=tenant)
+            except BulkUploadRecord.DoesNotExist:
+                raise CommandError(f"No upload {upload_id} for this school.")
+
+        record = (
+            BulkUploadRecord.objects.filter(tenant=tenant, status="completed")
+            .order_by("-id")
+            .first()
+        )
+        if not record:
+            raise CommandError(
+                "This school has no completed student upload — pass --file instead."
+            )
+        return record
 
     @staticmethod
     def _find_student(Student, tenant, row):

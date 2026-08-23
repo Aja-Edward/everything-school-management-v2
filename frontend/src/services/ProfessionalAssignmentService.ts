@@ -1,5 +1,5 @@
 // services/ProfessionalAssignmentService.ts
-import api, { API_BASE_URL } from './api';
+import api, { API_BASE_URL, getTenantSlug } from './api';
 import type {
   AssignedStudentsResponse,
   UpdateTeacherRemarkRequest,
@@ -38,7 +38,7 @@ function getCsrfToken(): string | null {
 function buildHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
 
-  const tenantSlug = localStorage.getItem('tenantSlug');
+  const tenantSlug = getTenantSlug();
   if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
 
   const csrfToken = getCsrfToken();

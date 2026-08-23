@@ -12,7 +12,7 @@
  * CSRF token is read from the readable `csrftoken` cookie and sent as `X-CSRFToken`.
  */
 
-import { API_BASE_URL } from './api';
+import { API_BASE_URL, getTenantSlug } from './api';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -98,7 +98,7 @@ function buildHeaders(options: { includeCsrf?: boolean } = {}): Record<string, s
     Accept: 'application/json',
   };
 
-  const tenantSlug = localStorage.getItem('tenantSlug');
+  const tenantSlug = getTenantSlug();
   if (tenantSlug) {
     headers['X-Tenant-Slug'] = tenantSlug;
   }

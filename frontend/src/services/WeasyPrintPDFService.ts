@@ -4,7 +4,7 @@
  * Completely separate from React PDF functionality
  */
 
-import api from './api';
+import api, { getTenantSlug } from './api';
 
 export type EducationLevel = 'NURSERY' | 'PRIMARY' | 'JUNIOR_SECONDARY' | 'SENIOR_SECONDARY';
 export type TermType = 'FIRST' | 'SECOND' | 'THIRD';
@@ -48,7 +48,7 @@ class WeasyPrintPDFService {
   private getHeaders(extra?: Record<string, string>): Record<string, string> {
     const headers: Record<string, string> = {};
 
-    const tenantSlug = localStorage.getItem('tenantSlug');
+    const tenantSlug = getTenantSlug();
     if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
 
     return { ...headers, ...extra };

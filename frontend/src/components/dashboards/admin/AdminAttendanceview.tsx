@@ -27,7 +27,7 @@ import {
   AttendanceSession,
 } from '@/services/AttendanceService';
 import StudentService, { Student } from '@/services/StudentService';
-import { API_BASE_URL } from '@/services/api';
+import { API_BASE_URL, getTenantSlug } from '@/services/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -177,7 +177,7 @@ const AttendanceDashboard: React.FC = () => {
       // a relative '/api/...' path is answered by the static host with
       // index.html, and without the header request.tenant is None.
       const headers: Record<string, string> = {};
-      const tenantSlug = localStorage.getItem('tenantSlug');
+      const tenantSlug = getTenantSlug();
       if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
 
       const res = await fetch(

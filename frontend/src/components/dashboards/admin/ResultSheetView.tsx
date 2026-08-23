@@ -13,7 +13,12 @@ import {
   SortDesc,
   Loader2
 } from 'lucide-react';
-import ResultService, { StandardResult, StudentTermResult, FilterParams } from '@/services/ResultService';
+import ResultService, {
+  AnySubjectResult,
+  AnyTermReport,
+  EducationLevelType,
+  SubjectResultParams,
+} from '@/services/ResultService';
 import { toast } from 'react-toastify';
 
 interface GroupedStudentResults {
@@ -23,7 +28,7 @@ interface GroupedStudentResults {
   registration_number: string;
   student_class: string;
   education_level: string;
-  subjects: StandardResult[];
+  subjects: AnySubjectResult[];
   total_score: number;
   average_score: number;
   position: number;
@@ -53,7 +58,7 @@ const ResultSheetView: React.FC<ResultSheetViewProps> = ({
   selectedResultType = 'termly'
 }) => {
   const [resultSheetData, setResultSheetData] = useState<GroupedStudentResults[]>([]);
-  const [termResults, setTermResults] = useState<StudentTermResult[]>([]);
+  const [termResults, setTermResults] = useState<AnyTermReport[]>([]);
   const [filteredResults, setFilteredResults] = useState<GroupedStudentResults[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,10 +83,9 @@ const ResultSheetView: React.FC<ResultSheetViewProps> = ({
       setLoading(true);
       setError(null);
 
-      const params: FilterParams = {
-        education_level: educationLevelFilter,
-        result_type: selectedResultType
-      };
+      // The education level selects the endpoint rather than being a filter.
+      const level = educationLevelFilter as EducationLevelType;
+      const params: SubjectResultParams = {};
 
       // Add filters if provided
       if (termFilter) params.term = termFilter;
@@ -89,10 +93,12 @@ const ResultSheetView: React.FC<ResultSheetViewProps> = ({
       if (searchTerm) params.search = searchTerm;
 
       // Fetch both individual results and term results
-      const [individualResults, termResultsData] = await Promise.all([
-        ResultService.getStudentResults(params),
-        ResultService.getTermResults(params)
+      const [individualResults, termReportPage] = await Promise.all([
+        ResultService.getSubjectResults<AnySubjectResult>(level, params),
+        ResultService.getAllTermReports({ ...params, level }),
       ]);
+      // getAllTermReports returns a paginated envelope, not a bare array.
+      const termResultsData = termReportPage.results;
 
       if (import.meta.env.DEV) {
         console.log('Individual results:', individualResults);
@@ -119,8 +125,8 @@ const ResultSheetView: React.FC<ResultSheetViewProps> = ({
   };
 
   // Group individual subject results by student
-  const groupResultsByStudent = (results: StandardResult[]): GroupedStudentResults[] => {
-    const studentMap = new Map<string, StandardResult[]>();
+  const groupResultsByStudent = (results: AnySubjectResult[]): GroupedStudentResults[] => {
+    const studentMap = new Map<string, AnySubjectResult[]>();
     
     // Group results by student ID
     results.forEach(result => {

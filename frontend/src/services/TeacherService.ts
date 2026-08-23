@@ -1,4 +1,4 @@
-import api from '@/services/api';
+import api, { getTenantSlug } from '@/services/api';
 import { API_BASE_URL } from '@/services/api';
 import type {
   Teacher,
@@ -21,7 +21,7 @@ import type {
 const getHeaders = (contentType = false): Record<string, string> => {
   const headers: Record<string, string> = {};
 
-  const tenantSlug = localStorage.getItem('tenantSlug');
+  const tenantSlug = getTenantSlug();
   if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
 
   if (contentType) headers['Content-Type'] = 'application/json';
