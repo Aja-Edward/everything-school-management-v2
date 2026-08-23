@@ -67,7 +67,9 @@ export interface Exam {
 export interface PrintSettings {
   font_family: 'times_new_roman' | 'arial' | 'georgia' | 'calibri';
   font_size: number;          // 10–14
-  line_height: number;        // 1.0 | 1.5 | 2.0
+  line_height: number;        // 1.0 | 1.15 | 1.5 | 2.0
+  /** Vertical gap between questions. */
+  question_spacing?: 'compact' | 'normal' | 'relaxed';
   option_layout: 'auto' | 'inline' | 'stacked';
   column_layout: 1 | 2;
   margin: 'tight' | 'narrow' | 'normal' | 'wide' | 'custom';
@@ -84,6 +86,7 @@ export const DEFAULT_PRINT_SETTINGS: PrintSettings = {
   font_family: 'times_new_roman',
   font_size: 12,
   line_height: 1.5,
+  question_spacing: 'normal',
   option_layout: 'auto',
   column_layout: 1,
   margin: 'normal',

@@ -206,8 +206,8 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
               {/* Line spacing */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Line Spacing</label>
-                <div className="grid grid-cols-3 gap-1">
-                  {([1.0, 1.5, 2.0] as const).map(v => (
+                <div className="grid grid-cols-4 gap-1">
+                  {([1.0, 1.15, 1.5, 2.0] as const).map(v => (
                     <button
                       key={v}
                       onClick={() => setPrintSettings(p => ({ ...p, line_height: v }))}
@@ -217,10 +217,40 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
                           : 'border-gray-300 text-gray-600 hover:bg-gray-100'
                       }`}
                     >
-                      {v === 1.0 ? 'Single' : v === 1.5 ? '1.5×' : 'Double'}
+                      {v === 1.0 ? 'Tight' : v === 1.15 ? 'Single' : v === 1.5 ? '1.5×' : 'Double'}
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Question spacing */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Space Between Questions
+                </label>
+                <div className="grid grid-cols-3 gap-1">
+                  {([
+                    ['compact', '2px'],
+                    ['normal',  '8px'],
+                    ['relaxed', '14px'],
+                  ] as const).map(([v, hint]) => (
+                    <button
+                      key={v}
+                      onClick={() => setPrintSettings(p => ({ ...p, question_spacing: v }))}
+                      className={`py-1 rounded border text-xs font-medium capitalize transition-colors ${
+                        (printSettings.question_spacing ?? 'normal') === v
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {v}
+                      <span className="block text-[10px] font-normal opacity-75">{hint}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  Compact pulls questions together to fit more on a page.
+                </p>
               </div>
 
               {/* Option layout */}

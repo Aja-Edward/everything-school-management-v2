@@ -164,7 +164,12 @@ function buildPrintCss(ps: PrintSettings): string {
     .option-item  { white-space: nowrap; }
   `;
 
+  // The base stylesheet is emitted after this block, so a plain `.question`
+  // rule here would lose to it. A custom property wins regardless of order.
+  const questionGap = { compact: 2, normal: 8, relaxed: 14 }[ps.question_spacing ?? 'normal'] ?? 8;
+
   return `
+    :root { --question-gap: ${questionGap}px; }
     @page { margin: ${margin}; }
     body {
       font-family: ${font};
@@ -396,7 +401,7 @@ function generateStudentCopy(
 
     /* ===== QUESTIONS ===== */
     .question {
-      margin: 8px 0;
+      margin: var(--question-gap, 8px) 0;
       padding-left: 10px;
       page-break-inside: avoid;
     }
@@ -707,7 +712,7 @@ function generateTeacherCopy(
     .section h3 { background-color: #f0f0f0; padding: 6px 10px; margin: 8px 0 6px 0; border-left: 4px solid #333; font-size: 16px; font-weight: bold; page-break-after: avoid; }
     .section-instruction { margin: 6px 0 8px 0; font-weight: bold; font-size: 13px; padding: 4px 0; }
 
-    .question { margin: 8px 0; padding-left: 10px; page-break-inside: avoid; }
+    .question { margin: var(--question-gap, 8px) 0; padding-left: 10px; page-break-inside: avoid; }
     /* See the student copy: keep the question text on the same line as its number. */
     .question-content > p { margin: 0; display: inline; }
     .question-content { margin-left: 0.35em; }
