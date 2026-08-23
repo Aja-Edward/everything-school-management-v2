@@ -294,12 +294,19 @@ const PerformanceService = {
 
   async downloadPDReport(teacherId: number, teacherName: string): Promise<void> {
     const params = new URLSearchParams({ teacher: String(teacherId) });
+    // The API is on a different host from the school subdomain, so the tenant
+    // can only be resolved from this header — without it request.tenant is None
+    // and the backend can't find the teacher.
+    const headers: Record<string, string> = {};
+    const tenantSlug = localStorage.getItem('tenantSlug');
+    if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
+
     // Must go through API_BASE_URL. A relative '/api/...' path is served by the
     // static host, whose catch-all rewrite returns index.html with a 200 — which
     // then gets saved as an unopenable .pdf.
     const res = await fetch(
       `${API_BASE_URL}/teachers/professional-development/teacher-report/?${params}`,
-      { method: 'GET', credentials: 'include' }
+      { method: 'GET', credentials: 'include', headers }
     );
     if (!res.ok) throw new Error('Failed to generate PDF');
 
