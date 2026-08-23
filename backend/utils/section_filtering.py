@@ -107,7 +107,7 @@ class SectionFilterMixin:
         if role == "secondary_admin":
             logger.info("🔒 Secondary admin access")
             return Section.objects.filter(
-                grade_level__education_level__in=[
+                class_grade__education_level__level_type__in=[
                     "JUNIOR_SECONDARY",
                     "SENIOR_SECONDARY",
                 ]
@@ -130,7 +130,7 @@ class SectionFilterMixin:
             if edu_level:
                 logger.info(f"🔒 Section admin access for {edu_level}")
                 return Section.objects.filter(
-                    grade_level__education_level=edu_level
+                    class_grade__education_level__level_type=edu_level
                 ).distinct()
 
         # Teachers see sections of their assigned classrooms
@@ -371,7 +371,9 @@ class SectionFilterMixin:
                         return queryset.none()
 
                 # For section admins, filter by education level as before
-                filtered = queryset.filter(education_level__in=allowed_education_levels)
+                filtered = queryset.filter(
+                    student_class__education_level__level_type__in=allowed_education_levels
+                )
                 logger.info(
                     f"✅ Filtered Students: {filtered.count()} of {queryset.count()}"
                 )
@@ -413,7 +415,7 @@ class SectionFilterMixin:
 
                 # Get classrooms in allowed education levels (via section)
                 allowed_classrooms = Classroom.objects.filter(
-                    section__grade_level__education_level__in=allowed_education_levels
+                    section__class_grade__education_level__level_type__in=allowed_education_levels
                 )
 
                 # Filter teachers who are assigned to classrooms in allowed sections
@@ -451,7 +453,7 @@ class SectionFilterMixin:
             elif model_name == "ParentProfile":
                 # Filter parents whose students are in allowed education levels
                 filtered = queryset.filter(
-                    students__education_level__in=allowed_education_levels
+                    students__student_class__education_level__level_type__in=allowed_education_levels
                 ).distinct()
 
                 logger.info(
@@ -470,7 +472,7 @@ class SectionFilterMixin:
                 # Get parents who have students in allowed education levels
                 allowed_parents = (
                     ParentProfile.objects.filter(
-                        students__education_level__in=allowed_education_levels
+                        students__student_class__education_level__level_type__in=allowed_education_levels
                     )
                     .values_list("user_id", flat=True)
                     .distinct()
@@ -490,7 +492,7 @@ class SectionFilterMixin:
             # ENROLLMENT MODELS
             elif model_name == "StudentEnrollment":
                 filtered = queryset.filter(
-                    student__education_level__in=allowed_education_levels
+                    student__student_class__education_level__level_type__in=allowed_education_levels
                 )
                 logger.info(
                     f"✅ Filtered Enrollments: {filtered.count()} of {queryset.count()}"
@@ -543,18 +545,22 @@ class SectionFilterMixin:
             # SECTION MODELS
             elif model_name == "Section":
                 filtered = queryset.filter(
-                    grade_level__education_level__level_type__in=allowed_education_levels  # add __level_type
+                    class_grade__education_level__level_type__in=allowed_education_levels
                 )
 
             # EXAM/RESULT MODELS
             elif model_name in ["ExamSession", "Exam"]:
+                # allowed_education_levels holds level_type codes ('NURSERY',
+                # 'PRIMARY', …), so the lookup has to reach level_type. Comparing
+                # them against the education_level FK asks Django to read a code
+                # as a primary key, which raises and silently empties the list.
                 if hasattr(queryset.model, "education_level"):
                     filtered = queryset.filter(
-                        education_level__in=allowed_education_levels
+                        education_level__level_type__in=allowed_education_levels
                     )
                 elif hasattr(queryset.model, "grade_level"):
                     filtered = queryset.filter(
-                        grade_level__education_level__in=allowed_education_levels
+                        grade_level__education_level__level_type__in=allowed_education_levels
                     )
                 else:
                     filtered = queryset
@@ -614,7 +620,7 @@ class SectionFilterMixin:
             # ATTENDANCE MODELS
             elif model_name == "Attendance":
                 filtered = queryset.filter(
-                    student__education_level__in=allowed_education_levels
+                    student__student_class__education_level__level_type__in=allowed_education_levels
                 )
                 logger.info(
                     f"✅ Filtered Attendance: {filtered.count()} of {queryset.count()}"
@@ -624,7 +630,7 @@ class SectionFilterMixin:
             # TIMETABLE MODELS
             elif model_name == "Timetable":
                 filtered = queryset.filter(
-                    classroom__section__grade_level__education_level__in=allowed_education_levels
+                    section__class_grade__education_level__level_type__in=allowed_education_levels
                 )
                 logger.info(
                     f"✅ Filtered Timetables: {filtered.count()} of {queryset.count()}"

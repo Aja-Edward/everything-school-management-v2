@@ -179,6 +179,21 @@ export const buildHeaders = async (method: string): Promise<Record<string, strin
 
 export const getHeaders = buildHeaders;
 
+/**
+ * Headers for multipart/FormData requests.
+ *
+ * Same as buildHeaders but without Content-Type — the browser has to set that
+ * itself so the multipart boundary is correct. Setting it by hand produces a
+ * request the server cannot parse.
+ */
+export const buildUploadHeaders = async (
+  method = 'POST',
+): Promise<Record<string, string>> => {
+  const headers = await buildHeaders(method);
+  delete headers['Content-Type'];
+  return headers;
+};
+
 const parseResponse = async (response: Response): Promise<any> => {
   if (response.status === 204) return null;
   const text = await response.text();

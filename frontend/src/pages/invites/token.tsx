@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { API_BASE_URL, buildHeaders } from '@/services/api';
 
 // Define the shape of the invitation data
 interface InviteData {
@@ -21,7 +22,10 @@ const InvitePage: React.FC = () => {
 
     const fetchInvite = async () => {
       try {
-        const res = await fetch(`/api/invitations/${token}`);
+        const res = await fetch(`${API_BASE_URL}/invitations/${token}`, {
+          headers: await buildHeaders('GET'),
+          credentials: 'include',
+        });
         const data = await res.json();
 
         if (!res.ok) {

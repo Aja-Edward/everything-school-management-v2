@@ -4,7 +4,7 @@
  * Manages timetable operations including CRUD, bulk upload, and CSV import.
  */
 
-import api from './api';
+import api, { API_BASE_URL, buildUploadHeaders } from './api';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -155,10 +155,11 @@ class TimetableService {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch('/api/timetable/timetables/csv-upload/', {
+      const response = await fetch(`${API_BASE_URL}/timetable/timetables/csv-upload/`, {
         method: 'POST',
         body: formData,
         credentials: 'include',
+        headers: await buildUploadHeaders(),
       });
 
       if (!response.ok) {

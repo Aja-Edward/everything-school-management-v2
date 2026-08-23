@@ -446,6 +446,28 @@ class ExamDocumentParser:
 
         return questions
 
+    @staticmethod
+    def _strip_to_csv_header(text: str) -> str:
+        """
+        Drop comment and blank lines that appear above the column headers.
+
+        The template generator writes '#'-prefixed guidance rows above the
+        header, and teachers often leave notes of their own at the top. The
+        header is the first line that names a 'question' column.
+        """
+        lines = text.splitlines()
+        for index, line in enumerate(lines):
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#'):
+                continue
+            cells = [c.strip().strip('"').lower() for c in stripped.split(',')]
+            if 'question' in cells:
+                return "\n".join(lines[index:])
+            # A non-comment line that is not the header means the file starts
+            # with data — leave it alone and let the normal validation speak.
+            break
+        return text
+
     def _parse_csv(self) -> Dict[str, Any]:
         """Parse CSV document
 
@@ -465,8 +487,9 @@ class ExamDocumentParser:
         First row with Section="EXAM_INFO" can contain exam metadata
         """
         try:
-            # Decode bytes to string
-            text_content = self.file_content.decode('utf-8')
+            # utf-8-sig strips the BOM Excel and Google Sheets write, which
+            # would otherwise end up glued to the first column name.
+            text_content = self.file_content.decode('utf-8-sig')
         except UnicodeDecodeError:
             try:
                 # Try with latin-1 encoding as fallback
@@ -478,6 +501,11 @@ class ExamDocumentParser:
         # Validate CSV has content
         if not text_content or not text_content.strip():
             raise ValueError("CSV file is empty")
+
+        # The downloadable template carries '#' guidance lines above the header,
+        # and teachers add notes of their own. Scan for the real header row
+        # instead of assuming line 1, the way the other bulk importers do.
+        text_content = self._strip_to_csv_header(text_content)
 
         try:
             # Parse CSV

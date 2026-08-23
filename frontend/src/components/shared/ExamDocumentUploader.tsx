@@ -136,6 +136,10 @@ export const ExamDocumentUploader: React.FC<ExamDocumentUploaderProps> = ({
       }
 
       setParsedData(null);
+      // Clear the file so the uploader falls back to the drop zone, which is
+      // where the error box lives. Leaving it set matches no render branch at
+      // all — the modal goes blank and the reason is never shown.
+      setFile(null);
     } finally {
       setIsParsing(false);
     }

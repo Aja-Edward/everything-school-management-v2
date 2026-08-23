@@ -10,7 +10,7 @@
  * - Verification status
  */
 
-import api from './api';
+import api, { API_BASE_URL, buildUploadHeaders } from './api';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -266,10 +266,11 @@ class UserProfileService {
       const formData = new FormData();
       formData.append('profile_image', file);
 
-      const response = await fetch('/api/userprofile/upload_profile_picture/', {
+      const response = await fetch(`${API_BASE_URL}/userprofile/upload_profile_picture/`, {
         method: 'POST',
         body: formData,
         credentials: 'include',
+        headers: await buildUploadHeaders(),
       });
 
       if (!response.ok) {

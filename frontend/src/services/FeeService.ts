@@ -11,7 +11,7 @@
  * - Financial Reports & Analytics
  */
 
-import api from './api';
+import api, { API_BASE_URL, buildHeaders } from './api';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -1092,11 +1092,9 @@ class FeeService {
    */
   async exportReportCSV(data: FeeReportData): Promise<Blob> {
     try {
-      const response = await fetch('/api/fees/reports/export_csv/', {
+      const response = await fetch(`${API_BASE_URL}/fees/reports/export_csv/`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: await buildHeaders('POST'),
         credentials: 'include',
         body: JSON.stringify(data),
       });

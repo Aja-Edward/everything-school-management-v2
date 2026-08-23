@@ -12,7 +12,7 @@
  * - Reports
  */
 
-import api from './api';
+import api, { API_BASE_URL, buildHeaders } from './api';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -623,11 +623,9 @@ export const FeeReportService = {
     grade_level_id?: number;
   }) => {
     // Use fetch directly for blob responses
-    const response = await fetch('/api/fee/reports/export_csv/', {
+    const response = await fetch(`${API_BASE_URL}/fee/reports/export_csv/`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: await buildHeaders('POST'),
       body: JSON.stringify(data),
       credentials: 'include',
     });

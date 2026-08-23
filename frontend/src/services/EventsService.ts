@@ -4,7 +4,7 @@
  * Manages school events including creation, publishing, image management, and more.
  */
 
-import api from './api';
+import api, { API_BASE_URL, buildUploadHeaders } from './api';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -278,10 +278,11 @@ class EventsService {
         if (data.caption) formData.append('caption', data.caption);
         if (data.order !== undefined) formData.append('order', data.order.toString());
 
-        const response = await fetch('/api/events/event-images/', {
+        const response = await fetch(`${API_BASE_URL}/events/event-images/`, {
           method: 'POST',
           body: formData,
           credentials: 'include',
+          headers: await buildUploadHeaders(),
         });
 
         if (!response.ok) {

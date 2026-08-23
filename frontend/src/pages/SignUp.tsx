@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'react-toastify';
+import { API_BASE_URL, buildHeaders } from '@/services/api';
 
 // Step 1: Role selection
 const roles = [
@@ -87,7 +88,13 @@ const SignUpPage: React.FC = () => {
       return;
     }
     setParentSearchLoading(true);
-    fetch(`/api/parents/search/?q=${encodeURIComponent(parentSearch)}`)
+    buildHeaders('GET')
+      .then(headers =>
+        fetch(`${API_BASE_URL}/parents/search/?q=${encodeURIComponent(parentSearch)}`, {
+          headers,
+          credentials: 'include',
+        }),
+      )
       .then(res => res.json())
       .then(data => setParentOptions(data))
       .catch(() => setParentOptions([]))
@@ -169,7 +176,10 @@ const SignUpPage: React.FC = () => {
   const handleParentUsernameSearch = async () => {
     if (!parentUsernameSearch) return;
     try {
-      const res = await fetch(`/api/parents/search/?q=${encodeURIComponent(parentUsernameSearch)}`);
+      const res = await fetch(
+        `${API_BASE_URL}/parents/search/?q=${encodeURIComponent(parentUsernameSearch)}`,
+        { headers: await buildHeaders('GET'), credentials: 'include' },
+      );
       const data = await res.json();
       const found = data.find((p: any) => p.username === parentUsernameSearch);
       if (found) {
