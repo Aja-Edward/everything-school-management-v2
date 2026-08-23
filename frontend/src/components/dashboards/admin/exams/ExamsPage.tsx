@@ -264,25 +264,42 @@ const handleEditExam = useCallback((exam: Exam) => {
     []
   );
 
-  const getStatusColor = (status: string) => {
+  /**
+   * Exam status is a foreign key, serialized as { id, name, code, ... } — not
+   * the plain string this screen was written against. Calling toLowerCase on
+   * the object throws and takes the whole list down, so normalise first.
+   * Older records may still hold a bare string.
+   */
+  const statusCode = (status: any): string =>
+    typeof status === 'string'
+      ? status.toLowerCase()
+      : String(status?.code ?? status?.name ?? '').toLowerCase();
+
+  /** Human-readable status. Rendering the raw object throws in React. */
+  const statusLabel = (status: any): string =>
+    typeof status === 'string'
+      ? status
+      : status?.name ?? status?.code ?? 'Unknown';
+
+  const getStatusColor = (status: any) => {
     const colors: Record<string, string> = {
       approved: "bg-emerald-100 text-emerald-700 border-emerald-200",
       pending: "bg-amber-100 text-amber-700 border-amber-200",
       draft: "bg-slate-100 text-slate-700 border-slate-200",
       rejected: "bg-rose-100 text-rose-700 border-rose-200"
     };
-    return colors[status?.toLowerCase()] || colors.draft;
+    return colors[statusCode(status)] || colors.draft;
   };
 
-  const getStatusIcon = (status: string) => {
-    if (status?.toLowerCase() === 'approved') return <CheckCircle className="w-3 h-3" />;
-    if (status?.toLowerCase() === 'pending') return <Calendar className="w-3 h-3" />;
+  const getStatusIcon = (status: any) => {
+    if (statusCode(status) === 'approved') return <CheckCircle className="w-3 h-3" />;
+    if (statusCode(status) === 'pending') return <Calendar className="w-3 h-3" />;
     return <FileText className="w-3 h-3" />;
   };
 
-  const approvedCount = exams.filter(e => e.status?.toLowerCase() === 'approved').length;
-  const pendingCount = exams.filter(e => e.status?.toLowerCase() === 'pending').length;
-  const draftCount = exams.filter(e => e.status?.toLowerCase() === 'draft').length;
+  const approvedCount = exams.filter(e => statusCode(e.status) === 'approved').length;
+  const pendingCount = exams.filter(e => statusCode(e.status) === 'pending').length;
+  const draftCount = exams.filter(e => statusCode(e.status) === 'draft').length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
@@ -545,7 +562,7 @@ const handleEditExam = useCallback((exam: Exam) => {
                   </div>
                   <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${getStatusColor(exam.status)}`}>
                     {getStatusIcon(exam.status)}
-                    {exam.status_display || exam.status || "Unknown"}
+                    {exam.status_display || statusLabel(exam.status)}
                   </span>
                 </div>
 
@@ -644,7 +661,7 @@ const handleEditExam = useCallback((exam: Exam) => {
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${getStatusColor(exam.status)}`}>
                           {getStatusIcon(exam.status)}
-                          {exam.status_display || exam.status || "Unknown"}
+                          {exam.status_display || statusLabel(exam.status)}
                         </span>
                       </td>
                       <td className="px-6 py-4">
