@@ -654,7 +654,8 @@ const saveAsDraft = async () => {
     const computedTotalMarks = calculateTotalMarks();
     const examData: ExamCreateData = {
       ...formData,
-      status: statusPk('scheduled'),
+      // Drafts stay editable; only draft and rejected exams can be resubmitted.
+      status: statusPk('draft'),
       teacher: currentTeacherId!,
       objective_questions: objectiveQuestions,
       theory_questions: theoryQuestions,
@@ -698,7 +699,8 @@ const submitForApproval = async () => {
     const computedTotalMarks = calculateTotalMarks();
     const examData: ExamCreateData = {
       ...formData,
-      status: statusPk('scheduled'),
+      // The admin's Approve action only accepts exams awaiting approval.
+      status: statusPk('pending_approval'),
       teacher: currentTeacherId!,
       objective_questions: objectiveQuestions,
       theory_questions: theoryQuestions,

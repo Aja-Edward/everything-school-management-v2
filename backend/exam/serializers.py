@@ -174,6 +174,15 @@ class ExamListSerializer(serializers.ModelSerializer):
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     subject_code = serializers.CharField(source="subject.code", read_only=True)
     grade_level_name = serializers.CharField(source="grade_level.name", read_only=True)
+    # The exam's own session and term, for the printed paper's header. Taken
+    # from the schedule rather than SchoolSettings, which holds free text a
+    # school may never fill in.
+    academic_session_name = serializers.CharField(
+        source="exam_schedule.academic_session.name", read_only=True, default=""
+    )
+    term_name = serializers.CharField(
+        source="exam_schedule.term.name", read_only=True, default=""
+    )
     section_name = serializers.CharField(source="section.name", read_only=True)
     teacher_name = serializers.CharField(source="teacher.full_name", read_only=True)
     stream_name = serializers.CharField(source="stream.name", read_only=True)
@@ -219,6 +228,8 @@ class ExamListSerializer(serializers.ModelSerializer):
             "subject_name",
             "subject_code",
             "grade_level_name",
+            "academic_session_name",
+            "term_name",
             "section_name",
             "teacher_name",
             "stream_name",

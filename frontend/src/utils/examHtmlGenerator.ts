@@ -213,8 +213,22 @@ export function generateExamHtml(
 
   const schoolName     = safeString(settings?.school_name || 'School Name');
   const schoolAddress  = safeString(settings?.address || 'School Address');
-  const academicSession= safeString(settings?.academicYear || 'Academic Year');
-  const currentTerm    = safeString(settings?.currentTerm || 'Current Term');
+  // Prefer the session and term the exam itself belongs to (via its schedule).
+  // SchoolSettings holds free-text copies that a school may never fill in, and
+  // falling back to them printed the literal words "CURRENT TERM EXAMINATION
+  // ACADEMIC YEAR ACADEMIC SESSION" on the paper.
+  const academicSession = safeString(
+    (normalized as any).academic_session_name ||
+    (normalized as any).exam_schedule?.academic_session?.name ||
+    settings?.academicYear ||
+    ''
+  );
+  const currentTerm = safeString(
+    (normalized as any).term_name ||
+    (normalized as any).exam_schedule?.term?.name ||
+    settings?.currentTerm ||
+    ''
+  );
   const gradeLevelName = safeString(normalized.grade_level_name || normalized.grade_level?.name || 'Class');
   const subjectName    = safeString(normalized.subject_name || normalized.subject?.name || 'Subject');
   const examDate       = normalized.exam_date ? new Date(normalized.exam_date).toLocaleDateString() : 'TBA';
@@ -447,7 +461,7 @@ function generateStudentCopy(
   <div class="header">
     <div class="school-name">${schoolName}</div>
     <div class="school-address">${schoolAddress}</div>
-    <div class="exam-title">${currentTerm} EXAMINATION ${academicSession} ACADEMIC SESSION</div>
+    <div class="exam-title">${[currentTerm ? `${currentTerm} EXAMINATION` : 'EXAMINATION', academicSession ? `${academicSession} ACADEMIC SESSION` : ''].filter(Boolean).join(' ')}</div>
   </div>
 
   <!-- EXAM DETAILS -->
@@ -697,7 +711,7 @@ function generateTeacherCopy(
   <div class="header">
     <div class="school-name">${schoolName}</div>
     <div class="school-address">${schoolAddress}</div>
-    <div class="exam-title">${currentTerm} EXAMINATION ${academicSession} ACADEMIC SESSION - MARKING GUIDE</div>
+    <div class="exam-title">${[currentTerm ? `${currentTerm} EXAMINATION` : 'EXAMINATION', academicSession ? `${academicSession} ACADEMIC SESSION` : ''].filter(Boolean).join(' ')} - MARKING GUIDE</div>
   </div>
 
   <table class="exam-details-table">

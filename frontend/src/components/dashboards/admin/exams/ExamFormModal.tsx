@@ -213,8 +213,11 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
   const [description,       setDescription]       = useState('');
   const [subject,           setSubject]           = useState<number>(0);
   const [gradeLevel,        setGradeLevel]        = useState<number>(0);
-  const [examType,          setExamType]          = useState('quiz');
-  const [difficulty,        setDifficulty]        = useState('medium');
+  // Exam type and difficulty are foreign keys; the form holds their PKs.
+  const [examType,          setExamType]          = useState<number>(0);
+  const [difficulty,        setDifficulty]        = useState<number>(0);
+  const [examTypeOptions,   setExamTypeOptions]   = useState<{ id: number; name: string }[]>([]);
+  const [difficultyOptions, setDifficultyOptions] = useState<{ id: number; name: string }[]>([]);
   const [examDate,          setExamDate]          = useState('');
   const [startTime,         setStartTime]         = useState('');
   const [endTime,           setEndTime]           = useState('');
@@ -266,6 +269,34 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
       .catch(() => {});
   }, [open, gradeLevel]);
 
+  // Exam types and difficulty levels are per-school records, so they have to
+  // be loaded rather than hardcoded — a fixed list can't match the PKs the API
+  // expects, and won't reflect what the school actually configured.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+
+    Promise.all([
+      ExamService.fetchExamTypes(),
+      ExamService.fetchDifficultyLevels(),
+    ])
+      .then(([types, difficulties]) => {
+        if (cancelled) return;
+        setExamTypeOptions(types);
+        setDifficultyOptions(difficulties);
+
+        // For a new exam, default to the school's first option so the form
+        // never submits 0.
+        if (!exam) {
+          setExamType(prev => prev || types[0]?.id || 0);
+          setDifficulty(prev => prev || difficulties[0]?.id || 0);
+        }
+      })
+      .catch(() => {});
+
+    return () => { cancelled = true; };
+  }, [open, exam]);
+
   // ── Populate form from exam (edit mode) ────────────────────────────────────
   useEffect(() => {
     if (!open) return;
@@ -274,8 +305,16 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
       setDescription(exam.description || '');
       setSubject(typeof exam.subject === 'number' ? exam.subject : exam.subject?.id ?? 0);
       setGradeLevel(typeof exam.grade_level === 'number' ? exam.grade_level : exam.grade_level?.id ?? 0);
-      setExamType(exam.exam_type || 'quiz');
-      setDifficulty(exam.difficulty_level || 'medium');
+      // Both arrive as nested objects from the read serializer, but may be a
+      // bare PK on a freshly created exam.
+      setExamType(
+        typeof exam.exam_type === 'number' ? exam.exam_type : (exam.exam_type as any)?.id ?? 0,
+      );
+      setDifficulty(
+        typeof exam.difficulty_level === 'number'
+          ? exam.difficulty_level
+          : (exam.difficulty_level as any)?.id ?? 0,
+      );
       setExamDate(exam.exam_date || '');
       setStartTime(exam.start_time || '');
       setEndTime(exam.end_time || '');
@@ -299,7 +338,9 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
     } else {
       // Reset for create
       setTitle(''); setDescription(''); setSubject(0); setGradeLevel(0);
-      setExamType('quiz'); setDifficulty('medium'); setExamDate('');
+      setExamType(examTypeOptions[0]?.id ?? 0);
+      setDifficulty(difficultyOptions[0]?.id ?? 0);
+      setExamDate('');
       setStartTime(''); setEndTime(''); setTotalMarks(100); setPassMarks('');
       setVenue(''); setInstructions(''); setMaterialsAllowed('');
       setStatus('draft'); setIsPractical(false); setRequiresComputer(false); setIsOnline(false);
@@ -506,22 +547,24 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
 
                 <Field label="Exam Type">
                   <select
-                    value={examType} onChange={e => setExamType(e.target.value)}
+                    value={examType} onChange={e => setExamType(Number(e.target.value))}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                   >
-                    {ExamService.getExamTypes().map(t => (
-                      <option key={t.value} value={t.value}>{t.label}</option>
+                    <option value={0}>Select exam type…</option>
+                    {examTypeOptions.map(t => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
                     ))}
                   </select>
                 </Field>
 
                 <Field label="Difficulty Level">
                   <select
-                    value={difficulty} onChange={e => setDifficulty(e.target.value)}
+                    value={difficulty} onChange={e => setDifficulty(Number(e.target.value))}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                   >
-                    {ExamService.getDifficultyLevels().map(d => (
-                      <option key={d.value} value={d.value}>{d.label}</option>
+                    <option value={0}>Select difficulty…</option>
+                    {difficultyOptions.map(d => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
                     ))}
                   </select>
                 </Field>
