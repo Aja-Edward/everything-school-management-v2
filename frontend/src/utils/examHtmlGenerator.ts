@@ -101,7 +101,7 @@ const FONT_MAP: Record<string, string> = {
 };
 
 const MARGIN_MAP: Record<string, string> = {
-  tight:  '0.25in',
+  tight:  '5mm',   // the practical floor — most printers can't image nearer the edge
   narrow: '0.5in',
   normal: '1in',
   wide:   '1.5in',

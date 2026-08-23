@@ -174,15 +174,43 @@ class ExamListSerializer(serializers.ModelSerializer):
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     subject_code = serializers.CharField(source="subject.code", read_only=True)
     grade_level_name = serializers.CharField(source="grade_level.name", read_only=True)
-    # The exam's own session and term, for the printed paper's header. Taken
-    # from the schedule rather than SchoolSettings, which holds free text a
-    # school may never fill in.
-    academic_session_name = serializers.CharField(
-        source="exam_schedule.academic_session.name", read_only=True, default=""
-    )
-    term_name = serializers.CharField(
-        source="exam_schedule.term.name", read_only=True, default=""
-    )
+    # Session and term for the printed paper's header. Read from the exam's own
+    # schedule where it has one, otherwise from the school's current term —
+    # SchoolSettings holds free-text copies a school may never fill in, and an
+    # exam created before any schedule exists has no schedule to read.
+    academic_session_name = serializers.SerializerMethodField()
+    term_name = serializers.SerializerMethodField()
+
+    def _current_term(self, tenant_id):
+        """The school's current term, looked up once per serializer."""
+        if not tenant_id:
+            return None
+        cache = getattr(self, "_term_cache", None)
+        if cache is None:
+            cache = self._term_cache = {}
+        if tenant_id not in cache:
+            from academics.models import Term
+
+            cache[tenant_id] = (
+                Term.objects.filter(tenant_id=tenant_id, is_current=True)
+                .select_related("term_type", "academic_session")
+                .first()
+            )
+        return cache[tenant_id]
+
+    def get_term_name(self, obj):
+        schedule = obj.exam_schedule
+        term = schedule.term if schedule and schedule.term_id else self._current_term(obj.tenant_id)
+        if not term:
+            return ""
+        return getattr(term.term_type, "name", "") or ""
+
+    def get_academic_session_name(self, obj):
+        schedule = obj.exam_schedule
+        if schedule and schedule.academic_session_id:
+            return schedule.academic_session.name
+        term = self._current_term(obj.tenant_id)
+        return term.academic_session.name if term and term.academic_session_id else ""
     section_name = serializers.CharField(source="section.name", read_only=True)
     teacher_name = serializers.CharField(source="teacher.full_name", read_only=True)
     stream_name = serializers.CharField(source="stream.name", read_only=True)

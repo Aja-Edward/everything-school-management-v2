@@ -277,7 +277,7 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
                 <label className="block text-xs font-medium text-gray-600 mb-1">Margins</label>
                 <div className="grid grid-cols-4 gap-1">
                   {([
-                    ['tight',  '6mm'],
+                    ['tight',  '5mm'],
                     ['narrow', '13mm'],
                     ['normal', '25mm'],
                     ['wide',   '38mm'],
@@ -285,14 +285,15 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
                     <button
                       key={v}
                       onClick={() => setPrintSettings(p => ({ ...p, margin: v }))}
-                      className={`py-1.5 rounded border text-xs font-medium capitalize transition-colors ${
+                      className={`py-1 rounded border text-xs font-medium capitalize transition-colors ${
                         printSettings.margin === v
                           ? 'bg-blue-600 text-white border-blue-600'
                           : 'border-gray-300 text-gray-600 hover:bg-gray-100'
                       }`}
-                      title={`${v} — about ${hint} on every side`}
+                      title={`${v} — ${hint} on every side`}
                     >
                       {v}
+                      <span className="block text-[10px] font-normal opacity-75">{hint}</span>
                     </button>
                   ))}
                 </div>
@@ -344,7 +345,7 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
                 <p className="text-xs text-gray-400 mt-1">
                   {printSettings.margin === 'custom'
                     ? 'Millimetres per side. Kept between 5 and 50 — most printers cannot print the outer few millimetres.'
-                    : 'Tight fits the most on a page; normal is 1 inch all round.'}
+                    : 'Tight is 5mm all round, tighter than the Narrow preset in Word. Normal is 1 inch.'}
                 </p>
               </div>
 
