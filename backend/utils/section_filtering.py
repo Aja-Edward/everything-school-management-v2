@@ -106,11 +106,12 @@ class SectionFilterMixin:
         # Secondary Admin sees both JSS and SSS
         if role == "secondary_admin":
             logger.info("🔒 Secondary admin access")
+            from common.education_levels import expand_tokens
+
             return Section.objects.filter(
-                class_grade__education_level__level_type__in=[
-                    "JUNIOR_SECONDARY",
-                    "SENIOR_SECONDARY",
-                ]
+                class_grade__education_level__level_type__in=expand_tokens(
+                    ["JUNIOR_SECONDARY", "SENIOR_SECONDARY"]
+                )
             ).distinct()
 
         # Section-specific admins
@@ -129,8 +130,12 @@ class SectionFilterMixin:
             edu_level = role_to_education_level.get(role)
             if edu_level:
                 logger.info(f"🔒 Section admin access for {edu_level}")
+                from common.education_levels import expand_tokens
+
                 return Section.objects.filter(
-                    class_grade__education_level__level_type=edu_level
+                    class_grade__education_level__level_type__in=expand_tokens(
+                        [edu_level]
+                    )
                 ).distinct()
 
         # Teachers see sections of their assigned classrooms
@@ -175,8 +180,25 @@ class SectionFilterMixin:
 
     def get_user_education_level_access(self):
         """
-        Returns the specific education levels the user has access to.
-        More granular than section access.
+        Returns the education levels the user has access to, widened to every
+        equivalent spelling.
+
+        The raw values are a mix of conventions — the section-admin map yields
+        'JUNIOR_SECONDARY' while the teacher branch yields names like
+        'Junior Secondary', and tenants store level_type as either
+        'JUNIOR_SECONDARY' or 'JSS'. Downstream this list is compared against
+        level_type both in the ORM and in Python, so it has to carry all of
+        them. Widening only ever adds spellings; nothing that matched before
+        stops matching.
+        """
+        from common.education_levels import expand_tokens
+
+        return expand_tokens(self._education_level_access_raw())
+
+    def _education_level_access_raw(self):
+        """
+        The user's education levels as each branch natively produces them.
+        Callers should use get_user_education_level_access() instead.
         """
         user = self.request.user
 

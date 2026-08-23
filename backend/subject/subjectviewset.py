@@ -183,8 +183,12 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             # education_levels=JUNIOR_SECONDARY,SENIOR_SECONDARY
             level_values = [v.strip() for v in education_levels_param.split(",") if v.strip()]
 
+            from common.education_levels import alias_set
+
             combined_q = Q()
             for lv in level_values:
+                # The original lookup, unchanged — whatever matched before a
+                # school's data still matches.
                 combined_q |= (
                     # Match by level_type (NURSERY/PRIMARY/JUNIOR_SECONDARY/SENIOR_SECONDARY)
                     Q(grade_levels__education_level__level_type__iexact=lv)
@@ -195,6 +199,22 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                     # Legacy JSONField fallback (deprecated field)
                     | Q(education_levels__icontains=lv)
                 )
+
+                # Then widen to equivalent spellings, so SENIOR_SECONDARY also
+                # finds a school whose rows say SSS. Exact matches only: a
+                # substring lookup on a short alias would misfire — 'SS' is
+                # contained in 'JSS', which would pull junior secondary
+                # subjects into a senior secondary request.
+                for spelling in alias_set(lv) - {lv}:
+                    combined_q |= (
+                        Q(grade_levels__education_level__level_type__iexact=spelling)
+                        | Q(grade_levels__education_level__name__iexact=spelling)
+                        | Q(grade_levels__education_level__code__iexact=spelling)
+                    )
+                    # The legacy JSON holds full level names, so only widen it
+                    # with spellings long enough not to collide.
+                    if len(spelling) > 3:
+                        combined_q |= Q(education_levels__icontains=spelling)
 
             matching_ids = (
                 Subject.objects.filter(combined_q)

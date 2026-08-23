@@ -155,6 +155,8 @@ export interface UpdateTeacherData {
   employee_id?: string;
   staff_type?: 'teaching' | 'non-teaching';
   level?: 'nursery' | 'primary' | 'junior_secondary' | 'senior_secondary' | 'secondary';
+  /** EducationLevel PKs. A teacher can span several — e.g. JSS and SSS. */
+  education_levels?: number[];
   phone_number?: string;
   address?: string;
   date_of_birth?: string;

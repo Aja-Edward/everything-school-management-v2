@@ -205,6 +205,20 @@ class TeacherSerializer(serializers.ModelSerializer):
             for el in obj.education_levels.all()
         ]
 
+    def validate_education_levels(self, value):
+        """
+        Reject levels belonging to another school.
+
+        The field is a plain M2M, so DRF accepts any EducationLevel primary key.
+        Without this check an admin could attach another tenant's level.
+        """
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if tenant and any(el.tenant_id != tenant.id for el in value):
+            raise serializers.ValidationError(
+                "One or more education levels belong to a different school."
+            )
+        return value
+
     class Meta:
         model = Teacher
         fields = [

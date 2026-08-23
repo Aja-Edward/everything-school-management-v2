@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type {
   Teacher,
   AssignmentRow,
@@ -16,6 +16,14 @@ interface EditTeacherFormProps {
   onCancel: () => void;
   themeClasses: any;
   isDark: boolean;
+}
+
+/** A row from /academics/education-levels/ — the school's own configured levels. */
+interface EducationLevelOption {
+  id: number;
+  name: string;
+  code: string;
+  level_type: string;
 }
 
 // Maps a normalised (lowercase, spaces) level key to its API education_level token.
@@ -100,8 +108,56 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
   // ── Multi-level subject filter ────────────────────────────────────────────
   // Derived from the teacher's education_levels M2M (or level free-form string).
   // Admin can toggle individual levels on/off to filter the subject list.
-  const [teacherLevels]      = useState<string[]>(() => deriveTeacherLevels(teacher));
+  // Education levels the school has configured, for the picker below.
+  const [levelOptions, setLevelOptions] = useState<EducationLevelOption[]>([]);
+  const [selectedLevelIds, setSelectedLevelIds] = useState<number[]>(
+    () => ((teacher as any)?.education_levels_detail ?? [])
+      .map((el: any) => el?.id)
+      .filter((id: any): id is number => typeof id === 'number'),
+  );
+
+  // Derived from the current selection so the subject tabs react immediately,
+  // falling back to whatever the teacher record already carries.
+  const teacherLevels = useMemo<string[]>(() => {
+    const chosen = levelOptions.filter(l => selectedLevelIds.includes(l.id));
+    if (chosen.length > 0) {
+      return [...new Set(
+        chosen
+          .map(l => normaliseLevel(l.level_type || l.name || l.code || ''))
+          .filter(Boolean) as string[],
+      )];
+    }
+    return deriveTeacherLevels(teacher);
+  }, [levelOptions, selectedLevelIds, teacher]);
+
+  // Stable dependency for effects — the array identity changes every render.
+  const teacherLevelsKey = teacherLevels.join(',');
+
   const [activeLevelFilter, setActiveLevelFilter] = useState<string>('ALL');
+
+  // Load the school's configured education levels for the picker.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data: any = await api.get('/academics/education-levels/');
+        const rows: EducationLevelOption[] = Array.isArray(data) ? data : (data?.results ?? []);
+        if (!cancelled) setLevelOptions(rows);
+      } catch {
+        // Leave the list empty — the picker simply doesn't render.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // If a level is unticked while its tab is active, fall back to ALL.
+  useEffect(() => {
+    if (activeLevelFilter !== 'ALL' && !teacherLevels.includes(activeLevelFilter)) {
+      setActiveLevelFilter('ALL');
+      setSubjectPage(1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teacherLevelsKey]);
 
   // ── Classrooms ────────────────────────────────────────────────────────────
   const [classroomOptions, setClassroomOptions]   = useState<{ id: number; name: string }[]>([]);
@@ -221,7 +277,7 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
     return () => { cancelled = true; };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.staff_type, subjectPage, activeLevelFilter, formData.level]);
+  }, [formData.staff_type, subjectPage, activeLevelFilter, formData.level, teacherLevelsKey]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Effect — Accumulate subject names across tabs/pages into allTeacherSubjects
@@ -491,6 +547,7 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
       specialization: formData.specialization,
       staff_type:     formData.staff_type,
       level:          formData.level,
+      education_levels: selectedLevelIds,
       is_active:      formData.is_active,
       photo:          formData.photo,
       subjects:       selectedSubjects.map(Number),
@@ -658,6 +715,50 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
             This controls which classrooms appear below. Subjects are loaded from all the teacher's assigned levels.
           </p>
         </div>
+
+        {/* ── Assigned education levels (multi-select) ───────────────────── */}
+        {levelOptions.length > 0 && (
+          <div className="md:col-span-2">
+            <label className={`block text-sm font-medium ${themeClasses.textSecondary} mb-2`}>
+              Assigned Education Levels
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {levelOptions.map(lv => {
+                const checked = selectedLevelIds.includes(lv.id);
+                return (
+                  <label
+                    key={lv.id}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border cursor-pointer text-sm transition-colors ${
+                      checked
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="rounded"
+                      checked={checked}
+                      onChange={() => {
+                        setSelectedLevelIds(prev =>
+                          prev.includes(lv.id)
+                            ? prev.filter(id => id !== lv.id)
+                            : [...prev, lv.id],
+                        );
+                        setSubjectPage(1);
+                      }}
+                    />
+                    {lv.name}
+                  </label>
+                );
+              })}
+            </div>
+            <p className="text-xs text-gray-400 mt-1">
+              Tick every level this teacher works across — a secondary teacher taking
+              both junior and senior subjects needs both. This decides which subjects
+              you can assign below. Leave all unticked to allow every level.
+            </p>
+          </div>
+        )}
         <div>
           <label className={`block text-sm font-medium ${themeClasses.textSecondary} mb-2`}>Qualification</label>
           <input type="text" name="qualification" value={formData.qualification} onChange={handleInputChange} className={inputClass} />
