@@ -1,4 +1,4 @@
-import api from './api';
+import api, { API_BASE_URL } from './api';
 
 const BASE = '/api/teachers';
 
@@ -294,8 +294,11 @@ const PerformanceService = {
 
   async downloadPDReport(teacherId: number, teacherName: string): Promise<void> {
     const params = new URLSearchParams({ teacher: String(teacherId) });
+    // Must go through API_BASE_URL. A relative '/api/...' path is served by the
+    // static host, whose catch-all rewrite returns index.html with a 200 — which
+    // then gets saved as an unopenable .pdf.
     const res = await fetch(
-      `/api/teachers/professional-development/teacher-report/?${params}`,
+      `${API_BASE_URL}/teachers/professional-development/teacher-report/?${params}`,
       { method: 'GET', credentials: 'include' }
     );
     if (!res.ok) throw new Error('Failed to generate PDF');
