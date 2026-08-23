@@ -376,7 +376,7 @@ function generateStudentCopy(
     /* ===== SECTIONS ===== */
     .section {
       margin: 12px 0;
-      page-break-inside: avoid;
+      /* Breakable on purpose — see the print block. */
     }
     .section h3 {
       background-color: #f0f0f0;
@@ -458,13 +458,12 @@ function generateStudentCopy(
 
     /* ===== PRINT-SPECIFIC STYLES ===== */
     @media print {
-      body {
-        margin: 10mm;
-        font-size: 14px;
-      }
-      .section {
-        page-break-inside: avoid;
-      }
+      /* No body margin or font-size here: the page margin comes from @page and
+         the size from the format settings. A fixed 10mm was being added on top
+         of the chosen margin, so "tight" printed at 16mm instead of 5mm. */
+      /* .section is deliberately breakable — making a whole section unbreakable
+         pushed Section B onto a fresh page whenever it didn't fit entirely,
+         leaving half of page one empty. Questions stay unbreakable. */
       .question {
         page-break-inside: avoid;
       }
@@ -687,7 +686,7 @@ function generateTeacherCopy(
     .exam-details-table .label { font-weight: bold; width: 120px; }
     .exam-details-table .value { width: auto; }
 
-    .section { margin: 12px 0; page-break-inside: avoid; }
+    .section { margin: 12px 0; }
     .section h3 { background-color: #f0f0f0; padding: 6px 10px; margin: 8px 0 6px 0; border-left: 4px solid #333; font-size: 16px; font-weight: bold; page-break-after: avoid; }
     .section-instruction { margin: 6px 0 8px 0; font-weight: bold; font-size: 13px; padding: 4px 0; }
 
@@ -723,8 +722,8 @@ function generateTeacherCopy(
     }
 
     @media print {
-      body { margin: 10mm; font-size: 14px; }
-      .section { page-break-inside: avoid; }
+      /* See the student copy: no body margin or font-size override, and
+         sections break across pages so no space is wasted. */
       .question { page-break-inside: avoid; }
       .header, .exam-details-table { page-break-after: avoid; }
       .question-content img, img { max-width: 90%; page-break-inside: avoid; }
