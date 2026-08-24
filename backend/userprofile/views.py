@@ -118,9 +118,20 @@ class UserProfileViewSet(viewsets.ModelViewSet):
                 {"detail": "You don't have permission to view all users."},
                 status=status.HTTP_403_FORBIDDEN
             )
-        
+
+        # SECURITY: this used to be User.objects.filter(...) with no tenant
+        # scoping at all, gated only by is_staff - which every schools own
+        # admin has - so any school admin got back every other schools
+        # teacher/admin directory (names + emails). A genuine platform-level
+        # account (is_platform_staff) still sees the full directory; anyone
+        # else is scoped to their own resolved tenant only.
+        tenant = getattr(request, "tenant", None)
+        base_qs = User.objects.all() if getattr(request.user, "is_platform_staff", False) else (
+            User.objects.filter(tenant=tenant) if tenant else User.objects.none()
+        )
+
         # Get users with roles: admin, teacher, staff (excluding students and parents)
-        users = User.objects.filter(
+        users = base_qs.filter(
             role__in=['admin', 'teacher'],
             is_active=True
         ).exclude(

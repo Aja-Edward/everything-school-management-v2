@@ -17,10 +17,9 @@ class HasStudentsPermissionOrReadOnly(permissions.BasePermission):
             return request.user and request.user.is_authenticated
 
         # Write permissions require specific permission
-        is_platform_admin = (
-            request.user.is_superuser or
-            (hasattr(request.user, 'role') and request.user.role.upper() == 'SUPERADMIN')
-        )
+        # is_platform_staff requires tenant_id is None, so a schools own
+        # admin (role='superadmin' but tenant-scoped) does not get this bypass.
+        is_platform_admin = getattr(request.user, "is_platform_staff", False)
 
         return (
             request.user
@@ -53,10 +52,9 @@ class IsStudentOwnerOrStaff(permissions.BasePermission):
 
     def has_object_permission(self, request, view, obj):
         # Staff and platform admins can access any student record
-        is_platform_admin = (
-            request.user.is_superuser or
-            (hasattr(request.user, 'role') and request.user.role.upper() == 'SUPERADMIN')
-        )
+        # is_platform_staff requires tenant_id is None, so a schools own
+        # admin (role='superadmin' but tenant-scoped) does not get this bypass.
+        is_platform_admin = getattr(request.user, "is_platform_staff", False)
 
         if request.user.is_staff or is_platform_admin:
             return True
@@ -109,9 +107,10 @@ class ModulePermissionBase(permissions.BasePermission):
 
     def user_has_permission(self, user, module, permission_type):
         # Platform admins have full access
-        is_platform_admin = user.is_superuser or (
-            hasattr(user, "role") and user.role.upper() == "SUPERADMIN"
-        )
+        # is_platform_staff requires tenant_id is None, so a schools own
+        # admin (role='superadmin' but tenant-scoped) only gets the
+        # tenant-scoped permission checks below, not automatic full access.
+        is_platform_admin = user.is_platform_staff
         if is_platform_admin:
             return True
 
@@ -405,10 +404,9 @@ class SectionPermissionBase(permissions.BasePermission):
             return False
 
         # Platform admins have access to all sections
-        is_platform_admin = (
-            request.user.is_superuser or
-            (hasattr(request.user, 'role') and request.user.role.upper() == 'SUPERADMIN')
-        )
+        # is_platform_staff requires tenant_id is None, so a schools own
+        # admin (role='superadmin' but tenant-scoped) does not get this bypass.
+        is_platform_admin = getattr(request.user, "is_platform_staff", False)
 
         if is_platform_admin:
             return True
@@ -473,10 +471,9 @@ class SubSectionPermissionBase(permissions.BasePermission):
             return False
 
         # Platform admins have access to all sections
-        is_platform_admin = (
-            request.user.is_superuser or
-            (hasattr(request.user, 'role') and request.user.role.upper() == 'SUPERADMIN')
-        )
+        # is_platform_staff requires tenant_id is None, so a schools own
+        # admin (role='superadmin' but tenant-scoped) does not get this bypass.
+        is_platform_admin = getattr(request.user, "is_platform_staff", False)
 
         if is_platform_admin:
             return True
@@ -748,10 +745,9 @@ class IsSectionAdmin(permissions.BasePermission):
             return False
 
         # Platform admins have full access
-        is_platform_admin = (
-            request.user.is_superuser or
-            (hasattr(request.user, 'role') and request.user.role.upper() == 'SUPERADMIN')
-        )
+        # is_platform_staff requires tenant_id is None, so a schools own
+        # admin (role='superadmin' but tenant-scoped) does not get this bypass.
+        is_platform_admin = getattr(request.user, "is_platform_staff", False)
 
         if is_platform_admin:
             return True
@@ -800,10 +796,9 @@ def get_user_sections(user):
     Returns: dict with keys 'primary', 'secondary', 'nursery', 'allowed_grade_levels'
     """
     # Platform admins have access to all sections
-    is_platform_admin = (
-        user.is_superuser or
-        (hasattr(user, 'role') and user.role.upper() == 'SUPERADMIN')
-    )
+    # is_platform_staff requires tenant_id is None, so a schools own admin
+    # (role='superadmin' but tenant-scoped) does not get this bypass.
+    is_platform_admin = getattr(user, "is_platform_staff", False)
 
     if is_platform_admin:
         return {
@@ -873,10 +868,9 @@ def get_user_permissions(user):
     Returns: dict mapping module names to list of permission types
     """
     # Platform admins have all permissions
-    is_platform_admin = (
-        user.is_superuser or
-        (hasattr(user, 'role') and user.role.upper() == 'SUPERADMIN')
-    )
+    # is_platform_staff requires tenant_id is None, so a schools own admin
+    # (role='superadmin' but tenant-scoped) does not get this bypass.
+    is_platform_admin = getattr(user, "is_platform_staff", False)
 
     if is_platform_admin:
         return {"all": ["read", "write", "delete"]}

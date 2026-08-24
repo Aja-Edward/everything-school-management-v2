@@ -96,7 +96,9 @@ class IsPlatformAdmin(permissions.BasePermission):
         user = request.user
         if not user.is_authenticated:
             return False
-        return user.is_superuser or getattr(user, 'role', None) in ('superadmin', 'platform_admin')
+        # is_platform_staff requires tenant_id is None, so a schools own
+        # admin (role='superadmin' but tenant-scoped) is correctly excluded.
+        return user.is_platform_staff
 
 
 class IsPlatformAdminOrMarketer(permissions.BasePermission):
@@ -111,10 +113,9 @@ class IsPlatformAdminOrMarketer(permissions.BasePermission):
         user = request.user
         if not user.is_authenticated:
             return False
-        return (
-            user.is_superuser
-            or getattr(user, 'role', None) in ('superadmin', 'platform_admin', 'marketer')
-        )
+        # is_platform_user requires tenant_id is None, so a schools own
+        # admin/staff never qualifies just by sharing a role name.
+        return user.is_platform_user
 
 
 class PlatformInfoView(APIView):
@@ -451,9 +452,9 @@ class TenantViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         user = self.request.user
-        if user.is_superuser or getattr(user, 'role', None) in ('superadmin', 'platform_admin'):
+        if user.is_platform_staff:
             return qs
-        if getattr(user, 'role', None) == 'marketer':
+        if getattr(user, 'role', None) == 'marketer' and user.tenant_id is None:
             return qs.filter(referred_by=user)
         # Fail closed - IsPlatformAdminOrMarketer should already have refused
         # anyone else, but never fall through to an unscoped list.

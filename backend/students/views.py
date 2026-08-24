@@ -58,10 +58,10 @@ class IsPlatformAdmin(BasePermission):
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
             return False
-        return (
-            request.user.is_superuser
-            or (hasattr(request.user, "role") and request.user.role.upper() == "SUPERADMIN")
-        )
+        # is_platform_staff requires tenant_id is None, so a schools own
+        # admin (role='superadmin' but tenant-scoped) is correctly excluded -
+        # this docstring already promised that; the old check did not deliver it.
+        return request.user.is_platform_staff
 
 
 logger = logging.getLogger(__name__)
@@ -176,9 +176,10 @@ def generate_result_tokens(request):
         )
 
     # Tenant admins can only generate tokens for their own school's terms
-    is_platform_admin = request.user.is_superuser or (
-        hasattr(request.user, "role") and request.user.role.upper() == "SUPERADMIN"
-    )
+    # is_platform_staff requires tenant_id is None, so a schools own admin
+    # (role='superadmin' but tenant-scoped) does not skip the tenant-scope
+    # check below - previously it incorrectly did.
+    is_platform_admin = getattr(request.user, "is_platform_staff", False)
     if not is_platform_admin:
         request_tenant = getattr(request, "tenant", None)
         if not request_tenant or str(request_tenant.id) != str(tenant.id):
@@ -498,9 +499,10 @@ def get_all_result_tokens(request):
         )
 
     # Tenant admin scope check
-    is_platform_admin = request.user.is_superuser or (
-        hasattr(request.user, "role") and request.user.role.upper() == "SUPERADMIN"
-    )
+    # is_platform_staff requires tenant_id is None, so a schools own admin
+    # (role='superadmin' but tenant-scoped) does not skip the tenant-scope
+    # check below - previously it incorrectly did.
+    is_platform_admin = getattr(request.user, "is_platform_staff", False)
     if not is_platform_admin:
         request_tenant = getattr(request, "tenant", None)
         if not request_tenant or str(request_tenant.id) != str(school_term.tenant_id):
@@ -634,9 +636,10 @@ def delete_all_tokens_for_term(request):
         )
 
     # Tenant admin scope check
-    is_platform_admin = request.user.is_superuser or (
-        hasattr(request.user, "role") and request.user.role.upper() == "SUPERADMIN"
-    )
+    # is_platform_staff requires tenant_id is None, so a schools own admin
+    # (role='superadmin' but tenant-scoped) does not skip the tenant-scope
+    # check below - previously it incorrectly did.
+    is_platform_admin = getattr(request.user, "is_platform_staff", False)
     if not is_platform_admin:
         request_tenant = getattr(request, "tenant", None)
         if not request_tenant or str(request_tenant.id) != str(school_term.tenant_id):

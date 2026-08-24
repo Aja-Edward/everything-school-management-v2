@@ -400,6 +400,17 @@ def _result_qs_base(ModelClass, extra_selects=(), tenant=None):
 
 def _apply_role_filter(queryset, viewset, user):
     """Apply role-based visibility filter on a result queryset."""
+    # SECURITY: is_staff/_is_admin(user) alone used to return the queryset
+    # completely unfiltered. Every self-registered schools own admin has
+    # is_staff=True and role='superadmin' (see SchoolRegistrationSerializer),
+    # so that used to hand any school admin every other schools results.
+    # Only a genuine platform-level account (is_platform_staff) still sees
+    # everything unscoped; everyone else - including is_staff/_is_admin() -
+    # is pinned to the resolved request tenant first.
+    if getattr(user, "is_platform_staff", False):
+        return queryset
+    tenant = getattr(getattr(viewset, "request", None), "tenant", None)
+    queryset = queryset.filter(tenant=tenant) if tenant else queryset.none()
     if user.is_superuser or user.is_staff:
         return queryset
     if _is_admin(user):
@@ -440,6 +451,16 @@ def _apply_role_filter(queryset, viewset, user):
 
 def _apply_report_role_filter(queryset, viewset, user):
     """Role filter for term/session reports (no subject restriction for teachers)."""
+    # SECURITY: see _apply_role_filter above - this queryset (built straight
+    # from Model.objects.all() by its callers, with no tenant filter applied
+    # anywhere else) used to be handed back completely unfiltered to any
+    # is_staff/_is_admin() user, i.e. every schools own admin, exposing every
+    # other schools term/session report cards. Scope to the resolved tenant
+    # for everyone except a genuine platform-level account.
+    if getattr(user, "is_platform_staff", False):
+        return queryset
+    tenant = getattr(getattr(viewset, "request", None), "tenant", None)
+    queryset = queryset.filter(tenant=tenant) if tenant else queryset.none()
     if user.is_superuser or user.is_staff:
         return queryset
     if _is_admin(user):

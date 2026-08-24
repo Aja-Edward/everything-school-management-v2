@@ -295,9 +295,17 @@ class BaseResultAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         user = request.user
 
-        if user.is_superuser or getattr(user, "role", None) == "superadmin":
+        # SECURITY: this used to return the unfiltered qs (every tenants
+        # rows) for role=='superadmin'/'principal' alone - both are
+        # tenant-scoped roles for a schools own top admin, not a platform-wide
+        # signal (see CustomUser.is_platform_staff). Only a genuine
+        # platform-level account still sees every tenant; everyone else -
+        # including superadmin/principal - is pinned to their own tenant.
+        if getattr(user, "is_platform_staff", False):
             return qs
-        if getattr(user, "role", None) == "principal":
+        tenant = getattr(user, "tenant", None)
+        qs = qs.filter(tenant=tenant) if tenant else qs.none()
+        if user.is_superuser or getattr(user, "role", None) in ("superadmin", "principal"):
             return qs
         if getattr(user, "role", None) == "teacher":
             teacher = _get_teacher(user)
@@ -315,26 +323,44 @@ class BaseResultAdmin(admin.ModelAdmin):
         return qs.none()
 
     def has_view_permission(self, request, obj=None):
-        role = getattr(request.user, "role", None)
-        if request.user.is_superuser or role == "superadmin":
+        user = request.user
+        role = getattr(user, "role", None)
+        if getattr(user, "is_platform_staff", False):
+            return True
+        if obj is not None and getattr(obj, "tenant_id", None) != getattr(user, "tenant_id", None):
+            return False
+        if user.is_superuser or role == "superadmin":
             return True
         return super().has_view_permission(request, obj)
 
     def has_change_permission(self, request, obj=None):
-        role = getattr(request.user, "role", None)
-        if request.user.is_superuser or role == "superadmin":
+        user = request.user
+        role = getattr(user, "role", None)
+        if getattr(user, "is_platform_staff", False):
+            return True
+        if obj is not None and getattr(obj, "tenant_id", None) != getattr(user, "tenant_id", None):
+            return False
+        if user.is_superuser or role == "superadmin":
             return True
         return role in ("principal", "teacher")
 
     def has_delete_permission(self, request, obj=None):
-        role = getattr(request.user, "role", None)
-        if request.user.is_superuser or role == "superadmin":
+        user = request.user
+        role = getattr(user, "role", None)
+        if getattr(user, "is_platform_staff", False):
+            return True
+        if obj is not None and getattr(obj, "tenant_id", None) != getattr(user, "tenant_id", None):
+            return False
+        if user.is_superuser or role == "superadmin":
             return True
         return role == "principal"
 
     def has_add_permission(self, request):
-        role = getattr(request.user, "role", None)
-        if request.user.is_superuser or role == "superadmin":
+        user = request.user
+        role = getattr(user, "role", None)
+        if getattr(user, "is_platform_staff", False):
+            return True
+        if user.is_superuser or role == "superadmin":
             return True
         return role in ("principal", "teacher")
 
@@ -435,9 +461,17 @@ class BaseTermReportAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         user = request.user
 
-        if user.is_superuser or getattr(user, "role", None) == "superadmin":
+        # SECURITY: this used to return the unfiltered qs (every tenants
+        # rows) for role=='superadmin'/'principal' alone - both are
+        # tenant-scoped roles for a schools own top admin, not a platform-wide
+        # signal (see CustomUser.is_platform_staff). Only a genuine
+        # platform-level account still sees every tenant; everyone else -
+        # including superadmin/principal - is pinned to their own tenant.
+        if getattr(user, "is_platform_staff", False):
             return qs
-        if getattr(user, "role", None) == "principal":
+        tenant = getattr(user, "tenant", None)
+        qs = qs.filter(tenant=tenant) if tenant else qs.none()
+        if user.is_superuser or getattr(user, "role", None) in ("superadmin", "principal"):
             return qs
         if getattr(user, "role", None) == "teacher":
             teacher = _get_teacher(user)
@@ -455,14 +489,24 @@ class BaseTermReportAdmin(admin.ModelAdmin):
         return qs.none()
 
     def has_change_permission(self, request, obj=None):
-        role = getattr(request.user, "role", None)
-        if request.user.is_superuser or role == "superadmin":
+        user = request.user
+        role = getattr(user, "role", None)
+        if getattr(user, "is_platform_staff", False):
+            return True
+        if obj is not None and getattr(obj, "tenant_id", None) != getattr(user, "tenant_id", None):
+            return False
+        if user.is_superuser or role == "superadmin":
             return True
         return role == "principal"
 
     def has_delete_permission(self, request, obj=None):
-        role = getattr(request.user, "role", None)
-        if request.user.is_superuser or role == "superadmin":
+        user = request.user
+        role = getattr(user, "role", None)
+        if getattr(user, "is_platform_staff", False):
+            return True
+        if obj is not None and getattr(obj, "tenant_id", None) != getattr(user, "tenant_id", None):
+            return False
+        if user.is_superuser or role == "superadmin":
             return True
         return role == "principal"
 

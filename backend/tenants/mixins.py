@@ -49,11 +49,13 @@ class TenantFilterMixin:
         # Get tenant from request
         tenant = getattr(self.request, 'tenant', None)
 
-        # Check if user is platform admin (either is_superuser flag or role='superadmin')
-        is_platform_admin = (
-            self.request.user.is_superuser or
-            (hasattr(self.request.user, 'role') and self.request.user.role.upper() == 'SUPERADMIN')
-        )
+        # Check if user is a genuine platform-level admin. NOTE: role == 'superadmin'
+        # alone is NOT sufficient - every schools own top admin also has that role
+        # (see SchoolRegistrationSerializer.create), just scoped to their tenant.
+        # is_platform_staff additionally requires tenant_id is None, so a school
+        # admin is correctly routed through the tenant-filtered path below instead
+        # of the unfiltered "platform admin" branch.
+        is_platform_admin = getattr(self.request.user, "is_platform_staff", False)
 
         # For platform admins with no tenant context
         # Allow them to see all data
@@ -131,11 +133,10 @@ class TenantRequiredMixin:
 
         tenant = getattr(request, 'tenant', None)
 
-        # Allow platform admins to bypass this check
-        is_platform_admin = (
-            request.user.is_superuser or
-            (hasattr(request.user, 'role') and request.user.role.upper() == 'SUPERADMIN')
-        )
+        # Allow platform admins to bypass this check. tenant_id is None is part
+        # of is_platform_staff, so a schools own admin (role='superadmin' but with
+        # a real tenant) does not bypass this check.
+        is_platform_admin = getattr(request.user, "is_platform_staff", False)
 
         if request.user.is_authenticated and is_platform_admin:
             return
@@ -165,11 +166,10 @@ class UserTenantValidationMixin:
         request_tenant = getattr(self.request, 'tenant', None)
         user_tenant = getattr(self.request.user, 'tenant', None)
 
-        # Platform admins can access any tenant
-        is_platform_admin = (
-            self.request.user.is_superuser or
-            (hasattr(self.request.user, 'role') and self.request.user.role.upper() == 'SUPERADMIN')
-        )
+        # Platform admins can access any tenant. A schools own admin (role=
+        # 'superadmin' but with a real tenant_id) is excluded by is_platform_staff,
+        # so they still go through the tenant-match check below like anyone else.
+        is_platform_admin = getattr(self.request.user, "is_platform_staff", False)
 
         if is_platform_admin:
             return True

@@ -249,6 +249,39 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         ]
 
     @property
+    def is_platform_staff(self):
+        """
+        True only for genuine platform-level admin accounts: the root
+        Django superuser, or a platform_admin created via the Platform
+        Users panel (create_platform_admin / PlatformUserSerializer both
+        always set tenant=None for these). Marketers are NOT included -
+        see is_platform_user for that broader check.
+
+        NOT true for a schools own top admin, even though school
+        registration also assigns role='superadmin' to them (see
+        SchoolRegistrationSerializer.create) - that account always has a
+        real tenant_id. Several permission checks across the codebase used
+        to test `role == 'superadmin'` alone as a stand-in for "platform
+        admin", which incorrectly also matched every schools own admin.
+        Use this property instead of re-deriving that check inline.
+        """
+        if self.is_superuser:
+            return True
+        return self.role in ("superadmin", "platform_admin") and self.tenant_id is None
+
+    @property
+    def is_platform_user(self):
+        """
+        Broader than is_platform_staff: also true for a marketer account
+        (role='marketer', tenant=None). Use this for read-only surfaces
+        that marketers should reach; use is_platform_staff for anything
+        that manages tenants, platform content, or other platform users.
+        """
+        if self.is_platform_staff:
+            return True
+        return self.role == "marketer" and self.tenant_id is None
+
+    @property
     def is_section_admin(self):
         """Check if user is a section admin (not superadmin)"""
         return self.role in [
