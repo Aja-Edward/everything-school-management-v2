@@ -8,9 +8,20 @@ import type { HydratedUserData } from '@/hooks/useAuth';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-// Only Django superusers are true platform admins.
-// Tenant admins may have role='superadmin' but is_superuser=False — they must NOT pass.
-const isPlatformAdminUser = (user: any): boolean => !!user?.is_superuser;
+// True for the root superuser, and for platform_admin/marketer accounts
+// created via the Platform Users panel (those are deliberately created
+// with is_superuser=False, so checking is_superuser alone would lock
+// them out of the portal they were created to use).
+//
+// A tenant's own admin also has role='superadmin' but always has a real
+// tenant_id, so they still correctly do NOT pass - mirrors the backend's
+// CustomUser.is_platform_staff/is_platform_user (users/models.py).
+const isPlatformAdminUser = (user: any): boolean => {
+  if (user?.is_superuser) return true;
+  const role = (user?.role || '').toString().toLowerCase();
+  const isPlatformRole = role === 'superadmin' || role === 'platform_admin' || role === 'marketer';
+  return isPlatformRole && !user?.tenant_id;
+};
 
 async function djangoSupabaseLogin(token: string): Promise<HydratedUserData> {
   const res = await fetch(`${API_BASE_URL}/auth/supabase-login/`, {
