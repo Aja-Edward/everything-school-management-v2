@@ -5,7 +5,12 @@ import { useAuth } from '@/hooks/useAuth';
 import { API_BASE_URL } from '@/services/api';
 import { supabase } from '@/services/supabaseClient';
 import type { HydratedUserData } from '@/hooks/useAuth';
-import PlatformLogo from '@/images/nuventa-logo.png';
+
+// Served from the public/ directory, not bundled through src/ - Vite copies
+// public/ files as-is rather than resolving them as module imports, so this
+// has to be a plain path string (`@/images/...` resolves into src/, where
+// this file doesn't exist, and silently fails to render).
+const PLATFORM_LOGO = '/images/nuventa-logo.png';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -122,8 +127,8 @@ const PlatformAdminLoginPage: React.FC = () => {
       {/* ── Left panel ─────────────────────────────────────────────────────── */}
       <div className="hidden lg:flex lg:w-1/2 bg-black flex-col justify-between p-12">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shrink-0">
-          <img src={PlatformLogo} alt="Logo" className="w-4 h-4" />
+          <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shrink-0 overflow-hidden">
+            <img src={PLATFORM_LOGO} alt="Nuventa Cloud" className="w-full h-full object-contain" />
           </div>
           <span className="text-white font-bold text-sm tracking-wide">
             Platform Admin Portal
