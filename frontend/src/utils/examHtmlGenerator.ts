@@ -143,25 +143,29 @@ function buildPrintCss(ps: PrintSettings): string {
     : '';
 
   // Smart option layout CSS
+  //
+  // "Auto" and "Inline" both read as ordinary reflowing text: the question
+  // number, question text and options are all inline elements in one flow,
+  // so option A picks up right where the question stops, and whichever
+  // options don't fit on that line wrap down to the next one - the same way
+  // a word processor reflows a paragraph. A flex row was used here before,
+  // but flex lays out the question and the options as two fixed zones side
+  // by side (splitting the row into a ~55%/35% or similar split) rather than
+  // letting the options continue the question's own line, so a short
+  // question still stranded its options on a fresh line below it.
   const optionsCss = ps.option_layout === 'stacked' ? `
-    /* Stacked: options always below question */
+    /* Stacked: options always below question, one per line */
     .question-row { display: block; }
     .options-wrap { display: block; margin-top: 6px; margin-left: 20px; }
     .option-item  { display: block; margin: 3px 0; }
-  ` : ps.option_layout === 'inline' ? `
-    /* Inline: options always flow beside question */
-    .question-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4em; }
-    .question-num { flex: 0 0 auto; font-weight: bold; }
-    .question-body { flex: 0 1 auto; }
-    .options-wrap { flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 1.2em; margin-left: 0.8em; }
-    .option-item  { white-space: nowrap; }
   ` : `
-    /* Auto (smart): flex-wrap does the work — short question → inline; long → stacked */
-    .question-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4em; }
-    .question-num { flex: 0 0 auto; font-weight: bold; }
-    .question-body { flex: 1 1 55%; min-width: 160px; }
-    .options-wrap { flex: 1 1 35%; min-width: 240px; display: flex; flex-wrap: wrap; gap: 1.2em; align-items: baseline; }
-    .option-item  { white-space: nowrap; }
+    /* Auto / Inline: one continuous flow - options start right after the
+       question text and wrap naturally, whole options at a time. */
+    .question-row { display: block; }
+    .question-num { display: inline; font-weight: bold; }
+    .question-body { display: inline; }
+    .options-wrap { display: inline; margin-left: 0.6em; }
+    .option-item  { display: inline-block; margin: 0 1.2em 2px 0; }
   `;
 
   // The base stylesheet is emitted after this block, so a plain `.question`
@@ -724,8 +728,11 @@ function generateTeacherCopy(
     .question-content th, th { border: 1px solid #333; padding: 8px; background-color: #f0f0f0; text-align: left; font-weight: bold; }
     .question-content td, td { border: 1px solid #333; padding: 8px; text-align: left; }
 
-    .options { margin-left: 20px; margin-top: 6px; font-size: 13px; }
-    .options > div { margin: 3px 0; }
+    /* Same reasoning as the student copy: options flow inline right after
+       the question text and wrap a whole option at a time, instead of
+       always dropping one per line regardless of how short they are. */
+    .options { display: inline; margin-left: 0.6em; font-size: 13px; }
+    .options > div { display: inline-block; margin: 0 1.2em 2px 0; }
     .label { font-weight: bold; margin-right: 4px; }
     .sub-questions { margin-left: 20px; margin-top: 6px; }
 

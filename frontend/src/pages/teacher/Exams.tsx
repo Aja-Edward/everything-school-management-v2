@@ -25,6 +25,7 @@ import {
   RefreshCw,
   Search,
   X,
+  XCircle,
   GraduationCap,
   Target,
   Clock3,
@@ -381,6 +382,9 @@ const handleDeleteExam = async (examId: number) => {
   
   const getStatusBadge = (status: string) => {
     const statusConfig = {
+      draft: { color: 'bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-300', icon: Edit, text: 'Draft' },
+      pending_approval: { color: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300', icon: Clock3, text: 'Pending Approval' },
+      rejected: { color: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300', icon: XCircle, text: 'Rejected' },
       scheduled: { color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300', icon: Calendar, text: 'Scheduled' },
       in_progress: { color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300', icon: AlertCircle, text: 'In Progress' },
       completed: { color: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300', icon: CheckCircle, text: 'Completed' },
@@ -603,6 +607,9 @@ const handleDeleteExam = async (examId: number) => {
                   className="px-4 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white min-w-[150px]"
                 >
                   <option value="all">All Status</option>
+                  <option value="draft">Draft</option>
+                  <option value="pending_approval">Pending Approval</option>
+                  <option value="rejected">Rejected</option>
                   <option value="scheduled">Scheduled</option>
                   <option value="in_progress">In Progress</option>
                   <option value="completed">Completed</option>
@@ -656,6 +663,9 @@ const handleDeleteExam = async (examId: number) => {
                   className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
                 >
                   <option value="all">All Status</option>
+                  <option value="draft">Draft</option>
+                  <option value="pending_approval">Pending Approval</option>
+                  <option value="rejected">Rejected</option>
                   <option value="scheduled">Scheduled</option>
                   <option value="in_progress">In Progress</option>
                   <option value="completed">Completed</option>
@@ -794,7 +804,7 @@ const handleDeleteExam = async (examId: number) => {
                     <span>View</span>
                   </button>
                   
-                  {(exam.status === 'scheduled' || exam.status === 'draft') && (
+                  {(exam.status === 'scheduled' || exam.status === 'draft' || exam.status === 'rejected') && (
                     <button
                       onClick={() => activeTab === 'exams' ? handleEditExam(exam) : handleEditTest(exam)}
                       className="flex-1 sm:flex-none flex items-center justify-center space-x-1.5 px-3 py-2 text-sm text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
@@ -814,7 +824,7 @@ const handleDeleteExam = async (examId: number) => {
                     </button>
                   )}
                   
-                  {exam.status === 'draft' && (
+                  {(exam.status === 'draft' || exam.status === 'rejected') && (
                     <button
                       onClick={() => handleSubmitForApproval(exam.id)}
                       className="flex-1 sm:flex-none flex items-center justify-center space-x-1.5 px-3 py-2 text-sm text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/30 hover:bg-green-100 dark:hover:bg-green-900/50 rounded-lg transition-colors"
@@ -1153,7 +1163,7 @@ const handleDeleteExam = async (examId: number) => {
               >
                 Close
               </button>
-              {(selectedExam.status === 'scheduled' || selectedExam.status === 'draft') && (
+              {(selectedExam.status === 'scheduled' || selectedExam.status === 'draft' || selectedExam.status === 'rejected') && (
                 <button
                   onClick={() => {
                     closeViewModal();

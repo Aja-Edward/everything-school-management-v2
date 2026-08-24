@@ -408,14 +408,42 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
     return () => dom.removeEventListener('click', handleClick);
   }, [editor, readOnly]);
 
-  // ── Resize selected image ───────────────────────────────────────────────────
+  // ── Map a clicked <img> element back to its position in the document ───────
+  //
+  // getHTML() serializes from the editor's own document model (state.doc),
+  // not from the live DOM - so a plain `img.style.width = ...` never shows
+  // up in getHTML() at all. It looks like it worked because the browser
+  // still paints the mutated element, but the very next transaction (or a
+  // reload of the saved value) redraws the image from the model and the
+  // change is gone. Every edit below has to go through a real transaction.
+  const findImagePos = useCallback((img: HTMLImageElement): number | null => {
+    if (!editor) return null;
+    let foundPos: number | null = null;
+    editor.state.doc.descendants((node: any, pos: number) => {
+      if (foundPos !== null) return false;
+      if (node.type.name === 'image' && editor.view.nodeDOM(pos) === img) {
+        foundPos = pos;
+        return false;
+      }
+      return true;
+    });
+    return foundPos;
+  }, [editor]);
+
+  /** Commit attribute changes on a specific image node via a real transaction. */
+  const commitImageAttrs = useCallback((img: HTMLImageElement, attrs: Record<string, any>) => {
+    if (!editor) return false;
+    const pos = findImagePos(img);
+    if (pos === null) return false;
+    editor.chain().focus().setNodeSelection(pos).updateAttributes('image', attrs).run();
+    return true;
+  }, [editor, findImagePos]);
+
+  // ── Resize selected image (preset buttons) ──────────────────────────────────
   const handleResize = useCallback((pct: number) => {
     if (!selectedImg) return;
-    selectedImg.style.width = pct === 100 ? '100%' : `${pct}%`;
-    selectedImg.style.maxWidth = '100%';
-    // Sync HTML back to editor
-    onChange(editor?.getHTML() ?? '');
-  }, [selectedImg, editor, onChange]);
+    commitImageAttrs(selectedImg, { width: pct === 100 ? '100%' : `${pct}%` });
+  }, [selectedImg, commitImageAttrs]);
 
   // ── Open image edit modal ───────────────────────────────────────────────────
   const handleEditOpen = useCallback(() => {
@@ -425,20 +453,97 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
 
   // ── Delete selected image ───────────────────────────────────────────────────
   const handleDeleteImage = useCallback(() => {
-    if (!selectedImg) return;
-    selectedImg.parentElement?.removeChild(selectedImg);
+    if (!selectedImg || !editor) return;
+    const pos = findImagePos(selectedImg);
+    if (pos !== null) {
+      editor.chain().focus().setNodeSelection(pos).deleteSelection().run();
+    }
     setSelectedImg(null);
     setToolbarPos(null);
-    onChange(editor?.getHTML() ?? '');
-  }, [selectedImg, editor, onChange]);
+  }, [selectedImg, editor, findImagePos]);
 
   // ── Apply edit result (new src) ─────────────────────────────────────────────
   const handleEditSave = useCallback((newSrc: string) => {
     if (!selectedImg) return;
-    selectedImg.src = newSrc;
+    commitImageAttrs(selectedImg, { src: newSrc });
     setEditModalSrc(null);
-    onChange(editor?.getHTML() ?? '');
-  }, [selectedImg, editor, onChange]);
+  }, [selectedImg, commitImageAttrs]);
+
+  // ── Click-and-drag resize handle ────────────────────────────────────────────
+  const resizeHandleRef = useRef<HTMLDivElement>(null);
+
+  /** Glue the little resize square to the selected image's bottom-right corner. */
+  const positionResizeHandle = useCallback((img: HTMLImageElement) => {
+    const handle    = resizeHandleRef.current;
+    const container = containerRef.current;
+    if (!handle || !container || !document.body.contains(img)) return;
+    const containerRect = container.getBoundingClientRect();
+    const imgRect        = img.getBoundingClientRect();
+    handle.style.top  = `${imgRect.bottom - containerRect.top - 6}px`;
+    handle.style.left = `${imgRect.right  - containerRect.left - 6}px`;
+  }, []);
+
+  useEffect(() => {
+    if (selectedImg) positionResizeHandle(selectedImg);
+  }, [selectedImg, toolbarPos, positionResizeHandle]);
+
+  // Outline the selected image so it's obvious a click landed and a handle appeared.
+  useEffect(() => {
+    if (!selectedImg) return;
+    selectedImg.style.outline = '2px solid #3b82f6';
+    selectedImg.style.outlineOffset = '2px';
+    return () => {
+      selectedImg.style.outline = '';
+      selectedImg.style.outlineOffset = '';
+    };
+  }, [selectedImg]);
+
+  const handleResizeDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const img = selectedImg;
+    if (!img) return;
+
+    const startX        = e.clientX;
+    const startWidthPx   = img.getBoundingClientRect().width;
+    const parentWidth    = img.parentElement?.clientWidth || startWidthPx;
+    const MIN_PX          = 30;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX     = moveEvent.clientX - startX;
+      const newWidthPx = Math.max(MIN_PX, Math.min(parentWidth, startWidthPx + deltaX));
+      // Live feedback only - not persisted until mouseup commits it.
+      img.style.width = `${newWidthPx}px`;
+      positionResizeHandle(img);
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+
+      const finalPct = Math.max(5, Math.min(100, (img.getBoundingClientRect().width / parentWidth) * 100));
+      // Clear the temporary drag style so the committed `width` attribute -
+      // not a leftover inline pixel style - drives the rendered size.
+      img.style.width = '';
+      commitImageAttrs(img, { width: `${finalPct.toFixed(1)}%` });
+
+      if (document.body.contains(img)) {
+        positionResizeHandle(img);
+        const container = containerRef.current;
+        if (container) {
+          const containerRect = container.getBoundingClientRect();
+          const imgRect        = img.getBoundingClientRect();
+          setToolbarPos({ top: imgRect.top - containerRect.top, left: imgRect.left - containerRect.left });
+        }
+      } else {
+        setSelectedImg(null);
+        setToolbarPos(null);
+      }
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [selectedImg, commitImageAttrs, positionResizeHandle]);
 
   const editorStyle: React.CSSProperties = {
     minHeight: `${minHeight}px`,
@@ -471,6 +576,26 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
           />
         )}
 
+        {/* Drag-to-resize handle - bottom-right corner of the selected image */}
+        {!readOnly && toolbarPos && selectedImg && (
+          <div
+            ref={resizeHandleRef}
+            onMouseDown={handleResizeDragStart}
+            title="Drag to resize"
+            style={{
+              position: 'absolute',
+              width: 12,
+              height: 12,
+              zIndex: 50,
+              background: '#3b82f6',
+              border: '2px solid #fff',
+              borderRadius: 3,
+              boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
+              cursor: 'nwse-resize',
+            }}
+          />
+        )}
+
         <EditorContent
           editor={editor}
           className="px-4 py-3 bg-white focus-within:bg-gray-50"
@@ -482,7 +607,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
             <span>{placeholder}</span>
             {!readOnly && (
               <span className="ml-auto text-gray-400">
-                💡 Click any image to resize, crop, or remove background
+                💡 Click any image, then drag its bottom-right handle to resize (or crop / remove background)
               </span>
             )}
           </div>

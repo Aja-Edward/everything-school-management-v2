@@ -5,7 +5,7 @@ import ClassroomService from '@/services/ClassroomService';
 import TeacherService from '@/services/TeacherService';
 import { ExamService, ExamCreateData } from '@/services/ExamService';
 import { toast } from 'react-toastify';
-import { X, Plus, Trash2, Save, Clock, CheckCircle, AlertCircle, Upload, FileDown } from 'lucide-react';
+import { X, XCircle, Plus, Trash2, Save, Clock, Clock3, CheckCircle, AlertCircle, Upload, FileDown } from 'lucide-react';
 import { generateExamWordTemplate, generateExamCsvTemplate } from '@/utils/examTemplateGenerator';
 import { RichTextEditor } from '@/components/shared/ExamEditor';
 import {
@@ -737,6 +737,9 @@ const submitForApproval = async () => {
 
   const getStatusBadge = (status: string) => {
     const statusConfig = {
+      draft: { color: 'bg-slate-100 text-slate-700', icon: Save, text: 'Draft' },
+      pending_approval: { color: 'bg-amber-100 text-amber-800', icon: Clock3, text: 'Pending Approval' },
+      rejected: { color: 'bg-red-100 text-red-800', icon: XCircle, text: 'Rejected' },
       scheduled: { color: 'bg-blue-100 text-blue-800', icon: Clock, text: 'Scheduled' },
       in_progress: { color: 'bg-yellow-100 text-yellow-800', icon: AlertCircle, text: 'In Progress' },
       completed: { color: 'bg-green-100 text-green-800', icon: CheckCircle, text: 'Completed' },
@@ -1072,7 +1075,7 @@ const submitForApproval = async () => {
                                     minHeight={100}
                                     simplified={true}
                                     enableImageUpload={true}
-                                    enableTables={false}
+                                    enableTables={true}
                                   />
                                   <div className="grid grid-cols-2 gap-3">
                                     <input type="text" value={question.optionA} onChange={(e) => updateObjectiveQuestion(index, 'optionA', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Option A" />
@@ -1227,11 +1230,11 @@ const submitForApproval = async () => {
                                   <RichTextEditor
                                     value={question.task}
                                     onChange={(html) => updatePracticalQuestion(index, 'task', html)}
-                                    placeholder="Task description (supports formatting and images)"
+                                    placeholder="Task description (supports formatting, images, tables)"
                                     minHeight={80}
                                     simplified={true}
                                     enableImageUpload={true}
-                                    enableTables={false}
+                                    enableTables={true}
                                   />
                                   <div className="grid grid-cols-2 gap-3">
                                     <input type="text" value={question.materials} onChange={(e) => updatePracticalQuestion(index, 'materials', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Required materials" />
