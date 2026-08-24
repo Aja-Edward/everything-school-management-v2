@@ -375,8 +375,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setUser(userData);
           localStorage.setItem('userData', JSON.stringify(userData));
           refreshUserDataSilent(userData).catch(console.warn);
-        } else if (!storedUserData) {
+        } else {
+          // SECURITY: the server is authoritative here - checkAuthStatus()
+          // completed successfully and explicitly said 'not authenticated'.
+          // Previously this only cleared the user when localStorage had
+          // NO cached data, so a browser holding a stale userData blob from
+          // an earlier, now-expired/invalidated session kept rendering
+          // protected pages (e.g. /super-admin/dashboard) against a user
+          // who is no longer actually logged in. Always defer to the
+          // server's answer and clear the stale cache, regardless of what
+          // was optimistically set from localStorage above.
           setUser(null);
+          clearAuthData();
         }
       } catch (error) {
         console.warn('Auth check error:', error);
