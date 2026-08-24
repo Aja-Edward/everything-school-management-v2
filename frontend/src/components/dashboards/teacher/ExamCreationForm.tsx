@@ -802,7 +802,7 @@ const submitForApproval = async () => {
           >
             <div className="flex items-center space-x-2">
               <Upload className="w-4 h-4" />
-              <span>Upload Document</span>
+              <span>Import Questions</span>
             </div>
           </button>
           <button

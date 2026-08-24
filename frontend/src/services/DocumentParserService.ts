@@ -154,6 +154,43 @@ export async function parseExamDocument(file: File): Promise<ParsedExamData> {
   }
 }
 
+/** Minimum length worth sending to the parser - anything shorter can't hold a question. */
+const MIN_PASTE_CHARS = 20;
+/** Matches the backend's MAX_PASTE_CHARS in exam/document_views.py. */
+const MAX_PASTE_CHARS = 50_000;
+
+/**
+ * Parse exam questions pasted as raw text and convert them to the
+ * platform's exam format. Same idea as `parseExamDocument`, but for a
+ * teacher who copies an exam straight out of Word/Google Docs into a text
+ * box instead of uploading a file.
+ */
+export async function parseExamPastedText(text: string): Promise<ParsedExamData> {
+  const trimmed = text.trim();
+
+  if (trimmed.length < MIN_PASTE_CHARS) {
+    throw new Error('Paste your exam questions first - there’s not enough text to work with yet.');
+  }
+
+  if (trimmed.length > MAX_PASTE_CHARS) {
+    throw new Error(
+      `Pasted text is too long (${trimmed.length.toLocaleString()} characters). ` +
+      `The limit is ${MAX_PASTE_CHARS.toLocaleString()} characters.`
+    );
+  }
+
+  console.log('📋 Parsing pasted exam text:', { length: trimmed.length });
+
+  try {
+    return await parseTextViaBackend(trimmed);
+  } catch (error) {
+    console.error('❌ Error parsing pasted text:', error);
+    throw error instanceof Error
+      ? error
+      : new Error('An unexpected error occurred while parsing the pasted text.');
+  }
+}
+
 /**
  * Fetch the backend's document parser library availability status.
  */
@@ -331,6 +368,49 @@ async function parseDocumentViaBackend(file: File, documentType: DocumentType): 
   validateParsedData(parsedData);
 
   console.log('✅ Document parsed successfully:', {
+    title: parsedData.title,
+    sections: parsedData.sections.length,
+    confidence: parsedData.metadata.confidence,
+    warnings: parsedData.metadata.warnings.length,
+  });
+
+  return parsedData;
+}
+
+async function parseTextViaBackend(text: string): Promise<ParsedExamData> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PARSE_TIMEOUT_MS);
+
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}/exams/parse-text/`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+      credentials: 'include',
+      headers: {
+        ...buildHeaders({ includeCsrf: true }),
+        'Content-Type': 'application/json',
+      },
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Parsing timed out. Try pasting a shorter section at a time.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!response.ok) {
+    await handleErrorResponse(response);
+  }
+
+  const parsedData: ParsedExamData = await response.json();
+  validateParsedData(parsedData);
+
+  console.log('✅ Pasted text parsed successfully:', {
     title: parsedData.title,
     sections: parsedData.sections.length,
     confidence: parsedData.metadata.confidence,

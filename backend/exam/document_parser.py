@@ -63,6 +63,38 @@ def is_template_boilerplate(text: str) -> bool:
     return any(p.search(stripped) for p in BOILERPLATE_PATTERNS)
 
 
+# --- Pasted-text parsing (no file, teacher pastes raw exam text) ----------
+#
+# Matches a section header such as "Section A", "SECTION A:", "Section A -
+# Objective Questions (15 Marks)". Used both to find real section starts and
+# to spot table-of-contents-style listings ("Section A: Objective (15
+# Questions)" followed immediately by "Section B: Theory (5 Questions)") so
+# those don't get mistaken for a section with no questions in it.
+SECTION_HEADER_RE = re.compile(
+    r'^section\s+([a-zA-Z])\s*(?:[:\-–—]\s*(.*))?$',
+    re.IGNORECASE
+)
+
+# A multiple-choice option line: "A. text", "B) text", "C: text" - upper or
+# lower case letter, A through E.
+OPTION_LINE_RE = re.compile(r'^([A-Ea-e])[\.\):]\s*(.+)$')
+
+# A leading question number: "1. text", "12) text".
+NUMBERED_LINE_RE = re.compile(r'^(\d+)[\.\)]\s*(.+)$')
+
+# The heading that introduces a trailing answer key, e.g.
+# "Marking Guide (Teacher's Use)" or "Marking Scheme".
+MARKING_GUIDE_RE = re.compile(r'(?im)^\s*marking\s+(?:guide|scheme)\b.*$')
+
+# Words that show up inside a marking-guide table/paragraph but aren't
+# themselves question numbers or answer letters - skipped while scanning
+# for (number, letter) pairs.
+MARKING_GUIDE_SKIP_WORDS = {
+    'q', 'ans', 'answer', 'answers', 'key', 'objective', 'theory',
+    'section', 'correct', 'guide', "teacher's", 'teachers', 'use',
+}
+
+
 class ExamDocumentParser:
     """Parser for exam documents"""
 
@@ -81,6 +113,8 @@ class ExamDocumentParser:
             return self._parse_word()
         elif file_extension == 'csv':
             return self._parse_csv()
+        elif file_extension in ['txt', 'text']:
+            return self._parse_pasted_text()
         else:
             raise ValueError(f"Unsupported file format: {file_extension}. Supported formats: PDF, Word, CSV")
 
@@ -710,6 +744,294 @@ class ExamDocumentParser:
         if not text:
             return ''
         return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+    # -----------------------------------------------------------------
+    # Pasted-text parsing
+    #
+    # A teacher pasting an exam straight from Word/Google Docs into a
+    # textarea gets plain text where every paragraph - even a single
+    # heading or a lone "A. option" line - lands on its own line,
+    # separated by a blank line. That's different enough from the
+    # PDF/Word extraction above (which keeps real line breaks and often
+    # numbers every question) to need its own section/question detector:
+    # objective questions here usually have no leading "1." at all, just
+    # a question paragraph immediately followed by "A./B./C./D." lines.
+    # -----------------------------------------------------------------
+
+    def _parse_pasted_text(self) -> Dict[str, Any]:
+        """Parse raw pasted exam text (no numbering required on MCQs)."""
+        try:
+            text = self.file_content.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            text = self.file_content.decode('utf-8', errors='ignore')
+
+        if not text or not text.strip():
+            raise ValueError("Pasted text is empty.")
+
+        lines = [l for l in text.splitlines() if not is_template_boilerplate(l)]
+        text = '\n'.join(lines)
+
+        # A trailing "Marking Guide" table of objective answers isn't exam
+        # content - pull it out before section/question detection sees it.
+        text, answer_key = self._extract_marking_guide(text)
+
+        title = self._extract_title(text)
+        instructions = self._extract_instructions(text)
+        sections = self._detect_sections_from_paragraphs(text, title=title)
+
+        if answer_key:
+            self._apply_answer_key(sections, answer_key)
+
+        if not sections:
+            raise ValueError(
+                "Could not find any questions in the pasted text. Put each "
+                "question on its own paragraph, and for multiple-choice "
+                "questions list the options as A., B., C., D. each on their "
+                "own line right after the question."
+            )
+
+        total_marks = self._calculate_total_marks(sections)
+        confidence = self._determine_confidence(sections)
+
+        return {
+            'title': title,
+            'instructions': instructions,
+            'totalMarks': total_marks,
+            'durationMinutes': None,
+            'sections': sections,
+            'metadata': {
+                'originalFileName': self.file_name,
+                'parsedAt': None,
+                'confidence': confidence,
+                'warnings': self.warnings
+            }
+        }
+
+    def _split_into_paragraphs(self, text: str) -> List[str]:
+        """
+        Return one entry per non-blank line.
+
+        Pasted exam text shows up in two common shapes: a blank line after
+        every single line (typical of copying out of Word/Google Docs into a
+        plain textarea), or ordinary single-newline-per-line text with no
+        blank lines at all (typical of a PDF copy or a teacher typing
+        straight into the box). Splitting on individual lines handles both
+        the same way - blank lines just disappear as empty entries.
+        """
+        return [l.strip() for l in text.splitlines() if l.strip()]
+
+    def _extract_marking_guide(self, text: str) -> Tuple[str, Dict[int, str]]:
+        """
+        Split a trailing "Marking Guide" answer key off the main text.
+
+        Handles the messy shape a pasted Word table takes once it's flattened
+        to plain text (each cell - including a lone "Q" or "Ans" header, or
+        even a stray tab character - lands on its own line). Regardless of
+        how many columns the table had, reading the flattened cells in order
+        and pairing each question number with the token right after it
+        recovers the right answers, because the pairing is keyed by the
+        question number itself, not by position in the table.
+        """
+        m = MARKING_GUIDE_RE.search(text)
+        if not m:
+            return text, {}
+
+        body_text = text[:m.start()]
+        remainder = text[m.end():]
+
+        tokens = [t.strip('.:,() ') for t in re.split(r'\s+', remainder)]
+        tokens = [t for t in tokens if t and t.lower() not in MARKING_GUIDE_SKIP_WORDS]
+
+        answer_key: Dict[int, str] = {}
+        i = 0
+        while i < len(tokens) - 1:
+            num_tok, ans_tok = tokens[i], tokens[i + 1]
+            if num_tok.isdigit() and re.match(r'^[A-Ea-e]$', ans_tok):
+                answer_key[int(num_tok)] = ans_tok.upper()
+                i += 2
+            else:
+                i += 1
+
+        if not answer_key:
+            # Heading was found but nothing usable followed it - leave the
+            # text untouched rather than silently dropping that content.
+            return text, {}
+
+        return body_text, answer_key
+
+    def _apply_answer_key(self, sections: List[Dict[str, Any]], answer_key: Dict[int, str]) -> None:
+        """Fill in objective correctAnswer from the marking guide, matching
+        each question by its 1-based position within its section."""
+        applied = 0
+        for section in sections:
+            if section.get('type') != 'objective':
+                continue
+            for position, question in enumerate(section['questions'], start=1):
+                if question.get('correctAnswer'):
+                    continue  # already found inline (e.g. marked with *)
+                answer = answer_key.get(position)
+                if answer:
+                    question['correctAnswer'] = answer
+                    applied += 1
+
+        if applied:
+            self.warnings.append(
+                f"Applied {applied} answer(s) from the marking guide to the objective questions."
+            )
+        else:
+            self.warnings.append(
+                "Found a marking guide but couldn't match its answers to the "
+                "objective questions - please double-check the correct answers."
+            )
+
+    def _detect_sections_from_paragraphs(self, text: str, title: str = '') -> List[Dict[str, Any]]:
+        """Group pasted-text paragraphs into sections and parse their questions."""
+        paras = self._split_into_paragraphs(text)
+        if not paras:
+            return []
+
+        # When there's no section heading to scope questions to (see the
+        # fallback below), the title line would otherwise sit directly in
+        # front of the first question with nothing to separate them and get
+        # read as part of its stem - drop it, since it's already captured
+        # separately as the exam title.
+        title_norm = title.strip()
+        if title_norm and paras and paras[0] == title_norm:
+            paras = paras[1:]
+
+        # Find genuine section headers, skipping table-of-contents style
+        # mentions - a "Section A" paragraph immediately followed by another
+        # "Section X" paragraph is naming a section, not starting one.
+        header_idxs: List[Tuple[int, str, str]] = []
+        for idx, para in enumerate(paras):
+            m = SECTION_HEADER_RE.match(para)
+            if not m:
+                continue
+            nxt = paras[idx + 1] if idx + 1 < len(paras) else ''
+            if SECTION_HEADER_RE.match(nxt):
+                continue
+            header_idxs.append((idx, m.group(1).upper(), (m.group(2) or '').strip()))
+
+        if not header_idxs:
+            # No "Section A/B" headings anywhere - treat the paste as one
+            # section, guessing objective vs theory from how many option
+            # lines (A./B./C./D.) show up.
+            option_count = sum(1 for p in paras if OPTION_LINE_RE.match(p))
+            section_type = 'objective' if option_count >= 4 else 'theory'
+            questions = (
+                self._extract_objective_from_paragraphs(paras) if section_type == 'objective'
+                else self._extract_questions('\n'.join(paras), section_type)
+            )
+            if not questions:
+                return []
+            self.warnings.append(
+                "No 'Section A/B' headings found. All questions grouped into one section."
+            )
+            return [{
+                'type': section_type,
+                'name': 'Main Section',
+                'instructions': '',
+                'questions': questions
+            }]
+
+        sections = []
+        for k, (idx, letter, subtitle) in enumerate(header_idxs):
+            start = idx + 1
+            end = header_idxs[k + 1][0] if k + 1 < len(header_idxs) else len(paras)
+            body = paras[start:end]
+
+            section_type = self._detect_section_type_from_subtitle(subtitle.lower())
+
+            instructions = ''
+            if body:
+                lead = body[0]
+                lead_lower = lead.lower()
+                looks_like_instruction = (
+                    not OPTION_LINE_RE.match(lead)
+                    and not NUMBERED_LINE_RE.match(lead)
+                    and any(lead_lower.startswith(kw) for kw in
+                            ('choose', 'select', 'answer any', 'instruction', 'read '))
+                )
+                if looks_like_instruction:
+                    instructions = lead
+                    body = body[1:]
+
+            if section_type == 'objective':
+                questions = self._extract_objective_from_paragraphs(body)
+            else:
+                questions = self._extract_questions('\n'.join(body), section_type)
+
+            if questions:
+                sections.append({
+                    'type': section_type,
+                    'name': f'Section {letter}',
+                    'instructions': instructions,
+                    'questions': questions
+                })
+
+        return sections
+
+    def _extract_objective_from_paragraphs(self, lines: List[str]) -> List[Dict[str, Any]]:
+        """
+        Extract MCQ questions from a list of lines, whether or not the
+        question itself is numbered. A run of one or more non-option lines
+        followed by two or more "A./B./C./D." lines is treated as one
+        objective question - the whole run becomes the question stem, so a
+        stem that happens to wrap across more than one line still comes
+        through as a single question instead of being split apart.
+        """
+        questions: List[Dict[str, Any]] = []
+        i = 0
+        n = len(lines)
+
+        while i < n:
+            if OPTION_LINE_RE.match(lines[i]):
+                i += 1  # stray option with no question stem before it
+                continue
+
+            j = i
+            while j < n and not OPTION_LINE_RE.match(lines[j]):
+                j += 1
+            # lines[i:j] are candidate stem lines; lines[j] starts an option run (or is past the end)
+
+            option_lines: List[str] = []
+            k = j
+            while k < n and OPTION_LINE_RE.match(lines[k]):
+                option_lines.append(lines[k])
+                k += 1
+
+            if len(option_lines) < 2:
+                i = j  # nothing usable followed this run - move past it and retry
+                continue
+
+            stem_lines = lines[i:j]
+            num_m = NUMBERED_LINE_RE.match(stem_lines[0])
+            if num_m:
+                stem_lines = [num_m.group(2).strip()] + stem_lines[1:]
+            stem_text = ' '.join(s for s in stem_lines if s)
+
+            options: Dict[str, str] = {}
+            correct_answer = None
+            for opt_line in option_lines:
+                om = OPTION_LINE_RE.match(opt_line)
+                letter = om.group(1).upper()
+                opt_text = om.group(2).strip()
+                if '*' in opt_text or '(correct)' in opt_text.lower():
+                    correct_answer = letter
+                    opt_text = opt_text.replace('*', '').strip()
+                    opt_text = re.sub(r'\(correct\)', '', opt_text, flags=re.IGNORECASE).strip()
+                options[f'option{letter}'] = opt_text
+
+            questions.append({
+                'question': self._clean_html(stem_text),
+                'type': 'objective',
+                'options': options,
+                'correctAnswer': correct_answer,
+                'marks': self._extract_marks(stem_text)
+            })
+            i = k
+
+        return questions
 
     def _parse_text_content(self, text: str) -> Dict[str, Any]:
         """Parse text content and extract exam structure"""

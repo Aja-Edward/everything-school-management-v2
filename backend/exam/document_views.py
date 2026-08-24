@@ -15,6 +15,9 @@ from .document_parser import ExamDocumentParser
 
 logger = logging.getLogger(__name__)
 
+# Generous for a full exam paper pasted as plain text; guards against abuse.
+MAX_PASTE_CHARS = 50_000
+
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -199,3 +202,114 @@ def document_parser_status(request):
         'max_file_size_mb': 10,
         'supported_formats': ['pdf', 'docx', 'doc', 'csv']
     })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def parse_pasted_exam_text(request):
+    """
+    Parse exam questions pasted as raw text and return structured data.
+
+    Lets a teacher copy an exam straight out of a Word/Google doc into a
+    textarea instead of uploading a file. Objective questions don't need to
+    be numbered - a question line followed by two or more "A./B./C./D."
+    lines is enough. A trailing "Marking Guide" answer key, if present, is
+    matched back onto the objective questions by position.
+
+    Expected request body (JSON):
+    - text: the raw pasted exam text
+
+    Returns the same structured shape as parse_exam_document.
+    """
+    text = (request.data.get('text') or '').strip()
+
+    if not text:
+        return Response(
+            {'detail': 'No text provided. Paste your exam questions and try again.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if len(text) > MAX_PASTE_CHARS:
+        return Response(
+            {
+                'detail': f'Pasted text is too long ({len(text):,} characters). '
+                         f'The limit is {MAX_PASTE_CHARS:,} characters.'
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    logger.info(f"Parsing pasted exam text ({len(text)} chars)")
+
+    try:
+        parser = ExamDocumentParser(text.encode('utf-8'), 'pasted-exam.txt')
+        parsed_data = parser.parse()
+
+        if not parsed_data:
+            raise ValueError("Parser returned empty data")
+
+        if 'sections' not in parsed_data or not isinstance(parsed_data['sections'], list):
+            raise ValueError("Parser returned invalid data: missing or invalid sections")
+
+        if 'metadata' not in parsed_data:
+            raise ValueError("Parser returned invalid data: missing metadata")
+
+        total_questions = sum(len(section.get('questions', [])) for section in parsed_data['sections'])
+        if total_questions == 0:
+            return Response(
+                {
+                    'detail': 'No questions found in the pasted text.',
+                    'help': 'Put each question on its own line. For multiple-choice '
+                            'questions, list the options as A., B., C., D. each on their '
+                            'own line right after the question - the question itself does '
+                            'not need a number. Number theory questions (1., 2., 3., ...).',
+                    'example': (
+                        'Example format:\n\n'
+                        'Section A - Objective\n\n'
+                        'What is 2 + 2?\n'
+                        'A. 3\n'
+                        'B. 4\n'
+                        'C. 5\n'
+                        'D. 6\n\n'
+                        'Section B - Theory\n\n'
+                        '1. Explain photosynthesis. (10 marks)'
+                    ),
+                    'warnings': parsed_data.get('metadata', {}).get('warnings', []),
+                    'sections_found': len(parsed_data.get('sections', [])),
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        parsed_data['metadata']['parsedAt'] = timezone.now().isoformat()
+
+        logger.info(
+            f"Successfully parsed pasted exam text: "
+            f"{len(parsed_data['sections'])} sections, "
+            f"{total_questions} questions, "
+            f"{parsed_data['metadata']['confidence']} confidence"
+        )
+
+        if parsed_data['metadata']['warnings']:
+            logger.warning(f"Parsing warnings for pasted text: {parsed_data['metadata']['warnings']}")
+
+        return Response(parsed_data, status=status.HTTP_200_OK)
+
+    except ValueError as e:
+        logger.warning(f"Validation error parsing pasted text: {e}")
+        return Response(
+            {
+                'detail': str(e),
+                'error_type': 'validation_error'
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    except Exception as e:
+        logger.error(f"Error parsing pasted text: {e}", exc_info=True)
+        return Response(
+            {
+                'detail': f'Failed to parse pasted text: {str(e)}',
+                'error': str(e),
+                'error_type': 'parsing_error'
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

@@ -15,6 +15,7 @@ from .views import (
 )
 from .document_views import (
     parse_exam_document,
+    parse_pasted_exam_text,
     document_parser_status,
 )
 from .pdf_views import export_exam_pdf
@@ -290,6 +291,11 @@ custom_patterns = [
         "parse-document/",
         parse_exam_document,
         name="parse-exam-document",
+    ),
+    path(
+        "parse-text/",
+        parse_pasted_exam_text,
+        name="parse-pasted-exam-text",
     ),
     path(
         "parser-status/",

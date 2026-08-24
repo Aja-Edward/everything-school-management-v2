@@ -18,6 +18,7 @@ import { Button } from '../ui/button';
 import { Card } from '../ui/card';
 import {
   parseExamDocument,
+  parseExamPastedText,
   convertParsedDataToExamFormat,
 } from '../../services/DocumentParserService';
 
@@ -26,16 +27,21 @@ interface ExamDocumentUploaderProps {
   onCancel: () => void;
 }
 
+type ImportMode = 'upload' | 'paste';
+
 export const ExamDocumentUploader: React.FC<ExamDocumentUploaderProps> = ({
   onImport,
   onCancel,
 }) => {
+  const [mode, setMode] = useState<ImportMode>('upload');
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [pastedText, setPastedText] = useState('');
 
   const supportedFormats = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword', 'text/csv', 'application/csv'];
   const supportedExtensions = ['.pdf', '.docx', '.doc', '.csv'];
@@ -149,15 +155,63 @@ export const ExamDocumentUploader: React.FC<ExamDocumentUploaderProps> = ({
     }
   };
 
+  const parsePastedText = async () => {
+    if (!pastedText.trim()) {
+      setError('Paste your exam questions into the box first.');
+      return;
+    }
+
+    setIsParsing(true);
+    setError(null);
+
+    try {
+      console.log('📋 Starting pasted-text parsing...');
+      const parsed = await parseExamPastedText(pastedText);
+      console.log('✅ Pasted text parsed successfully:', parsed);
+
+      // Same reasoning as parseDocument: hand the questions straight to the
+      // form rather than a confirmation step that just loses them.
+      onImport(convertParsedDataToExamFormat(parsed));
+      setPastedText('');
+    } catch (err) {
+      console.error('❌ Pasted-text parsing error:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to parse the pasted text';
+
+      const errorData = (err as any)?.response?.data;
+      if (errorData) {
+        let fullError = errorData.detail || errorMessage;
+
+        if (errorData.help) {
+          fullError += '\n\n' + errorData.help;
+        }
+
+        if (errorData.example) {
+          fullError += '\n\n' + errorData.example;
+        }
+
+        if (errorData.warnings && errorData.warnings.length > 0) {
+          fullError += '\n\nIssues found:\n' + errorData.warnings.join('\n');
+        }
+
+        setError(fullError);
+      } else {
+        setError(errorMessage);
+      }
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
   const [showFormatGuide, setShowFormatGuide] = useState(false);
 
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="text-2xl font-bold text-gray-900">Upload Exam Document</h2>
+        <h2 className="text-2xl font-bold text-gray-900">Import Exam Questions</h2>
         <p className="mt-2 text-sm text-gray-600">
-          Upload a PDF, Word, or CSV file containing your exam questions, and we'll automatically
-          convert it to the platform format.
+          {mode === 'upload'
+            ? "Upload a PDF, Word, or CSV file containing your exam questions, and we'll automatically convert it to the platform format."
+            : "Paste your exam questions from Word, Google Docs, or anywhere else, and we'll automatically detect and format them."}
         </p>
         <button
           onClick={() => setShowFormatGuide(!showFormatGuide)}
@@ -167,21 +221,85 @@ export const ExamDocumentUploader: React.FC<ExamDocumentUploaderProps> = ({
         </button>
       </div>
 
+      {/* Mode toggle */}
+      {!isParsing && (
+        <div className="flex justify-center">
+          <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
+            <button
+              type="button"
+              onClick={() => { setMode('upload'); setError(null); }}
+              className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                mode === 'upload'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              📄 Upload File
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMode('paste'); setError(null); }}
+              className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                mode === 'paste'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              📋 Paste Text
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Format Guide */}
       {showFormatGuide && (
         <div className="rounded-lg bg-blue-50 p-4 border border-blue-200 text-left">
-          <h3 className="text-sm font-semibold text-blue-900 mb-2">Document Format Guide</h3>
+          <h3 className="text-sm font-semibold text-blue-900 mb-2">
+            {mode === 'paste' ? 'Pasted Text Format Guide' : 'Document Format Guide'}
+          </h3>
           <div className="text-xs text-blue-800 space-y-2">
-            <p><strong>Your document should contain:</strong></p>
-            <ul className="list-disc list-inside space-y-1 ml-2">
-              <li>Numbered questions (1., 2., 3., etc.)</li>
-              <li>For multiple choice: options labeled A., B., C., D., E.</li>
-              <li>Optional: Section headers like "Section A" or "OBJECTIVE QUESTIONS"</li>
-              <li>Optional: Marks indicated as (5 marks) or [10m]</li>
-            </ul>
-            <div className="mt-3 bg-white p-3 rounded border border-blue-300 font-mono text-xs">
-              <p className="font-semibold mb-2">Example Format:</p>
-              <pre className="whitespace-pre-wrap">
+            {mode === 'paste' ? (
+              <>
+                <p><strong>Your pasted text should have:</strong></p>
+                <ul className="list-disc list-inside space-y-1 ml-2">
+                  <li>Each question on its own line (numbering is optional for multiple choice)</li>
+                  <li>Multiple choice options labeled A., B., C., D., E., each on their own line</li>
+                  <li>Theory questions numbered (1., 2., 3., etc.)</li>
+                  <li>Optional: Section headers like "Section A" or "Objective Questions"</li>
+                  <li>Optional: a trailing "Marking Guide" listing the correct answer for each objective question</li>
+                </ul>
+                <div className="mt-3 bg-white p-3 rounded border border-blue-300 font-mono text-xs">
+                  <p className="font-semibold mb-2">Example Format:</p>
+                  <pre className="whitespace-pre-wrap">
+{`Section A - Objective
+
+What is 2 + 2?
+A. 2
+B. 3
+C. 4
+D. 5
+
+Section B - Theory
+
+1. Explain photosynthesis. (10 marks)
+
+Marking Guide
+1. C`}
+                  </pre>
+                </div>
+              </>
+            ) : (
+              <>
+                <p><strong>Your document should contain:</strong></p>
+                <ul className="list-disc list-inside space-y-1 ml-2">
+                  <li>Numbered questions (1., 2., 3., etc.)</li>
+                  <li>For multiple choice: options labeled A., B., C., D., E.</li>
+                  <li>Optional: Section headers like "Section A" or "OBJECTIVE QUESTIONS"</li>
+                  <li>Optional: Marks indicated as (5 marks) or [10m]</li>
+                </ul>
+                <div className="mt-3 bg-white p-3 rounded border border-blue-300 font-mono text-xs">
+                  <p className="font-semibold mb-2">Example Format:</p>
+                  <pre className="whitespace-pre-wrap">
 {`SECTION A: OBJECTIVE
 
 1. What is 2 + 2?
@@ -197,13 +315,15 @@ SECTION B: THEORY
 2. Solve the following:
    a. 2x + 5 = 15
    b. 3x - 7 = 20`}
-              </pre>
-            </div>
+                  </pre>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
 
-      {!file && (
+      {mode === 'upload' && !file && (
         <>
           {/* Upload Area */}
           <div
@@ -292,15 +412,96 @@ SECTION B: THEORY
         </>
       )}
 
+      {mode === 'paste' && !isParsing && (
+        <>
+          {/* Paste Area */}
+          <div>
+            <textarea
+              value={pastedText}
+              onChange={(e) => setPastedText(e.target.value)}
+              placeholder={
+                'Paste your exam questions here…\n\n' +
+                'Section A – Objective\n\n' +
+                'What is 2 + 2?\n' +
+                'A. 3\n' +
+                'B. 4\n' +
+                'C. 5\n' +
+                'D. 6\n\n' +
+                'Section B – Theory\n\n' +
+                '1. Explain photosynthesis. (10 marks)'
+              }
+              rows={16}
+              className="w-full rounded-lg border border-gray-300 p-4 text-sm font-mono text-gray-900
+                         placeholder:text-gray-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500
+                         focus:outline-none"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Multiple-choice questions don't need numbers — a question followed by A., B., C., D.
+              options is enough. Number theory questions (1., 2., 3., …).
+            </p>
+          </div>
+
+          {error && (
+            <div className="rounded-lg bg-red-50 p-4 border border-red-200">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <svg
+                    className="h-5 w-5 text-red-400"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </div>
+                <div className="ml-3 flex-1">
+                  <h3 className="text-sm font-medium text-red-800">Couldn't Parse Text</h3>
+                  <div className="mt-2 text-sm text-red-700 whitespace-pre-wrap">
+                    {error}
+                  </div>
+                  {!showFormatGuide && (
+                    <button
+                      onClick={() => setShowFormatGuide(true)}
+                      className="mt-3 text-xs text-blue-600 hover:text-blue-800 underline"
+                    >
+                      View document format guide
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3">
+            <Button onClick={onCancel} variant="outline">
+              Cancel
+            </Button>
+            <Button
+              onClick={parsePastedText}
+              disabled={!pastedText.trim()}
+            >
+              Format &amp; Import
+            </Button>
+          </div>
+        </>
+      )}
+
       {/* Parsing Progress */}
       {isParsing && (
         <Card className="p-6">
           <div className="flex items-center justify-center space-x-4">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
             <div>
-              <h3 className="font-semibold text-gray-900">Parsing Document...</h3>
+              <h3 className="font-semibold text-gray-900">
+                {mode === 'paste' ? 'Formatting Your Questions...' : 'Parsing Document...'}
+              </h3>
               <p className="text-sm text-gray-600">
-                Analyzing {file?.name} and extracting questions
+                {mode === 'paste'
+                  ? 'Detecting sections, questions and options from the pasted text'
+                  : <>Analyzing {file?.name} and extracting questions</>}
               </p>
             </div>
           </div>
