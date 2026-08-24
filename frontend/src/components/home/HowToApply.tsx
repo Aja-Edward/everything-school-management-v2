@@ -1,59 +1,74 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Check } from 'lucide-react';
-import { useSettings } from '@/contexts/SettingsContext';
+import api from '@/services/api';
 
+// This page describes how a SCHOOL gets onboarded onto Nuventa Cloud - not
+// how a student applies to a school. It only ever renders on the main
+// marketing domain (see pages/HowToApplyPage.tsx), and every CTA here goes
+// to /onboarding/register, the platform's own school-registration flow.
 const HowToApply: React.FC = () => {
   const navigate = useNavigate();
-  const { settings } = useSettings();
+  const [supportEmail, setSupportEmail] = useState('support@nuventacloud.com');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get('/api/tenants/platform-content/');
+        if (res.contact_email) setSupportEmail(res.contact_email);
+      } catch {
+        // keep the default above
+      }
+    })();
+  }, []);
 
   const steps = [
     {
       number: '01',
-      title: 'Complete Application',
-      description: 'Fill out our online application form with student and parent information.',
-      items: ['Personal details', 'Academic history', 'Parent contacts'],
+      title: 'Register Your School',
+      description: 'Tell us your school name and create your admin account.',
+      items: ['School name', 'Your name & email', 'A password'],
     },
     {
       number: '02',
-      title: 'Submit Documents',
-      description: 'Upload required documents including transcripts and identification.',
-      items: ['Birth certificate', 'Previous transcripts', 'Passport photos'],
+      title: 'Choose Your Services',
+      description: 'Pick the modules your school needs - only pay for what you use.',
+      items: ['Core features included', 'Add-ons priced per student', 'Change plans anytime'],
     },
     {
       number: '03',
-      title: 'Assessment',
-      description: 'Schedule and complete the academic assessment and interview.',
-      items: ['Written assessment', 'Student interview', 'Parent meeting'],
+      title: 'Set Up Your School',
+      description: 'Add your classes, teachers, and students, and configure your branding.',
+      items: ['Classes & sections', 'Teachers & students', 'Logo & school colours'],
     },
     {
       number: '04',
-      title: 'Admission Decision',
-      description: 'Receive your admission decision within 5-7 business days.',
-      items: ['Review process', 'Placement decision', 'Welcome package'],
+      title: 'Go Live',
+      description: 'Start taking attendance, running exams, and publishing results.',
+      items: ['Attendance & lessons', 'Exams & results', 'Fees & communication'],
     },
   ];
 
   const requirements = [
     {
-      title: 'Academic Documents',
-      items: ['Previous school transcripts', 'Recommendation letter', 'Test scores (if available)'],
+      title: 'About Your School',
+      items: ["Your school's name", 'Roughly how many students', 'Term/session structure (optional - can be set up later)'],
     },
     {
-      title: 'Personal Documents',
-      items: ['Birth certificate', 'Passport photographs', 'Parent/Guardian ID'],
+      title: 'Admin Account',
+      items: ['Your full name', 'A valid email address', 'A phone number'],
     },
     {
-      title: 'Additional Information',
-      items: ['Medical records', 'Emergency contacts', 'Special needs documentation'],
+      title: 'Choosing Services',
+      items: ['Core features come included', 'Add-ons billed per student', 'No card required to start registration'],
     },
   ];
 
   const timeline = [
-    { label: 'Applications Open', date: 'September 1st' },
-    { label: 'Early Decision', date: 'November 15th' },
-    { label: 'Regular Deadline', date: 'January 31st' },
-    { label: 'School Year Starts', date: 'August 15th' },
+    { label: 'Register Your School', date: '~5 minutes' },
+    { label: 'Choose Your Services', date: '~5 minutes' },
+    { label: 'Add Your Data', date: 'Same day' },
+    { label: 'Go Live', date: 'Whenever you’re ready' },
   ];
 
   return (
@@ -62,7 +77,7 @@ const HowToApply: React.FC = () => {
       <section className="relative bg-gray-900 py-24">
         <div className="absolute inset-0">
           <img
-            src="https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=1920&q=80"
+            src="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=1920&q=80"
             alt=""
             className="w-full h-full object-cover opacity-30"
           />
@@ -70,19 +85,19 @@ const HowToApply: React.FC = () => {
         <div className="relative max-w-6xl mx-auto px-6">
           <div className="max-w-2xl">
             <p className="text-xs font-medium text-blue-400 tracking-widest uppercase mb-3">
-              Admissions
+              Onboarding
             </p>
             <h1 className="text-3xl sm:text-4xl font-semibold text-white mb-4">
-              How to Apply
+              Getting Your School Onto Nuventa Cloud
             </h1>
             <p className="text-base text-gray-300 leading-relaxed mb-6">
-              Join our community of learners. Our simple application process makes it easy to get started on your educational journey.
+              Registration takes minutes, not weeks. Tell us about your school, choose the services you need, and start managing your school the same day.
             </p>
             <button
               onClick={() => navigate('/onboarding/register')}
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
             >
-              Start Application
+              Start Registration
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
@@ -94,7 +109,7 @@ const HowToApply: React.FC = () => {
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-12">
             <p className="text-xs font-medium text-blue-600 dark:text-blue-400 tracking-widest uppercase mb-2">
-              Application Process
+              How It Works
             </p>
             <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white">
               Four Simple Steps
@@ -138,7 +153,7 @@ const HowToApply: React.FC = () => {
               What You'll Need
             </p>
             <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white">
-              Application Requirements
+              Before You Register
             </h2>
           </div>
 
@@ -170,10 +185,10 @@ const HowToApply: React.FC = () => {
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-12">
             <p className="text-xs font-medium text-blue-600 dark:text-blue-400 tracking-widest uppercase mb-2">
-              Important Dates
+              No Long Wait
             </p>
             <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white">
-              Application Timeline
+              How Long It Takes
             </h2>
           </div>
 
@@ -202,11 +217,10 @@ const HowToApply: React.FC = () => {
                   Need Help?
                 </h2>
                 <p className="text-gray-400 mb-6">
-                  Our admissions team is here to guide you through every step of the application process.
+                  Our team is happy to walk you through registration or answer questions before you start.
                 </p>
                 <div className="space-y-2 text-sm text-gray-300">
-                  <p>{settings?.email || 'admissions@school.com'}</p>
-                  <p>{settings?.phone || '+1 (555) 123-4567'}</p>
+                  <p>{supportEmail}</p>
                 </div>
               </div>
               <div className="flex flex-col sm:flex-row gap-3 md:justify-end">
@@ -214,14 +228,14 @@ const HowToApply: React.FC = () => {
                   onClick={() => navigate('/onboarding/register')}
                   className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
                 >
-                  Apply Now
+                  Start Registration
                   <ArrowRight className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={() => navigate('/about')}
+                  onClick={() => navigate('/contact')}
                   className="px-5 py-2.5 text-sm font-medium text-gray-300 hover:text-white border border-gray-700 hover:border-gray-600 rounded-lg transition-colors"
                 >
-                  Learn More
+                  Contact Us
                 </button>
               </div>
             </div>
