@@ -84,6 +84,18 @@ class Tenant(models.Model):
     owner_name = models.CharField(max_length=255, blank=True)
     owner_phone = models.CharField(max_length=20, blank=True)
 
+    # The platform user (role='marketer', or any platform staff) who brought
+    # this school onto the platform. Assigned manually by a platform admin -
+    # a marketer's own dashboard is scoped to only the tenants referred to them.
+    referred_by = models.ForeignKey(
+        'users.CustomUser',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='referred_tenants',
+        help_text="Platform user (e.g. marketer) credited with bringing this school onto the platform",
+    )
+
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -134,6 +146,63 @@ class Tenant(models.Model):
         self.is_active = False
         self.status = 'suspended'
         self.save()
+
+
+class PlatformContent(models.Model):
+    """
+    Editable copy for the platform's own public marketing site (the "About"
+    and "Contact" pages shown on the main domain, nuventacloud.com - not any
+    school's own subdomain). Singleton: always exactly one row, pk=1.
+
+    Read publicly with no auth so the marketing site can render it; written
+    only by platform admins via the platform admin dashboard.
+    """
+
+    # --- About page ---
+    about_hero_title = models.CharField(max_length=255, blank=True, default='')
+    about_hero_subtitle = models.TextField(blank=True, default='')
+    about_mission_title = models.CharField(max_length=255, blank=True, default='')
+    about_mission_body = models.TextField(blank=True, default='')
+    about_vision_title = models.CharField(max_length=255, blank=True, default='')
+    about_vision_body = models.TextField(blank=True, default='')
+    about_story_title = models.CharField(max_length=255, blank=True, default='')
+    about_story_body = models.TextField(blank=True, default='')
+    # Each: {"title": str, "description": str}
+    about_values = models.JSONField(blank=True, default=list)
+    # Each: {"value": str, "label": str}
+    about_stats = models.JSONField(blank=True, default=list)
+
+    # --- Contact page ---
+    contact_intro = models.TextField(blank=True, default='')
+    contact_email = models.EmailField(blank=True, default='')
+    contact_phone = models.CharField(max_length=32, blank=True, default='')
+    contact_address = models.TextField(blank=True, default='')
+    contact_office_hours = models.CharField(max_length=255, blank=True, default='')
+
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        'users.CustomUser', on_delete=models.SET_NULL, null=True, blank=True,
+    )
+
+    class Meta:
+        db_table = 'platform_content'
+
+    def __str__(self):
+        return 'Platform content (About/Contact)'
+
+    def save(self, *args, **kwargs):
+        self.pk = 1  # enforce singleton regardless of how it's constructed
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        # The public pages always expect a row to exist - never let this be
+        # deleted, only edited back to blank.
+        pass
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
 
 
 class TenantService(models.Model):

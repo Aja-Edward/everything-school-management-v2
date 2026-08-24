@@ -13,6 +13,7 @@ export enum UserRole {
   ADMIN = 'admin',
   SUPERADMIN = 'superadmin',
   PLATFORM_ADMIN = 'platform_admin',
+  MARKETER = 'marketer',
   NURSERY_ADMIN = 'nursery_admin',
   PRIMARY_ADMIN = 'primary_admin',
   JUNIOR_SECONDARY_ADMIN = 'junior_secondary_admin',
@@ -1436,9 +1437,11 @@ export interface ParentUserData extends BaseFullUserData {
 }
 
 export interface AdminUserData extends BaseFullUserData {
-  role: 
-    | UserRole.ADMIN 
+  role:
+    | UserRole.ADMIN
     | UserRole.SUPERADMIN
+    | UserRole.PLATFORM_ADMIN
+    | UserRole.MARKETER
     | UserRole.NURSERY_ADMIN
     | UserRole.PRIMARY_ADMIN
     | UserRole.JUNIOR_SECONDARY_ADMIN

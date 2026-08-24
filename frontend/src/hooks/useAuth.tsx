@@ -70,6 +70,8 @@ const mapServerRoleToEnum = (rawRole: any): UserRole => {
     STUDENT: UserRole.STUDENT,
     PARENT: UserRole.PARENT,
     SUPERADMIN: UserRole.SUPERADMIN,
+    PLATFORM_ADMIN: UserRole.PLATFORM_ADMIN,
+    MARKETER: UserRole.MARKETER,
     NURSERY_ADMIN: UserRole.NURSERY_ADMIN,
     PRIMARY_ADMIN: UserRole.PRIMARY_ADMIN,
     JUNIOR_SECONDARY_ADMIN: UserRole.JUNIOR_SECONDARY_ADMIN,
@@ -117,6 +119,8 @@ const buildUserData = (rawUserData: any, role: UserRole): HydratedUserData => {
       return { ...base, role: UserRole.PARENT, parent_data: rawUserData.parent_data || {} } as HydratedUserData;
     case UserRole.ADMIN:
     case UserRole.SUPERADMIN:
+    case UserRole.PLATFORM_ADMIN:
+    case UserRole.MARKETER:
     case UserRole.NURSERY_ADMIN:
     case UserRole.PRIMARY_ADMIN:
     case UserRole.JUNIOR_SECONDARY_ADMIN:

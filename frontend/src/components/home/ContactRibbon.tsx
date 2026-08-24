@@ -3,6 +3,7 @@ import { Phone, Mail, MapPin, Clock, Sun, Moon } from 'lucide-react';
 import { eventManagementService } from '@/services/eventService';
 import { useGlobalTheme } from '@/contexts/GlobalThemeContext';
 import { useSettings } from '../../contexts/SettingsContext';
+import api from '@/services/api';
 
 
 interface PhoneNumber {
@@ -68,6 +69,29 @@ const { settings } = useSettings();
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // On the main marketing domain there's no tenant, so `settings` never
+  // resolves and this ribbon fell back to hardcoded placeholder contact
+  // info ("info@company.com"). Fill in the platform's real details instead
+  // - tenant settings (school-specific) still win whenever they're present.
+  useEffect(() => {
+    if (settings?.email || settings?.phone) return;
+    (async () => {
+      try {
+        const res = await api.get('/api/tenants/platform-content/');
+        if (!res.contact_email && !res.contact_phone) return;
+        setHeaderConfig(prev => ({
+          ...prev,
+          email: res.contact_email || prev.email,
+          phoneNumbers: res.contact_phone
+            ? [{ number: res.contact_phone, label: 'Support' }, ...prev.phoneNumbers.slice(1)]
+            : prev.phoneNumbers,
+        }));
+      } catch {
+        // keep the existing fallback - not worth surfacing an error for a footer ribbon
+      }
+    })();
+  }, [settings?.email, settings?.phone]);
 
   // Get user's real-time location
   useEffect(() => {

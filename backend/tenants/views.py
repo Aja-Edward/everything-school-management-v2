@@ -1,13 +1,14 @@
 # tenants/views.py
 from datetime import timedelta
 
-from rest_framework import viewsets, status, permissions
+from rest_framework import viewsets, status, permissions, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework_simplejwt.tokens import RefreshToken
+from django.contrib.auth import get_user_model
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
 from django.db.models import Sum, Q
@@ -28,7 +29,7 @@ import cloudinary.uploader
 from .models import (
     Tenant, TenantService, ServicePricing, TenantSettings,
     TenantInvoice, TenantInvoiceLineItem, TenantPayment, TenantInvitation,
-    TenantSetupToken
+    TenantSetupToken, PlatformContent
 )
 from .serializers import (
     TenantSerializer,
@@ -50,9 +51,12 @@ from .serializers import (
     PaystackVerifySerializer,
     SlugCheckSerializer,
     DomainCheckSerializer,
+    PlatformContentSerializer,
+    PlatformUserSerializer,
 )
 
 logger = logging.getLogger(__name__)
+User = get_user_model()
 
 
 # ============ Custom Permissions ============
@@ -80,10 +84,37 @@ class IsTenantMember(permissions.BasePermission):
 
 
 class IsPlatformAdmin(permissions.BasePermission):
-    """Permission check for platform-level admin."""
+    """
+    Full platform admin: the root superuser account, or a platform_admin
+    created through the platform admin's own Platform Users panel. Both can
+    manage tenants, platform content, and other platform users. Marketers
+    are deliberately excluded here - see IsPlatformAdminOrMarketer for the
+    narrower, read-only surface they get.
+    """
 
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.is_superuser
+        user = request.user
+        if not user.is_authenticated:
+            return False
+        return user.is_superuser or getattr(user, 'role', None) in ('superadmin', 'platform_admin')
+
+
+class IsPlatformAdminOrMarketer(permissions.BasePermission):
+    """
+    Platform admins (see IsPlatformAdmin), plus marketers. Intended only for
+    read-only views/actions - the corresponding get_queryset() is what
+    actually restricts a marketer to the tenants referred to them; this
+    class alone does not scope anything.
+    """
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not user.is_authenticated:
+            return False
+        return (
+            user.is_superuser
+            or getattr(user, 'role', None) in ('superadmin', 'platform_admin', 'marketer')
+        )
 
 
 class PlatformInfoView(APIView):
@@ -396,7 +427,13 @@ class SetupTokenExchangeView(APIView):
 # ============ Tenant Management ============
 
 class TenantViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing tenants."""
+    """
+    ViewSet for managing tenants.
+
+    Marketers get read-only access (list/retrieve), scoped by get_queryset()
+    to only the tenants referred to them - everything else (create, update,
+    delete, activate, suspend, dashboard_stats) stays platform-admin-only.
+    """
     queryset = Tenant.objects.all()
     serializer_class = TenantSerializer
     permission_classes = [IsAuthenticated, IsPlatformAdmin]
@@ -405,6 +442,22 @@ class TenantViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'slug', 'owner_email']
     ordering_fields = ['name', 'created_at', 'status']
     ordering = ['-created_at']
+
+    def get_permissions(self):
+        if self.action in ('list', 'retrieve'):
+            return [IsAuthenticated(), IsPlatformAdminOrMarketer()]
+        return [IsAuthenticated(), IsPlatformAdmin()]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.is_superuser or getattr(user, 'role', None) in ('superadmin', 'platform_admin'):
+            return qs
+        if getattr(user, 'role', None) == 'marketer':
+            return qs.filter(referred_by=user)
+        # Fail closed - IsPlatformAdminOrMarketer should already have refused
+        # anyone else, but never fall through to an unscoped list.
+        return qs.none()
 
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None):
@@ -465,6 +518,62 @@ class TenantViewSet(viewsets.ModelViewSet):
             'total_outstanding': float(total_outstanding),
             'status': tenant.status,
         })
+
+
+# ============ Platform Content (About/Contact) ============
+
+class PlatformContentView(APIView):
+    """
+    The main marketing site's About/Contact copy. GET is public (the
+    marketing site itself needs to read it, logged out); editing is
+    platform-admin only. Marketers cannot edit site content.
+    """
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [AllowAny()]
+        return [IsAuthenticated(), IsPlatformAdmin()]
+
+    def get(self, request):
+        content = PlatformContent.load()
+        return Response(PlatformContentSerializer(content).data)
+
+    def patch(self, request):
+        content = PlatformContent.load()
+        serializer = PlatformContentSerializer(content, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(updated_by=request.user)
+        return Response(serializer.data)
+
+
+# ============ Platform Users (admins, marketers) ============
+
+class PlatformUserViewSet(viewsets.ModelViewSet):
+    """
+    Platform-level staff accounts: other platform admins and marketers.
+    Platform-admin only end to end - a marketer can see their own referred
+    tenants (via TenantViewSet) but never the roster of platform staff.
+    """
+    serializer_class = PlatformUserSerializer
+    permission_classes = [IsAuthenticated, IsPlatformAdmin]
+    filter_backends = [SearchFilter, OrderingFilter]
+    search_fields = ['username', 'email', 'first_name', 'last_name']
+    ordering_fields = ['date_joined', 'role']
+    ordering = ['-date_joined']
+
+    def get_queryset(self):
+        return User.objects.filter(
+            role__in=('superadmin', 'platform_admin', 'marketer')
+        ).order_by('-date_joined')
+
+    def perform_destroy(self, instance):
+        if instance.id == self.request.user.id:
+            raise serializers.ValidationError("You can't delete your own account.")
+        if instance.role == 'superadmin':
+            raise serializers.ValidationError(
+                "The root superadmin account can't be deleted here."
+            )
+        instance.delete()
 
 
 class CurrentTenantView(APIView):

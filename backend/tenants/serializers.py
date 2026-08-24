@@ -9,25 +9,146 @@ import string
 from .models import (
     Tenant, TenantService, ServicePricing, TenantSettings,
     TenantInvoice, TenantInvoiceLineItem, TenantPayment, TenantInvitation,
-    TenantSetupToken
+    TenantSetupToken, PlatformContent
 )
 
 User = get_user_model()
+
+PLATFORM_ROLES = ('superadmin', 'platform_admin', 'marketer')
 
 
 class TenantSerializer(serializers.ModelSerializer):
     """Serializer for Tenant model."""
     subdomain_url = serializers.ReadOnlyField()
+    referred_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Tenant
         fields = [
             'id', 'name', 'slug', 'custom_domain', 'custom_domain_verified',
             'status', 'is_active', 'owner_email', 'owner_name', 'owner_phone',
-            'subdomain_url', 'created_at', 'activated_at'
+            'subdomain_url', 'created_at', 'activated_at',
+            'referred_by', 'referred_by_name',
         ]
         read_only_fields = ['id', 'slug', 'status',
                             'is_active', 'created_at', 'activated_at']
+
+    def get_referred_by_name(self, obj):
+        if not obj.referred_by_id:
+            return None
+        u = obj.referred_by
+        name = f"{u.first_name} {u.last_name}".strip()
+        return name or u.username
+
+    def validate_referred_by(self, value):
+        if value is not None and getattr(value, 'role', None) not in PLATFORM_ROLES:
+            raise serializers.ValidationError(
+                "referred_by must be a platform user (superadmin, platform_admin, or marketer)."
+            )
+        return value
+
+
+class PlatformContentSerializer(serializers.ModelSerializer):
+    """The main marketing site's editable About/Contact copy (singleton)."""
+    updated_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PlatformContent
+        fields = [
+            'about_hero_title', 'about_hero_subtitle',
+            'about_mission_title', 'about_mission_body',
+            'about_vision_title', 'about_vision_body',
+            'about_story_title', 'about_story_body',
+            'about_values', 'about_stats',
+            'contact_intro', 'contact_email', 'contact_phone',
+            'contact_address', 'contact_office_hours',
+            'updated_at', 'updated_by_name',
+        ]
+        read_only_fields = ['updated_at']
+
+    def get_updated_by_name(self, obj):
+        if not obj.updated_by_id:
+            return None
+        u = obj.updated_by
+        name = f"{u.first_name} {u.last_name}".strip()
+        return name or u.username
+
+    def validate_about_values(self, value):
+        return self._validate_list_of_pairs(value, 'title', 'description')
+
+    def validate_about_stats(self, value):
+        return self._validate_list_of_pairs(value, 'value', 'label')
+
+    @staticmethod
+    def _validate_list_of_pairs(value, key_a, key_b):
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Must be a list.")
+        for item in value:
+            if not isinstance(item, dict) or key_a not in item or key_b not in item:
+                raise serializers.ValidationError(
+                    f"Each item must be an object with '{key_a}' and '{key_b}'."
+                )
+        return value
+
+
+class PlatformUserSerializer(serializers.ModelSerializer):
+    """
+    Platform-level staff accounts (tenant=None): the root superadmin, other
+    platform admins, and marketers. Created and managed by a platform admin
+    from the platform admin dashboard.
+    """
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    full_name = serializers.SerializerMethodField()
+    referred_tenant_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            'id', 'username', 'email', 'first_name', 'last_name', 'full_name',
+            'role', 'is_active', 'date_joined', 'password', 'referred_tenant_count',
+        ]
+        read_only_fields = ['id', 'date_joined']
+
+    def get_full_name(self, obj):
+        name = f"{obj.first_name} {obj.last_name}".strip()
+        return name or obj.username
+
+    def get_referred_tenant_count(self, obj):
+        return obj.referred_tenants.count()
+
+    def validate_role(self, value):
+        # Creating another root superadmin is deliberately not exposed here -
+        # that account is provisioned once via the create_platform_admin
+        # management command, not spawned casually through a web form.
+        if value not in ('platform_admin', 'marketer'):
+            raise serializers.ValidationError(
+                "role must be 'platform_admin' or 'marketer'."
+            )
+        return value
+
+    def create(self, validated_data):
+        password = validated_data.pop('password', None)
+        validated_data['tenant'] = None
+        validated_data['is_staff'] = validated_data.get('role') == 'platform_admin'
+        validated_data['is_superuser'] = False
+        user = User(**validated_data)
+        if password:
+            user.set_password(password)
+        else:
+            user.set_unusable_password()
+        user.save()
+        return user
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop('password', None)
+        for attr, val in validated_data.items():
+            setattr(instance, attr, val)
+        if 'role' in validated_data:
+            instance.is_staff = validated_data['role'] == 'platform_admin'
+        if password:
+            instance.set_password(password)
+        instance.save()
+        return instance
 
 
 class TenantSettingsSerializer(serializers.ModelSerializer):

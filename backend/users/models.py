@@ -11,6 +11,12 @@ from django.utils import timezone
 # User roles - EXPANDED to include section admins
 ROLE_CHOICES = (
     ("superadmin", "Super Admin"),
+    # Platform-level staff (tenant=None) - distinct from superadmin so the
+    # one root account created by create_platform_admin stays the only
+    # is_superuser=True login; these are created through the platform
+    # admin's own "Platform Users" panel instead.
+    ("platform_admin", "Platform Admin"),
+    ("marketer", "Marketer"),
     ("secondary_admin", "Secondary Admin"),  # NEW: Manages both JSS and SSS
     (
         "senior_secondary_admin",

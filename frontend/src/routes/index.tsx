@@ -53,6 +53,7 @@ const TenantLandingPage = lazy(() => import('./../pages/subdomain/TenantLandingP
 const TenantAboutPage = lazy(() => import('./../pages/subdomain/TenantAboutPage'));
 const TenantAdmissionsPage = lazy(() => import('./../pages/subdomain/TenantAdmissionsPage'));
 const TenantContactPage = lazy(() => import('./../pages/subdomain/TenantContactPage'));
+const PlatformContact = lazy(() => import('./../components/contact/PlatformContact'));
 const TenantSchoolActivitiesPage = lazy(() => import('./../pages/subdomain/TenantSchoolActivitiesPage'));
 
 // Dashboard pages (Subdomain - Protected)
@@ -241,6 +242,19 @@ const AboutRoute = () => {
   );
 };
 
+const ContactRoute = () => {
+  const { isSubdomain, isLoading } = useTenant();
+  if (isLoading) return <PageLoader />;
+  if (isSubdomain) return <LazyWrapper><TenantContactPage /></LazyWrapper>;
+  return (
+    <>
+      <Navbar />
+      <LazyWrapper><PlatformContact /></LazyWrapper>
+      <Footer />
+    </>
+  );
+};
+
 const SchoolActivitiesRoute = () => {
   const { isSubdomain, isLoading } = useTenant();
   if (isLoading) return <PageLoader />;
@@ -351,6 +365,10 @@ export const router = createBrowserRouter([
         element: <AboutRoute />,
       },
       {
+        path: 'contact',
+        element: <ContactRoute />,
+      },
+      {
         path: 'school_activities',
         element: <SchoolActivitiesRoute />,
       },
@@ -392,11 +410,6 @@ export const router = createBrowserRouter([
         path: 'admissions',
         element: <LazyWrapper><TenantAdmissionsPage /></LazyWrapper>,
       },
-      {
-        path: 'contact',
-        element: <LazyWrapper><TenantContactPage /></LazyWrapper>,
-      },
-
       // Auth routes (Subdomain - standalone pages)
       {
         path: 'login',

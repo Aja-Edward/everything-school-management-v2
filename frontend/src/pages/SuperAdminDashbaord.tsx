@@ -4,10 +4,14 @@ import {
   LogOut, RefreshCw, AlertCircle, CheckCircle,
   Clock, XCircle, ChevronRight, Building2,
   PowerOff, Power, Trash2, Loader2, X,
+  FileText, UserCog,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import api from '@/services/api';
+import { UserRole } from '@/types/types';
+import PlatformContentPanel from '@/components/platform-admin/PlatformContentPanel';
+import PlatformUsersPanel from '@/components/platform-admin/PlatformUsersPanel';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,6 +25,8 @@ interface Tenant {
   is_active: boolean;
   created_at: string;
   custom_domain?: string | null;
+  referred_by?: number | null;
+  referred_by_name?: string | null;
 }
 
 interface PlatformStats {
@@ -222,9 +228,21 @@ const ConfirmModal = ({ state, processing, onChange, onConfirm, onClose }: Confi
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
+type DashboardTab = 'tenants' | 'content' | 'users';
+
 const SuperAdminDashboard = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+
+  // A marketer only ever gets the scoped, read-only Tenants view - the
+  // backend already restricts their /api/tenants/list/ results to tenants
+  // referred to them, so no separate data-fetching path is needed here,
+  // just narrower UI.
+  const isMarketer = user?.role === UserRole.MARKETER;
+
+  const [activeTab, setActiveTab] = useState<DashboardTab>('tenants');
+  const [marketers, setMarketers] = useState<{ id: number; full_name: string }[]>([]);
+  const [assigningId, setAssigningId] = useState<string | null>(null);
 
   const [tenants, setTenants]       = useState<Tenant[]>([]);
   const [stats, setStats]           = useState<PlatformStats | null>(null);
@@ -247,11 +265,20 @@ const SuperAdminDashboard = () => {
     setError(null);
 
     try {
-      const [tenantsRes, usersRes, studentsRes] = await Promise.allSettled([
-        api.get('/api/tenants/list/'),
-        api.get('/api/users/users/'),
-        api.get('/api/students/students/'),
-      ]);
+      // A marketer can't reach /api/users/, /api/students/ or the platform
+      // users list (platform-admin only) - and platform-wide counts aren't
+      // relevant to their scoped view anyway, so skip those calls entirely.
+      const calls = isMarketer
+        ? [api.get('/api/tenants/list/')]
+        : [
+            api.get('/api/tenants/list/'),
+            api.get('/api/users/users/'),
+            api.get('/api/students/students/'),
+            api.get('/api/tenants/platform-users/'),
+          ];
+      const [tenantsRes, usersRes, studentsRes, marketersRes] = await Promise.allSettled(calls) as [
+        PromiseSettledResult<any>, PromiseSettledResult<any>?, PromiseSettledResult<any>?, PromiseSettledResult<any>?
+      ];
 
       const rawTenants = tenantsRes.status === 'fulfilled' ? tenantsRes.value : null;
       const tenantList: Tenant[] = Array.isArray(rawTenants)
@@ -259,8 +286,8 @@ const SuperAdminDashboard = () => {
         : (rawTenants as any)?.results ?? [];
       setTenants(tenantList);
 
-      const cnt = (r: PromiseSettledResult<any>) => {
-        if (r.status !== 'fulfilled' || !r.value) return 0;
+      const cnt = (r?: PromiseSettledResult<any>) => {
+        if (!r || r.status !== 'fulfilled' || !r.value) return 0;
         const v = r.value;
         return Array.isArray(v) ? v.length : v.count ?? v.results?.length ?? 0;
       };
@@ -271,6 +298,15 @@ const SuperAdminDashboard = () => {
         totalUsers:    cnt(usersRes),
         totalStudents: cnt(studentsRes),
       });
+
+      if (marketersRes?.status === 'fulfilled' && marketersRes.value) {
+        const raw = Array.isArray(marketersRes.value) ? marketersRes.value : marketersRes.value.results ?? [];
+        setMarketers(
+          raw
+            .filter((m: any) => m.role === 'marketer')
+            .map((m: any) => ({ id: m.id, full_name: m.full_name || m.username }))
+        );
+      }
     } catch (err: any) {
       setError(err?.message || 'Failed to load dashboard data');
     } finally {
@@ -280,6 +316,21 @@ const SuperAdminDashboard = () => {
   };
 
   useEffect(() => { loadData(); }, []);
+
+  // ── Assign / reassign which marketer referred a tenant ─────────────────────
+  const handleAssignMarketer = async (tenant: Tenant, marketerId: string) => {
+    setAssigningId(tenant.id);
+    try {
+      const updated = await api.patch(`/api/tenants/list/${tenant.id}/`, {
+        referred_by: marketerId ? Number(marketerId) : null,
+      });
+      setTenants(prev => prev.map(t => t.id === tenant.id ? { ...t, ...updated } : t));
+    } catch (err: any) {
+      setActionError(err?.response?.data?.detail || err?.message || 'Failed to update referral.');
+    } finally {
+      setAssigningId(null);
+    }
+  };
 
   // ── Tenant actions ──────────────────────────────────────────────────────────
 
@@ -329,7 +380,7 @@ const SuperAdminDashboard = () => {
   // ── Derived ─────────────────────────────────────────────────────────────────
 
   const statCards = [
-    { label: 'Total Tenants',  value: stats?.totalTenants,  icon: Building2 },
+    { label: isMarketer ? 'Your Tenants' : 'Total Tenants', value: stats?.totalTenants,  icon: Building2 },
     { label: 'Active Schools', value: stats?.activeTenants, icon: School    },
     { label: 'Total Users',    value: stats?.totalUsers,    icon: Users     },
     { label: 'Students',       value: stats?.totalStudents, icon: Users     },
@@ -401,9 +452,35 @@ const SuperAdminDashboard = () => {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
 
         {/* ── Heading ───────────────────────────────────────────────────────── */}
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Platform Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Nuventa Cloud — School Management System</p>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Platform Dashboard</h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {isMarketer ? 'Nuventa Cloud — Your Referred Schools' : 'Nuventa Cloud — School Management System'}
+            </p>
+          </div>
+
+          {/* Marketers only ever get the Tenants view - nothing else to switch to. */}
+          {!isMarketer && (
+            <div className="inline-flex bg-white border border-gray-200 rounded-lg p-1 gap-1">
+              {([
+                { key: 'tenants', label: 'Tenants', icon: Building2 },
+                { key: 'content', label: 'Site Content', icon: FileText },
+                { key: 'users', label: 'Platform Users', icon: UserCog },
+              ] as const).map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => setActiveTab(key)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                    activeTab === key ? 'bg-black text-white' : 'text-gray-500 hover:text-gray-800'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* ── Global error ──────────────────────────────────────────────────── */}
@@ -432,9 +509,13 @@ const SuperAdminDashboard = () => {
           </div>
         )}
 
+        {activeTab === 'content' && <PlatformContentPanel />}
+        {activeTab === 'users' && <PlatformUsersPanel />}
+
+        {activeTab === 'tenants' && <>
         {/* ── Stats ─────────────────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          {statCards.map(({ label, value, icon: Icon }) => (
+          {(isMarketer ? statCards.slice(0, 2) : statCards).map(({ label, value, icon: Icon }) => (
             <div key={label} className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5">
               <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center mb-3">
                 <Icon className="w-4 h-4 text-gray-700" />
@@ -451,33 +532,35 @@ const SuperAdminDashboard = () => {
         </div>
 
         {/* ── Quick actions ─────────────────────────────────────────────────── */}
-        <div>
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
-            Quick Actions
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-            {quickActions.map(({ label, desc, icon: Icon, href }) => (
-              <button
-                key={label}
-                onClick={() => navigate(href)}
-                className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5 text-left hover:border-gray-400 hover:shadow-sm transition-all group"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3 min-w-0">
-                    <div className="w-9 h-9 bg-black rounded-lg flex items-center justify-center shrink-0">
-                      <Icon className="w-4 h-4 text-white" />
+        {!isMarketer && (
+          <div>
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
+              Quick Actions
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+              {quickActions.map(({ label, desc, icon: Icon, href }) => (
+                <button
+                  key={label}
+                  onClick={() => navigate(href)}
+                  className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5 text-left hover:border-gray-400 hover:shadow-sm transition-all group"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className="w-9 h-9 bg-black rounded-lg flex items-center justify-center shrink-0">
+                        <Icon className="w-4 h-4 text-white" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900">{label}</p>
+                        <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{desc}</p>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-gray-900">{label}</p>
-                      <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{desc}</p>
-                    </div>
+                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-700 shrink-0 mt-0.5 transition-colors" />
                   </div>
-                  <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-700 shrink-0 mt-0.5 transition-colors" />
-                </div>
-              </button>
-            ))}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* ── Tenants ───────────────────────────────────────────────────────── */}
         <div>
@@ -513,7 +596,10 @@ const SuperAdminDashboard = () => {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-gray-50 border-b border-gray-100">
-                        {['School', 'Owner', 'Domain', 'Status', 'Registered', 'Actions'].map(h => (
+                        {(isMarketer
+                          ? ['School', 'Owner', 'Domain', 'Status', 'Registered']
+                          : ['School', 'Owner', 'Domain', 'Status', 'Referred By', 'Registered', 'Actions']
+                        ).map(h => (
                           <th key={h} className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                             {h}
                           </th>
@@ -556,49 +642,69 @@ const SuperAdminDashboard = () => {
                             {/* Status */}
                             <td className="px-5 py-3.5">{statusBadge(t)}</td>
 
+                            {/* Referred By - admin-only; this is how a tenant becomes
+                                visible to a marketer's own scoped dashboard */}
+                            {!isMarketer && (
+                              <td className="px-5 py-3.5">
+                                <select
+                                  value={t.referred_by ?? ''}
+                                  disabled={assigningId === t.id}
+                                  onChange={(e) => handleAssignMarketer(t, e.target.value)}
+                                  className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-black disabled:opacity-50"
+                                >
+                                  <option value="">— None —</option>
+                                  {marketers.map(m => (
+                                    <option key={m.id} value={m.id}>{m.full_name}</option>
+                                  ))}
+                                </select>
+                              </td>
+                            )}
+
                             {/* Registered */}
                             <td className="px-5 py-3.5 text-gray-500 text-xs">{fmt(t.created_at)}</td>
 
                             {/* Actions */}
-                            <td className="px-5 py-3.5">
-                              <div className="flex items-center gap-2">
-                                {/* Deactivate / Activate */}
-                                {isActive ? (
-                                  <button
-                                    onClick={() => openConfirm('suspend', t)}
-                                    disabled={busy}
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-40"
-                                    title="Deactivate"
-                                  >
-                                    <PowerOff className="w-3.5 h-3.5" />
-                                    Deactivate
-                                  </button>
-                                ) : (
-                                  <button
-                                    onClick={() => openConfirm('activate', t)}
-                                    disabled={busy}
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-gray-900 text-white rounded-lg hover:bg-black transition-colors disabled:opacity-40"
-                                    title="Activate"
-                                  >
-                                    <Power className="w-3.5 h-3.5" />
-                                    Activate
-                                  </button>
-                                )}
+                            {!isMarketer && (
+                              <td className="px-5 py-3.5">
+                                <div className="flex items-center gap-2">
+                                  {/* Deactivate / Activate */}
+                                  {isActive ? (
+                                    <button
+                                      onClick={() => openConfirm('suspend', t)}
+                                      disabled={busy}
+                                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-40"
+                                      title="Deactivate"
+                                    >
+                                      <PowerOff className="w-3.5 h-3.5" />
+                                      Deactivate
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => openConfirm('activate', t)}
+                                      disabled={busy}
+                                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-gray-900 text-white rounded-lg hover:bg-black transition-colors disabled:opacity-40"
+                                      title="Activate"
+                                    >
+                                      <Power className="w-3.5 h-3.5" />
+                                      Activate
+                                    </button>
+                                  )}
 
-                                {/* Delete */}
-                                <button
-                                  onClick={() => openConfirm('delete', t)}
-                                  disabled={busy}
-                                  className="p-1.5 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-40"
-                                  title="Delete school"
-                                >
-                                  {busy
-                                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    : <Trash2 className="w-3.5 h-3.5" />
-                                  }
-                                </button>
-                              </div>
-                            </td>
+                                  {/* Delete */}
+                                  <button
+                                    onClick={() => openConfirm('delete', t)}
+                                    disabled={busy}
+                                    className="p-1.5 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-40"
+                                    title="Delete school"
+                                  >
+                                    {busy
+                                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      : <Trash2 className="w-3.5 h-3.5" />
+                                    }
+                                  </button>
+                                </div>
+                              </td>
+                            )}
                           </tr>
                         );
                       })}
@@ -627,34 +733,43 @@ const SuperAdminDashboard = () => {
                         <p className="text-xs text-gray-500 pl-9">{t.owner_email}</p>
                         <p className="text-xs text-gray-400 pl-9 font-mono">{fmt(t.created_at)}</p>
 
+                        {/* Referred by - admin-only */}
+                        {!isMarketer && (
+                          <p className="text-xs text-gray-400 pl-9">
+                            Referred by: {t.referred_by_name || '—'}
+                          </p>
+                        )}
+
                         {/* Mobile action buttons */}
-                        <div className="flex items-center gap-2 pl-9">
-                          {isActive ? (
+                        {!isMarketer && (
+                          <div className="flex items-center gap-2 pl-9">
+                            {isActive ? (
+                              <button
+                                onClick={() => openConfirm('suspend', t)}
+                                disabled={busy}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-40"
+                              >
+                                <PowerOff className="w-3 h-3" />Deactivate
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => openConfirm('activate', t)}
+                                disabled={busy}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-gray-900 text-white rounded-lg hover:bg-black transition-colors disabled:opacity-40"
+                              >
+                                <Power className="w-3 h-3" />Activate
+                              </button>
+                            )}
                             <button
-                              onClick={() => openConfirm('suspend', t)}
+                              onClick={() => openConfirm('delete', t)}
                               disabled={busy}
                               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-40"
                             >
-                              <PowerOff className="w-3 h-3" />Deactivate
+                              {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                              Delete
                             </button>
-                          ) : (
-                            <button
-                              onClick={() => openConfirm('activate', t)}
-                              disabled={busy}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-gray-900 text-white rounded-lg hover:bg-black transition-colors disabled:opacity-40"
-                            >
-                              <Power className="w-3 h-3" />Activate
-                            </button>
-                          )}
-                          <button
-                            onClick={() => openConfirm('delete', t)}
-                            disabled={busy}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-40"
-                          >
-                            {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-                            Delete
-                          </button>
-                        </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -663,6 +778,7 @@ const SuperAdminDashboard = () => {
             )}
           </div>
         </div>
+        </>}
 
         {/* ── Footer ────────────────────────────────────────────────────────── */}
         <p className="text-xs text-gray-400 text-center pb-4">

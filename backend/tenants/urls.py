@@ -26,6 +26,9 @@ from .views import (
     # Invitations
     TenantInvitationViewSet,
     PlatformInfoView,
+    # Platform content and platform users
+    PlatformContentView,
+    PlatformUserViewSet,
 )
 
 router = DefaultRouter()
@@ -35,6 +38,7 @@ router.register(r'invoices', TenantInvoiceViewSet, basename='tenant-invoice')
 router.register(r'payments', TenantPaymentViewSet, basename='tenant-payment')
 router.register(r'invitations', TenantInvitationViewSet,
                 basename='tenant-invitation')
+router.register(r'platform-users', PlatformUserViewSet, basename='platform-user')
 
 # Service management as a ViewSet
 service_list = ServiceManagementViewSet.as_view({
@@ -91,6 +95,7 @@ urlpatterns = [
         "setup/exchange/", SetupTokenExchangeView.as_view(), name="setup-token-exchange"
     ),
     path("api/platform/info/", PlatformInfoView.as_view(), name="platform-info"),
+    path("platform-content/", PlatformContentView.as_view(), name="platform-content"),
     # Current tenant context
     path("current/", CurrentTenantView.as_view(), name="current-tenant"),
 
