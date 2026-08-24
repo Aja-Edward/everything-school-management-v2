@@ -93,10 +93,10 @@ const ApprovalModal: React.FC<Props> = ({ open, exam, onApprove, onReject, onClo
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-        
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+
         {/* Modal Header */}
-        <div className="border-b border-gray-200 px-6 py-4 flex justify-between items-center">
+        <div className="border-b border-gray-200 px-6 py-4 flex justify-between items-center flex-shrink-0">
           <h2 className="text-xl font-bold text-gray-900">Exam Approval</h2>
           <button
             onClick={onClose}
@@ -108,7 +108,7 @@ const ApprovalModal: React.FC<Props> = ({ open, exam, onApprove, onReject, onClo
         </div>
 
         {/* Modal Content */}
-        <div className="px-6 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {/* Status Warning if not pending */}
           {!isPending && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-start gap-3">
@@ -116,20 +116,22 @@ const ApprovalModal: React.FC<Props> = ({ open, exam, onApprove, onReject, onClo
               <div className="flex-1">
                 <p className="text-sm font-medium text-yellow-800">Cannot Process This Exam</p>
                 <p className="text-xs text-yellow-700 mt-1">
-                  Only exams with "Pending Approval" status can be approved or rejected. 
+                  Only exams with "Pending Approval" status can be approved or rejected.
                   This exam's current status is "{getStatusDisplay()}".
                 </p>
               </div>
             </div>
           )}
 
-          {/* Exam Details */}
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Exam Title</label>
-              <p className="text-sm font-semibold text-gray-900 mt-1">{exam.title}</p>
-            </div>
+          {/* Exam Title - kept full-width since titles can run long */}
+          <div>
+            <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Exam Title</label>
+            <p className="text-sm font-semibold text-gray-900 mt-1">{exam.title}</p>
+          </div>
 
+          {/* Exam Details - two columns on anything wider than a phone, so the
+              card grows wide instead of tall */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
             <div>
               <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Subject</label>
               <p className="text-sm text-gray-900 mt-1">{exam.subject_name || exam.subject || 'N/A'}</p>
@@ -198,13 +200,13 @@ const ApprovalModal: React.FC<Props> = ({ open, exam, onApprove, onReject, onClo
                   ? 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent'
                   : 'border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed'
               }`}
-              rows={4}
+              rows={3}
             />
           </div>
         </div>
 
         {/* Modal Footer */}
-        <div className="border-t border-gray-200 px-6 py-4 flex justify-end gap-3">
+        <div className="border-t border-gray-200 px-6 py-4 flex justify-end gap-3 flex-shrink-0">
           <button
             onClick={onClose}
             disabled={isProcessing}
