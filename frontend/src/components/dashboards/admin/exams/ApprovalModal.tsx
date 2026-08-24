@@ -34,6 +34,13 @@ const ApprovalModal: React.FC<Props> = ({ open, exam, onApprove, onReject, onClo
   const isPending =
     (exam as any).is_pending_approval === true || examStatus === 'pending_approval';
 
+  // An already-approved exam can still be sent back ("disapproved") if an
+  // admin spots a problem after the fact — the backend's reject action
+  // accepts this transition too, and it's what reopens the teacher's Edit
+  // access on an otherwise-locked, already-approved exam.
+  const isApproved = examStatus === 'approved';
+  const isActionable = isPending || isApproved;
+
   // Get readable status
   const getStatusDisplay = () => {
     const label =
@@ -75,8 +82,8 @@ const ApprovalModal: React.FC<Props> = ({ open, exam, onApprove, onReject, onClo
   };
 
   const handleReject = async () => {
-    if (!isPending) {
-      alert('This exam cannot be rejected. Only exams with "Pending Approval" status can be rejected.');
+    if (!isActionable) {
+      alert('This exam cannot be rejected. Only exams that are pending approval, or already approved, can be rejected.');
       return;
     }
     
@@ -109,14 +116,14 @@ const ApprovalModal: React.FC<Props> = ({ open, exam, onApprove, onReject, onClo
 
         {/* Modal Content */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          {/* Status Warning if not pending */}
-          {!isPending && (
+          {/* Status Warning if there's nothing to do here */}
+          {!isActionable && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="text-sm font-medium text-yellow-800">Cannot Process This Exam</p>
                 <p className="text-xs text-yellow-700 mt-1">
-                  Only exams with "Pending Approval" status can be approved or rejected.
+                  Only exams that are pending approval, or already approved, can be acted on here.
                   This exam's current status is "{getStatusDisplay()}".
                 </p>
               </div>
@@ -188,15 +195,19 @@ const ApprovalModal: React.FC<Props> = ({ open, exam, onApprove, onReject, onClo
           {/* Notes Input */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Notes {!isPending && '(Read-only)'}
+              Notes {!isActionable && '(Read-only)'}
             </label>
             <textarea
-              placeholder={isPending ? "Add approval or rejection notes..." : "Cannot add notes - exam status must be 'Pending Approval'"}
+              placeholder={
+                isPending ? "Add approval or rejection notes..." :
+                isApproved ? "Add a reason for sending this back to the teacher..." :
+                "Cannot add notes - exam must be pending approval or already approved"
+              }
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              disabled={!isPending || isProcessing}
+              disabled={!isActionable || isProcessing}
               className={`w-full px-4 py-2 border rounded-lg resize-none transition-colors ${
-                isPending && !isProcessing
+                isActionable && !isProcessing
                   ? 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent'
                   : 'border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed'
               }`}
@@ -212,9 +223,9 @@ const ApprovalModal: React.FC<Props> = ({ open, exam, onApprove, onReject, onClo
             disabled={isProcessing}
             className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isPending ? 'Cancel' : 'Close'}
+            {isActionable ? 'Cancel' : 'Close'}
           </button>
-          
+
           {isPending && (
             <>
               <button
@@ -252,6 +263,27 @@ const ApprovalModal: React.FC<Props> = ({ open, exam, onApprove, onReject, onClo
                 )}
               </button>
             </>
+          )}
+
+          {isApproved && (
+            <button
+              onClick={handleReject}
+              disabled={isProcessing}
+              title="Send this back so the teacher can edit and resubmit it"
+              className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {isProcessing ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <XCircle className="w-4 h-4" />
+                  Disapprove
+                </>
+              )}
+            </button>
           )}
         </div>
       </div>

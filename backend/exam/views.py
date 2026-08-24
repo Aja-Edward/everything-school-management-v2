@@ -730,13 +730,19 @@ class ExamViewSet(
 
     @action(detail=True, methods=["post"])
     def reject(self, request, pk=None):
-        """Reject an exam"""
+        """
+        Reject an exam.
+
+        Also doubles as "disapprove": an admin who already approved an exam
+        and later spots a problem can send it back the same way, so the
+        teacher regains their edit access and can resubmit.
+        """
         exam = self.get_object()
 
         # UPDATED: compare via FK .code
-        if _exam_status_code(exam) != "pending_approval":
+        if _exam_status_code(exam) not in ("pending_approval", "approved"):
             return Response(
-                {"error": "Only exams pending approval can be rejected"},
+                {"error": "Only exams pending approval, or already approved, can be rejected"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

@@ -645,6 +645,17 @@ const statusPk = (code: string): string | number => {
   return initial?.id ?? formData.status;
 };
 
+// The exam's own current status while editing - a teacher who's just
+// fixing something shouldn't have their save silently drop a
+// scheduled/pending/completed exam back to draft. Only a brand-new exam,
+// or an explicit resubmit, should change it.
+const editingStatusCode = editingExam
+  ? (typeof editingExam.status === 'string' ? editingExam.status : (editingExam.status as any)?.code)
+  : null;
+const editingStatusPk = editingExam
+  ? (typeof editingExam.status === 'number' ? editingExam.status : (editingExam.status as any)?.id)
+  : null;
+
 const saveAsDraft = async () => {
   if (!validateForm()) return;
 
@@ -654,8 +665,10 @@ const saveAsDraft = async () => {
     const computedTotalMarks = calculateTotalMarks();
     const examData: ExamCreateData = {
       ...formData,
-      // Drafts stay editable; only draft and rejected exams can be resubmitted.
-      status: statusPk('draft'),
+      // Preserve whatever status the exam already has (e.g. don't
+      // silently demote a scheduled/pending exam to draft just because
+      // the teacher fixed a typo) - a brand-new exam starts as a draft.
+      status: editingStatusPk ?? statusPk('draft'),
       teacher: currentTeacherId!,
       objective_questions: objectiveQuestions,
       theory_questions: theoryQuestions,
@@ -740,6 +753,7 @@ const submitForApproval = async () => {
       draft: { color: 'bg-slate-100 text-slate-700', icon: Save, text: 'Draft' },
       pending_approval: { color: 'bg-amber-100 text-amber-800', icon: Clock3, text: 'Pending Approval' },
       rejected: { color: 'bg-red-100 text-red-800', icon: XCircle, text: 'Rejected' },
+      approved: { color: 'bg-emerald-100 text-emerald-800', icon: CheckCircle, text: 'Approved' },
       scheduled: { color: 'bg-blue-100 text-blue-800', icon: Clock, text: 'Scheduled' },
       in_progress: { color: 'bg-yellow-100 text-yellow-800', icon: AlertCircle, text: 'In Progress' },
       completed: { color: 'bg-green-100 text-green-800', icon: CheckCircle, text: 'Completed' },
@@ -1408,13 +1422,15 @@ const submitForApproval = async () => {
 
             <button onClick={saveAsDraft} disabled={savingDraft || !currentTeacherId} className="flex items-center justify-center space-x-2 px-4 py-2.5 sm:py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium">
               <Save className="w-4 h-4" />
-              <span>{savingDraft ? 'Saving...' : 'Save Exam'}</span>
+              <span>{savingDraft ? 'Saving...' : editingExam && editingStatusCode && editingStatusCode !== 'draft' ? 'Save Changes' : 'Save Exam'}</span>
             </button>
 
-            <button onClick={submitForApproval} disabled={loading || !currentTeacherId} className="flex items-center justify-center space-x-2 px-4 py-2.5 sm:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium">
-              <CheckCircle className="w-4 h-4" />
-              <span>{loading ? 'Submitting...' : 'Submit for Review'}</span>
-            </button>
+                      {(!editingExam || editingStatusCode === 'draft' || editingStatusCode === 'rejected') && (
+              <button onClick={submitForApproval} disabled={loading || !currentTeacherId} className="flex items-center justify-center space-x-2 px-4 py-2.5 sm:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium">
+                <CheckCircle className="w-4 h-4" />
+                <span>{loading ? 'Submitting...' : 'Submit for Review'}</span>
+              </button>
+            )}
           </div>
         </div>
       </div>

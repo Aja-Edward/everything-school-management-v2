@@ -217,6 +217,15 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
     return initial?.id ?? formData.status;
   };
 
+  // The test's own current status while editing - saving shouldn't
+  // silently drop a scheduled/pending/completed test back to draft.
+  const editingStatusCode = editingTest
+    ? (typeof editingTest.status === 'string' ? editingTest.status : (editingTest.status as any)?.code)
+    : null;
+  const editingStatusPk = editingTest
+    ? (typeof editingTest.status === 'number' ? editingTest.status : (editingTest.status as any)?.id)
+    : null;
+
   const saveAsDraft = async () => {
     if (!validateForm()) return;
 
@@ -225,7 +234,9 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
       
       const testData: ExamCreateData = {
         ...formData,
-        status: statusPk('draft'),
+        // Preserve the test's existing status when editing - a plain save
+        // shouldn't demote a scheduled/pending/completed test to draft.
+        status: editingStatusPk ?? statusPk('draft'),
         objective_questions: objectiveQuestions,
         theory_questions: theoryQuestions,
         total_marks: calculateTotalMarks()
@@ -289,6 +300,7 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
       draft: { color: 'bg-gray-100 text-gray-800', icon: Save, text: 'Draft' },
       pending_approval: { color: 'bg-yellow-100 text-yellow-800', icon: Clock3, text: 'Pending Approval' },
       rejected: { color: 'bg-red-100 text-red-800', icon: XCircle, text: 'Rejected' },
+      approved: { color: 'bg-emerald-100 text-emerald-800', icon: CheckCircle, text: 'Approved' },
       scheduled: { color: 'bg-blue-100 text-blue-800', icon: Clock, text: 'Scheduled' },
       in_progress: { color: 'bg-yellow-100 text-yellow-800', icon: AlertCircle, text: 'In Progress' },
       completed: { color: 'bg-green-100 text-green-800', icon: CheckCircle, text: 'Completed' },
@@ -709,17 +721,19 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
               className="flex items-center space-x-2 px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
-              <span>{savingDraft ? 'Saving...' : 'Save as Draft'}</span>
+              <span>{savingDraft ? 'Saving...' : editingTest && editingStatusCode && editingStatusCode !== 'draft' ? 'Save Changes' : 'Save as Draft'}</span>
             </button>
             
-            <button
-              onClick={submitForApproval}
-              disabled={loading}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-            >
-              <CheckCircle className="w-4 h-4" />
-              <span>{loading ? 'Submitting...' : 'Submit for Approval'}</span>
-            </button>
+            {(!editingTest || editingStatusCode === 'draft' || editingStatusCode === 'rejected') && (
+              <button
+                onClick={submitForApproval}
+                disabled={loading}
+                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                <CheckCircle className="w-4 h-4" />
+                <span>{loading ? 'Submitting...' : 'Submit for Approval'}</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
