@@ -67,6 +67,49 @@ function toRomanNumeral(num: number): string {
  * @param content - HTML content from RichTextEditor or plain text
  * @returns Styled HTML string ready for PDF rendering
  */
+/**
+ * Tiptap's table column resize stores each cell's dragged width as a plain
+ * `colwidth` HTML attribute - its own round-trip bookkeeping, invisible to
+ * any renderer that doesn't specifically know about it. A browser and
+ * WeasyPrint both ignore it entirely, so a resized table would print back
+ * at even, un-resized columns. Convert it into a real CSS width - as a
+ * percentage of the row's total, so it stays responsive to whatever page
+ * width the exam actually prints at, rather than copying an absolute pixel
+ * width measured in the (likely much narrower) editor.
+ */
+function applyTableColumnWidths(html: string): string {
+  if (!html || !html.includes('colwidth') || typeof DOMParser === 'undefined') return html;
+
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    doc.querySelectorAll('tr').forEach(row => {
+      const cells = Array.from(row.children) as HTMLElement[];
+      const widths = cells.map(cell => {
+        const raw = cell.getAttribute('colwidth');
+        // A colspan cell stores several comma-joined widths - only trust
+        // rows where every cell resolves to exactly one, so a row with a
+        // merged cell is left alone rather than guessed at.
+        const parts = raw ? raw.split(',').map(Number) : [];
+        return parts.length === 1 && Number.isFinite(parts[0]) ? parts[0] : null;
+      });
+
+      if (cells.length === 0 || widths.some(w => w === null)) return;
+      const total = widths.reduce((sum: number, w) => sum + (w as number), 0);
+      if (total <= 0) return;
+
+      cells.forEach((cell, i) => {
+        const pct = ((widths[i] as number) / total) * 100;
+        const existingStyle = cell.getAttribute('style') || '';
+        const separator = existingStyle && !existingStyle.trim().endsWith(';') ? ';' : '';
+        cell.setAttribute('style', `${existingStyle}${separator}width:${pct.toFixed(2)}%;`);
+      });
+    });
+    return doc.body.innerHTML;
+  } catch {
+    return html; // a malformed table shouldn't block the rest of the exam from rendering
+  }
+}
+
 function renderRichContent(content: any): string {
   const contentStr = safeString(content);
 
@@ -80,6 +123,8 @@ function renderRichContent(content: any): string {
     console.log('⚠️ Legacy: Plain image URL found:', processedContent.substring(0, 100));
     processedContent = `<img src="${processedContent}" alt="Question Image" style="max-width: 100%; height: auto; margin: 10px 0; display: block; border: 1px solid #ddd; border-radius: 4px; padding: 4px;" />`;
   }
+
+  processedContent = applyTableColumnWidths(processedContent);
 
   // HTML content from RichTextEditor is returned as-is
   // The CSS styles in the PDF template will handle all formatting:

@@ -15,6 +15,7 @@ import QuestionSectionTheory from './QuestionSectionTheory';
 import QuestionSectionPractical from './QuestionSectionPractical';
 import QuestionSectionCustom from './QuestionSectionCustom';
 import ClassroomService from '@/services/ClassroomService';
+import { loadDefaultPrintSettings, saveDefaultPrintSettings } from '@/utils/printSettingsDefaults';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -246,13 +247,23 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
   const [printSettings, setPrintSettings] = useState<PrintSettings>({ ...DEFAULT_PRINT_SETTINGS });
 
   // Reference data
-  const [subjects,    setSubjects]    = useState<any[]>([]);
-  const [gradeLevels, setGradeLevels] = useState<any[]>([]);
+  const [subjects,      setSubjects]      = useState<any[]>([]);
+  const [subjectsError, setSubjectsError] = useState<string | null>(null);
+  const [gradeLevels,   setGradeLevels]   = useState<any[]>([]);
 
   // UI state
   const [activeTab,  setActiveTab]  = useState<Tab>('details');
   const [errors,     setErrors]     = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [savedAsDefault, setSavedAsDefault] = useState(false);
+
+  // Independent of the exam's own Save/Create - this just updates what
+  // future exams start with, right away, without needing to submit the form.
+  const handleSaveAsDefault = () => {
+    saveDefaultPrintSettings(printSettings);
+    setSavedAsDefault(true);
+    setTimeout(() => setSavedAsDefault(false), 2500);
+  };
 
   // ── Load reference data ────────────────────────────────────────────────────
   useEffect(() => {
@@ -263,10 +274,31 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
   }, [open]);
 
   useEffect(() => {
-    if (!open || !gradeLevel) return;
+    if (!open || !gradeLevel) { setSubjectsError(null); return; }
+    let cancelled = false;
+    setSubjectsError(null);
     ClassroomService.getSubjectsForGrade({ grade_id: gradeLevel })
-      .then((r: any) => setSubjects(Array.isArray(r) ? r : r?.results ?? []))
-      .catch(() => {});
+      .then((r: any) => {
+        if (cancelled) return;
+        const list = Array.isArray(r) ? r : r?.results ?? [];
+        setSubjects(list);
+        // The request can succeed with an empty list - e.g. subjects that were
+        // created but never linked to a grade level - and that looks exactly
+        // like a broken dropdown from the admin's side with no clue why.
+        if (list.length === 0) {
+          setSubjectsError(
+            'No subjects are linked to this grade level yet. Check that the ' +
+            "subject's grade levels are set (Admin → Subjects), or pick a different grade level."
+          );
+        }
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        console.error('Failed to load subjects for grade level', gradeLevel, err);
+        setSubjects([]);
+        setSubjectsError('Could not load subjects for this grade level. Please try again.');
+      });
+    return () => { cancelled = true; };
   }, [open, gradeLevel]);
 
   // Exam types and difficulty levels are per-school records, so they have to
@@ -334,7 +366,11 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
       setTheoryQs(exam.theory_questions || []);
       setPracticalQs(exam.practical_questions || []);
       setCustomSecs(exam.custom_sections || []);
-      setPrintSettings({ ...DEFAULT_PRINT_SETTINGS, ...(exam as any).print_settings });
+      setPrintSettings({
+        ...DEFAULT_PRINT_SETTINGS,
+        ...(loadDefaultPrintSettings() ?? {}),
+        ...(exam as any).print_settings,
+      });
     } else {
       // Reset for create
       setTitle(''); setDescription(''); setSubject(0); setGradeLevel(0);
@@ -345,7 +381,7 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
       setVenue(''); setInstructions(''); setMaterialsAllowed('');
       setStatus('draft'); setIsPractical(false); setRequiresComputer(false); setIsOnline(false);
       setObjectiveQs([]); setTheoryQs([]); setPracticalQs([]); setCustomSecs([]);
-      setPrintSettings({ ...DEFAULT_PRINT_SETTINGS });
+      setPrintSettings({ ...DEFAULT_PRINT_SETTINGS, ...(loadDefaultPrintSettings() ?? {}) });
     }
     setActiveTab('details');
     setErrors({});
@@ -543,6 +579,9 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
                       <option key={s.id} value={s.id}>{s.name}</option>
                     ))}
                   </select>
+                  {subjectsError && (
+                    <p className="text-xs text-amber-600 mt-1">{subjectsError}</p>
+                  )}
                 </Field>
 
                 <Field label="Exam Type">
@@ -757,8 +796,15 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
             {/* ─── PRINT SETTINGS TAB ─── */}
             {activeTab === 'print' && (
               <div>
-                <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-700">
-                  These settings control how the exam looks when printed. They are saved with this exam.
+                <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-700 flex items-center justify-between gap-3 flex-wrap">
+                  <span>These settings control how the exam looks when printed. They're saved with this exam when you save or create it.</span>
+                  <button
+                    type="button"
+                    onClick={handleSaveAsDefault}
+                    className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-purple-300 bg-white text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+                  >
+                    {savedAsDefault ? '✓ Saved as default' : '⭐ Also use as default for future exams'}
+                  </button>
                 </div>
                 <PrintSettingsPanel value={printSettings} onChange={setPrintSettings} />
               </div>

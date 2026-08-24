@@ -758,3 +758,38 @@
     page-break-inside: avoid;
   }
 }
+
+/* ========================================
+   Tiptap exam editor: table column resize
+   ========================================
+   @tiptap/extension-table's `resizable: true` only wires up the drag
+   behaviour - the resize handle it drags is rendered with nothing but a
+   bare `column-resize-handle` class and no inline styling, so without this
+   CSS it exists in the DOM but is completely invisible: there's nothing to
+   see or grab, even though the feature is technically "on". Scoped to
+   `.ProseMirror` so it only affects the rich text editor, not other tables
+   in the app.
+   ======================================== */
+.ProseMirror .tableWrapper {
+  overflow-x: auto;
+}
+
+.ProseMirror table {
+  table-layout: fixed;
+}
+
+.ProseMirror .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: -2px;
+  width: 4px;
+  z-index: 20;
+  background-color: #3b82f6;
+  pointer-events: none;
+}
+
+.ProseMirror.resize-cursor,
+.ProseMirror .resize-cursor {
+  cursor: col-resize;
+}

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Printer, Settings2, FileDown } from 'lucide-react';
+import { X, Printer, Settings2, FileDown, ChevronDown, Check } from 'lucide-react';
 import { Exam, PrintSettings, DEFAULT_PRINT_SETTINGS, downloadExamPdf } from '@/services/ExamService';
 import { generateExamHtml } from '@/utils/examHtmlGenerator';
 import { useSettings } from '@/contexts/SettingsContext';
 import { normalizeExamDataForDisplay } from '@/utils/examDataNormalizer';
+import { loadDefaultPrintSettings, saveDefaultPrintSettings } from '@/utils/printSettingsDefaults';
 
 interface Props {
   open: boolean;
@@ -23,12 +24,20 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
   const [pdfError,     setPdfError]     = useState<string | null>(null);
   const [showPanel,    setShowPanel]    = useState(false);
   const [saving,       setSaving]       = useState(false);
+  const [showSaveMenu, setShowSaveMenu] = useState(false);
+  const [justSaved,    setJustSaved]    = useState<'exam' | 'default' | null>(null);
   const [html,         setHtml]         = useState('');
 
-  // Load print settings from exam when modal opens
+  // Load print settings from exam when modal opens. Falls back through:
+  // this exam's own saved settings, then the school's saved default (if an
+  // admin has set one), then the platform's hardcoded defaults.
   useEffect(() => {
     if (!open || !exam) return;
-    setPrintSettings({ ...DEFAULT_PRINT_SETTINGS, ...(exam as any).print_settings });
+    setPrintSettings({
+      ...DEFAULT_PRINT_SETTINGS,
+      ...(loadDefaultPrintSettings() ?? {}),
+      ...(exam as any).print_settings,
+    });
     setCopyType('student');
   }, [open, exam]);
 
@@ -73,9 +82,29 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
 
   const handleSaveSettings = async () => {
     if (!exam?.id || !onSaveSettings) return;
+    setShowSaveMenu(false);
     setSaving(true);
     try {
       await onSaveSettings(exam.id, printSettings);
+      setJustSaved('exam');
+      setTimeout(() => setJustSaved(null), 2500);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Applies to this exam AND becomes what every future exam starts from,
+  // instead of the platform's hardcoded defaults - until an admin changes it.
+  const handleSaveAsDefault = async () => {
+    setShowSaveMenu(false);
+    setSaving(true);
+    try {
+      saveDefaultPrintSettings(printSettings);
+      if (exam?.id && onSaveSettings) {
+        await onSaveSettings(exam.id, printSettings);
+      }
+      setJustSaved('default');
+      setTimeout(() => setJustSaved(null), 2500);
     } finally {
       setSaving(false);
     }
@@ -124,13 +153,45 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
               Format
             </button>
             {onSaveSettings && (
-              <button
-                onClick={handleSaveSettings}
-                disabled={saving}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-              >
-                {saving ? 'Saving…' : 'Save Format'}
-              </button>
+              <div className="relative">
+                <button
+                  onClick={() => setShowSaveMenu(m => !m)}
+                  disabled={saving}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                >
+                  {saving ? 'Saving…' : justSaved ? (
+                    <span className="flex items-center gap-1 text-green-600">
+                      <Check size={13} /> {justSaved === 'default' ? 'Saved as default' : 'Saved'}
+                    </span>
+                  ) : (
+                    <>Save Format <ChevronDown size={12} /></>
+                  )}
+                </button>
+
+                {showSaveMenu && (
+                  <>
+                    {/* Click-away backdrop */}
+                    <div className="fixed inset-0 z-40" onClick={() => setShowSaveMenu(false)} />
+                    <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1 text-left">
+                      <button
+                        onClick={handleSaveSettings}
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="font-medium text-gray-800">Save for this exam only</div>
+                        <div className="text-gray-400 mt-0.5">Doesn't change how other exams format.</div>
+                      </button>
+                      <div className="h-px bg-gray-100 my-1" />
+                      <button
+                        onClick={handleSaveAsDefault}
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="font-medium text-gray-800">Save as default for future exams</div>
+                        <div className="text-gray-400 mt-0.5">New exams start with this format from now on.</div>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
             <button
               onClick={handlePrint}
