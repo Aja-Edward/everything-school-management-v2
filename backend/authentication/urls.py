@@ -1,9 +1,10 @@
 # authentication/urls.py
 from django.urls import path, include
 from django.conf import settings
-from rest_framework_simplejwt.views import TokenVerifyView
+from rest_framework_simplejwt.views import TokenVerifyView, TokenRefreshView
 from .views import (
     SimpleLoginView,
+    CustomTokenObtainPairView,
     RegisterView,
     VerifyAccountView,
     ResendVerificationView,
@@ -40,6 +41,11 @@ urlpatterns = [
     path("refresh/", refresh_token_view, name="cookie_refresh"),
     path("csrf/", csrf_token_view, name="csrf_token"),
     path("status/", auth_status_view, name="auth_status"),
+    # Body-based JWT auth (non-browser clients: mobile apps, other
+    # services - see CustomTokenObtainPairView's docstring). The web
+    # frontend keeps using login/ + refresh/ above, unaffected.
+    path("token/", CustomTokenObtainPairView.as_view(), name="token_obtain"),
+    path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     # Token verify (for server-to-server checks)
     path("token/verify/", TokenVerifyView.as_view(), name="token_verify"),
     # User management

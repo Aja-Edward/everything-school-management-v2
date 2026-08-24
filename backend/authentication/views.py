@@ -199,9 +199,21 @@ class ResendVerificationView(APIView):
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
+    """
+    Body-based JWT login: returns {access, refresh, user} in the response
+    body (unlike SimpleLoginView, which only sets httpOnly cookies in
+    production - see AUTH_RETURN_TOKENS_IN_BODY). This is the endpoint for
+    non-browser clients (the attendance mobile app, other services) that
+    cannot rely on a browser's cookie jar - they store the returned tokens
+    themselves and send `Authorization: Bearer <access>` on every request.
+
+    The web frontend is unaffected: it continues to use SimpleLoginView at
+    /api/auth/login/ exactly as before.
+    """
     serializer_class = CustomTokenObtainPairSerializer
     permission_classes = [permissions.AllowAny]
 
+    @method_decorator(ratelimit(key="ip", rate="5/m", method="POST", block=True))
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         try:

@@ -440,7 +440,6 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
-        print("🔍 validate() got attrs:", attrs)
         username = attrs.get("username")
         password = attrs.get("password")
 
@@ -467,6 +466,11 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 "is_superuser": user.is_superuser,
                 "is_staff": user.is_staff,
                 "is_active": user.is_active,
+                # Added for API/mobile clients - a browser session gets this
+                # from /api/auth/status/ instead, but a Bearer-token client
+                # has no other way to learn its own tenant context.
+                "tenant_id": str(user.tenant_id) if user.tenant_id else None,
+                "tenant_slug": user.tenant.slug if user.tenant_id else None,
             },
         }
         return data
