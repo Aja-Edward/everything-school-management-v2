@@ -302,6 +302,8 @@ class SimpleLoginView(APIView):
                         if hasattr(user, "tenant") and user.tenant
                         else None
                     ),
+                    # Only ever set for marketers - powers their affiliate link.
+                    "referral_code": getattr(user, "referral_code", None),
                 },
             }
             logger.info(
@@ -555,6 +557,8 @@ def auth_status_view(request):
                     if hasattr(user, "tenant") and user.tenant
                     else None
                 ),
+                # Only ever set for marketers - powers their affiliate link.
+                "referral_code": getattr(user, "referral_code", None),
             },
         },
         status=status.HTTP_200_OK,

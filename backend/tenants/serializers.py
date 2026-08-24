@@ -106,8 +106,11 @@ class PlatformUserSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'username', 'email', 'first_name', 'last_name', 'full_name',
             'role', 'is_active', 'date_joined', 'password', 'referred_tenant_count',
+            'referral_code',
         ]
-        read_only_fields = ['id', 'date_joined']
+        # referral_code is auto-assigned by CustomUser.save() the first time a
+        # marketer is saved without one - never settable through this API.
+        read_only_fields = ['id', 'date_joined', 'referral_code']
 
     def get_full_name(self, obj):
         name = f"{obj.first_name} {obj.last_name}".strip()
@@ -457,6 +460,11 @@ class SchoolRegistrationSerializer(serializers.Serializer):
         default='term',
         required=False
     )
+    # Affiliate attribution - the ?ref=<code> query param a marketer shares.
+    # Write-only: looked up in create() below, never echoed back.
+    referral_code = serializers.CharField(
+        max_length=12, required=False, allow_blank=True, write_only=True
+    )
 
     def validate(self, data):
         if data['password'] != data['confirm_password']:
@@ -485,6 +493,18 @@ class SchoolRegistrationSerializer(serializers.Serializer):
             status='active',
             is_active=True,
         )
+
+        # Attribute this signup to a marketer if a valid referral code was
+        # supplied. Invalid/unknown codes are ignored rather than blocking
+        # registration - a bad ?ref= link should never stop a school signing up.
+        ref_code = (validated_data.get('referral_code') or '').strip()
+        if ref_code:
+            marketer = User.objects.filter(
+                role='marketer', tenant__isnull=True, referral_code__iexact=ref_code
+            ).first()
+            if marketer:
+                tenant.referred_by = marketer
+                tenant.save(update_fields=['referred_by'])
 
         # Enable default services
         for service in TenantService.DEFAULT_SERVICES:

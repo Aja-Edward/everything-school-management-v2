@@ -11,7 +11,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Plus, Trash2, Edit2, X, Loader2, AlertCircle, UserCog, Megaphone, ShieldCheck } from 'lucide-react';
+import { Plus, Trash2, Edit2, X, Loader2, AlertCircle, UserCog, Megaphone, ShieldCheck, Copy, Check } from 'lucide-react';
 import api from '@/services/api';
 
 interface PlatformUser {
@@ -25,6 +25,7 @@ interface PlatformUser {
   is_active: boolean;
   date_joined: string;
   referred_tenant_count: number;
+  referral_code: string | null;
 }
 
 interface FormState {
@@ -62,6 +63,19 @@ const PlatformUsersPanel: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+
+  const handleCopyReferralLink = async (u: PlatformUser) => {
+    if (!u.referral_code) return;
+    const link = `${window.location.origin}/onboarding/register?ref=${u.referral_code}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopiedId(u.id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      // Clipboard API unavailable - soft failure, nothing else to do here.
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -189,6 +203,16 @@ const PlatformUsersPanel: React.FC = () => {
                     <td className="px-5 py-3.5">
                       <p className="text-sm font-semibold text-gray-900">{u.full_name}</p>
                       <p className="text-xs text-gray-500">{u.email || u.username}</p>
+                      {u.role === 'marketer' && u.referral_code && (
+                        <button
+                          onClick={() => handleCopyReferralLink(u)}
+                          className="mt-1 inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors"
+                          title="Copy this marketer's affiliate link"
+                        >
+                          {copiedId === u.id ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                          {copiedId === u.id ? 'Link copied' : u.referral_code}
+                        </button>
+                      )}
                     </td>
                     <td className="px-5 py-3.5">{roleBadge(u.role)}</td>
                     <td className="px-5 py-3.5 text-gray-700">{u.role === 'marketer' ? u.referred_tenant_count : '—'}</td>

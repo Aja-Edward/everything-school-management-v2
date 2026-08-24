@@ -4,7 +4,7 @@ import {
   LogOut, RefreshCw, AlertCircle, CheckCircle,
   Clock, XCircle, ChevronRight, Building2,
   PowerOff, Power, Trash2, Loader2, X,
-  FileText, UserCog,
+  FileText, UserCog, Copy, Link2,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
@@ -239,6 +239,21 @@ const SuperAdminDashboard = () => {
   // referred to them, so no separate data-fetching path is needed here,
   // just narrower UI.
   const isMarketer = user?.role === UserRole.MARKETER;
+  const affiliateLink = isMarketer && user?.referral_code
+    ? `${window.location.origin}/onboarding/register?ref=${user.referral_code}`
+    : null;
+  const [linkCopied, setLinkCopied] = useState(false);
+  const handleCopyAffiliateLink = async () => {
+    if (!affiliateLink) return;
+    try {
+      await navigator.clipboard.writeText(affiliateLink);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      // Clipboard API unavailable (e.g. insecure context) - the link text
+      // is already selectable/visible, so this is a soft failure.
+    }
+  };
 
   const [activeTab, setActiveTab] = useState<DashboardTab>('tenants');
   const [marketers, setMarketers] = useState<{ id: number; full_name: string }[]>([]);
@@ -482,6 +497,36 @@ const SuperAdminDashboard = () => {
             </div>
           )}
         </div>
+
+        {/* ── Affiliate link (marketers only) ─────────────────────────────── */}
+        {isMarketer && (
+          <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5">
+            {affiliateLink ? (
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="min-w-0">
+                  <p className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    <Link2 className="w-3.5 h-3.5" /> Your Affiliate Link
+                  </p>
+                  <p className="text-sm text-gray-900 mt-1 font-mono break-all">{affiliateLink}</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Share this with a school - any registration through it is automatically credited to you.
+                  </p>
+                </div>
+                <button
+                  onClick={handleCopyAffiliateLink}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-black text-white hover:bg-gray-800 transition-colors shrink-0"
+                >
+                  {linkCopied ? <CheckCircle className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {linkCopied ? 'Copied!' : 'Copy Link'}
+                </button>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">
+                Your affiliate link is still being generated - refresh in a moment, or contact your platform admin if it doesn't appear.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* ── Global error ──────────────────────────────────────────────────── */}
         {error && (

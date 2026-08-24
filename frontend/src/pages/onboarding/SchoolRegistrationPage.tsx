@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { tenantService, SchoolRegistrationData } from '@/services/TenantService';
 import { ArrowLeft, ArrowRight, Eye, EyeOff, Check } from 'lucide-react';
@@ -21,6 +21,7 @@ interface FormErrors {
 
 const SchoolRegistrationPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -40,6 +41,19 @@ const SchoolRegistrationPage: React.FC = () => {
   });
 
   const [errors, setErrors] = useState<FormErrors>({});
+
+  // Affiliate attribution: a marketer share link looks like
+  // /onboarding/register?ref=<code>. Stash it in sessionStorage on first
+  // load so it survives if the visitor clicks around the site before
+  // actually submitting the form - only the URL loses the param, not the tab.
+  const referralCode = (() => {
+    const fromUrl = searchParams.get('ref');
+    if (fromUrl) {
+      sessionStorage.setItem('referral_code', fromUrl);
+      return fromUrl;
+    }
+    return sessionStorage.getItem('referral_code') || undefined;
+  })();
 
   // Generate slug from school name
   useEffect(() => {
@@ -145,6 +159,7 @@ const SchoolRegistrationPage: React.FC = () => {
         password: formData.password,
         confirm_password: formData.confirm_password,
         billing_period: formData.billing_period,
+        referral_code: referralCode,
       };
 
       const response = await tenantService.registerSchool(registrationData);

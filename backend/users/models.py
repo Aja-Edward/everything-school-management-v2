@@ -1,4 +1,6 @@
 # users/models.py
+import secrets
+
 from django.db import models
 from django.contrib.auth.models import (
     AbstractBaseUser,
@@ -7,6 +9,15 @@ from django.contrib.auth.models import (
     Group,
 )
 from django.utils import timezone
+
+# Excludes visually-ambiguous characters (0/O, 1/I/L) so a marketer can read
+# their code aloud or retype it without mixing them up.
+_REFERRAL_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+
+def generate_referral_code(length=8):
+    """Generate a random referral code. Uniqueness is enforced by the caller."""
+    return "".join(secrets.choice(_REFERRAL_CODE_ALPHABET) for _ in range(length))
 
 # User roles - EXPANDED to include section admins
 ROLE_CHOICES = (
@@ -89,6 +100,14 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     role = models.CharField(
         max_length=30, choices=ROLE_CHOICES
     )  # Increased to 30 for "junior_secondary_admin"
+
+    # Affiliate code for marketers - powers their "your affiliate link" share
+    # URL (.../onboarding/register?ref=<code>). Auto-assigned in save() below
+    # the first time a marketer account is saved without one; never set for
+    # any other role. Unique but nullable (everyone else stays NULL).
+    referral_code = models.CharField(
+        max_length=12, unique=True, null=True, blank=True, db_index=True
+    )
 
     # MULTI-TENANT FIELD - Links user to their tenant (school)
     tenant = models.ForeignKey(
@@ -198,6 +217,15 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     def save(self, *args, **kwargs):
         """Override save to automatically sync role with groups"""
+        # Self-healing: any marketer account missing a referral_code gets one
+        # assigned right here, regardless of which code path created/saved it
+        # (platform admin panel, Django admin, a script, a data migration).
+        if self.role == "marketer" and not self.referral_code:
+            code = generate_referral_code()
+            while CustomUser.objects.filter(referral_code=code).exists():
+                code = generate_referral_code()
+            self.referral_code = code
+
         super().save(*args, **kwargs)
 
         # Sync role with Django groups

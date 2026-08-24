@@ -93,6 +93,8 @@ const mapServerRoleToEnum = (rawRole: any): UserRole => {
 export type HydratedUserData = FullUserData & {
   tenant_id: string | null;
   tenant_slug: string | null;
+  // Only ever populated for marketers - powers their affiliate link.
+  referral_code: string | null;
 };
 
 const buildUserData = (rawUserData: any, role: UserRole): HydratedUserData => {
@@ -108,6 +110,7 @@ const buildUserData = (rawUserData: any, role: UserRole): HydratedUserData => {
     // Runtime extras (not on the shared type, added via HydratedUserData)
     tenant_id: (rawUserData.tenant_id ?? rawUserData.tenant?.id ?? null) as string | null,
     tenant_slug: (rawUserData.tenant_slug ?? rawUserData.tenant?.slug ?? null) as string | null,
+    referral_code: (rawUserData.referral_code ?? null) as string | null,
   };
 
   switch (role) {

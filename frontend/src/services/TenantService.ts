@@ -136,19 +136,15 @@ export interface PublicTenantSettings {
 
 export interface SchoolRegistrationData {
   school_name: string;
-  slug: string;
-  // admin_email?: string;
-  // owner_email: string;
-  // admin_first_name?: string;
-  // admin_last_name?: string;
-  // password?: string;
-  // confirm_password?: string;
-  // billing_period?: string;
+  admin_email: string;
+  admin_first_name: string;
+  admin_last_name: string;
   admin_phone?: string;
-  owner_first_name: string;
-  owner_last_name: string;
-  owner_phone?: string;
-  owner_password: string;
+  password: string;
+  confirm_password: string;
+  billing_period?: string;
+  // Affiliate attribution - read from ?ref=<code> on the registration page.
+  referral_code?: string;
 }
 
 

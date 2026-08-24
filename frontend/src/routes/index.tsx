@@ -748,7 +748,7 @@ export const router = createBrowserRouter([
         path: 'super-admin/dashboard',
         element: (
           <ProtectedRoute
-            allowedRoles={[UserRole.SUPERADMIN, UserRole.PLATFORM_ADMIN]}
+            allowedRoles={[UserRole.SUPERADMIN, UserRole.PLATFORM_ADMIN, UserRole.MARKETER]}
             loginPath="/platform-admin/login"
           >
             <LazyWrapper><SuperAdminPage /></LazyWrapper>
