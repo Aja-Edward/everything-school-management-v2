@@ -13,7 +13,7 @@ interface AuthLostModalProps {
   primaryColor?: string;
 }
 
-const PLATFORM_LOGO = '/nuventa-favicon.png';
+const PLATFORM_LOGO = '/images/nuventa-favicon.png';
 const PLATFORM_NAME = 'Nuventa Cloud';
 const DEFAULT_COLOR = '#3B82F6';
 

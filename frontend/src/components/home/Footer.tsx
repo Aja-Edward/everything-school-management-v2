@@ -39,7 +39,7 @@ const Footer: React.FC<FooterProps> = ({ isDashboard = false }) => {
           <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
             <div className="flex items-center gap-2">
               <img
-                src={settings?.logo ? getAbsoluteUrl(settings.logo) : '/nuventa-logo.png'}
+                src={settings?.logo ? getAbsoluteUrl(settings.logo) : '/images/nuventa-logo.png'}
                 alt={settings?.school_name || 'Nuventa Cloud'}
                 className="w-6 h-6 rounded object-contain"
               />
@@ -65,7 +65,7 @@ const Footer: React.FC<FooterProps> = ({ isDashboard = false }) => {
           <div className="col-span-2 md:col-span-1">
             <div className="flex items-center gap-2 mb-4">
               <img
-                src={settings?.logo ? getAbsoluteUrl(settings.logo) : '/nuventa-logo.png'}
+                src={settings?.logo ? getAbsoluteUrl(settings.logo) : '/images/nuventa-logo.png'}
                 alt={settings?.school_name || 'Nuventa Cloud'}
                 className="w-8 h-8 rounded object-contain"
               />

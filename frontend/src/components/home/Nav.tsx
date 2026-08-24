@@ -40,7 +40,7 @@ const Nav: React.FC = () => {
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2.5">
             <img
-              src={settings?.logo ? getAbsoluteUrl(settings.logo) : '/nuventa-logo.png'}
+              src={settings?.logo ? getAbsoluteUrl(settings.logo) : '/images/nuventa-logo.png'}
               alt={settings?.school_name || 'Nuventa Cloud'}
               className="w-8 h-8 rounded object-contain"
             />

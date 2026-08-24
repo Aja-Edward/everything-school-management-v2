@@ -2,7 +2,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useFavicon } from '../hooks/useFavicon';
 import { getAbsoluteUrl } from '../utils/urlUtils';
 
-const PLATFORM_FAVICON = '/nuventa-favicon.png';
+const PLATFORM_FAVICON = '/images/nuventa-favicon.png';
 
 const FaviconUpdater: React.FC = () => {
   const { settings } = useSettings();
