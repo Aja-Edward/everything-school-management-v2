@@ -3,7 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import TeacherDashboardService from '@/services/TeacherDashboardService';
 import { ExamService, ExamCreateData } from '@/services/ExamService';
 import { toast } from 'react-toastify';
-import { X, Plus, Trash2, Save, Clock, CheckCircle, AlertCircle, BookOpen } from 'lucide-react';
+import { X, XCircle, Plus, Trash2, Save, Clock, Clock3, CheckCircle, AlertCircle, BookOpen } from 'lucide-react';
 
 interface TestCreationFormProps {
   isOpen: boolean;
@@ -27,8 +27,8 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
     title: '',
     subject: 0,
     grade_level: 0,
-    exam_type: 'test',
-    difficulty_level: 'medium',
+    exam_type: 0,          // replaced with a real PK after loadTeacherData
+    difficulty_level: 0,   // replaced with a real PK after loadTeacherData
     exam_date: '',
     start_time: '',
     end_time: '',
@@ -37,7 +37,7 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
     pass_marks: 25,
     venue: '',
     instructions: '',
-    status: 'draft',
+    status: 0,
     is_practical: false,
     requires_computer: false,
     is_online: false,
@@ -53,6 +53,12 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
   const [objectiveQuestions, setObjectiveQuestions] = useState<any[]>([]);
   const [theoryQuestions, setTheoryQuestions] = useState<any[]>([]);
   const [teacherAssignments, setTeacherAssignments] = useState<any[]>([]);
+  // exam_type/difficulty_level/status are foreign keys on the backend
+  // (PrimaryKeyRelatedField) - these hold the real, fetched options so
+  // the form submits a valid PK instead of a made-up string code.
+  const [examTypes,        setExamTypes]        = useState<any[]>([]);
+  const [difficultyLevels, setDifficultyLevels] = useState<any[]>([]);
+  const [examStatuses,     setExamStatuses]     = useState<any[]>([]);
 
   useEffect(() => {
     if (isOpen) {
@@ -66,8 +72,8 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
         title: editingTest.title || '',
         subject: editingTest.subject?.id || editingTest.subject || 0,
         grade_level: editingTest.grade_level?.id || editingTest.grade_level || 0,
-        exam_type: editingTest.exam_type || 'test',
-        difficulty_level: editingTest.difficulty_level || 'medium',
+        exam_type: typeof editingTest.exam_type === 'number' ? editingTest.exam_type : editingTest.exam_type?.id ?? 0,
+        difficulty_level: typeof editingTest.difficulty_level === 'number' ? editingTest.difficulty_level : editingTest.difficulty_level?.id ?? 0,
         exam_date: editingTest.exam_date || '',
         start_time: editingTest.start_time || '',
         end_time: editingTest.end_time || '',
@@ -76,7 +82,7 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
         pass_marks: editingTest.pass_marks || 25,
         venue: editingTest.venue || '',
         instructions: editingTest.instructions || '',
-        status: editingTest.status || 'draft',
+        status: typeof editingTest.status === 'number' ? editingTest.status : editingTest.status?.id ?? 0,
         is_practical: editingTest.is_practical || false,
         requires_computer: editingTest.is_requires_computer || false,
         is_online: editingTest.is_online || false,
@@ -102,8 +108,26 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
         return;
       }
 
-      const assignments = await TeacherDashboardService.getTeacherClasses(teacherId);
+      const [assignments, rawExamTypes, rawDifficulties, rawStatuses] = await Promise.all([
+        TeacherDashboardService.getTeacherClasses(teacherId),
+        ExamService.fetchExamTypes(),
+        ExamService.fetchDifficultyLevels(),
+        ExamService.fetchExamStatuses(),
+      ]);
       setTeacherAssignments(assignments);
+      setExamTypes(rawExamTypes);
+      setDifficultyLevels(rawDifficulties);
+      setExamStatuses(rawStatuses);
+
+      // For a new test, default to the school's first option so the form
+      // never submits 0 - only when not already set from editingTest.
+      if (!editingTest) {
+        setFormData(prev => ({
+          ...prev,
+          exam_type: prev.exam_type || rawExamTypes[0]?.id || 0,
+          difficulty_level: prev.difficulty_level || rawDifficulties[0]?.id || 0,
+        }));
+      }
     } catch (error) {
       console.error('Error loading teacher data:', error);
       toast.error('Failed to load teacher data');
@@ -185,6 +209,14 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
     return true;
   };
 
+  /** Look up a status PK by code; fall back to the initial status or formData.status. */
+  const statusPk = (code: string): string | number => {
+    const found = examStatuses.find((s: any) => s.code === code);
+    if (found) return found.id;
+    const initial = examStatuses.find((s: any) => s.is_initial) ?? examStatuses[0];
+    return initial?.id ?? formData.status;
+  };
+
   const saveAsDraft = async () => {
     if (!validateForm()) return;
 
@@ -193,7 +225,7 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
       
       const testData: ExamCreateData = {
         ...formData,
-        status: 'draft',
+        status: statusPk('draft'),
         objective_questions: objectiveQuestions,
         theory_questions: theoryQuestions,
         total_marks: calculateTotalMarks()
@@ -225,7 +257,7 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
       
       const testData: ExamCreateData = {
         ...formData,
-        status: 'pending_approval',
+        status: statusPk('pending_approval'),
         objective_questions: objectiveQuestions,
         theory_questions: theoryQuestions,
         total_marks: calculateTotalMarks()
@@ -249,15 +281,22 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
     }
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: any) => {
+    // status arrives as a foreign-key object ({id, code, name}) from the API,
+    // and as a plain code string while the form itself is being edited.
+    const code = typeof status === 'string' ? status : status?.code ?? 'draft';
     const statusConfig = {
-      draft: { color: 'bg-gray-100 text-gray-800', icon: Clock, text: 'Draft' },
-      pending_approval: { color: 'bg-yellow-100 text-yellow-800', icon: AlertCircle, text: 'Pending Approval' },
-      approved: { color: 'bg-green-100 text-green-800', icon: CheckCircle, text: 'Approved' },
-      published: { color: 'bg-blue-100 text-blue-800', icon: BookOpen, text: 'Published' }
+      draft: { color: 'bg-gray-100 text-gray-800', icon: Save, text: 'Draft' },
+      pending_approval: { color: 'bg-yellow-100 text-yellow-800', icon: Clock3, text: 'Pending Approval' },
+      rejected: { color: 'bg-red-100 text-red-800', icon: XCircle, text: 'Rejected' },
+      scheduled: { color: 'bg-blue-100 text-blue-800', icon: Clock, text: 'Scheduled' },
+      in_progress: { color: 'bg-yellow-100 text-yellow-800', icon: AlertCircle, text: 'In Progress' },
+      completed: { color: 'bg-green-100 text-green-800', icon: CheckCircle, text: 'Completed' },
+      cancelled: { color: 'bg-red-100 text-red-800', icon: X, text: 'Cancelled' },
+      postponed: { color: 'bg-orange-100 text-orange-800', icon: Clock3, text: 'Postponed' }
     };
 
-    const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.draft;
+    const config = statusConfig[code as keyof typeof statusConfig] || statusConfig.draft;
     const Icon = config.icon;
 
     return (
@@ -339,12 +378,13 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
                   </label>
                   <select
                     value={formData.exam_type}
-                    onChange={(e) => handleInputChange('exam_type', e.target.value)}
+                    onChange={(e) => handleInputChange('exam_type', parseInt(e.target.value))}
                     className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
                   >
-                    <option value="test">Test</option>
-                    <option value="quiz">Quiz</option>
-                    <option value="assignment">Assignment</option>
+                    <option value={0}>Select Test Type</option>
+                    {examTypes.map((t: any) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -390,12 +430,13 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
                   </label>
                   <select
                     value={formData.difficulty_level}
-                    onChange={(e) => handleInputChange('difficulty_level', e.target.value)}
+                    onChange={(e) => handleInputChange('difficulty_level', parseInt(e.target.value))}
                     className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
                   >
-                    <option value="easy">Easy</option>
-                    <option value="medium">Medium</option>
-                    <option value="hard">Hard</option>
+                    <option value={0}>Select Difficulty</option>
+                    {difficultyLevels.map((d: any) => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
                   </select>
                 </div>
 
