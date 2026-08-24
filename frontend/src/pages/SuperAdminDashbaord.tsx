@@ -13,6 +13,8 @@ import { UserRole } from '@/types/types';
 import PlatformContentPanel from '@/components/platform-admin/PlatformContentPanel';
 import PlatformUsersPanel from '@/components/platform-admin/PlatformUsersPanel';
 
+
+const PLATFORM_LOGO = '/images/nuventa-logo.png';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Tenant {
@@ -426,7 +428,7 @@ const SuperAdminDashboard = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 bg-white rounded-md flex items-center justify-center shrink-0">
-              <Shield className="w-4 h-4 text-black" />
+              <img src={PLATFORM_LOGO} alt="Nuventa Cloud" className="w-full h-full object-contain" />
             </div>
             <span className="text-white font-bold text-sm tracking-wide hidden sm:block">
               Platform Admin
