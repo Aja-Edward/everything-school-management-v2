@@ -122,7 +122,7 @@ const PlatformAdminLoginPage: React.FC = () => {
       <div className="hidden lg:flex lg:w-1/2 bg-black flex-col justify-between p-12">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shrink-0">
-          <img src="/nuventa-logo.png" alt="Logo" className="w-4 h-4" />
+          <img src="image/nuventa-logo.png" alt="Logo" className="w-4 h-4" />
           </div>
           <span className="text-white font-bold text-sm tracking-wide">
             Platform Admin Portal
