@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Eye, EyeOff, Shield, AlertCircle, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, AlertCircle, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { API_BASE_URL } from '@/services/api';
@@ -176,11 +176,12 @@ const PlatformAdminLoginPage: React.FC = () => {
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 sm:px-12">
         <div className="w-full max-w-sm space-y-8">
 
-          {/* Mobile logo */}
+          {/* Mobile logo — the branded left panel is hidden below `lg`, so this
+              is the only place the logo appears on narrow viewports. It used a
+              generic Shield icon, which is why the logo looked "missing" on
+              anything under 1024px wide. */}
           <div className="lg:hidden flex items-center gap-2">
-            <div className="w-7 h-7 bg-black rounded-lg flex items-center justify-center">
-              <Shield className="w-4 h-4 text-white" />
-            </div>
+            <img src={PLATFORM_LOGO} alt="Nuventa Cloud" className="w-8 h-8 object-contain shrink-0" />
             <span className="font-bold text-sm text-gray-900">Platform Admin</span>
           </div>
 
