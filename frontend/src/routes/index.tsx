@@ -16,6 +16,7 @@ import ThemeProvider from '@/components/ThemeProvider';
 import FaviconUpdater from '@/components/FaviconUpdater';
 import TitleManager from '@/components/TitleManager';
 import MetaTagManager from '@/components/MetaTagManager';
+import MetaPixel from '@/components/MetaPixel';
 import { lazy, Suspense } from 'react';
 import Navbar from '@/components/home/Nav';
 import Footer from '@/components/home/Footer';
@@ -188,6 +189,7 @@ const RootLayout = () => {
                 <FaviconUpdater />  
                 <TitleManager />
                 <MetaTagManager />
+                <MetaPixel />
                 <ErrorBoundary>
                   <Outlet />
                 </ErrorBoundary>

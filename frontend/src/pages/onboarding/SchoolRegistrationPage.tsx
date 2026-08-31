@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { tenantService, SchoolRegistrationData } from '@/services/TenantService';
+import { trackPixelEvent, trackPixelEventOnce } from '@/utils/metaPixel';
 import { ArrowLeft, ArrowRight, Eye, EyeOff, Check } from 'lucide-react';
 
 interface FormData {
@@ -54,6 +55,17 @@ const SchoolRegistrationPage: React.FC = () => {
     }
     return sessionStorage.getItem('referral_code') || undefined;
   })();
+
+  // Meta Pixel: reaching the registration form is the mid-funnel signal we can
+  // actually get volume on. Sign-ups alone are too sparse for Meta to leave the
+  // learning phase early on (it wants ~50 conversions/week), so campaigns
+  // optimise for Lead first and CompleteRegistration once volume allows.
+  // No-ops off the marketing domain — see utils/metaPixel.ts.
+  useEffect(() => {
+    trackPixelEventOnce('reg_form_lead', 'Lead', {
+      content_name: 'School Registration Form',
+    });
+  }, []);
 
   // Generate slug from school name
   useEffect(() => {
@@ -163,6 +175,16 @@ const SchoolRegistrationPage: React.FC = () => {
       };
 
       const response = await tenantService.registerSchool(registrationData);
+
+      // Meta Pixel: the actual acquisition conversion. Fired before the
+      // redirect below, which leaves the marketing domain for the tenant
+      // subdomain where the pixel does not run. No PII is sent — Meta gets the
+      // billing period only, so campaigns can be compared on plan mix.
+      trackPixelEvent('CompleteRegistration', {
+        content_name: 'School Registration',
+        status: true,
+        billing_period: formData.billing_period,
+      });
 
       toast.success('School registered! Redirecting to your subdomain...');
 
