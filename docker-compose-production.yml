@@ -32,6 +32,12 @@ services:
     image: edwad148/schoolmsapp-frontend:latest
     container_name: frontend
     command: ["nginx", "-g", "daemon off;"]
+    # This container's nginx proxies /api to http://backend:8000 and resolves
+    # that name once, at startup. If it wins the startup race the name does not
+    # resolve yet and nginx exits with "host not found in upstream", leaving the
+    # frontend to crash-loop while the rest of the stack looks healthy.
+    depends_on:
+      - backend
     expose:
       - "80"
 
