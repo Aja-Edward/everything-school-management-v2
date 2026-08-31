@@ -119,6 +119,7 @@ const AdminRemarksAndSignatureManager = lazy(() => import('./../pages/admin/Admi
 const BillingDashboard = lazy(() => import('./../pages/admin/billing/Billing'));
 const GenerateInvoice = lazy(() => import('./../pages/admin/billing/GenerateInvoice'));
 const InvoiceDetail = lazy(() => import('./../pages/admin/billing/InvoiceDetail'));
+const PaymentCallback = lazy(() => import('./../pages/admin/billing/PaymentCallback'));
 
 // Advanced Exam Features (EXAM-003)
 const QuestionBankManager = lazy(() => import('./../components/dashboards/admin/QuestionBankManager'));
@@ -722,6 +723,13 @@ export const router = createBrowserRouter([
           {
             path: 'billing/invoices/:invoiceId',
             element: <LazyWrapper><InvoiceDetail /></LazyWrapper>,
+          },
+          {
+            // Paystack returns the payer here after hosted checkout.
+            // Kept inside the protected admin tree: the session survives the
+            // round trip, and verification should only run for a signed-in user.
+            path: 'billing/payment-callback',
+            element: <LazyWrapper><PaymentCallback /></LazyWrapper>,
           }
         ]
       },

@@ -3361,19 +3361,36 @@ export interface PaystackInit {
 }
 
 /**
- * Payment verification response
+ * Response from POST /api/tenants/payments/verify-paystack/.
+ *
+ * Mirrors what the view actually returns: a message plus the updated payment.
+ * It previously declared a `success: boolean` that the backend has never sent,
+ * which reads as a safe thing to branch on and is always undefined — failures
+ * come back as 4xx/5xx instead, so callers should rely on the HTTP status.
  */
 export interface PaymentVerification {
-  success: boolean;
   message: string;
-  invoice?: Invoice;
-  payment_data?: {
-    reference: string;
-    amount: number;
-    currency: string;
-    status: string;
-    paid_at: string;
-  };
+  payment?: VerifiedTenantPayment;
+}
+
+/** Shape of TenantPaymentSerializer, returned alongside the message above. */
+export interface VerifiedTenantPayment {
+  id: string;
+  invoice: string;
+  amount: number;
+  payment_method: string;
+  status: string;
+  reference: string;
+  paystack_reference?: string | null;
+  paystack_transaction_id?: string | null;
+  bank_name?: string | null;
+  account_name?: string | null;
+  payment_proof?: string | null;
+  confirmed_by?: string | null;
+  confirmed_by_name?: string | null;
+  confirmed_at?: string | null;
+  confirmation_notes?: string | null;
+  created_at: string;
 }
 
 /**
