@@ -1,78 +1,50 @@
-# # stage 1: build
-# FROM node:20-alpine AS build
-
-# WORKDIR /app
-
-# # copy only lock file and package.json for caching
-# COPY package.json pnpm-lock.yaml ./
-
-# # install pnpm globally
-# RUN npm install -g pnpm
-
-# # install dependencies
-# RUN pnpm install
-
-# # copy the rest of the source
-# COPY . .
-
-# # build Vite
-# RUN pnpm run build
-
-# # stage 2: nginx
-# FROM nginx:alpine
-
-# # copy production build
-# COPY --from=build /app/dist /usr/share/nginx/html
-
-# # copy nginx config if needed (optional)
-# COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-# EXPOSE 80
-
-# CMD ["nginx", "-g", "daemon off;"]
-
 # stage 1: build
 FROM node:20-alpine AS build
 
 WORKDIR /app
 
-# copy only lock file and package.json for caching
+# Pin the major so image builds stay reproducible. lockfileVersion 9.0.
+RUN npm install -g pnpm@10
+
+# Manifests first: this layer caches across source-only changes.
 COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
-# install pnpm globally
-RUN npm install -g pnpm
-
-# install dependencies
-RUN pnpm install
-
-# copy the rest of the source
 COPY . .
 
-# Accept build arguments for environment variables
+# Vite inlines VITE_* at build time, and .dockerignore keeps .env out of the
+# build context, so anything the app reads has to arrive as a build arg.
+# Every consumer of these falls back to a default when the value is empty, so
+# an unpassed arg degrades to that default rather than breaking the bundle.
 ARG VITE_API_URL
+ARG VITE_API_BASE_URL
 ARG VITE_GOOGLE_CLIENT_ID
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_PUBLISHABLE_KEY
+ARG VITE_CLOUDINARY_CLOUD_NAME
+ARG VITE_CLOUDINARY_UPLOAD_PRESET
+ARG VITE_PAYSTACK_PUBLIC_KEY
 
-# Set environment variables for build (Vite needs these during build time)
-ENV VITE_API_URL=$VITE_API_URL
-ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
+ENV VITE_API_URL=$VITE_API_URL \
+    VITE_API_BASE_URL=$VITE_API_BASE_URL \
+    VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID \
+    VITE_SUPABASE_URL=$VITE_SUPABASE_URL \
+    VITE_SUPABASE_PUBLISHABLE_KEY=$VITE_SUPABASE_PUBLISHABLE_KEY \
+    VITE_CLOUDINARY_CLOUD_NAME=$VITE_CLOUDINARY_CLOUD_NAME \
+    VITE_CLOUDINARY_UPLOAD_PRESET=$VITE_CLOUDINARY_UPLOAD_PRESET \
+    VITE_PAYSTACK_PUBLIC_KEY=$VITE_PAYSTACK_PUBLIC_KEY
 
-# Debug: Print environment variables (remove in production)
-RUN echo "Building with VITE_API_URL: $VITE_API_URL"
-RUN echo "Building with VITE_GOOGLE_CLIENT_ID: $VITE_GOOGLE_CLIENT_ID"
+# VITE_META_PIXEL_ID / VITE_META_PIXEL_HOSTS are deliberately absent. They are
+# optional overrides with defaults in src/utils/metaPixel.ts, and an empty
+# string there means "disable tracking" — declaring unset args here would set
+# them to "" and silently switch the pixel off. Add them only to override.
 
-# Debug: List contents of /app/src/services before build
-RUN ls -l /app/src/services
-
-# build Vite
 RUN pnpm run build
 
 # stage 2: nginx
 FROM nginx:alpine
 
-# copy production build
 COPY --from=build /app/dist /usr/share/nginx/html
-
-# copy nginx config if needed (optional)
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80

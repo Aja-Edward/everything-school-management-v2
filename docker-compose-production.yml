@@ -15,11 +15,23 @@ services:
   frontend:
     build:
       context: ./frontend
+      # Vite inlines VITE_* at build time, so these must be present when the
+      # image is built — not at run time. Compose reads them from the shell or
+      # from the .env file beside this compose file. VITE_API_URL aborts the
+      # build if missing: unset, the bundle silently falls back to
+      # http://localhost:8000 and authentication breaks in production.
+      args:
+        VITE_API_URL: ${VITE_API_URL:?set VITE_API_URL before building}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID}
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY}
+        VITE_CLOUDINARY_CLOUD_NAME: ${VITE_CLOUDINARY_CLOUD_NAME}
+        VITE_CLOUDINARY_UPLOAD_PRESET: ${VITE_CLOUDINARY_UPLOAD_PRESET}
+        VITE_PAYSTACK_PUBLIC_KEY: ${VITE_PAYSTACK_PUBLIC_KEY}
     image: edwad148/schoolmsapp-frontend:latest
     container_name: frontend
     command: ["nginx", "-g", "daemon off;"]
-    volumes:
-      - ./frontend/dist:/usr/share/nginx/html
     expose:
       - "80"
 
