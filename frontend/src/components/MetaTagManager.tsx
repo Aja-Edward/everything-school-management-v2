@@ -27,7 +27,13 @@ const MetaTagManager: React.FC = () => {
   const { settings } = useSettings();
 
   useEffect(() => {
-    const isTenantDomain = !!tenant && !isSubdomain;
+    // A tenant host is one where tenant data resolved. TenantContext sets the
+    // slug on both resolution paths — getTenantBySlug for platform subdomains
+    // and getTenantByCustomDomain for custom domains — so `isSubdomain` is true
+    // whenever `tenant` is loaded, custom domains included. The condition here
+    // used to be `!isSubdomain`, which made it unsatisfiable: every tenant got
+    // the platform's title, description and image instead of its own.
+    const isTenantDomain = isSubdomain && !!tenant;
 
     const title = isTenantDomain ? (tenant.name ?? PLATFORM_NAME) : PLATFORM_NAME;
 
@@ -41,8 +47,10 @@ const MetaTagManager: React.FC = () => {
 
     const url = isTenantDomain ? window.location.origin + '/' : PLATFORM_URL;
 
-    document.title = title;
-
+    // document.title belongs to TitleManager, which composes it per route
+    // ("Admissions | Bay School"). Setting it here too clobbered that back to
+    // the bare site name: both components mount in RootLayout, this effect runs
+    // after TitleManager's, and both re-run when tenant data resolves.
     setMeta('og:title', title);
     setMeta('og:description', description);
     setMeta('og:image', image);
