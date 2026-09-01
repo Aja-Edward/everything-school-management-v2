@@ -6,20 +6,27 @@
  *   2. tenant subdomains                (bayschool.nuventacloud.com)
  *   3. tenant custom domains            (bayschool.com)
  *
- * Dropping the raw Meta snippet into index.html would fire the pixel on all
- * three — meaning we would ship pageview data about schoolchildren, parents and
- * staff using their own school's portal to Meta. That is a privacy problem and
- * it also poisons the ad dataset with existing-user traffic that has nothing to
- * do with acquisition.
+ * An unguarded snippet would fire on all three, shipping pageview data about
+ * schoolchildren, parents and staff using their own school's portal to Meta —
+ * a privacy problem, and one that also poisons the ad dataset with
+ * existing-user traffic unrelated to acquisition. Every path here is therefore
+ * behind a hostname allowlist, and tenant hosts request nothing from Meta.
  *
- * So the pixel is loaded from here instead, behind a strict hostname allowlist.
- * Anything not on the allowlist — tenant subdomains, custom domains, localhost,
- * preview deploys — never loads the script at all.
+ * Responsibility is split with the inline snippet in index.html:
  *
- * Fired by <MetaPixel /> (see components/MetaPixel.tsx), which also handles
- * PageView on client-side route changes; the base snippet only fires once on
- * hard load, which in an SPA means Meta would otherwise only ever see the
- * landing page.
+ *   index.html  loads fbevents.js, calls init, fires the landing PageView.
+ *               Inline because loading it from this bundle delayed the first
+ *               PageView to roughly five seconds — bundle, awaited i18n init,
+ *               React mount, auth hydration — losing fast bounces on paid
+ *               traffic, and leaving no pixel in the page source for Meta's
+ *               Event Setup Tool to find.
+ *
+ *   this module  route-change PageViews (via <MetaPixel />) and conversion
+ *                events, which the inline snippet cannot know about.
+ *
+ * The allowlist and pixel id are duplicated in index.html by necessity: that
+ * script runs before any bundle, so it cannot import from here. Keep them in
+ * step.
  */
 
 const DEFAULT_PIXEL_ID = '1644900083720955';
@@ -69,6 +76,8 @@ declare global {
   interface Window {
     fbq?: Fbq;
     _fbq?: Fbq;
+    /** Set by the inline snippet in index.html once it has fired PageView. */
+    __nuventaPixelBootstrapped?: boolean;
   }
 }
 
@@ -117,18 +126,32 @@ function injectPixelScript(): void {
 }
 
 /**
- * Loads and initialises the pixel if this host is allowed.
- * Safe to call repeatedly. Returns whether the pixel is live.
+ * Ensures the pixel is live on an allowed host. Safe to call repeatedly.
  *
- * Note: no PageView is fired here — <MetaPixel /> owns that so initial load and
- * SPA navigation go through one code path.
+ * Fires no PageView: the landing one comes from index.html, and subsequent
+ * ones from <MetaPixel /> on route change.
  */
 export function initMetaPixel(): boolean {
   if (initialized) return true;
   if (!isMetaPixelAllowed()) return false;
 
-  injectPixelScript();
-  window.fbq?.('init', PIXEL_ID);
+  // On the marketing site the inline snippet in index.html has already loaded
+  // fbevents.js and called init, so there is nothing to do but adopt it —
+  // calling init again would register the same id twice.
+  //
+  // The injection path below still matters for hosts the inline guard does not
+  // cover but VITE_META_PIXEL_HOSTS does, which is how the pixel can be
+  // exercised locally without shipping localhost in the guard.
+  // Read into a boolean rather than testing window.fbq inline: narrowing on
+  // the property would make the init call below unreachable to the compiler,
+  // since injectPixelScript assigns it through a side effect TS cannot see.
+  const alreadyBootstrapped = Boolean(window.fbq);
+
+  if (!alreadyBootstrapped) {
+    injectPixelScript();
+    window.fbq?.('init', PIXEL_ID);
+  }
+
   initialized = true;
   return true;
 }
