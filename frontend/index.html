@@ -24,6 +24,47 @@
     <meta name="twitter:description" content="The all-in-one cloud school management platform built for modern schools." />
     <meta name="twitter:image" content="https://www.nuventacloud.com/images/nuventa-logo.png" />
 
+    <!-- Meta Pixel -->
+    <!--
+      Inline and host-guarded on purpose.
+
+      Nuventa serves one SPA build from the marketing site, tenant subdomains
+      and tenant custom domains, so an unguarded snippet here would track
+      schoolchildren and staff using their own school's portal. The guard keeps
+      that from happening while still letting the pixel fire immediately.
+
+      It has to be inline rather than in the bundle: loaded from React it did
+      not reach Meta until ~5s (bundle, then awaited i18n init, then mount,
+      then auth hydration), so fast bounces on paid traffic went uncounted and
+      Meta's Event Setup Tool could not see a pixel in the page source at all.
+
+      Keep HOSTS and the id in step with src/utils/metaPixel.ts, which still
+      owns route-change PageViews and conversion events.
+    -->
+    <script>
+      (function () {
+        var HOSTS = ['nuventacloud.com', 'www.nuventacloud.com'];
+        if (HOSTS.indexOf(window.location.hostname.toLowerCase()) === -1) return;
+
+        !function(f,b,e,v,n,t,s)
+        {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+        n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+        if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+        n.queue=[];t=b.createElement(e);t.async=!0;
+        t.src=v;s=b.getElementsByTagName(e)[0];
+        s.parentNode.insertBefore(t,s)}(window, document,'script',
+        'https://connect.facebook.net/en_US/fbevents.js');
+
+        fbq('init', '1644900083720955');
+        fbq('track', 'PageView');
+
+        // Tells <MetaPixel /> the first PageView is already sent, so it starts
+        // reporting from the first client-side navigation instead of doubling
+        // up on the landing page.
+        window.__nuventaPixelBootstrapped = true;
+      })();
+    </script>
+
     <!-- Prevent white flash -->
     <style>
       body {
