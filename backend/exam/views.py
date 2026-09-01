@@ -69,6 +69,7 @@ from .serializers import (
 
 # Import filters
 from .filters import ExamFilter
+from .permissions import IsTeacherOrAdmin
 
 logger = logging.getLogger(__name__)
 
@@ -1793,7 +1794,10 @@ class QuestionBankViewSet(
     # UPDATED: ordering by difficulty now uses FK traversal difficulty__name
     ordering_fields = ["created_at", "usage_count", "last_used", "difficulty__name"]
     ordering = ["-created_at"]
-    permission_classes = [permissions.IsAuthenticated]
+    # Not IsAuthenticated: QuestionBankDetailSerializer returns correct_answer,
+    # so authentication alone let any signed-in student read their school's
+    # answer keys. See IsTeacherOrAdmin for the full explanation.
+    permission_classes = [IsTeacherOrAdmin]
     pagination_class = LargeResultsPagination
 
     def get_serializer_class(self):
