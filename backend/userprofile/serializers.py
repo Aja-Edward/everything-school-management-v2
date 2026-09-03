@@ -1,6 +1,13 @@
+import re
+from datetime import date
+
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models import UserProfile
+
+# The shape phone_number is stored in, matching the RegexValidator on the
+# model field.
+_NG_PHONE_RE = re.compile(r"^\+?234\d{10}$")
 
 User = get_user_model()
 
@@ -181,6 +188,16 @@ class UserProfileSerializer(serializers.ModelSerializer):
 class UserProfileUpdateSerializer(serializers.ModelSerializer):
     """Serializer for updating profile information only"""
 
+    # Declared explicitly to drop the model field's RegexValidator, which
+    # DRF would otherwise copy onto this field and run in to_internal_value()
+    # -- i.e. before validate_phone_number below. That rejected "0803..."
+    # outright, making every normalisation branch there unreachable for the
+    # exact inputs it exists to convert. The same check is applied by hand
+    # after normalising instead.
+    phone_number = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True, max_length=20
+    )
+
     class Meta:
         model = UserProfile
         fields = [
@@ -197,14 +214,31 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
         ]
 
     def validate_phone_number(self, value):
-        """Validate phone number format"""
-        if value and not value.startswith("+234"):
+        """Normalise a Nigerian number, then validate the normalised form."""
+        if not value:
+            return value
+
+        value = value.strip().replace(" ", "")
+        if not value.startswith("+234"):
             if value.startswith("0"):
                 value = "+234" + value[1:]
             elif value.startswith("234"):
                 value = "+" + value
             elif len(value) == 10:
                 value = "+234" + value
+
+        if not _NG_PHONE_RE.match(value):
+            raise serializers.ValidationError(
+                "Enter a valid Nigerian phone number (e.g., +234XXXXXXXXXX)."
+            )
+        return value
+
+    def validate_date_of_birth(self, value):
+        """Reject dates in the future."""
+        if value and value > date.today():
+            raise serializers.ValidationError(
+                "Date of birth cannot be in the future."
+            )
         return value
 
 
