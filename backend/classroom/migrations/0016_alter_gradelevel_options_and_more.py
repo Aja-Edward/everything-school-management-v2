@@ -73,7 +73,12 @@ class Migration(migrations.Migration):
         # ✅ Populate integer PKs BEFORE Django tries to alter the column types
         migrations.RunPython(populate_education_level_fks, reverse_populate),
 
-        migrations.AddField(
+        # 0014 already added Class.education_level (pointing at
+        # students.EducationLevel), so this repoints it at academics rather
+        # than adding it. As an AddField it raised "column education_level_id
+        # of relation student_class already exists" on any fresh database,
+        # which meant no new environment - or CI run - could migrate at all.
+        migrations.AlterField(
             model_name="class",
             name="education_level",
             field=models.ForeignKey(
@@ -81,7 +86,7 @@ class Migration(migrations.Migration):
                 on_delete=django.db.models.deletion.PROTECT,
                 related_name="classes",
                 to="academics.educationlevel",
-                null=True,   # allow null initially; tighten later once data is populated
+                null=True,   # allow null initially; 0017 tightens it once populated
             ),
         ),
         migrations.AlterField(
