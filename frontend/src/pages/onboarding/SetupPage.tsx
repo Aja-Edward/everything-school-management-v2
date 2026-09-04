@@ -79,28 +79,37 @@ const SetupPage: React.FC = () => {
       const errorData = error.response?.data;
       const errorMsg = errorData?.error || 'Failed to complete setup';
 
+      // Every branch points at login. By the time this page runs, registration
+      // has already succeeded — the school and the admin account both exist,
+      // and only the one-time handover into the dashboard failed. Sending
+      // people back to register is not just unhelpful, it is impossible:
+      // SchoolRegistrationSerializer rejects an email that already exists, so
+      // the advice dead-ends. Logging in normally always works.
       if (errorMsg.includes('already been used')) {
         setStatus('used');
-        setErrorMessage('This setup link has already been used. Please log in instead.');
+        setErrorMessage(
+          'This setup link has already been used. Log in to continue.',
+        );
       } else if (errorMsg.includes('expired')) {
         setStatus('expired');
-        setErrorMessage('This setup link has expired. Please register again.');
+        setErrorMessage(
+          'This setup link has expired, but your school was created. Log in with the email you registered with to continue.',
+        );
       } else {
         setStatus('error');
-        setErrorMessage(errorMsg);
+        setErrorMessage(
+          'We could not open your dashboard automatically, but your school was created. Log in with the email you registered with to continue.',
+        );
       }
 
       toast.error(errorMsg, { toastId: 'setup-error' });
     }
   };
 
+  // Relative, so it stays on the school's own subdomain — which is where the
+  // account lives and where this page is already being served from.
   const handleGoToLogin = () => {
     navigate('/login');
-  };
-
-  const handleGoToRegister = () => {
-    // Redirect to main domain for registration
-    window.location.href = 'http://localhost:5173/onboarding/register';
   };
 
   return (
@@ -151,16 +160,16 @@ const SetupPage: React.FC = () => {
                 <XCircle className="w-8 h-8 text-red-600" />
               </div>
               <h1 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                Setup Failed
+                Almost There
               </h1>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
                 {errorMessage}
               </p>
               <button
-                onClick={handleGoToRegister}
+                onClick={handleGoToLogin}
                 className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
               >
-                Try Again
+                Go to Login
               </button>
             </div>
           )}
@@ -197,10 +206,10 @@ const SetupPage: React.FC = () => {
                 {errorMessage}
               </p>
               <button
-                onClick={handleGoToRegister}
+                onClick={handleGoToLogin}
                 className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
               >
-                Register Again
+                Go to Login
               </button>
             </div>
           )}
