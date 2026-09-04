@@ -1,7 +1,16 @@
 /**
  * ============================================================================
  * PaymentService.ts
- * Service for Paystack payment integration
+ * Paystack integration for platform billing (Nuventa invoicing schools).
+ *
+ * Uses Paystack's redirect flow rather than the inline popup. The backend
+ * creates the transaction with the platform's secret key and hands back a
+ * hosted `authorization_url`, so no publishable key ever has to reach the
+ * browser — one less build-time value to leave unset. Paystack then returns
+ * the payer to `callback_url`, where PaymentCallback verifies the reference.
+ *
+ * Distinct from the fee module, where each school configures its own gateway
+ * credentials to collect from students. This one is the platform's own account.
  * ============================================================================
  */
 
@@ -12,223 +21,80 @@ import type { Invoice, PaystackInit, PaymentVerification } from '@/types/types';
 // TYPES
 // ============================================================================
 
-interface PaystackConfig {
-  key: string;
-  email: string;
-  amount: number;  // In kobo (smallest currency unit)
-  currency: string;
-  ref: string;
-  callback: (response: PaystackResponse) => void;
-  onClose: () => void;
-  metadata?: Record<string, any>;
-  channels?: string[];
-  label?: string;
+export interface StartCheckoutOptions {
+  invoice: Invoice;
+  /**
+   * Where Paystack should return the payer. Defaults to the in-app callback
+   * route, carrying the invoice id so the page can link back to it.
+   */
+  callbackUrl?: string;
 }
-
-interface PaystackResponse {
-  reference: string;
-  message: string;
-  status: string;
-  trans: string;
-  transaction: string;
-  trxref: string;
-}
-
-interface PaystackPopup {
-  setup: (config: PaystackConfig) => PaystackHandler;
-}
-
-interface PaystackHandler {
-  openIframe: () => void;
-  newTransaction: () => void;
-}
-
-// Declare global Paystack object
-declare global {
-  interface Window {
-    PaystackPop?: PaystackPopup;
-  }
-}
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-const PAYSTACK_PUBLIC_KEY = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '';
-const PAYSTACK_SCRIPT_URL = 'https://js.paystack.co/v1/inline.js';
-
-// ============================================================================
-// PAYSTACK SCRIPT LOADING
-// ============================================================================
-
-let paystackScriptLoaded = false;
-let paystackScriptLoading = false;
-const paystackLoadPromises: ((value: boolean) => void)[] = [];
-
-/**
- * Load Paystack inline script
- */
-export const loadPaystackScript = (): Promise<boolean> => {
-  return new Promise((resolve) => {
-    // If already loaded, resolve immediately
-    if (paystackScriptLoaded) {
-      resolve(true);
-      return;
-    }
-
-    // If currently loading, queue the promise
-    if (paystackScriptLoading) {
-      paystackLoadPromises.push(resolve);
-      return;
-    }
-
-    // Start loading
-    paystackScriptLoading = true;
-
-    const script = document.createElement('script');
-    script.src = PAYSTACK_SCRIPT_URL;
-    script.async = true;
-
-    script.onload = () => {
-      paystackScriptLoaded = true;
-      paystackScriptLoading = false;
-      console.log('✅ Paystack script loaded successfully');
-
-      // Resolve all queued promises
-      resolve(true);
-      paystackLoadPromises.forEach((r) => r(true));
-      paystackLoadPromises.length = 0;
-    };
-
-    script.onerror = () => {
-      paystackScriptLoading = false;
-      console.error('❌ Failed to load Paystack script');
-
-      // Reject all queued promises
-      resolve(false);
-      paystackLoadPromises.forEach((r) => r(false));
-      paystackLoadPromises.length = 0;
-    };
-
-    document.head.appendChild(script);
-  });
-};
 
 // ============================================================================
 // PAYMENT INITIALIZATION
 // ============================================================================
 
 /**
- * Initialize Paystack payment for an invoice
+ * Ask the backend to create a Paystack transaction for an invoice.
+ *
+ * Returns the hosted checkout URL along with the reference we later verify.
  */
-export const initializePayment = async (invoiceId: string): Promise<PaystackInit> => {
-  const response = await api.post('/billing/initialize-payment/', {
+export const initializePayment = async (
+  invoiceId: string,
+  callbackUrl?: string,
+): Promise<PaystackInit> => {
+  return await api.post('/api/tenants/payments/initialize-paystack/', {
     invoice_id: invoiceId,
+    ...(callbackUrl ? { callback_url: callbackUrl } : {}),
   });
-  return response;
 };
 
 /**
- * Verify payment after Paystack callback
+ * Confirm a transaction after Paystack redirects back.
+ *
+ * The backend re-checks the reference against Paystack, marks the payment
+ * confirmed and records it against the invoice, so this is what actually
+ * settles the balance — not the redirect itself.
  */
 export const verifyPayment = async (reference: string): Promise<PaymentVerification> => {
-  const response = await api.post('/billing/verify-payment/', {
-    reference,
-  });
-  return response;
+  return await api.post('/api/tenants/payments/verify-paystack/', { reference });
 };
 
-// ============================================================================
-// PAYSTACK POPUP HANDLER
-// ============================================================================
+/** Default return path for the hosted checkout. */
+export const paymentCallbackUrl = (invoiceId: string): string =>
+  `${window.location.origin}/admin/billing/payment-callback?invoice=${encodeURIComponent(invoiceId)}`;
 
-interface PaymentOptions {
-  invoice: Invoice;
-  tenantEmail: string;
-  onSuccess: (response: PaystackResponse) => void;
-  onCancel: () => void;
-  onError?: (error: Error) => void;
-}
+// ============================================================================
+// CHECKOUT
+// ============================================================================
 
 /**
- * Open Paystack payment popup
+ * Start a hosted Paystack checkout for an invoice.
+ *
+ * Navigates away from the app on success, so nothing after the assignment
+ * runs. Throws if the backend could not create the transaction — most often
+ * because PAYSTACK_SECRET_KEY is unset on the server.
  */
-export const openPaystackPopup = async (options: PaymentOptions): Promise<void> => {
-  const { invoice, tenantEmail, onSuccess, onCancel, onError } = options;
+export const startPaystackCheckout = async (
+  options: StartCheckoutOptions,
+): Promise<never | void> => {
+  const { invoice, callbackUrl } = options;
+  const invoiceId = String(invoice.id);
 
-  try {
-    // Ensure Paystack script is loaded
-    const loaded = await loadPaystackScript();
-    if (!loaded) {
-      throw new Error('Failed to load Paystack payment library');
-    }
+  const init = await initializePayment(
+    invoiceId,
+    callbackUrl ?? paymentCallbackUrl(invoiceId),
+  );
 
-    // Ensure PaystackPop is available
-    if (!window.PaystackPop) {
-      throw new Error('Paystack library not available');
-    }
-
-    // Initialize payment with backend
-    const paymentInit = await initializePayment(invoice.id as string);
-
-    // Calculate amount in kobo (Paystack requires amount in smallest currency unit)
-    const amountInKobo = Math.round(invoice.total * 100);
-
-    // Setup Paystack configuration
-    const config: PaystackConfig = {
-      key: PAYSTACK_PUBLIC_KEY,
-      email: tenantEmail,
-      amount: amountInKobo,
-      currency: 'NGN',
-      ref: paymentInit.reference,
-      callback: async (response: PaystackResponse) => {
-        console.log('✅ Payment successful:', response);
-
-        try {
-          // Verify payment on backend
-          const verification = await verifyPayment(response.reference);
-
-          if (verification.success) {
-            onSuccess(response);
-          } else {
-            throw new Error(verification.message || 'Payment verification failed');
-          }
-        } catch (error) {
-          console.error('❌ Payment verification error:', error);
-          onError?.(error as Error);
-        }
-      },
-      onClose: () => {
-        console.log('ℹ️ Payment popup closed');
-        onCancel();
-      },
-      metadata: {
-        invoice_id: invoice.id,
-        invoice_number: invoice.invoice_number,
-        tenant_id: invoice.tenant_id,
-        custom_fields: [
-          {
-            display_name: 'Invoice Number',
-            variable_name: 'invoice_number',
-            value: invoice.invoice_number,
-          },
-        ],
-      },
-      channels: ['card', 'bank', 'ussd', 'qr', 'mobile_money'],
-      label: `Payment for ${invoice.invoice_number}`,
-    };
-
-    // Open Paystack popup
-    const handler = window.PaystackPop.setup(config);
-    handler.openIframe();
-  } catch (error) {
-    console.error('❌ Error opening Paystack popup:', error);
-    onError?.(error as Error);
+  if (!init?.authorization_url) {
+    throw new Error('Payment gateway did not return a checkout URL');
   }
+
+  window.location.href = init.authorization_url;
 };
 
 // ============================================================================
-// PAYMENT UTILITIES
+// FORMATTING HELPERS
 // ============================================================================
 
 /**
@@ -297,10 +163,10 @@ export const getPaymentStatusVariant = (
 // ============================================================================
 
 export default {
-  loadPaystackScript,
   initializePayment,
   verifyPayment,
-  openPaystackPopup,
+  startPaystackCheckout,
+  paymentCallbackUrl,
   formatAmount,
   nairaToKobo,
   koboToNaira,
