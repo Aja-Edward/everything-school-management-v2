@@ -21,7 +21,7 @@ from django.http import HttpResponse, StreamingHttpResponse
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import filters, status, viewsets
+from rest_framework import filters, mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -42,9 +42,11 @@ from utils.pagination import LargeResultsPagination
 from utils.section_filtering import AutoSectionFilterMixin
 
 from .filters import AttendanceFilter
+from .gate import ScanError, record_scan, settings_for
 from .models import (
     Attendance,
     AttendanceSession,
+    GateScan,
     StudentTag,
     TagStatus,
     normalize_tag_uid,
@@ -53,6 +55,9 @@ from .serializers import (
     AttendanceBulkUpsertSerializer,
     AttendanceSerializer,
     AttendanceStatsSerializer,
+    GateScanSerializer,
+    ScanBatchSerializer,
+    ScanCreateSerializer,
     StudentTagSerializer,
     TagEnrollSerializer,
     TagReassignSerializer,
@@ -1048,3 +1053,207 @@ class StudentTagViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         ]
         row["is_enrolled"] = bool(active)
         return row
+
+
+class GateScanViewSet(TenantFilterMixin,
+                      mixins.CreateModelMixin,
+                      mixins.ListModelMixin,
+                      mixins.RetrieveModelMixin,
+                      viewsets.GenericViewSet):
+    """
+    The gate: recording arrivals and departures from a chip tap.
+
+    Endpoints
+    ─────────
+    POST /attendance/scans/         record one tap
+    POST /attendance/scans/batch/   flush a queue from an offline gate
+    GET  /attendance/scans/         the scan log (read-only)
+    GET  /attendance/scans/{id}/    one scan
+
+    The log is read-only over HTTP for the same reason it is read-only in the
+    admin: an append-only record nobody can quietly rewrite is the point of
+    keeping one. Corrections belong on the Attendance row it projected onto.
+
+    School-wide, not section-scoped — see StudentTagViewSet for why.
+    """
+
+    serializer_class = GateScanSerializer
+    queryset = GateScan.objects.all()
+    permission_classes = [IsAuthenticated, HasAttendancePermissionOrReadOnly]
+    pagination_class = LargeResultsPagination
+    filter_backends = [DjangoFilterBackend,
+                       filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ["student", "direction", "is_duplicate", "device_id"]
+    search_fields = [
+        "uid",
+        "device_id",
+        "student__user__first_name",
+        "student__user__last_name",
+        "student__registration_number",
+    ]
+    ordering_fields = ["scanned_at", "received_at"]
+
+    _SCAN_SELECT = (
+        "student__user",
+        "student__section",
+        "student__student_class",
+        "student__student_class__education_level",
+        "scanned_by",
+        "tag",
+        "attendance",
+    )
+
+    def get_queryset(self):
+        return super().get_queryset().select_related(*self._SCAN_SELECT)
+
+    # ── Response shaping ──────────────────────────────────────────────────────
+
+    def _outcome_payload(self, outcome):
+        """
+        Everything the scanner needs to show a result without a second call:
+        who the child is, what was recorded, and anything odd about it.
+        """
+        attendance = outcome.attendance
+        return {
+            "student": _student_identity(outcome.scan.student),
+            "scan": GateScanSerializer(
+                outcome.scan, context=self.get_serializer_context()).data,
+            "attendance": (
+                AttendanceSerializer(
+                    attendance, context=self.get_serializer_context()).data
+                if attendance is not None else None
+            ),
+            "session": outcome.session,
+            "status": outcome.derived_status,
+            "duplicate": outcome.duplicate,
+            "replayed": outcome.replayed,
+            "warnings": outcome.warnings,
+        }
+
+    # ── Record one scan ───────────────────────────────────────────────────────
+
+    def get_permissions(self):
+        """Recording a scan writes attendance; reading the log does not."""
+        if self.action in {"create", "batch"}:
+            return [IsAuthenticated(), HasAttendancePermission()]
+        return super().get_permissions()
+
+    def create(self, request, *args, **kwargs):
+        """
+        Record one tap. The scanner sends a UID, a direction and a timestamp;
+        section, date, session and present-versus-late are derived here.
+        """
+        serializer = ScanCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        tenant = getattr(request, "tenant", None)
+        try:
+            outcome = record_scan(
+                tenant=tenant,
+                uid=data["uid"],
+                direction=data["direction"],
+                scanned_at=data.get("scanned_at"),
+                scanned_by=request.user,
+                device_id=data.get("device_id", ""),
+                client_scan_id=data.get("client_scan_id", ""),
+            )
+        except ScanError as error:
+            return Response(error.as_payload(), status=error.status_code)
+
+        # A duplicate or a replay changed nothing, so it is not a creation.
+        http_status = (
+            status.HTTP_200_OK
+            if (outcome.duplicate or outcome.replayed)
+            else status.HTTP_201_CREATED
+        )
+        return Response(self._outcome_payload(outcome), status=http_status)
+
+    # ── Offline flush ─────────────────────────────────────────────────────────
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="batch",
+        permission_classes=[IsAuthenticated, HasAttendancePermission],
+    )
+    def batch(self, request):
+        """
+        Flush a queue of scans from a gate that was offline.
+
+        Each item stands alone: one unenrolled chip must not cost the other
+        199 children their attendance. Always 200, with per-item outcomes by
+        index and a summary — the caller reconciles its queue from `results`.
+        """
+        serializer = ScanBatchSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        items = serializer.validated_data["scans"]
+
+        tenant = getattr(request, "tenant", None)
+        settings_row = settings_for(tenant)
+
+        results = []
+        recorded = duplicates = replayed = failed = 0
+
+        for index, data in enumerate(items):
+            try:
+                outcome = record_scan(
+                    tenant=tenant,
+                    uid=data["uid"],
+                    direction=data["direction"],
+                    scanned_at=data.get("scanned_at"),
+                    scanned_by=request.user,
+                    device_id=data.get("device_id", ""),
+                    client_scan_id=data.get("client_scan_id", ""),
+                    settings=settings_row,
+                )
+            except ScanError as error:
+                failed += 1
+                results.append({
+                    "index": index,
+                    "ok": False,
+                    "uid": data.get("uid"),
+                    "client_scan_id": data.get("client_scan_id", ""),
+                    **error.as_payload(),
+                })
+                continue
+            except Exception:
+                # One malformed row must not abort the flush; the gate would
+                # retry the whole queue and we would lose the rest again.
+                logger.exception(
+                    "Gate scan batch item %s failed unexpectedly", index)
+                failed += 1
+                results.append({
+                    "index": index,
+                    "ok": False,
+                    "uid": data.get("uid"),
+                    "client_scan_id": data.get("client_scan_id", ""),
+                    "code": "scan_failed",
+                    "detail": "This scan could not be recorded.",
+                })
+                continue
+
+            if outcome.replayed:
+                replayed += 1
+            elif outcome.duplicate:
+                duplicates += 1
+            else:
+                recorded += 1
+
+            payload = self._outcome_payload(outcome)
+            payload.update({"index": index, "ok": True})
+            results.append(payload)
+
+        return Response(
+            {
+                "summary": {
+                    "submitted": len(items),
+                    "recorded": recorded,
+                    "duplicates": duplicates,
+                    "replayed": replayed,
+                    "failed": failed,
+                },
+                "results": results,
+            },
+            status=status.HTTP_200_OK,
+        )

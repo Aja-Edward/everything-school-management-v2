@@ -6,6 +6,8 @@ from teacher.models import Teacher
 from .models import (
     Attendance,
     AttendanceSession,
+    GateScan,
+    ScanDirection,
     StudentTag,
     TagStatus,
     normalize_tag_uid,
@@ -338,3 +340,85 @@ class TagReassignSerializer(serializers.Serializer):
 
     def validate_uid(self, value):
         return _validate_uid(value)
+
+
+# ── Gate scanning: recording a tap ────────────────────────────────────────────
+
+class GateScanSerializer(serializers.ModelSerializer):
+    """Read shape for a recorded scan."""
+
+    student_detail = serializers.SerializerMethodField()
+    direction_display = serializers.SerializerMethodField()
+    scanned_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = GateScan
+        fields = [
+            "id",
+            "uid",
+            "tag",
+            "student", "student_detail",
+            "direction", "direction_display",
+            "scanned_at", "received_at",
+            "scanned_by", "scanned_by_name",
+            "device_id", "client_scan_id",
+            "attendance",
+            "is_duplicate",
+        ]
+        read_only_fields = fields
+
+    def get_student_detail(self, obj):
+        return _student_identity(obj.student if obj.student_id else None)
+
+    def get_direction_display(self, obj):
+        return obj.get_direction_display()
+
+    def get_scanned_by_name(self, obj):
+        user = obj.scanned_by if obj.scanned_by_id else None
+        if not user:
+            return None
+        return f"{user.first_name} {user.last_name}".strip() or user.username
+
+
+class ScanCreateSerializer(serializers.Serializer):
+    """
+    One tap. The scanner sends what it knows; everything else is derived
+    server-side from the school's configured windows.
+    """
+
+    uid = serializers.CharField(max_length=128)
+    direction = serializers.ChoiceField(choices=ScanDirection.choices)
+    scanned_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="When the device read the tag. Defaults to now.",
+    )
+    device_id = serializers.CharField(
+        max_length=100, required=False, allow_blank=True, default="")
+    client_scan_id = serializers.CharField(
+        max_length=64, required=False, allow_blank=True, default="",
+        help_text="Idempotency key. Replaying it returns the stored scan.",
+    )
+
+    def validate_uid(self, value):
+        return _validate_uid(value)
+
+
+class ScanBatchSerializer(serializers.Serializer):
+    """
+    A flush of queued scans from a gate that was offline.
+
+    Items are applied independently rather than as one transaction: if one
+    scan carries an unenrolled chip, the other 199 children still get their
+    attendance. The response reports each item's outcome by index.
+    """
+
+    scans = ScanCreateSerializer(many=True)
+
+    def validate_scans(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one scan is required.")
+        if len(value) > 500:
+            raise serializers.ValidationError(
+                "Maximum 500 scans per batch request.")
+        return value

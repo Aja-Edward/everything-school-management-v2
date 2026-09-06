@@ -10,7 +10,8 @@ The rest cover the gate-scanning models, where the constraints carry the
 design: one active tag per UID per school, UIDs reusable once revoked,
 and offline scan batches that cannot replay into duplicate events.
 """
-from datetime import date, time
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -31,6 +32,7 @@ from tenants.models import Tenant, TenantSettings
 from .models import (
     AlertPolicy,
     Attendance,
+    AttendanceSession,
     AttendanceSettings,
     GateScan,
     ScanDirection,
@@ -771,3 +773,407 @@ class TagEnrollmentAPITest(APITestCase):
         returned = {row["id"] for row in response.data["results"]}
         self.assertEqual(
             returned, {self.vincent.id, self.ivan.id, self.zainab.id})
+
+
+class GateScanAPITest(APITestCase):
+    """
+    The scan endpoint. The scanner sends a UID, a direction and a time;
+    everything else is derived here.
+
+    School day for these tests: opens 06:30, late from 08:00, afternoon from
+    12:00, dismissal from 14:00, duplicate window 90s — the defaults.
+    """
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(
+            name="Scan School",
+            slug="scan-school",
+            status="active",
+            is_active=True,
+            owner_email="scan@example.com",
+        )
+        TenantSettings.objects.create(
+            tenant=self.tenant, timezone="Africa/Lagos")
+        self.settings_row = AttendanceSettings.objects.create(
+            tenant=self.tenant)
+        self.tz = ZoneInfo("Africa/Lagos")
+
+        self.section = Section.objects.create(name="A", tenant=self.tenant)
+        self.gatekeeper = self._user(
+            "scan_gate", "Gate", "Keeper", role="teacher")
+
+        self.vincent = self._student("scan_vincent", "Vincent", "Eze")
+        self.tag = StudentTag.objects.create(
+            tenant=self.tenant, student=self.vincent, uid="04A2241B")
+
+        self.client.force_authenticate(user=self.gatekeeper)
+
+    # ── Fixtures ──────────────────────────────────────────────────────────────
+
+    def _user(self, username, first, last, role):
+        return User.objects.create_user(
+            username=username,
+            email=f"{username}@example.com",
+            first_name=first,
+            last_name=last,
+            role=role,
+            password="testpass123",
+            is_active=True,
+            tenant=self.tenant,
+        )
+
+    def _student(self, username, first, last, section=True):
+        user = self._user(username, first, last, role="student")
+        return Student.objects.create(
+            user=user,
+            gender="M",
+            date_of_birth=date(2014, 5, 1),
+            section=self.section if section else None,
+            tenant=self.tenant,
+        )
+
+    def _at(self, hour, minute, day=None):
+        """A local school-time moment, as the device would report it."""
+        when = day or date.today()
+        return datetime(
+            when.year, when.month, when.day, hour, minute, tzinfo=self.tz)
+
+    def _headers(self):
+        return {"HTTP_X_TENANT_SLUG": self.tenant.slug}
+
+    def _scan(self, direction="in", uid="04A2241B", at=None, **extra):
+        payload = {"uid": uid, "direction": direction}
+        if at is not None:
+            payload["scanned_at"] = at.isoformat()
+        payload.update(extra)
+        return self.client.post(
+            reverse("gatescan-list"), payload, format="json", **self._headers())
+
+    # ── Arrival ───────────────────────────────────────────────────────────────
+
+    def test_entry_before_the_cutoff_is_present(self):
+        response = self._scan("in", at=self._at(7, 45))
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["student"]["name"], "Vincent Eze")
+        self.assertEqual(response.data["session"], AttendanceSession.MORNING)
+        self.assertEqual(response.data["status"], "P")
+        self.assertEqual(response.data["attendance"]["time_in"], "07:45:00")
+        self.assertEqual(response.data["warnings"], [])
+
+    def test_entry_after_the_cutoff_is_late(self):
+        response = self._scan("in", at=self._at(8, 15))
+
+        self.assertEqual(response.data["status"], "L")
+        self.assertEqual(response.data["attendance"]["status"], "L")
+        self.assertIn("late_arrival", response.data["warnings"])
+
+    def test_entry_exactly_on_the_cutoff_is_late(self):
+        """The boundary belongs to Late — 08:00 is not before 08:00."""
+        response = self._scan("in", at=self._at(8, 0))
+        self.assertEqual(response.data["status"], "L")
+
+    def test_entry_before_opening_is_recorded_and_flagged(self):
+        """A policy oddity must never cost us the record of a child arriving."""
+        response = self._scan("in", at=self._at(5, 30))
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn("before_opening", response.data["warnings"])
+        self.assertIsNotNone(response.data["attendance"])
+
+    def test_afternoon_entry_lands_on_the_afternoon_row(self):
+        response = self._scan("in", at=self._at(12, 30))
+
+        self.assertEqual(response.data["session"], AttendanceSession.AFTERNOON)
+        self.assertEqual(response.data["status"], "P")
+
+    def test_a_second_entry_does_not_overwrite_the_first_arrival_time(self):
+        first = self._scan("in", at=self._at(7, 45))
+        # Well outside the duplicate window, so this is a real second scan.
+        second = self._scan("in", at=self._at(9, 30))
+
+        self.assertEqual(second.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(second.data["duplicate"])
+        self.assertEqual(second.data["attendance"]["time_in"], "07:45:00")
+        self.assertEqual(second.data["attendance"]["status"], "P")
+        self.assertEqual(
+            first.data["attendance"]["id"], second.data["attendance"]["id"])
+
+    # ── Departure ─────────────────────────────────────────────────────────────
+
+    def test_exit_at_dismissal_records_time_out(self):
+        self._scan("in", at=self._at(7, 45))
+        response = self._scan("out", at=self._at(14, 30))
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["attendance"]["time_out"], "14:30:00")
+        self.assertNotIn("early_departure", response.data["warnings"])
+
+    def test_exit_before_dismissal_is_flagged_as_early(self):
+        self._scan("in", at=self._at(7, 45))
+        response = self._scan("out", at=self._at(11, 15))
+
+        self.assertIn("early_departure", response.data["warnings"])
+
+    def test_exit_without_an_entry_is_recorded_and_flagged(self):
+        """
+        Refusing this would leave no trace of a child leaving the premises,
+        which is the worst outcome available. Record it, flag it loudly.
+        """
+        response = self._scan("out", at=self._at(11, 15))
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn("exit_without_entry", response.data["warnings"])
+
+    def test_exit_earlier_than_the_entry_does_not_corrupt_the_row(self):
+        self._scan("in", at=self._at(13, 0))
+        response = self._scan("out", at=self._at(12, 10))
+
+        self.assertIn("exit_before_entry", response.data["warnings"])
+        self.assertIsNone(response.data["attendance"]["time_out"])
+
+    # ── Duplicates ────────────────────────────────────────────────────────────
+
+    def test_a_re_tap_inside_the_window_changes_nothing(self):
+        """The attendant taps twice, unsure it registered. One arrival."""
+        first = self._scan("in", at=self._at(7, 45))
+        second = self._scan(
+            "in", at=self._at(7, 45) + timedelta(seconds=30))
+
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertTrue(second.data["duplicate"])
+        self.assertEqual(
+            first.data["attendance"]["id"], second.data["attendance"]["id"])
+        self.assertEqual(
+            GateScan.objects.filter(is_duplicate=False).count(), 1)
+
+    def test_a_duplicate_is_still_recorded_for_audit(self):
+        self._scan("in", at=self._at(7, 45))
+        self._scan("in", at=self._at(7, 45) + timedelta(seconds=30))
+
+        self.assertEqual(GateScan.objects.count(), 2)
+        self.assertEqual(GateScan.objects.filter(is_duplicate=True).count(), 1)
+
+    def test_taps_in_opposite_directions_are_never_duplicates(self):
+        self._scan("in", at=self._at(13, 0))
+        response = self._scan(
+            "out", at=self._at(13, 0) + timedelta(seconds=20))
+
+        self.assertFalse(response.data["duplicate"])
+
+    def test_a_run_of_taps_collapses_onto_the_first(self):
+        base = self._at(7, 45)
+        self._scan("in", at=base)
+        self._scan("in", at=base + timedelta(seconds=40))
+        self._scan("in", at=base + timedelta(seconds=80))
+
+        self.assertEqual(
+            GateScan.objects.filter(is_duplicate=False).count(), 1)
+        self.assertEqual(GateScan.objects.filter(is_duplicate=True).count(), 2)
+
+    # ── Idempotency ───────────────────────────────────────────────────────────
+
+    def test_replaying_a_client_scan_id_returns_the_stored_scan(self):
+        first = self._scan(
+            "in", at=self._at(7, 45), client_scan_id="queued-1")
+        second = self._scan(
+            "in", at=self._at(7, 45), client_scan_id="queued-1")
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertTrue(second.data["replayed"])
+        self.assertEqual(second.data["scan"]["id"], first.data["scan"]["id"])
+        self.assertEqual(GateScan.objects.count(), 1)
+
+    # ── Failures ──────────────────────────────────────────────────────────────
+
+    def test_an_unenrolled_chip_is_refused(self):
+        response = self._scan("in", uid="DEADBEEF", at=self._at(7, 45))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data["code"], "uid_not_enrolled")
+        self.assertEqual(GateScan.objects.count(), 0)
+
+    def test_a_retired_chip_is_refused_distinctly(self):
+        self.tag.status = TagStatus.LOST
+        self.tag.revoked_at = timezone.now()
+        self.tag.save()
+
+        response = self._scan("in", at=self._at(7, 45))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data["code"], "uid_not_active")
+
+    def test_a_student_with_no_section_gets_a_clear_error(self):
+        """Attendance.section is required while Student.section is not."""
+        loose = self._student("scan_loose", "Loose", "Child", section=False)
+        StudentTag.objects.create(
+            tenant=self.tenant, student=loose, uid="FEEDFACE")
+
+        response = self._scan("in", uid="FEEDFACE", at=self._at(7, 45))
+
+        self.assertEqual(
+            response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+        self.assertEqual(response.data["code"], "student_has_no_section")
+
+    def test_a_chip_from_another_school_is_invisible(self):
+        other = Tenant.objects.create(
+            name="Rival School", slug="rival-school", status="active",
+            is_active=True, owner_email="rival@example.com",
+        )
+        rival_user = User.objects.create_user(
+            username="rival_child", email="rival_child@example.com",
+            first_name="Rival", last_name="Child", role="student",
+            password="testpass123", is_active=True, tenant=other,
+        )
+        rival_student = Student.objects.create(
+            user=rival_user, gender="F",
+            date_of_birth=date(2013, 4, 4), tenant=other)
+        StudentTag.objects.create(
+            tenant=other, student=rival_student, uid="CAFED00D")
+
+        response = self._scan("in", uid="CAFED00D", at=self._at(7, 45))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data["code"], "uid_not_enrolled")
+
+    def test_a_bad_direction_is_rejected(self):
+        response = self._scan("sideways", at=self._at(7, 45))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_the_scan_log_cannot_be_edited_over_http(self):
+        self._scan("in", at=self._at(7, 45))
+        scan_id = GateScan.objects.first().id
+
+        patched = self.client.patch(
+            reverse("gatescan-detail", args=[scan_id]),
+            {"direction": "out"}, format="json", **self._headers())
+        deleted = self.client.delete(
+            reverse("gatescan-detail", args=[scan_id]), **self._headers())
+
+        # Refused for two different reasons, both correct: there is no update
+        # handler at all, and the teacher bypass grants attendance read and
+        # write but never delete.
+        self.assertEqual(
+            patched.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(deleted.status_code, status.HTTP_403_FORBIDDEN)
+
+        scan = GateScan.objects.get(id=scan_id)
+        self.assertEqual(scan.direction, ScanDirection.IN)
+
+
+class GateScanBatchAPITest(APITestCase):
+    """Flushing a queue from a gate that lost connectivity."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(
+            name="Batch School",
+            slug="batch-school",
+            status="active",
+            is_active=True,
+            owner_email="batch@example.com",
+        )
+        TenantSettings.objects.create(
+            tenant=self.tenant, timezone="Africa/Lagos")
+        AttendanceSettings.objects.create(tenant=self.tenant)
+        self.tz = ZoneInfo("Africa/Lagos")
+
+        self.section = Section.objects.create(name="A", tenant=self.tenant)
+        self.gatekeeper = User.objects.create_user(
+            username="batch_gate", email="batch_gate@example.com",
+            first_name="Batch", last_name="Gate", role="teacher",
+            password="testpass123", is_active=True, tenant=self.tenant,
+        )
+
+        self.students = []
+        for index in range(3):
+            user = User.objects.create_user(
+                username=f"batch_child{index}",
+                email=f"batch_child{index}@example.com",
+                first_name=f"Child{index}", last_name="Batch",
+                role="student", password="testpass123",
+                is_active=True, tenant=self.tenant,
+            )
+            student = Student.objects.create(
+                user=user, gender="M", date_of_birth=date(2014, 1, 1),
+                section=self.section, tenant=self.tenant,
+            )
+            StudentTag.objects.create(
+                tenant=self.tenant, student=student, uid=f"AAAA000{index}")
+            self.students.append(student)
+
+        self.client.force_authenticate(user=self.gatekeeper)
+
+    def _at(self, hour, minute):
+        today = date.today()
+        return datetime(
+            today.year, today.month, today.day, hour, minute, tzinfo=self.tz)
+
+    def _flush(self, scans):
+        return self.client.post(
+            reverse("gatescan-batch"), {"scans": scans}, format="json",
+            HTTP_X_TENANT_SLUG=self.tenant.slug)
+
+    def test_a_queue_preserves_the_times_the_gate_actually_recorded(self):
+        response = self._flush([
+            {"uid": "AAAA0000", "direction": "in",
+             "scanned_at": self._at(7, 40).isoformat(),
+             "client_scan_id": "q-0"},
+            {"uid": "AAAA0001", "direction": "in",
+             "scanned_at": self._at(8, 20).isoformat(),
+             "client_scan_id": "q-1"},
+        ])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["summary"]["recorded"], 2)
+        by_index = {row["index"]: row for row in response.data["results"]}
+        self.assertEqual(by_index[0]["attendance"]["time_in"], "07:40:00")
+        self.assertEqual(by_index[0]["status"], "P")
+        # The second child was late when the gate read them, not when we heard.
+        self.assertEqual(by_index[1]["status"], "L")
+
+    def test_one_bad_chip_does_not_cost_the_others_their_attendance(self):
+        response = self._flush([
+            {"uid": "AAAA0000", "direction": "in",
+             "scanned_at": self._at(7, 40).isoformat()},
+            {"uid": "DEADBEEF", "direction": "in",
+             "scanned_at": self._at(7, 41).isoformat()},
+            {"uid": "AAAA0002", "direction": "in",
+             "scanned_at": self._at(7, 42).isoformat()},
+        ])
+
+        self.assertEqual(response.data["summary"]["recorded"], 2)
+        self.assertEqual(response.data["summary"]["failed"], 1)
+
+        by_index = {row["index"]: row for row in response.data["results"]}
+        self.assertTrue(by_index[0]["ok"])
+        self.assertFalse(by_index[1]["ok"])
+        self.assertEqual(by_index[1]["code"], "uid_not_enrolled")
+        self.assertTrue(by_index[2]["ok"])
+        self.assertEqual(Attendance.objects.count(), 2)
+
+    def test_reflushing_the_same_queue_records_nothing_new(self):
+        payload = [
+            {"uid": "AAAA0000", "direction": "in",
+             "scanned_at": self._at(7, 40).isoformat(),
+             "client_scan_id": "q-0"},
+            {"uid": "AAAA0001", "direction": "in",
+             "scanned_at": self._at(7, 41).isoformat(),
+             "client_scan_id": "q-1"},
+        ]
+        self._flush(payload)
+        again = self._flush(payload)
+
+        self.assertEqual(again.data["summary"]["replayed"], 2)
+        self.assertEqual(again.data["summary"]["recorded"], 0)
+        self.assertEqual(GateScan.objects.count(), 2)
+
+    def test_an_empty_batch_is_rejected(self):
+        response = self._flush([])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_an_oversized_batch_is_rejected(self):
+        response = self._flush([
+            {"uid": "AAAA0000", "direction": "in"} for _ in range(501)
+        ])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

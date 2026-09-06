@@ -340,15 +340,143 @@ One atomic step: the tag currently holding that UID is revoked and a fresh one i
 
 If the UID isn't enrolled at all, reassign simply enrolls it — safe to call without checking first.
 
-### 7.7 What is not built yet
+### 7.7 Recording attendance from a chip
 
-**The scan endpoint.** Enrollment and identification exist; recording an actual arrival or departure does not. `POST /api/attendance/scan/` is step 4 — it will take a UID, a direction and a timestamp, derive section, date, session and present-vs-late server-side, project onto the `Attendance` row, and return the student's identity together with the resulting record in one response.
+These endpoints identify a chip; **section 8** covers recording an actual arrival or departure from one. Use `resolve/` when you only need to know who a chip belongs to without marking anybody present.
 
-Until then, resolving a chip tells you who it is, but marking attendance still goes through `/api/attendance/attendance/bulk-upsert/` with explicit student and section IDs.
+**Parent notifications are not built yet.** Nothing is sent to a parent by any endpoint in this document.
 
-**Parent notifications** are step 5.
+## 8. Recording arrivals and departures
 
-## 8. Notes and open items
+Base path: `/api/attendance/scans/`
+
+| Method | Path | Purpose | Permission |
+|---|---|---|---|
+| POST | `/` | Record one tap. | attendance **write** |
+| POST | `/batch/` | Flush a queue from an offline gate. | attendance **write** |
+| GET | `/` | The scan log. Paginated. | any authenticated user |
+| GET | `/{id}/` | One scan. | any authenticated user |
+
+The log is read-only: `PATCH` returns 405 and `DELETE` is refused. An append-only record nobody can quietly rewrite is the point of keeping one. Corrections go on the `Attendance` row the scan projected onto.
+
+### 8.1 What you send, and what the server works out
+
+The phone knows two things — which chip it read and when. Everything else is derived server-side from the school's configured windows, so **do not compute any of it client-side**:
+
+| Derived | From |
+|---|---|
+| student | the chip's UID |
+| section | that student's record |
+| date | the scan time, in the school's timezone |
+| session (morning/afternoon) | the scan time vs the school's afternoon start |
+| Present vs Late | the scan time vs the school's late cut-off |
+| `time_in` / `time_out` | the direction |
+
+```
+POST /api/attendance/scans/
+{
+  "uid": "04:a2:24:1b",
+  "direction": "in",
+  "scanned_at": "2026-09-07T07:45:00+01:00",
+  "device_id": "gate-phone-1",
+  "client_scan_id": "5f3c…"
+}
+```
+
+Only `uid` and `direction` are required. `direction` is `"in"` or `"out"`.
+
+**`direction` is never inferred from previous state.** Send it explicitly every time. Default it from the time of day in your UI if you like, but show the operator which mode they're in — if the app guessed, a second tap at a busy gate would flip a child to "left the premises" and alarm a parent whose child just walked in.
+
+**`scanned_at`** defaults to now. Send the real device time when replaying a queue — a child who was late when the gate read them stays late, however long the flush took. A timestamp more than 5 minutes ahead of the server is still recorded but flagged `future_timestamp`.
+
+**`client_scan_id`** is your idempotency key. Generate one per scan (a UUID is fine) and keep it with the queued item. Replaying it returns the stored scan instead of recording a second one.
+
+### 8.2 Response
+
+**201** for a scan that was recorded; **200** when nothing changed (a duplicate or a replay). One call gives you everything needed to render the result:
+
+```json
+{
+  "student": {
+    "id": 101, "name": "Vincent Eze",
+    "registration_number": "GTS/2024/041",
+    "class_display": "Primary 4", "section": 7, "section_name": "A",
+    "profile_picture": "https://res.cloudinary.com/..."
+  },
+  "scan": { "id": 9001, "uid": "04A2241B", "direction": "in", "scanned_at": "...", "is_duplicate": false, "...": "..." },
+  "attendance": { "id": 4412, "date": "2026-09-07", "session": "morning", "status": "P", "time_in": "07:45:00", "time_out": null, "...": "..." },
+  "session": "morning",
+  "status": "P",
+  "duplicate": false,
+  "replayed": false,
+  "warnings": []
+}
+```
+
+So you can show **"Vincent Eze — Present, 07:45"** straight from this response with no second lookup.
+
+### 8.3 `warnings` — recorded, but worth a look
+
+**A scan is never refused for a policy reason.** A refused scan is a child who crossed the gate with no record of it, which is worse than an odd-looking record. Anything unusual is recorded and reported here:
+
+| Warning | Meaning | Suggested UI |
+|---|---|---|
+| `late_arrival` | Entry at or after the late cut-off. Status is `L`. | Normal; the badge already says Late. |
+| `before_opening` | Entry before the school opens. | Quiet note. |
+| `early_departure` | Exit before normal dismissal. | Worth showing — this is what anomaly-only alerting notifies parents about. |
+| `exit_without_entry` | Exit with no arrival recorded today. | **Prominent.** Ask the operator to confirm; the child may have arrived before the system was in use. |
+| `exit_before_entry` | Exit timestamped at or before the arrival on the same row. `time_out` is left unset to keep the record valid. | Prominent — usually a wrong direction or a bad clock. |
+| `future_timestamp` | Device clock is more than 5 minutes ahead. | Check the device clock. |
+
+### 8.4 Duplicate taps
+
+Re-reading the same chip **in the same direction** inside the school's duplicate window (90 seconds by default) returns **200** with `"duplicate": true`, pointing at the same attendance record. No second arrival, and in step 5, no second message to the parent.
+
+A run of taps all collapse onto the first, not onto each other — three taps in 80 seconds is one arrival plus two duplicates. Opposite directions are never duplicates, so an in-then-out within a few seconds both register.
+
+Duplicates are still stored, flagged `is_duplicate`, so "the attendant tapped four times" is answerable later.
+
+### 8.5 Failures
+
+Only identity and integrity problems refuse a scan:
+
+| Status | `code` | Meaning |
+|---|---|---|
+| 404 | `uid_not_enrolled` | No tag holds this UID at this school. |
+| 404 | `uid_not_active` | The tag was revoked or reported lost. |
+| 422 | `student_has_no_section` | The student is not assigned to a section, so there is nowhere to file attendance. An admin must place them first. |
+| 400 | — | Validation error on `uid` or `direction`. |
+
+### 8.6 Offline flush
+
+```
+POST /api/attendance/scans/batch/
+{ "scans": [ { …one scan… }, { …another… } ] }
+```
+
+Up to 500 per request. **Always returns 200** — items are applied independently, so one unenrolled chip cannot cost the other 199 children their attendance. This is deliberately unlike `/attendance/bulk-upsert/`, which is all-or-nothing.
+
+```json
+{
+  "summary": { "submitted": 3, "recorded": 2, "duplicates": 0, "replayed": 0, "failed": 1 },
+  "results": [
+    { "index": 0, "ok": true,  "student": {...}, "attendance": {...}, "status": "P", "warnings": [] },
+    { "index": 1, "ok": false, "uid": "DEADBEEF", "client_scan_id": "q-1",
+      "code": "uid_not_enrolled", "detail": "This chip is not enrolled for any student." },
+    { "index": 2, "ok": true,  "student": {...}, "attendance": {...}, "status": "L", "warnings": ["late_arrival"] }
+  ]
+}
+```
+
+Reconcile your queue from `results`, matching on `index` or `client_scan_id`. Clear the items with `"ok": true`; keep the failures for someone to look at — a `uid_not_enrolled` needs an admin to enroll that chip, not a retry.
+
+Re-flushing an already-sent queue is safe if every item carries a `client_scan_id`: they come back as `replayed` and nothing is recorded twice.
+
+### 8.7 Configuring the school day
+
+The windows live per school in `AttendanceSettings`, with defaults of opens 06:30, late from 08:00, afternoon from 12:00, dismissal from 14:00, and a 90-second duplicate window. The timezone comes from the school's own settings (default `Africa/Lagos`). There is no API for editing these yet — it is the Django admin for now, and a settings screen in the web app later.
+
+## 9. Notes and open items
 
 - **No staging environment is documented here** — confirm with the platform admin whether one exists before pointing a build at production.
 - **No dedicated rate limit** on the attendance endpoints themselves (only login/token issuing is rate-limited). Fine for launch; worth revisiting before real scale.
