@@ -25,6 +25,7 @@ import {
   Star,
   MessageSquare as MsgSq,
   BookOpen,
+  CreditCard,
 } from 'lucide-react';
 // import StudentResultChecker from './StudentResultChecker';
 import TokenGenerator from '@/pages/admin/TokenGenerator';
@@ -147,6 +148,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
     if (canViewAttendance()) {
       items.push({ name: 'Attendance', icon: CheckSquare, path: '/admin/attendance' });
+      items.push({ name: 'Gate Tracker', icon: CreditCard, path: '/admin/gate-tracker' });
     }
 
     items.push({ name: 'Parents', icon: UserCheck, path: '/admin/parents' });

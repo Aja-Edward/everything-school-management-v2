@@ -458,7 +458,7 @@ def parent_dashboard_summary(request, parent_id=None):
             ParentProfile.objects.filter(tenant=tenant).select_related("user")
             .prefetch_related(
                 Prefetch(
-                    "children",
+                    "students",
                     queryset=Student.objects.filter(tenant=tenant, is_active=True).select_related(
                         "user", "student_class", "section"
                     ),
@@ -467,7 +467,7 @@ def parent_dashboard_summary(request, parent_id=None):
             .get(id=parent_id)
         )
 
-        children = list(parent.children.all())
+        children = list(parent.students.all())
 
         if not children:
             return Response(

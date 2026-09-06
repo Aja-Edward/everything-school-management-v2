@@ -1127,7 +1127,19 @@ def test_twilio_connection(request):
 def send_test_email(request):
     """Send test email using configured Brevo settings"""
     try:
-        settings = CommunicationSettings.objects.first()
+        # Scoped to tenant: credentials are per school, never shared. The
+        # tenant FK is still nullable, so filter(tenant=None) would match a
+        # legacy row — require real tenant context instead.
+        tenant = getattr(request, "tenant", None)
+        if tenant is None:
+            return Response(
+                {
+                    "success": False,
+                    "message": "No school context for this request.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        settings = CommunicationSettings.objects.filter(tenant=tenant).first()
         if not settings or not settings.brevo_configured:
             return Response(
                 {
@@ -1189,7 +1201,19 @@ def send_test_email(request):
 def send_test_sms(request):
     """Send test SMS using configured Twilio settings"""
     try:
-        settings = CommunicationSettings.objects.first()
+        # Scoped to tenant: credentials are per school, never shared. The
+        # tenant FK is still nullable, so filter(tenant=None) would match a
+        # legacy row — require real tenant context instead.
+        tenant = getattr(request, "tenant", None)
+        if tenant is None:
+            return Response(
+                {
+                    "success": False,
+                    "message": "No school context for this request.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        settings = CommunicationSettings.objects.filter(tenant=tenant).first()
         if not settings or not settings.twilio_configured:
             return Response(
                 {

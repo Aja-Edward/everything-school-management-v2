@@ -3,7 +3,16 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from teacher.models import Teacher
-from .models import Attendance, AttendanceSession
+from .models import (
+    Attendance,
+    AttendanceSession,
+    GateScan,
+    ScanDirection,
+    ScanNotification,
+    StudentTag,
+    TagStatus,
+    normalize_tag_uid,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -198,3 +207,257 @@ class AttendanceStatsSerializer(serializers.Serializer):
     excused_count = serializers.IntegerField()
     attendance_rate = serializers.FloatField()
     session_breakdown = serializers.DictField(child=serializers.DictField())
+
+
+# ── Gate scanning: tag enrollment ─────────────────────────────────────────────
+
+_HEX = set("0123456789ABCDEF")
+
+
+def _validate_uid(value):
+    """
+    Normalize and sanity-check a scanned UID.
+
+    Kept lenient on length: the exact tag family is a hardware decision, and
+    UIDs run from 4 bytes (Mifare Classic) to 7 (NTAG21x) and longer. What is
+    worth rejecting is obvious rubbish — an empty field, or a value that
+    is not a hex rendering of some bytes at all.
+    """
+    normalized = normalize_tag_uid(value)
+    if not normalized:
+        raise serializers.ValidationError("A tag UID is required.")
+    if len(normalized) < 4:
+        raise serializers.ValidationError(
+            "That UID looks too short to be a real tag.")
+    if len(normalized) > 64:
+        raise serializers.ValidationError("That UID is too long.")
+    unexpected = set(normalized) - _HEX
+    if unexpected:
+        raise serializers.ValidationError(
+            f"A UID should be hex. Unexpected characters: "
+            f"{''.join(sorted(unexpected))}"
+        )
+    return normalized
+
+
+def _student_identity(student):
+    """
+    The bundle a scanner shows the operator: enough to confirm the right
+    child at a glance, and nothing more than that.
+    """
+    if student is None:
+        return None
+    user = getattr(student, "user", None)
+    name = f"{user.first_name} {user.last_name}".strip() if user else ""
+    return {
+        "id": student.id,
+        "name": name or None,
+        "registration_number": student.registration_number,
+        "class_display": student.get_class_display(),
+        "section": student.section_id,
+        "section_name": student.section.name if student.section_id else None,
+        "profile_picture": student.profile_picture,
+    }
+
+
+class StudentTagSerializer(serializers.ModelSerializer):
+    """Read shape for an enrolled tag."""
+
+    student_detail = serializers.SerializerMethodField()
+    status_display = serializers.SerializerMethodField()
+    issued_by_name = serializers.SerializerMethodField()
+    revoked_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StudentTag
+        fields = [
+            "id",
+            "uid",
+            "label",
+            "status", "status_display",
+            "student", "student_detail",
+            "issued_at", "issued_by", "issued_by_name",
+            "revoked_at", "revoked_by", "revoked_by_name", "revoke_reason",
+        ]
+        read_only_fields = [
+            "status", "issued_at", "issued_by",
+            "revoked_at", "revoked_by", "revoke_reason",
+        ]
+
+    def get_student_detail(self, obj):
+        return _student_identity(obj.student if obj.student_id else None)
+
+    def get_status_display(self, obj):
+        return obj.get_status_display()
+
+    def _user_name(self, user):
+        if not user:
+            return None
+        return f"{user.first_name} {user.last_name}".strip() or user.username
+
+    def get_issued_by_name(self, obj):
+        return self._user_name(obj.issued_by if obj.issued_by_id else None)
+
+    def get_revoked_by_name(self, obj):
+        return self._user_name(obj.revoked_by if obj.revoked_by_id else None)
+
+
+class TagEnrollSerializer(serializers.Serializer):
+    """Bind a chip to a student. The phone reads the UID; this records it."""
+
+    student = serializers.IntegerField()
+    uid = serializers.CharField(max_length=128)
+    label = serializers.CharField(
+        max_length=100, required=False, allow_blank=True, default="")
+
+    def validate_uid(self, value):
+        return _validate_uid(value)
+
+
+class TagRevokeSerializer(serializers.Serializer):
+    """Retire a tag. Lost and deliberately revoked are tracked separately."""
+
+    status = serializers.ChoiceField(
+        choices=[TagStatus.REVOKED, TagStatus.LOST],
+        required=False,
+        default=TagStatus.REVOKED,
+    )
+    reason = serializers.CharField(
+        required=False, allow_blank=True, default="")
+
+
+class TagReassignSerializer(serializers.Serializer):
+    """
+    Move a UID to a different student in one atomic step: the tag holding it
+    is retired and a fresh one is issued. Used when a chip turns out to be on
+    the wrong bag — replacing a lost chip for the same student is a revoke
+    followed by an ordinary enroll.
+    """
+
+    uid = serializers.CharField(max_length=128)
+    student = serializers.IntegerField()
+    reason = serializers.CharField(
+        required=False, allow_blank=True, default="")
+
+    def validate_uid(self, value):
+        return _validate_uid(value)
+
+
+# ── Gate scanning: recording a tap ────────────────────────────────────────────
+
+class GateScanSerializer(serializers.ModelSerializer):
+    """Read shape for a recorded scan."""
+
+    student_detail = serializers.SerializerMethodField()
+    direction_display = serializers.SerializerMethodField()
+    scanned_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = GateScan
+        fields = [
+            "id",
+            "uid",
+            "tag",
+            "student", "student_detail",
+            "direction", "direction_display",
+            "scanned_at", "received_at",
+            "scanned_by", "scanned_by_name",
+            "device_id", "client_scan_id",
+            "attendance",
+            "is_duplicate",
+        ]
+        read_only_fields = fields
+
+    def get_student_detail(self, obj):
+        return _student_identity(obj.student if obj.student_id else None)
+
+    def get_direction_display(self, obj):
+        return obj.get_direction_display()
+
+    def get_scanned_by_name(self, obj):
+        user = obj.scanned_by if obj.scanned_by_id else None
+        if not user:
+            return None
+        return f"{user.first_name} {user.last_name}".strip() or user.username
+
+
+class ScanCreateSerializer(serializers.Serializer):
+    """
+    One tap. The scanner sends what it knows; everything else is derived
+    server-side from the school's configured windows.
+    """
+
+    uid = serializers.CharField(max_length=128)
+    direction = serializers.ChoiceField(choices=ScanDirection.choices)
+    scanned_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="When the device read the tag. Defaults to now.",
+    )
+    device_id = serializers.CharField(
+        max_length=100, required=False, allow_blank=True, default="")
+    client_scan_id = serializers.CharField(
+        max_length=64, required=False, allow_blank=True, default="",
+        help_text="Idempotency key. Replaying it returns the stored scan.",
+    )
+
+    def validate_uid(self, value):
+        return _validate_uid(value)
+
+
+class ScanBatchSerializer(serializers.Serializer):
+    """
+    A flush of queued scans from a gate that was offline.
+
+    Items are applied independently rather than as one transaction: if one
+    scan carries an unenrolled chip, the other 199 children still get their
+    attendance. The response reports each item's outcome by index.
+    """
+
+    scans = ScanCreateSerializer(many=True)
+
+    def validate_scans(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one scan is required.")
+        if len(value) > 500:
+            raise serializers.ValidationError(
+                "Maximum 500 scans per batch request.")
+        return value
+
+
+class ScanNotificationSerializer(serializers.ModelSerializer):
+    """What a parent sees in their alert list, and what staff see in the log."""
+
+    student_detail = serializers.SerializerMethodField()
+    channel_display = serializers.SerializerMethodField()
+    status_display = serializers.SerializerMethodField()
+    direction = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ScanNotification
+        fields = [
+            "id",
+            "scan", "direction",
+            "student", "student_detail",
+            "recipient",
+            "channel", "channel_display",
+            "destination",
+            "subject", "body",
+            "status", "status_display",
+            "provider", "provider_message_id",
+            "error", "attempts",
+            "queued_at", "sent_at", "read_at",
+        ]
+        read_only_fields = fields
+
+    def get_student_detail(self, obj):
+        return _student_identity(obj.student if obj.student_id else None)
+
+    def get_channel_display(self, obj):
+        return obj.get_channel_display()
+
+    def get_status_display(self, obj):
+        return obj.get_status_display()
+
+    def get_direction(self, obj):
+        return obj.scan.direction if obj.scan_id else None

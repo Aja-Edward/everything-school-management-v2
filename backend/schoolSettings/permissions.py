@@ -65,7 +65,7 @@ class IsStudentOwnerOrStaff(permissions.BasePermission):
 
         # Parents can access their children's records
         if hasattr(request.user, "parent_profile"):
-            return obj in request.user.parent_profile.children.all()
+            return obj in request.user.parent_profile.get_students()
 
         return False
 
