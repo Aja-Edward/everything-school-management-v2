@@ -9,7 +9,7 @@ import React, { useState } from 'react';
 import { CreditCard, Loader2, CheckCircle, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { openPaystackPopup } from '@/services/PaymentService';
+import { startPaystackCheckout } from '@/services/PaymentService';
 import { formatCurrency } from '@/services/BillingService';
 import type { Invoice } from '@/types/types';
 
@@ -19,7 +19,17 @@ import type { Invoice } from '@/types/types';
 
 interface PaystackCheckoutProps {
   invoice: Invoice;
-  tenantEmail: string;
+  /**
+   * Retained for the modal's API. The hosted checkout does not need it: the
+   * backend bills tenant.owner_email when it creates the transaction, so the
+   * payer's email is never chosen client-side.
+   */
+  tenantEmail?: string;
+  /**
+   * Retained for the modal's API but never called: the hosted checkout leaves
+   * the page, so nothing here observes the outcome. Success is reported by
+   * PaymentCallback when Paystack redirects back and verification passes.
+   */
   onSuccess?: () => void;
   onError?: (error: Error) => void;
   className?: string;
@@ -34,8 +44,6 @@ interface PaystackCheckoutProps {
  */
 export const PaystackCheckout: React.FC<PaystackCheckoutProps> = ({
   invoice,
-  tenantEmail,
-  onSuccess,
   onError,
   className = '',
 }) => {
@@ -49,25 +57,10 @@ export const PaystackCheckout: React.FC<PaystackCheckoutProps> = ({
     setErrorMessage('');
 
     try {
-      await openPaystackPopup({
-        invoice,
-        tenantEmail,
-        onSuccess: () => {
-          setPaymentStatus('success');
-          setIsProcessing(false);
-          onSuccess?.();
-        },
-        onCancel: () => {
-          setPaymentStatus('idle');
-          setIsProcessing(false);
-        },
-        onError: (error) => {
-          setPaymentStatus('error');
-          setErrorMessage(error.message || 'Payment failed');
-          setIsProcessing(false);
-          onError?.(error);
-        },
-      });
+      // Navigates to Paystack's hosted page on success, so nothing below runs
+      // and the processing state stays on screen until the browser leaves.
+      // PaymentCallback picks the flow back up on return.
+      await startPaystackCheckout({ invoice });
     } catch (error) {
       const err = error as Error;
       setPaymentStatus('error');

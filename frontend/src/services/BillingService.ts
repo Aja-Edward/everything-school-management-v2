@@ -23,6 +23,24 @@ import type {
 // INVOICE MANAGEMENT
 // ============================================================================
 
+// ============================================================================
+// NOT WIRED — no backend counterpart
+//
+// The calls below still target a /billing/ namespace that does not exist:
+// there is no billing app and no billing/ prefix in config/urls.py, and they
+// return 404 in production. They are left pointing at the intended shape
+// rather than silently repointed, because none has a drop-in equivalent.
+//
+// Closest existing endpoints, for whoever finishes these:
+//   bank-transfer-notify   -> POST /api/tenants/payments/record-manual/
+//   confirm-bank-transfer  -> POST /api/tenants/payments/{id}/confirm/  (superuser)
+//   invoices/generate      -> no equivalent; invoices are created server-side
+//   invoices/{id}/send     -> no equivalent
+//   invoices/{id}/cancel   -> no equivalent
+//   feature-access         -> no equivalent
+//   activate-features      -> closest is ServiceManagementViewSet.toggle
+// ============================================================================
+
 /**
  * Generate a new invoice for a school
  */
@@ -44,14 +62,14 @@ export const getInvoices = async (filters?: {
   page?: number;
   page_size?: number;
 }): Promise<{ results: Invoice[]; count: number; next: string | null; previous: string | null }> => {
-  return await api.getList('/billing/invoices/', filters);
+  return await api.getList('/api/tenants/invoices/', filters);
 };
 
 /**
  * Get a single invoice by ID
  */
 export const getInvoice = async (invoiceId: string): Promise<Invoice> => {
-  return await api.getById('/billing/invoices', invoiceId);
+  return await api.getById('/api/tenants/invoices', invoiceId);
 };
 
 /**
@@ -115,7 +133,7 @@ export const initializePayment = async (invoiceId: string): Promise<{
   access_code: string;
   reference: string;
 }> => {
-  return await api.post('/billing/initialize-payment/', { invoice_id: invoiceId });
+  return await api.post('/api/tenants/payments/initialize-paystack/', { invoice_id: invoiceId });
 };
 
 /**
@@ -133,7 +151,7 @@ export const verifyPayment = async (reference: string): Promise<{
     paid_at: string;
   };
 }> => {
-  return await api.post('/billing/verify-payment/', { reference });
+  return await api.post('/api/tenants/payments/verify-paystack/', { reference });
 };
 
 /**
@@ -186,7 +204,7 @@ export const activateFeatures = async (
  * Get current pricing for features
  */
 export const getPricing = async (): Promise<FeaturePricing[]> => {
-  return await api.get('/billing/pricing/');
+  return await api.get('/api/tenants/pricing/');
 };
 
 /**
@@ -196,7 +214,7 @@ export const getBillingSummary = async (
   academicSessionId?: string,
   termId?: string
 ): Promise<BillingSummary> => {
-  return await api.get('/billing/summary/', {
+  return await api.get('/api/tenants/invoices/summary/', {
     academic_session_id: academicSessionId,
     term_id: termId,
   });

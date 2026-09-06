@@ -5,6 +5,25 @@ import { useTenant } from '@/contexts/TenantContext';
 import { useAuth } from '@/hooks/useAuth';
 import type { LoginCredentials, UserRole } from '@/types/types';
 
+/**
+ * The platform's own site, derived from the current host.
+ *
+ * This page is always served from a school's subdomain, so the main site is
+ * this origin minus the leading label — the same derivation buildTenantUrl()
+ * uses in the other direction. Both links below were previously a literal
+ * http://localhost:5173, which in production sent visitors to their own
+ * machine. The "School not found" screen is the one that matters: it is what
+ * a deactivated school sees, so its only way out was a dead link.
+ */
+function platformSiteUrl(): string {
+  const { protocol, hostname, port } = window.location;
+  const suffix = port ? `:${port}` : '';
+  if (hostname === 'localhost' || hostname.endsWith('.localhost')) {
+    return `${protocol}//localhost${suffix}`;
+  }
+  return `${protocol}//${hostname.split('.').slice(-2).join('.')}`;
+}
+
 type LoginUserType = 'student' | 'teacher' | 'parent' | 'admin';
 
 interface LocationState {
@@ -114,7 +133,7 @@ const SubdomainLoginPage: React.FC = () => {
             This portal doesn't exist or has been deactivated.
           </p>
           <a
-            href="http://localhost:5173"
+            href={platformSiteUrl()}
             className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700"
           >
             Go to main site
@@ -298,7 +317,7 @@ const SubdomainLoginPage: React.FC = () => {
         <footer className={`px-6 lg:px-8 py-4 transition-opacity duration-300 delay-200 ${mounted ? 'opacity-100' : 'opacity-0'}`}>
           <div className="max-w-sm mx-auto flex items-center justify-between text-xs text-gray-400">
             <span>&copy; {new Date().getFullYear()} {schoolName}</span>
-            <a href="http://localhost:5173" className="hover:text-gray-600 transition-colors">
+            <a href={platformSiteUrl()} className="hover:text-gray-600 transition-colors">
               NuventaCloud
             </a>
           </div>
