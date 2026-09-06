@@ -16,7 +16,7 @@ import logging
 from io import TextIOWrapper
 
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Count, Prefetch, Q
 from django.http import HttpResponse, StreamingHttpResponse
 from django.template.loader import render_to_string
 from django.utils import timezone
@@ -28,7 +28,13 @@ from rest_framework.response import Response
 
 from classroom.models import Section
 from parent.models import ParentProfile
-from schoolSettings.permissions import HasAttendancePermission, HasAttendancePermissionOrReadOnly
+from schoolSettings.permissions import (
+    HasAttendancePermission,
+    HasAttendancePermissionOrReadOnly,
+    HasStudentsPermission,
+    HasStudentsPermissionOrReadOnly,
+)
+from security.utils import log_action
 from students.models import Student
 from teacher.models import Teacher
 from tenants.mixins import TenantFilterMixin
@@ -36,11 +42,22 @@ from utils.pagination import LargeResultsPagination
 from utils.section_filtering import AutoSectionFilterMixin
 
 from .filters import AttendanceFilter
-from .models import Attendance, AttendanceSession
+from .models import (
+    Attendance,
+    AttendanceSession,
+    StudentTag,
+    TagStatus,
+    normalize_tag_uid,
+)
 from .serializers import (
     AttendanceBulkUpsertSerializer,
     AttendanceSerializer,
     AttendanceStatsSerializer,
+    StudentTagSerializer,
+    TagEnrollSerializer,
+    TagReassignSerializer,
+    TagRevokeSerializer,
+    _student_identity,
 )
 
 logger = logging.getLogger(__name__)
@@ -575,3 +592,459 @@ class AttendanceViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = 'attachment; filename="attendance_report.pdf"'
         return response
+
+
+class StudentTagViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+    """
+    Chip/card enrollment for the gate scanner.
+
+    Endpoints
+    ─────────
+    GET    /attendance/tags/                list enrolled tags
+    POST   /attendance/tags/                enroll a chip for a student
+    GET    /attendance/tags/{id}/           retrieve
+    PATCH  /attendance/tags/{id}/           edit the label (uid and student are fixed)
+    POST   /attendance/tags/{id}/revoke/    retire a tag (lost or revoked)
+    POST   /attendance/tags/reassign/       move a UID to a different student
+    GET    /attendance/tags/resolve/?uid=   identify a chip, no side effects
+    GET    /attendance/tags/roster/         students plus enrollment state
+
+    Deliberately no AutoSectionFilterMixin, unlike AttendanceViewSet. That
+    mixin narrows a queryset to the caller's education levels and empties it
+    for anyone with none — and a teacher's levels come from their assigned
+    classrooms. A gate is school-wide: whoever is on the gate has to identify
+    every child who walks through it, not only the ones in their own section.
+    Tenant isolation is the security boundary here; section is not.
+
+    Tags are never destroyed, only revoked, so history stays attributable.
+    """
+
+    serializer_class = StudentTagSerializer
+    queryset = StudentTag.objects.all()
+    permission_classes = [IsAuthenticated, HasStudentsPermissionOrReadOnly]
+    pagination_class = LargeResultsPagination
+    filter_backends = [DjangoFilterBackend,
+                       filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ["student", "status"]
+    search_fields = [
+        "uid",
+        "label",
+        "student__user__first_name",
+        "student__user__last_name",
+        "student__registration_number",
+    ]
+    ordering_fields = ["issued_at", "uid", "status"]
+
+    _TAG_SELECT = (
+        "student__user",
+        "student__section",
+        "student__student_class",
+        "student__student_class__education_level",
+        "issued_by",
+        "revoked_by",
+    )
+
+    def get_queryset(self):
+        return super().get_queryset().select_related(*self._TAG_SELECT)
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _tenant(self):
+        return getattr(self.request, "tenant", None)
+
+    def _student_in_tenant(self, student_id):
+        return (
+            Student.objects
+            .filter(id=student_id, tenant=self._tenant())
+            .select_related(
+                "user", "section", "student_class",
+                "student_class__education_level",
+            )
+            .first()
+        )
+
+    def _active_tag_for_uid(self, uid):
+        return (
+            StudentTag.objects
+            .filter(tenant=self._tenant(), uid=uid, status=TagStatus.ACTIVE)
+            .select_related("student__user", "student__section",
+                            "student__student_class")
+            .first()
+        )
+
+    def _serialize(self, tag):
+        return StudentTagSerializer(tag, context=self.get_serializer_context()).data
+
+    # ── Create / update ───────────────────────────────────────────────────────
+
+    def create(self, request, *args, **kwargs):
+        """
+        Enroll a chip. Called from the phone, which has just read the UID.
+
+        Conflicts come back with a machine-readable `code` so the scanner can
+        offer the right next step rather than showing a raw validation blob.
+        """
+        serializer = TagEnrollSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        tenant = self._tenant()
+        student = self._student_in_tenant(data["student"])
+        if student is None:
+            return Response(
+                {
+                    "code": "student_not_found",
+                    "detail": "No such student in this school.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        clash = self._active_tag_for_uid(data["uid"])
+        if clash:
+            return Response(
+                {
+                    "code": "uid_already_assigned",
+                    "detail": "That chip is already enrolled for another student.",
+                    "assigned_to": _student_identity(clash.student),
+                    "tag": {"id": clash.id, "issued_at": clash.issued_at},
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        tag = StudentTag.objects.create(
+            tenant=tenant,
+            student=student,
+            uid=data["uid"],
+            label=data.get("label", ""),
+            issued_by=request.user,
+        )
+        log_action(
+            "tag_enrolled",
+            request=request,
+            user=request.user,
+            metadata={"tag_id": tag.id, "uid": tag.uid, "student_id": student.id},
+        )
+        return Response(self._serialize(tag), status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        """Only the label is editable — rebinding a chip goes through reassign."""
+        kwargs["partial"] = True
+        return super().update(request, *args, **kwargs)
+
+    def perform_update(self, serializer):
+        serializer.save(
+            uid=serializer.instance.uid,
+            student=serializer.instance.student,
+        )
+
+    def destroy(self, request, *args, **kwargs):
+        return Response(
+            {
+                "code": "use_revoke",
+                "detail": (
+                    "Tags are revoked, not deleted, so past scans stay "
+                    "attributable. POST to this tag's revoke/ endpoint."
+                ),
+            },
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    # ── Revoke ────────────────────────────────────────────────────────────────
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="revoke",
+        permission_classes=[IsAuthenticated, HasStudentsPermission],
+    )
+    def revoke(self, request, pk=None):
+        """Retire a tag: a lost bag, or a chip taken out of service."""
+        tag = self.get_object()
+        serializer = TagRevokeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        if tag.status != TagStatus.ACTIVE:
+            return Response(
+                {
+                    "code": "tag_not_active",
+                    "detail": f"This tag is already {tag.get_status_display().lower()}.",
+                    "tag": self._serialize(tag),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        tag.status = data["status"]
+        tag.revoked_at = timezone.now()
+        tag.revoked_by = request.user
+        tag.revoke_reason = data.get("reason", "")
+        tag.save(update_fields=[
+            "status", "revoked_at", "revoked_by", "revoke_reason", "uid",
+        ])
+
+        log_action(
+            "tag_revoked",
+            request=request,
+            user=request.user,
+            metadata={
+                "tag_id": tag.id,
+                "uid": tag.uid,
+                "student_id": tag.student_id,
+                "status": tag.status,
+                "reason": tag.revoke_reason,
+            },
+        )
+        return Response(self._serialize(tag), status=status.HTTP_200_OK)
+
+    # ── Reassign ──────────────────────────────────────────────────────────────
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="reassign",
+        permission_classes=[IsAuthenticated, HasStudentsPermission],
+    )
+    def reassign(self, request):
+        """
+        Point a UID at a different student, atomically: the tag holding it is
+        revoked and a new one issued. For a chip found on the wrong bag.
+        """
+        serializer = TagReassignSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        tenant = self._tenant()
+        student = self._student_in_tenant(data["student"])
+        if student is None:
+            return Response(
+                {
+                    "code": "student_not_found",
+                    "detail": "No such student in this school.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            previous = self._active_tag_for_uid(data["uid"])
+            if previous and previous.student_id == student.id:
+                return Response(
+                    {
+                        "code": "already_assigned_to_student",
+                        "detail": "That chip is already enrolled for this student.",
+                        "tag": self._serialize(previous),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            previous_student_id = None
+            if previous:
+                previous_student_id = previous.student_id
+                previous.status = TagStatus.REVOKED
+                previous.revoked_at = timezone.now()
+                previous.revoked_by = request.user
+                previous.revoke_reason = (
+                    data.get("reason", "") or "Reassigned to another student"
+                )
+                previous.save(update_fields=[
+                    "status", "revoked_at", "revoked_by", "revoke_reason", "uid",
+                ])
+
+            tag = StudentTag.objects.create(
+                tenant=tenant,
+                student=student,
+                uid=data["uid"],
+                issued_by=request.user,
+            )
+
+        log_action(
+            "tag_reassigned",
+            request=request,
+            user=request.user,
+            metadata={
+                "tag_id": tag.id,
+                "uid": tag.uid,
+                "student_id": student.id,
+                "previous_student_id": previous_student_id,
+                "reason": data.get("reason", ""),
+            },
+        )
+        return Response(self._serialize(tag), status=status.HTTP_201_CREATED)
+
+    # ── Resolve ───────────────────────────────────────────────────────────────
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="resolve",
+        permission_classes=[IsAuthenticated, HasAttendancePermission],
+    )
+    def resolve(self, request):
+        """
+        Identify a scanned chip. Read-only: this records nothing and moves no
+        attendance, so the operator can check who a chip belongs to without
+        marking anybody present.
+
+        Unknown and retired UIDs are distinguished, because the scanner should
+        offer to enroll the first and explain the second.
+        """
+        uid = normalize_tag_uid(request.query_params.get("uid", ""))
+        if not uid:
+            return Response(
+                {"code": "uid_required", "detail": "Pass a uid query parameter."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        tenant = self._tenant()
+        active = self._active_tag_for_uid(uid)
+        if active:
+            return Response(
+                {
+                    "tag": self._serialize(active),
+                    "student": _student_identity(active.student),
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        retired = (
+            StudentTag.objects
+            .filter(tenant=tenant, uid=uid)
+            .select_related("student__user", "student__section",
+                            "student__student_class")
+            .order_by("-revoked_at", "-issued_at")
+            .first()
+        )
+        if retired:
+            return Response(
+                {
+                    "code": "uid_not_active",
+                    "detail": (
+                        f"This chip was {retired.get_status_display().lower()} "
+                        f"and is no longer in use."
+                    ),
+                    "tag": self._serialize(retired),
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(
+            {
+                "code": "uid_not_enrolled",
+                "detail": "This chip is not enrolled for any student.",
+                "uid": uid,
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    # ── Roster ────────────────────────────────────────────────────────────────
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="roster",
+        permission_classes=[IsAuthenticated, HasAttendancePermission],
+    )
+    def roster(self, request):
+        """
+        Students with their enrollment state, for working down a class list
+        chip by chip.
+
+        Query params: `section`, `enrolled` (true/false), `search`.
+        `counts` is always over the whole section, not the filtered page, so
+        the app can show real progress — "38 of 42 enrolled" — while listing
+        only the four students still outstanding.
+        """
+        tenant = self._tenant()
+        students = (
+            Student.objects
+            .filter(tenant=tenant, is_active=True)
+            .select_related("user", "section", "student_class",
+                            "student_class__education_level")
+            .prefetch_related(
+                Prefetch(
+                    "tags",
+                    queryset=StudentTag.objects.filter(
+                        tenant=tenant, status=TagStatus.ACTIVE),
+                    to_attr="active_tags",
+                )
+            )
+        )
+
+        section_id = request.query_params.get("section")
+        section = None
+        if section_id:
+            section = Section.objects.filter(
+                id=section_id, tenant=tenant).first()
+            if section is None:
+                return Response(
+                    {
+                        "code": "section_not_found",
+                        "detail": "No such section in this school.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            students = students.filter(section=section)
+
+        search = request.query_params.get("search")
+        if search:
+            students = students.filter(
+                Q(user__first_name__icontains=search)
+                | Q(user__last_name__icontains=search)
+                | Q(registration_number__icontains=search)
+            )
+
+        # Counts describe the section as a whole, before the enrolled filter.
+        enrolled_ids = set(
+            StudentTag.objects
+            .filter(tenant=tenant, status=TagStatus.ACTIVE,
+                    student__in=students)
+            .values_list("student_id", flat=True)
+        )
+        total = students.count()
+        counts = {
+            "total": total,
+            "enrolled": len(enrolled_ids),
+            "unenrolled": total - len(enrolled_ids),
+        }
+
+        enrolled_param = (request.query_params.get("enrolled") or "").lower()
+        if enrolled_param in {"true", "1", "yes"}:
+            students = students.filter(id__in=enrolled_ids)
+        elif enrolled_param in {"false", "0", "no"}:
+            students = students.exclude(id__in=enrolled_ids)
+
+        students = students.order_by(
+            "student_class__order", "section__name", "user__first_name")
+
+        page = self.paginate_queryset(students)
+        rows = [self._roster_row(student) for student in (page or students)]
+
+        payload = {
+            "section": (
+                {"id": section.id, "name": section.name} if section else None
+            ),
+            "counts": counts,
+            "students": rows,
+        }
+
+        if page is not None:
+            paginated = self.get_paginated_response(rows)
+            paginated.data["section"] = payload["section"]
+            paginated.data["counts"] = counts
+            return paginated
+
+        return Response(payload, status=status.HTTP_200_OK)
+
+    def _roster_row(self, student):
+        active = getattr(student, "active_tags", [])
+        row = _student_identity(student)
+        row["tags"] = [
+            {
+                "id": tag.id,
+                "uid": tag.uid,
+                "label": tag.label,
+                "issued_at": tag.issued_at,
+            }
+            for tag in active
+        ]
+        row["is_enrolled"] = bool(active)
+        return row
