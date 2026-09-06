@@ -109,17 +109,24 @@ class AttendanceViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
             except Student.DoesNotExist:
                 return Attendance.objects.none()
 
-        queryset = super().get_queryset().select_related(*_SELECT)
-
-        # Parents see only their children's records.
+        # Parents see only their children's records. Built from scratch, like
+        # the student branch above, rather than from super().get_queryset():
+        # AutoSectionFilterMixin restricts by education-level access, which a
+        # parent has none of, so building on it yields an empty queryset. A
+        # parent's scope is defined by which children are theirs.
         if user.is_authenticated and getattr(user, "role", None) == "parent":
             try:
-                parent_profile = ParentProfile.objects.get(user=user)
-                return queryset.filter(student__in=parent_profile.children.all())
+                parent_profile = ParentProfile.objects.get(
+                    user=user, tenant=tenant)
             except ParentProfile.DoesNotExist:
                 return Attendance.objects.none()
+            return (
+                Attendance.objects
+                .filter(student__in=parent_profile.get_students(), tenant=tenant)
+                .select_related(*_SELECT)
+            )
 
-        return queryset
+        return super().get_queryset().select_related(*_SELECT)
 
     # ── FIX #2 — Bulk upsert ──────────────────────────────────────────────────
 
