@@ -1,4 +1,8 @@
 import logging
+from datetime import time
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from django.conf import settings
 from django.db import models
 from django.db.models import UniqueConstraint
 from django.utils import timezone
@@ -153,3 +157,343 @@ class Attendance(TenantMixin, models.Model):
         student = str(self.student) if self.student_id else "Unknown"
         session = self.get_session_display()
         return f"{student} — {self.date} [{session}] — {self.get_status_display()}"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Gate scanning — chip/card identity and entry/exit events
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def normalize_tag_uid(raw):
+    """
+    Canonical form for a tag UID: uppercase hex, separators stripped.
+
+    Readers hand back the same physical tag as "04:a2:24:1b", "04-A2-24-1B"
+    or "04a2241b" depending on platform and SDK, so the value is normalized
+    on the way in and every lookup normalizes too. Returns "" for empty input.
+    """
+    if not raw:
+        return ""
+    return "".join(
+        ch for ch in str(raw).upper()
+        if ch not in {":", "-", " ", "."}
+    )
+
+
+class TagStatus(models.TextChoices):
+    ACTIVE = "active", "Active"
+    LOST = "lost", "Lost"
+    REVOKED = "revoked", "Revoked"
+
+
+class StudentTag(TenantMixin, models.Model):
+    """
+    A physical chip/card on a student's bag, mapped to that student.
+
+    The tag stores nothing but its own factory UID — no name, no class, no
+    PII. Identity lives here, in the database, so it can be corrected and
+    revoked without touching the hardware.
+
+    Key design decisions
+    ────────────────────
+    • Its own table rather than a field on Student: bags get lost and chips
+      get re-issued, and old GateScan rows must stay attributable to the tag
+      that actually produced them.
+    • Uniqueness is enforced only over ACTIVE rows, so a UID freed by a
+      revoked tag can be issued again while history is preserved.
+    • `uid` is normalized by `normalize_tag_uid` on save.
+    """
+
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        related_name="tags",
+    )
+    uid = models.CharField(
+        max_length=64,
+        help_text="Tag's factory UID, normalized to uppercase hex.",
+    )
+    label = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        help_text="Optional human note, e.g. 'blue rucksack'.",
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=TagStatus.choices,
+        default=TagStatus.ACTIVE,
+    )
+
+    issued_at = models.DateTimeField(default=timezone.now)
+    issued_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tags_issued",
+        help_text="Staff member who enrolled this tag.",
+    )
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revoked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tags_revoked",
+    )
+    revoke_reason = models.TextField(blank=True, default="")
+
+    class Meta:
+        constraints = [
+            UniqueConstraint(
+                fields=["tenant", "uid"],
+                condition=models.Q(status=TagStatus.ACTIVE),
+                name="unique_active_tag_uid_per_tenant",
+            )
+        ]
+        indexes = [
+            # The scan resolve lookup.
+            models.Index(fields=["tenant", "uid", "status"]),
+            models.Index(fields=["tenant", "student", "status"]),
+        ]
+        ordering = ["-issued_at"]
+
+    def save(self, *args, **kwargs):
+        self.uid = normalize_tag_uid(self.uid)
+        super().save(*args, **kwargs)
+
+    @property
+    def is_usable(self):
+        return self.status == TagStatus.ACTIVE
+
+    def __str__(self):
+        student = str(self.student) if self.student_id else "Unknown"
+        return f"{student} — {self.uid} [{self.get_status_display()}]"
+
+
+class ScanDirection(models.TextChoices):
+    IN = "in", "Entry"
+    OUT = "out", "Exit"
+
+
+class GateScan(TenantMixin, models.Model):
+    """
+    One tap of one tag: an append-only record of a boundary crossing.
+
+    Attendance holds one summary row per student per day per session; a child
+    can cross the gate more than twice (an early collection, a medical
+    appointment, a return), so the events are recorded here and projected
+    onto that summary row rather than replacing it.
+
+    Key design decisions
+    ────────────────────
+    • `direction` is supplied by the client, never inferred from prior state.
+      Inferring it means a second tap at a busy gate silently flips a child
+      to "left the premises" and alarms a parent whose child just walked in.
+    • `scanned_at` is when the device read the tag; `received_at` is when the
+      server heard about it. They differ whenever the gate was offline, and
+      the first is the one that counts.
+    • `uid` is denormalized alongside `tag` so a scan stays readable after
+      its tag row is deleted.
+    • `client_scan_id` is the caller's idempotency key: replaying a queued
+      batch cannot create duplicate events.
+    """
+
+    tag = models.ForeignKey(
+        StudentTag,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="scans",
+    )
+    uid = models.CharField(
+        max_length=64,
+        help_text="UID as scanned, normalized. Kept even if the tag is deleted.",
+    )
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        related_name="gate_scans",
+    )
+    direction = models.CharField(
+        max_length=3,
+        choices=ScanDirection.choices,
+        help_text="Entry or exit. Sent explicitly by the scanner, never inferred.",
+    )
+
+    scanned_at = models.DateTimeField(
+        help_text="When the device read the tag (may predate receipt if offline)."
+    )
+    received_at = models.DateTimeField(
+        default=timezone.now,
+        editable=False,
+        help_text="When the server accepted the scan.",
+    )
+
+    scanned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="gate_scans_recorded",
+        help_text="Staff account operating the scanner.",
+    )
+    device_id = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        help_text="Caller-supplied device identifier, for auditing a disputed scan.",
+    )
+    client_scan_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="Client idempotency key; blank when the caller supplies none.",
+    )
+
+    attendance = models.ForeignKey(
+        Attendance,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="gate_scans",
+        help_text="The daily summary row this scan was projected onto.",
+    )
+    is_duplicate = models.BooleanField(
+        default=False,
+        help_text=(
+            "True when this landed inside the tenant's duplicate-scan window "
+            "and so did not move attendance or notify anyone."
+        ),
+    )
+
+    class Meta:
+        constraints = [
+            UniqueConstraint(
+                fields=["tenant", "client_scan_id"],
+                condition=~models.Q(client_scan_id=""),
+                name="unique_client_scan_id_per_tenant",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "uid", "scanned_at"]),
+            models.Index(fields=["tenant", "student", "scanned_at"]),
+            models.Index(fields=["tenant", "scanned_at"]),
+            models.Index(fields=["tenant", "direction", "scanned_at"]),
+        ]
+        ordering = ["-scanned_at"]
+
+    def save(self, *args, **kwargs):
+        self.uid = normalize_tag_uid(self.uid)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        student = str(self.student) if self.student_id else "Unknown"
+        when = self.scanned_at.strftime("%Y-%m-%d %H:%M") if self.scanned_at else "?"
+        return f"{student} {self.get_direction_display()} @ {when}"
+
+
+class AlertPolicy(models.TextChoices):
+    ALL_SCANS = "all_scans", "Notify on every scan"
+    ANOMALIES_ONLY = "anomalies_only", "Notify only on unexpected scans"
+
+
+class AttendanceSettings(models.Model):
+    """
+    Per-school attendance windows, used to derive session and status from the
+    moment a tag was scanned.
+
+    Deliberately keyed on tenant as its primary key, the same shape as
+    tenants.TenantSettings. schoolSettings.SchoolSettings and
+    NotificationSettings are unscoped singletons whose save() collapses every
+    school into one row, so one school's 8am would become every school's.
+    This model cannot be used that way.
+
+    Times are local to the school; the zone comes from
+    TenantSettings.timezone via `tzinfo`.
+    """
+
+    tenant = models.OneToOneField(
+        "tenants.Tenant",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="attendance_settings",
+    )
+
+    morning_opens = models.TimeField(
+        default=time(6, 30),
+        help_text="Earliest a tap counts as that day's arrival.",
+    )
+    late_after = models.TimeField(
+        default=time(8, 0),
+        help_text="An arrival at or after this time is marked Late, not Present.",
+    )
+    afternoon_opens = models.TimeField(
+        default=time(12, 0),
+        help_text="From this time, a tap belongs to the afternoon session.",
+    )
+    dismissal_after = models.TimeField(
+        default=time(14, 0),
+        help_text=(
+            "Normal end of day. An exit before this is an early departure, "
+            "which is what anomaly-only alerting notifies on."
+        ),
+    )
+
+    duplicate_scan_window_seconds = models.PositiveIntegerField(
+        default=90,
+        help_text=(
+            "Re-reading the same tag in the same direction inside this many "
+            "seconds is treated as one scan — no second record, no second alert."
+        ),
+    )
+    alert_policy = models.CharField(
+        max_length=20,
+        choices=AlertPolicy.choices,
+        default=AlertPolicy.ALL_SCANS,
+        help_text=(
+            "Whether parents hear about every crossing or only unexpected "
+            "ones. Drives the messaging bill as much as the provider does."
+        ),
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Attendance Settings"
+        verbose_name_plural = "Attendance Settings"
+
+    def clean(self):
+        if self.morning_opens >= self.late_after:
+            raise ValidationError(
+                {"late_after": "Late cut-off must be after the morning opens."}
+            )
+        if self.afternoon_opens >= self.dismissal_after:
+            raise ValidationError(
+                {"dismissal_after": "Dismissal must be after the afternoon opens."}
+            )
+        if self.late_after > self.afternoon_opens:
+            raise ValidationError(
+                {"afternoon_opens": "Afternoon cannot begin before the late cut-off."}
+            )
+
+    @property
+    def tzinfo(self):
+        """The school's timezone, from TenantSettings. Falls back to Africa/Lagos."""
+        name = "Africa/Lagos"
+        tenant_settings = getattr(self.tenant, "settings", None)
+        if tenant_settings and tenant_settings.timezone:
+            name = tenant_settings.timezone
+        try:
+            return ZoneInfo(name)
+        except ZoneInfoNotFoundError:
+            logger.warning(
+                "Unknown timezone %r for tenant %s; falling back to Africa/Lagos",
+                name, self.tenant_id,
+            )
+            return ZoneInfo("Africa/Lagos")
+
+    def __str__(self):
+        return f"Attendance settings for {self.tenant}"

@@ -18,6 +18,11 @@ class AuditLog(models.Model):
         ('settings_update', 'Settings Update'),
         ('token_revoked', 'Token Revoked'),
         ('account_locked', 'Account Locked'),
+        # Gate-scanning tags. Who bound which chip to which child, and who
+        # took it away again, is the audit trail behind every gate scan.
+        ('tag_enrolled', 'Tag Enrolled'),
+        ('tag_revoked', 'Tag Revoked'),
+        ('tag_reassigned', 'Tag Reassigned'),
     ]
 
     user = models.ForeignKey(
