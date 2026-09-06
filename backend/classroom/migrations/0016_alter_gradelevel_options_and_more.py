@@ -73,7 +73,11 @@ class Migration(migrations.Migration):
         # ✅ Populate integer PKs BEFORE Django tries to alter the column types
         migrations.RunPython(populate_education_level_fks, reverse_populate),
 
-        migrations.AddField(
+        # 0014 already created this column, pointing at the old
+        # students.EducationLevel. This repoints it at academics.EducationLevel
+        # and 0017 then tightens it back to NOT NULL. Was an AddField, which
+        # replayed as a duplicate-column error on any fresh database.
+        migrations.AlterField(
             model_name="class",
             name="education_level",
             field=models.ForeignKey(
