@@ -12,6 +12,33 @@ services:
     expose:
       - "8000"
 
+  # Executes queued tasks. Without this running, CELERY_WORKER_AVAILABLE must
+  # stay unset: the gate scan path deliberately refuses to send notifications
+  # inline, so parents would get in-app alerts and nothing else.
+  celery-worker:
+    build:
+      context: ./backend
+    image: edwad148/schoolmsapp-backend:latest
+    container_name: celery-worker
+    command: celery -A config worker --loglevel=info --pool=threads --concurrency=4
+    env_file:
+      - .env.backend
+    depends_on:
+      - backend
+
+  # Submits the periodic sweep in CELERY_BEAT_SCHEDULE. Beat only submits —
+  # celery-worker above is what actually runs the work.
+  celery-beat:
+    build:
+      context: ./backend
+    image: edwad148/schoolmsapp-backend:latest
+    container_name: celery-beat
+    command: celery -A config beat --loglevel=info
+    env_file:
+      - .env.backend
+    depends_on:
+      - celery-worker
+
   frontend:
     build:
       context: ./frontend

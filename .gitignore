@@ -40,3 +40,6 @@ build/
 Thumbs.db
 node_modules
 .env*
+
+# Celery beat local schedule state
+celerybeat-schedule*

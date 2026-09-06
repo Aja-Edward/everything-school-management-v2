@@ -361,6 +361,21 @@ CELERY_TASK_EAGER_PROPAGATES = False
 CELERY_WORKER_POOL = "threads"
 CELERY_WORKER_CONCURRENCY = 4
 
+# ── Periodic tasks ────────────────────────────────────────────────────────────
+# Read by `celery -A config beat`. Beat only *submits* tasks, so it is useless
+# on its own — a worker has to be running to execute them.
+#
+# The gate scan path queues parent notifications in the database and hands them
+# to a worker directly, so this sweep is the safety net rather than the main
+# route: it catches anything queued while the broker was unreachable, and
+# retries provider failures up to attendance.tasks.MAX_ATTEMPTS.
+CELERY_BEAT_SCHEDULE = {
+    "flush-pending-scan-notifications": {
+        "task": "attendance.tasks.flush_pending_scan_notifications",
+        "schedule": timedelta(minutes=5),
+    },
+}
+
 CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOW_HEADERS = [
