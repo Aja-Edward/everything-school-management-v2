@@ -88,13 +88,14 @@ class ScanOutcome:
     duplicate: bool = False
     replayed: bool = False
     warnings: list = field(default_factory=list)
+    notifications: list = field(default_factory=list)
 
     @property
     def notifiable(self):
         """
         Whether this scan should reach a parent. Duplicates and replays never
         do — a second tap at the gate must not send a second message. The
-        alert policy decides the rest, in step 5.
+        school's alert policy decides the rest, in attendance.notifications.
         """
         return not (self.duplicate or self.replayed)
 
@@ -288,6 +289,27 @@ def record_scan(
         derived_status=derived_status,
         warnings=warnings,
     )
+
+
+def record_and_notify(**kwargs):
+    """
+    Record a scan, then queue whatever parent alerts the school's policy wants.
+
+    Queueing is database writes only, so the gate is never made to wait on a
+    messaging provider; see attendance.notifications for how delivery is
+    handed off, and why it is not always immediate.
+    """
+    tenant = kwargs["tenant"]
+    scan_settings = kwargs.get("settings") or settings_for(tenant)
+    kwargs["settings"] = scan_settings
+
+    outcome = record_scan(**kwargs)
+
+    from .notifications import queue_scan_notifications
+
+    outcome.notifications = queue_scan_notifications(
+        outcome, tenant=tenant, settings=scan_settings)
+    return outcome
 
 
 def _create_scan(**kwargs):

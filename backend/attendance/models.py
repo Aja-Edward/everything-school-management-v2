@@ -497,3 +497,182 @@ class AttendanceSettings(models.Model):
 
     def __str__(self):
         return f"Attendance settings for {self.tenant}"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Parent notifications for gate scans
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class NotificationChannel(models.TextChoices):
+    IN_APP = "in_app", "In-app"
+    EMAIL = "email", "Email"
+    SMS = "sms", "SMS"
+
+
+class NotificationStatus(models.TextChoices):
+    QUEUED = "queued", "Queued"
+    SENT = "sent", "Sent"
+    FAILED = "failed", "Failed"
+    SKIPPED = "skipped", "Skipped"
+
+
+class ParentAlertPreference(models.Model):
+    """
+    What one parent wants to hear about, and how.
+
+    SMS is off by default and stays opt-in. At two messages per child per day
+    a 500-pupil school sends around 190,000 texts a year, which can cost more
+    than the software; in-app and email cost nothing. Nobody should be able to
+    turn that bill on for a whole school by accident.
+    """
+
+    parent = models.OneToOneField(
+        "parent.ParentProfile",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="alert_preference",
+    )
+
+    in_app_enabled = models.BooleanField(default=True)
+    email_enabled = models.BooleanField(default=True)
+    sms_enabled = models.BooleanField(
+        default=False,
+        help_text="Opt-in. Costs real money per message — see the alert policy.",
+    )
+    muted = models.BooleanField(
+        default=False,
+        help_text="Suppress every channel without losing the parent's choices.",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Parent Alert Preference"
+        verbose_name_plural = "Parent Alert Preferences"
+
+    def channels(self):
+        """The channels this parent should be reached on, cheapest first."""
+        if self.muted:
+            return []
+        wanted = []
+        if self.in_app_enabled:
+            wanted.append(NotificationChannel.IN_APP)
+        if self.email_enabled:
+            wanted.append(NotificationChannel.EMAIL)
+        if self.sms_enabled:
+            wanted.append(NotificationChannel.SMS)
+        return wanted
+
+    def __str__(self):
+        return f"Alert preferences for {self.parent}"
+
+
+class ScanNotification(TenantMixin, models.Model):
+    """
+    One message about one scan to one recipient on one channel.
+
+    Split per recipient and per channel rather than per scan, because a scan
+    fans out — two parents, each on their own channels — and "did the mother
+    get the text?" has to be answerable on its own. The rendered subject and
+    body are stored so a school can show a parent exactly what was sent,
+    months later, without reconstructing it from a template that has changed.
+    """
+
+    scan = models.ForeignKey(
+        GateScan,
+        on_delete=models.CASCADE,
+        related_name="notifications",
+    )
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        related_name="scan_notifications",
+        help_text="Denormalized from the scan for querying.",
+    )
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="scan_notifications",
+    )
+
+    channel = models.CharField(
+        max_length=10,
+        choices=NotificationChannel.choices,
+    )
+    destination = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="The address actually used — which number or inbox it went to.",
+    )
+
+    subject = models.CharField(max_length=255, blank=True, default="")
+    body = models.TextField(blank=True, default="")
+
+    status = models.CharField(
+        max_length=10,
+        choices=NotificationStatus.choices,
+        default=NotificationStatus.QUEUED,
+        db_index=True,
+    )
+    provider = models.CharField(
+        max_length=30,
+        blank=True,
+        default="",
+        help_text="Which service carried it, e.g. brevo or twilio.",
+    )
+    provider_message_id = models.CharField(
+        max_length=255, blank=True, default="")
+    error = models.TextField(blank=True, default="")
+    attempts = models.PositiveIntegerField(default=0)
+
+    queued_at = models.DateTimeField(default=timezone.now, editable=False)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    read_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="In-app only: when the parent opened it.",
+    )
+
+    class Meta:
+        constraints = [
+            UniqueConstraint(
+                fields=["tenant", "scan", "recipient", "channel"],
+                name="unique_scan_notification_per_recipient_channel",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "status", "queued_at"]),
+            models.Index(fields=["tenant", "recipient", "queued_at"]),
+            models.Index(fields=["tenant", "student", "queued_at"]),
+        ]
+        ordering = ["-queued_at"]
+
+    def mark_sent(self, provider="", message_id=""):
+        self.status = NotificationStatus.SENT
+        self.provider = provider or self.provider
+        self.provider_message_id = message_id or self.provider_message_id
+        self.sent_at = timezone.now()
+        self.error = ""
+        self.save(update_fields=[
+            "status", "provider", "provider_message_id", "sent_at", "error",
+        ])
+
+    def mark_failed(self, error, provider=""):
+        self.status = NotificationStatus.FAILED
+        self.provider = provider or self.provider
+        self.error = str(error)[:2000]
+        self.save(update_fields=["status", "provider", "error"])
+
+    def mark_skipped(self, reason):
+        self.status = NotificationStatus.SKIPPED
+        self.error = str(reason)[:2000]
+        self.save(update_fields=["status", "error"])
+
+    def __str__(self):
+        return (
+            f"{self.get_channel_display()} to {self.recipient} "
+            f"about {self.student} [{self.get_status_display()}]"
+        )

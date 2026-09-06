@@ -1,5 +1,12 @@
 from django.contrib import admin
-from .models import Attendance, AttendanceSettings, GateScan, StudentTag
+from .models import (
+    Attendance,
+    AttendanceSettings,
+    GateScan,
+    ParentAlertPreference,
+    ScanNotification,
+    StudentTag,
+)
 
 
 @admin.register(Attendance)
@@ -157,3 +164,62 @@ class AttendanceSettingsAdmin(admin.ModelAdmin):
         ),
         ("Audit", {"fields": ("created_at", "updated_at")}),
     )
+
+
+@admin.register(ParentAlertPreference)
+class ParentAlertPreferenceAdmin(admin.ModelAdmin):
+    list_display = (
+        "parent",
+        "in_app_enabled",
+        "email_enabled",
+        "sms_enabled",
+        "muted",
+    )
+    list_filter = ("in_app_enabled", "email_enabled", "sms_enabled", "muted")
+    search_fields = (
+        "parent__user__first_name",
+        "parent__user__last_name",
+        "parent__user__email",
+    )
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(ScanNotification)
+class ScanNotificationAdmin(admin.ModelAdmin):
+    """
+    Read-only: this is the delivery record that answers "was the parent told?".
+    Editing it would make that answer worthless. Retries go through
+    flush_pending_scan_notifications.
+    """
+
+    list_display = (
+        "queued_at",
+        "student",
+        "recipient",
+        "channel",
+        "status",
+        "provider",
+        "attempts",
+        "sent_at",
+    )
+    list_filter = ("channel", "status", "provider", "queued_at")
+    search_fields = (
+        "destination",
+        "subject",
+        "provider_message_id",
+        "student__user__first_name",
+        "student__user__last_name",
+    )
+    date_hierarchy = "queued_at"
+    ordering = ("-queued_at",)
+    list_per_page = 50
+    list_select_related = ("student__user", "recipient", "scan")
+
+    def get_readonly_fields(self, request, obj=None):
+        return [field.name for field in self.model._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

@@ -42,11 +42,13 @@ from utils.pagination import LargeResultsPagination
 from utils.section_filtering import AutoSectionFilterMixin
 
 from .filters import AttendanceFilter
-from .gate import ScanError, record_scan, settings_for
+from .gate import ScanError, record_and_notify, settings_for
 from .models import (
     Attendance,
     AttendanceSession,
     GateScan,
+    NotificationChannel,
+    ScanNotification,
     StudentTag,
     TagStatus,
     normalize_tag_uid,
@@ -58,6 +60,7 @@ from .serializers import (
     GateScanSerializer,
     ScanBatchSerializer,
     ScanCreateSerializer,
+    ScanNotificationSerializer,
     StudentTagSerializer,
     TagEnrollSerializer,
     TagReassignSerializer,
@@ -1128,6 +1131,7 @@ class GateScanViewSet(TenantFilterMixin,
             "duplicate": outcome.duplicate,
             "replayed": outcome.replayed,
             "warnings": outcome.warnings,
+            "notifications_queued": len(outcome.notifications),
         }
 
     # ── Record one scan ───────────────────────────────────────────────────────
@@ -1149,7 +1153,7 @@ class GateScanViewSet(TenantFilterMixin,
 
         tenant = getattr(request, "tenant", None)
         try:
-            outcome = record_scan(
+            outcome = record_and_notify(
                 tenant=tenant,
                 uid=data["uid"],
                 direction=data["direction"],
@@ -1197,7 +1201,7 @@ class GateScanViewSet(TenantFilterMixin,
 
         for index, data in enumerate(items):
             try:
-                outcome = record_scan(
+                outcome = record_and_notify(
                     tenant=tenant,
                     uid=data["uid"],
                     direction=data["direction"],
@@ -1257,3 +1261,73 @@ class GateScanViewSet(TenantFilterMixin,
             },
             status=status.HTTP_200_OK,
         )
+
+
+class ScanNotificationViewSet(TenantFilterMixin,
+                              mixins.ListModelMixin,
+                              mixins.RetrieveModelMixin,
+                              viewsets.GenericViewSet):
+    """
+    A parent's own alerts about their children — the in-app channel.
+
+    In-app is the default channel precisely because it is free and immune to
+    DND, so it needs somewhere to be read. A parent sees only their own
+    notifications; staff with attendance access see the school's, which is what
+    answers "did the mother actually get told?".
+
+    GET  /attendance/notifications/            list
+    GET  /attendance/notifications/{id}/       retrieve
+    POST /attendance/notifications/{id}/read/  mark read (in-app)
+    GET  /attendance/notifications/unread-count/
+    """
+
+    serializer_class = ScanNotificationSerializer
+    queryset = ScanNotification.objects.all()
+    permission_classes = [IsAuthenticated]
+    pagination_class = LargeResultsPagination
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ["channel", "status", "student"]
+    ordering_fields = ["queued_at", "sent_at"]
+
+    def get_queryset(self):
+        queryset = (
+            super().get_queryset()
+            .select_related("student__user", "recipient", "scan")
+        )
+        user = self.request.user
+
+        # Staff see the school's; everyone else sees only their own.
+        if HasAttendancePermission().has_permission(self.request, self):
+            return queryset
+        return queryset.filter(recipient=user)
+
+    @action(detail=True, methods=["post"], url_path="read")
+    def read(self, request, pk=None):
+        """Mark one of my notifications read."""
+        notification = self.get_object()
+        if notification.recipient_id != request.user.id:
+            return Response(
+                {
+                    "code": "not_your_notification",
+                    "detail": "You can only mark your own notifications read.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if notification.read_at is None:
+            notification.read_at = timezone.now()
+            notification.save(update_fields=["read_at"])
+        return Response(
+            self.get_serializer(notification).data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["get"], url_path="unread-count")
+    def unread_count(self, request):
+        count = (
+            self.get_queryset()
+            .filter(
+                recipient=request.user,
+                channel=NotificationChannel.IN_APP,
+                read_at__isnull=True,
+            )
+            .count()
+        )
+        return Response({"unread": count}, status=status.HTTP_200_OK)

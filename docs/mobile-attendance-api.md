@@ -344,7 +344,7 @@ If the UID isn't enrolled at all, reassign simply enrolls it — safe to call wi
 
 These endpoints identify a chip; **section 8** covers recording an actual arrival or departure from one. Use `resolve/` when you only need to know who a chip belongs to without marking anybody present.
 
-**Parent notifications are not built yet.** Nothing is sent to a parent by any endpoint in this document.
+Parent notifications happen server-side when a scan is recorded — see **section 9**. The mobile app does not send them and needs no code for them.
 
 ## 8. Recording arrivals and departures
 
@@ -476,7 +476,83 @@ Re-flushing an already-sent queue is safe if every item carries a `client_scan_i
 
 The windows live per school in `AttendanceSettings`, with defaults of opens 06:30, late from 08:00, afternoon from 12:00, dismissal from 14:00, and a 90-second duplicate window. The timezone comes from the school's own settings (default `Africa/Lagos`). There is no API for editing these yet — it is the Django admin for now, and a settings screen in the web app later.
 
-## 9. Notes and open items
+## 9. Parent notifications
+
+Scanning a chip can tell a parent their child arrived or left. **Nothing in the mobile app needs to do anything for this** — it happens server-side when a scan is recorded. This section is here so you know what the school sees and why a scan response reports it.
+
+### 9.1 What the scan response tells you
+
+Every successful scan response carries:
+
+```json
+"notifications_queued": 2
+```
+
+That is how many messages were queued for that scan — across all parents and channels. `0` is normal and not an error: a duplicate tap queues nothing, and under anomalies-only policy an ordinary arrival queues nothing either. Don't surface it to a gate operator as a failure.
+
+### 9.2 Channels
+
+Three, in cost order:
+
+| Channel | Cost | Notes |
+|---|---|---|
+| `in_app` | free | The default. Stored and readable in the parent portal; immune to Nigerian DND. |
+| `email` | ~free | Per-school Brevo credentials. |
+| `sms` | real money | **Opt-in per parent**, off by default. |
+
+SMS is deliberately opt-in. At two messages per child per day, a 500-pupil school sends roughly **190,000 texts a year** — which can cost more than the software. Nobody should be able to switch that on for a whole school by accident.
+
+A parent's choices live in `ParentAlertPreference` (Django admin for now): `in_app_enabled`, `email_enabled`, `sms_enabled`, and `muted` to silence everything without losing their settings.
+
+### 9.3 Alert policy — the real cost lever
+
+Per school, in `AttendanceSettings.alert_policy`:
+
+- **`all_scans`** (default) — a message on every crossing. ~190,000/year for 500 pupils.
+- **`anomalies_only`** — a message only when something is unexpected: an early departure, an exit with no arrival recorded, an exit timestamped before its entry, or an arrival before the school opened. Roughly **15,000/year** for the same school.
+
+A late arrival is *not* treated as an anomaly. It is already on the register and it is not a safeguarding event.
+
+`anomalies_only` is about a 90% volume cut and usually a better product — parents stop tuning out routine noise and read the messages that matter.
+
+### 9.4 Delivery and the worker requirement
+
+**This is the operational catch.** Queueing a notification is a few database writes, so the gate never waits on a messaging provider. Actual sending happens on Celery.
+
+`CELERY_TASK_ALWAYS_EAGER` is set whenever `CELERY_WORKER_AVAILABLE` is not `true`, and in that mode a naive `.delay()` would run the provider call inline on the request thread — making every child at the gate wait on an HTTP round-trip. So the code refuses to do that: with no worker, rows are left `queued`.
+
+That means **on a deployment with no Celery worker, parents get in-app notifications but no email or SMS** until something runs the sweeper:
+
+```bash
+cd backend && python manage.py shell -c "from attendance.tasks import flush_pending_scan_notifications as f; print(f())"
+```
+
+For production, run a Celery worker (`CELERY_WORKER_AVAILABLE=true`) and schedule `attendance.tasks.flush_pending_scan_notifications` on beat as a safety net for anything the worker missed. Nothing is lost either way — queued work stays queued and visible.
+
+### 9.5 The parent-facing feed
+
+The in-app channel needs somewhere to be read:
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/attendance/notifications/` | A parent's own alerts. Staff with attendance access see the school's whole delivery log. |
+| GET | `/api/attendance/notifications/{id}/` | One alert. |
+| POST | `/api/attendance/notifications/{id}/read/` | Mark mine read. |
+| GET | `/api/attendance/notifications/unread-count/` | `{"unread": 3}` for a badge. |
+
+Filterable by `channel`, `status`, `student`. Each row carries the rendered `subject` and `body`, the `destination` actually used, the `provider` and its message id, plus `status`, `attempts` and any `error` — so "did the mother get the text, and to which number?" is answerable months later.
+
+Statuses are `queued`, `sent`, `failed`, `skipped`. `skipped` means we had no address for that parent on that channel — the row is kept deliberately, because "we had no phone number for her" is the answer to a complaint and an absent row is invisible.
+
+### 9.6 Choosing an SMS provider
+
+The SMS channel currently uses Twilio, because that is what the project already has credentials for. For Nigerian volume that is the wrong choice: Twilio needs alphanumeric sender-ID pre-registration above 30,000 SMS/month, requiring four separate No Objection Certificates, and its Nigeria rates run to ₦395/message at the top of the range.
+
+A local provider with a documented DND corporate route — Termii or Sendchamp — is the better answer, and matters more than price: over 30 million Nigerian numbers are on DND, so a promotional route silently fails to reach them. For a safeguarding message that is the worst failure mode there is.
+
+Swapping provider means one new `Channel` subclass in `backend/utils/notifications.py` and registering it. Nothing above that module changes. **None of the Nigerian providers publish DND-route pricing** — it needs a written quote per network.
+
+## 10. Notes and open items
 
 - **No staging environment is documented here** — confirm with the platform admin whether one exists before pointing a build at production.
 - **No dedicated rate limit** on the attendance endpoints themselves (only login/token issuing is rate-limited). Fine for launch; worth revisiting before real scale.

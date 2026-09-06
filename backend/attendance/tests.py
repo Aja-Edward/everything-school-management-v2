@@ -11,6 +11,7 @@ design: one active tag per UID per school, UIDs reusable once revoked,
 and offline scan batches that cannot replay into duplicate events.
 """
 from datetime import date, datetime, time, timedelta
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
@@ -29,13 +30,20 @@ from schoolSettings.models import Permission as SchoolPermission
 from schoolSettings.models import Role, UserRole
 from tenants.models import Tenant, TenantSettings
 
+from .gate import record_and_notify
+from .notifications import deliver
+from .tasks import flush_pending_scan_notifications
 from .models import (
     AlertPolicy,
     Attendance,
     AttendanceSession,
     AttendanceSettings,
     GateScan,
+    NotificationChannel,
+    NotificationStatus,
+    ParentAlertPreference,
     ScanDirection,
+    ScanNotification,
     StudentTag,
     TagStatus,
     normalize_tag_uid,
@@ -1177,3 +1185,404 @@ class GateScanBatchAPITest(APITestCase):
             {"uid": "AAAA0000", "direction": "in"} for _ in range(501)
         ])
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class NotificationFixtureMixin:
+    """A school, a child, two parents, and a chip on the bag."""
+
+    def build(self, alert_policy=AlertPolicy.ALL_SCANS):
+        self.tenant = Tenant.objects.create(
+            name="Notify School",
+            slug="notify-school",
+            status="active",
+            is_active=True,
+            owner_email="notify@example.com",
+        )
+        TenantSettings.objects.create(
+            tenant=self.tenant, timezone="Africa/Lagos")
+        self.settings_row = AttendanceSettings.objects.create(
+            tenant=self.tenant, alert_policy=alert_policy)
+        self.tz = ZoneInfo("Africa/Lagos")
+
+        self.section = Section.objects.create(name="A", tenant=self.tenant)
+        self.gatekeeper = self._user("nf_gate", "Gate", "Keeper", "teacher")
+        self.vincent = self._student("nf_vincent", "Vincent", "Eze")
+        self.tag = StudentTag.objects.create(
+            tenant=self.tenant, student=self.vincent, uid="04A2241B")
+
+        self.mother = self._parent("nf_mother", "Ada", "Eze", phone="+2348010000001")
+        self._link(self.mother, self.vincent, "mother")
+
+    def _user(self, username, first, last, role, **extra):
+        return User.objects.create_user(
+            username=username,
+            email=f"{username}@example.com",
+            first_name=first,
+            last_name=last,
+            role=role,
+            password="testpass123",
+            is_active=True,
+            tenant=self.tenant,
+            **extra,
+        )
+
+    def _student(self, username, first, last):
+        user = self._user(username, first, last, "student")
+        return Student.objects.create(
+            user=user, gender="M", date_of_birth=date(2014, 5, 1),
+            section=self.section, tenant=self.tenant,
+        )
+
+    def _parent(self, username, first, last, phone=""):
+        user = self._user(username, first, last, "parent")
+        return ParentProfile.objects.create(
+            user=user, phone=phone, tenant=self.tenant)
+
+    def _link(self, parent, student, relationship):
+        return ParentStudentRelationship.objects.create(
+            parent=parent, student=student,
+            relationship=relationship, tenant=self.tenant,
+        )
+
+    def _at(self, hour, minute):
+        today = date.today()
+        return datetime(
+            today.year, today.month, today.day, hour, minute, tzinfo=self.tz)
+
+    def _scan(self, direction="in", at=None, uid="04A2241B", **extra):
+        return record_and_notify(
+            tenant=self.tenant,
+            uid=uid,
+            direction=direction,
+            scanned_at=at or self._at(7, 45),
+            scanned_by=self.gatekeeper,
+            settings=self.settings_row,
+            **extra,
+        )
+
+
+class ScanNotificationQueueingTest(NotificationFixtureMixin, TestCase):
+    """What gets queued, for whom, on which channel."""
+
+    def setUp(self):
+        self.build()
+
+    def test_an_arrival_queues_in_app_and_email_but_not_sms(self):
+        """SMS is opt-in: nobody turns on a five-figure bill by accident."""
+        self._scan("in")
+
+        rows = ScanNotification.objects.filter(student=self.vincent)
+        channels_used = set(rows.values_list("channel", flat=True))
+        self.assertEqual(
+            channels_used,
+            {NotificationChannel.IN_APP, NotificationChannel.EMAIL},
+        )
+
+    def test_in_app_is_delivered_the_moment_it_is_stored(self):
+        self._scan("in")
+
+        in_app = ScanNotification.objects.get(
+            student=self.vincent, channel=NotificationChannel.IN_APP)
+        self.assertEqual(in_app.status, NotificationStatus.SENT)
+        self.assertEqual(in_app.provider, "in_app")
+
+    def test_sms_is_queued_once_the_parent_opts_in(self):
+        ParentAlertPreference.objects.create(
+            parent=self.mother, sms_enabled=True)
+
+        self._scan("in")
+
+        sms = ScanNotification.objects.get(
+            student=self.vincent, channel=NotificationChannel.SMS)
+        self.assertEqual(sms.destination, "+2348010000001")
+        self.assertEqual(sms.status, NotificationStatus.QUEUED)
+
+    def test_a_muted_parent_hears_nothing(self):
+        ParentAlertPreference.objects.create(parent=self.mother, muted=True)
+
+        self._scan("in")
+
+        self.assertEqual(ScanNotification.objects.count(), 0)
+
+    def test_every_linked_parent_is_notified(self):
+        father = self._parent("nf_father", "Emeka", "Eze")
+        self._link(father, self.vincent, "father")
+
+        self._scan("in")
+
+        recipients = set(
+            ScanNotification.objects
+            .filter(channel=NotificationChannel.EMAIL)
+            .values_list("recipient_id", flat=True)
+        )
+        self.assertEqual(
+            recipients, {self.mother.user_id, father.user_id})
+
+    def test_a_parent_at_another_school_is_not_notified(self):
+        """The relationship is filtered by tenant, not just the parent."""
+        other = Tenant.objects.create(
+            name="Elsewhere", slug="elsewhere", status="active",
+            is_active=True, owner_email="elsewhere@example.com",
+        )
+        stranger_user = User.objects.create_user(
+            username="nf_stranger", email="nf_stranger@example.com",
+            first_name="Stray", last_name="Parent", role="parent",
+            password="testpass123", is_active=True, tenant=other,
+        )
+        stranger = ParentProfile.objects.create(
+            user=stranger_user, tenant=other)
+        ParentStudentRelationship.objects.create(
+            parent=stranger, student=self.vincent,
+            relationship="guardian", tenant=other,
+        )
+
+        self._scan("in")
+
+        recipients = set(
+            ScanNotification.objects.values_list("recipient_id", flat=True))
+        self.assertNotIn(stranger.user_id, recipients)
+
+    def test_a_missing_phone_number_is_recorded_not_silently_dropped(self):
+        """'We had no number for her' has to be answerable later."""
+        silent = self._parent("nf_nophone", "No", "Phone", phone="")
+        self._link(silent, self.vincent, "guardian")
+        ParentAlertPreference.objects.create(parent=silent, sms_enabled=True)
+
+        self._scan("in")
+
+        row = ScanNotification.objects.get(
+            recipient=silent.user, channel=NotificationChannel.SMS)
+        self.assertEqual(row.status, NotificationStatus.SKIPPED)
+        self.assertIn("No destination", row.error)
+
+    def test_a_duplicate_tap_sends_no_second_message(self):
+        self._scan("in", at=self._at(7, 45))
+        before = ScanNotification.objects.count()
+
+        self._scan("in", at=self._at(7, 45) + timedelta(seconds=30))
+
+        self.assertEqual(ScanNotification.objects.count(), before)
+
+    def test_a_replayed_offline_scan_sends_no_second_message(self):
+        self._scan("in", at=self._at(7, 45), client_scan_id="q-1")
+        before = ScanNotification.objects.count()
+
+        self._scan("in", at=self._at(7, 45), client_scan_id="q-1")
+
+        self.assertEqual(ScanNotification.objects.count(), before)
+
+    def test_the_message_says_what_happened(self):
+        self._scan("in", at=self._at(7, 45))
+
+        row = ScanNotification.objects.filter(
+            channel=NotificationChannel.EMAIL).first()
+        self.assertIn("Vincent Eze", row.body)
+        self.assertIn("arrived", row.body)
+        self.assertIn("07:45", row.body)
+        self.assertIn("Notify School", row.body)
+
+    def test_a_late_arrival_says_so(self):
+        self._scan("in", at=self._at(8, 30))
+
+        row = ScanNotification.objects.filter(
+            channel=NotificationChannel.EMAIL).first()
+        self.assertIn("after the start of the school day", row.body)
+
+    def test_an_exit_message_says_left(self):
+        self._scan("in", at=self._at(7, 45))
+        self._scan("out", at=self._at(14, 30))
+
+        row = (
+            ScanNotification.objects
+            .filter(channel=NotificationChannel.EMAIL)
+            .order_by("-queued_at")
+            .first()
+        )
+        self.assertIn("left school", row.body)
+        self.assertIn("14:30", row.body)
+
+    def test_a_broken_alerting_layer_never_costs_us_the_scan(self):
+        with patch(
+            "attendance.notifications.recipients_for",
+            side_effect=RuntimeError("provider config exploded"),
+        ):
+            outcome = self._scan("in")
+
+        self.assertIsNotNone(outcome.scan.id)
+        self.assertIsNotNone(outcome.attendance)
+        self.assertEqual(outcome.notifications, [])
+
+
+class AnomalyOnlyPolicyTest(NotificationFixtureMixin, TestCase):
+    """
+    The cost control: routine crossings go unmessaged, exceptions do not.
+    Roughly a 90% cut in volume, which matters more than the per-message rate.
+    """
+
+    def setUp(self):
+        self.build(alert_policy=AlertPolicy.ANOMALIES_ONLY)
+
+    def test_a_normal_arrival_sends_nothing(self):
+        self._scan("in", at=self._at(7, 45))
+        self.assertEqual(ScanNotification.objects.count(), 0)
+
+    def test_a_normal_dismissal_sends_nothing(self):
+        self._scan("in", at=self._at(7, 45))
+        self._scan("out", at=self._at(14, 30))
+        self.assertEqual(ScanNotification.objects.count(), 0)
+
+    def test_an_early_departure_does_notify(self):
+        self._scan("in", at=self._at(7, 45))
+        self._scan("out", at=self._at(11, 15))
+
+        self.assertTrue(ScanNotification.objects.exists())
+        row = ScanNotification.objects.filter(
+            channel=NotificationChannel.EMAIL).first()
+        self.assertIn("before normal dismissal", row.body)
+
+    def test_an_exit_with_no_arrival_does_notify(self):
+        self._scan("out", at=self._at(11, 15))
+        self.assertTrue(ScanNotification.objects.exists())
+
+    def test_a_late_arrival_alone_is_not_an_anomaly(self):
+        """Lateness is already on the register; it is not a safeguarding event."""
+        self._scan("in", at=self._at(8, 30))
+        self.assertEqual(ScanNotification.objects.count(), 0)
+
+
+class NotificationDeliveryTest(NotificationFixtureMixin, TestCase):
+    """Handing a queued row to a provider, and recording what came back."""
+
+    def setUp(self):
+        self.build()
+        ParentAlertPreference.objects.create(
+            parent=self.mother, sms_enabled=True, email_enabled=False)
+        self._scan("in")
+        self.row = ScanNotification.objects.get(
+            channel=NotificationChannel.SMS)
+
+    def test_a_successful_send_is_recorded_with_its_provider_id(self):
+        with patch(
+            "utils.sms.send_sms_via_twilio",
+            return_value=(True, "SMS sent successfully", "SM123"),
+        ):
+            deliver(self.row)
+
+        self.row.refresh_from_db()
+        self.assertEqual(self.row.status, NotificationStatus.SENT)
+        self.assertEqual(self.row.provider_message_id, "SM123")
+        self.assertEqual(self.row.attempts, 1)
+        self.assertIsNotNone(self.row.sent_at)
+
+    def test_a_provider_failure_is_recorded_not_raised(self):
+        with patch(
+            "utils.sms.send_sms_via_twilio",
+            return_value=(False, "Twilio is not configured for this school", None),
+        ):
+            deliver(self.row)
+
+        self.row.refresh_from_db()
+        self.assertEqual(self.row.status, NotificationStatus.FAILED)
+        self.assertIn("not configured", self.row.error)
+
+    def test_a_provider_exception_is_contained(self):
+        with patch(
+            "utils.sms.send_sms_via_twilio",
+            side_effect=RuntimeError("connection reset"),
+        ):
+            deliver(self.row)
+
+        self.row.refresh_from_db()
+        self.assertEqual(self.row.status, NotificationStatus.FAILED)
+        self.assertIn("connection reset", self.row.error)
+
+    def test_delivering_an_already_sent_row_does_not_send_again(self):
+        self.row.mark_sent(provider="twilio", message_id="SM1")
+
+        with patch("utils.sms.send_sms_via_twilio") as sender:
+            deliver(self.row)
+
+        sender.assert_not_called()
+
+    def test_the_flush_task_picks_up_what_is_still_queued(self):
+        with patch(
+            "utils.sms.send_sms_via_twilio",
+            return_value=(True, "ok", "SM9"),
+        ):
+            summary = flush_pending_scan_notifications()
+
+        self.row.refresh_from_db()
+        self.assertEqual(self.row.status, NotificationStatus.SENT)
+        self.assertEqual(summary["sent"], 1)
+
+    def test_the_flush_task_gives_up_after_the_attempt_ceiling(self):
+        self.row.attempts = 3
+        self.row.status = NotificationStatus.FAILED
+        self.row.save()
+
+        with patch("utils.sms.send_sms_via_twilio") as sender:
+            flush_pending_scan_notifications()
+
+        sender.assert_not_called()
+
+
+class ParentNotificationFeedTest(NotificationFixtureMixin, APITestCase):
+    """The in-app channel a parent actually reads."""
+
+    def setUp(self):
+        self.build()
+        self._scan("in")
+        self.headers = {"HTTP_X_TENANT_SLUG": self.tenant.slug}
+
+    def test_a_parent_sees_only_their_own_alerts(self):
+        stranger = self._parent("nf_other", "Other", "Parent")
+        other_child = self._student("nf_other_child", "Other", "Child")
+        self._link(stranger, other_child, "mother")
+        StudentTag.objects.create(
+            tenant=self.tenant, student=other_child, uid="BBBB0001")
+        self._scan("in", uid="BBBB0001", at=self._at(7, 50))
+
+        self.client.force_authenticate(user=self.mother.user)
+        response = self.client.get(
+            reverse("scannotification-list"), **self.headers)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        recipients = {row["recipient"] for row in response.data["results"]}
+        self.assertEqual(recipients, {self.mother.user_id})
+
+    def test_staff_see_the_schools_delivery_log(self):
+        self.client.force_authenticate(user=self.gatekeeper)
+        response = self.client.get(
+            reverse("scannotification-list"), **self.headers)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(response.data["results"]), 1)
+
+    def test_a_parent_can_mark_an_alert_read(self):
+        row = ScanNotification.objects.get(
+            recipient=self.mother.user, channel=NotificationChannel.IN_APP)
+
+        self.client.force_authenticate(user=self.mother.user)
+        response = self.client.post(
+            reverse("scannotification-read", args=[row.id]),
+            {}, format="json", **self.headers)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        row.refresh_from_db()
+        self.assertIsNotNone(row.read_at)
+
+    def test_unread_count_reflects_what_is_unread(self):
+        self.client.force_authenticate(user=self.mother.user)
+        before = self.client.get(
+            reverse("scannotification-unread-count"), **self.headers)
+        self.assertEqual(before.data["unread"], 1)
+
+        row = ScanNotification.objects.get(
+            recipient=self.mother.user, channel=NotificationChannel.IN_APP)
+        self.client.post(
+            reverse("scannotification-read", args=[row.id]),
+            {}, format="json", **self.headers)
+
+        after = self.client.get(
+            reverse("scannotification-unread-count"), **self.headers)
+        self.assertEqual(after.data["unread"], 0)

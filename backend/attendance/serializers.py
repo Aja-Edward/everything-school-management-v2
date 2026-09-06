@@ -8,6 +8,7 @@ from .models import (
     AttendanceSession,
     GateScan,
     ScanDirection,
+    ScanNotification,
     StudentTag,
     TagStatus,
     normalize_tag_uid,
@@ -422,3 +423,41 @@ class ScanBatchSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "Maximum 500 scans per batch request.")
         return value
+
+
+class ScanNotificationSerializer(serializers.ModelSerializer):
+    """What a parent sees in their alert list, and what staff see in the log."""
+
+    student_detail = serializers.SerializerMethodField()
+    channel_display = serializers.SerializerMethodField()
+    status_display = serializers.SerializerMethodField()
+    direction = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ScanNotification
+        fields = [
+            "id",
+            "scan", "direction",
+            "student", "student_detail",
+            "recipient",
+            "channel", "channel_display",
+            "destination",
+            "subject", "body",
+            "status", "status_display",
+            "provider", "provider_message_id",
+            "error", "attempts",
+            "queued_at", "sent_at", "read_at",
+        ]
+        read_only_fields = fields
+
+    def get_student_detail(self, obj):
+        return _student_identity(obj.student if obj.student_id else None)
+
+    def get_channel_display(self, obj):
+        return obj.get_channel_display()
+
+    def get_status_display(self, obj):
+        return obj.get_status_display()
+
+    def get_direction(self, obj):
+        return obj.scan.direction if obj.scan_id else None
