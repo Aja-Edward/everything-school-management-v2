@@ -497,7 +497,7 @@ Three, in cost order:
 | Channel | Cost | Notes |
 |---|---|---|
 | `in_app` | free | The default. Stored and readable in the parent portal; immune to Nigerian DND. |
-| `email` | ~free | Per-school Brevo credentials. |
+| `email` | ~free | The school's own Brevo credentials, falling back to the platform account if it has none. |
 | `sms` | real money | **Opt-in per parent**, off by default. |
 
 SMS is deliberately opt-in. At two messages per child per day, a 500-pupil school sends roughly **190,000 texts a year** — which can cost more than the software. Nobody should be able to switch that on for a whole school by accident.

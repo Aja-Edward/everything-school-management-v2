@@ -11,7 +11,7 @@ design: one active tag per UID per school, UIDs reusable once revoked,
 and offline scan batches that cannot replay into duplicate events.
 """
 from datetime import date, datetime, time, timedelta
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
@@ -26,12 +26,15 @@ from rest_framework.test import APITestCase
 from classroom.models import Section
 from parent.models import ParentProfile, ParentStudentRelationship
 from students.models import Student
+from django.test import override_settings
+from schoolSettings.models import CommunicationSettings
 from schoolSettings.models import Permission as SchoolPermission
 from schoolSettings.models import Role, UserRole
 from tenants.models import Tenant, TenantSettings
 
 from .gate import record_and_notify
 from .notifications import deliver
+from utils.notifications import _brevo_credentials
 from .tasks import flush_pending_scan_notifications
 from .models import (
     AlertPolicy,
@@ -1455,6 +1458,17 @@ class NotificationDeliveryTest(NotificationFixtureMixin, TestCase):
 
     def setUp(self):
         self.build()
+        # SmsChannel checks the school has Twilio set up before calling the
+        # provider at all, so these tests need it configured to reach the
+        # mocked sender. Without it the row is skipped, which is what
+        # UnconfiguredChannelIsSkippedTest covers instead.
+        CommunicationSettings.objects.create(
+            tenant=self.tenant,
+            twilio_configured=True,
+            twilio_account_sid="AC-test",
+            twilio_auth_token="test-token",
+            twilio_phone_number="+15005550006",
+        )
         ParentAlertPreference.objects.create(
             parent=self.mother, sms_enabled=True, email_enabled=False)
         self._scan("in")
@@ -1586,3 +1600,187 @@ class ParentNotificationFeedTest(NotificationFixtureMixin, APITestCase):
         after = self.client.get(
             reverse("scannotification-unread-count"), **self.headers)
         self.assertEqual(after.data["unread"], 0)
+
+
+class BrevoCredentialResolutionTest(TestCase):
+    """
+    Which Brevo account carries a school's mail, and what gets recorded.
+
+    The fallback exists because asking every school to sign up for an email API
+    and paste a key is a step many will not finish, and the failure mode is a
+    parent never hearing that their child arrived.
+    """
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(
+            name="Brevo School",
+            slug="brevo-school",
+            status="active",
+            is_active=True,
+            owner_email="brevo@example.com",
+        )
+
+    def _configure_school(self, **overrides):
+        values = {
+            "tenant": self.tenant,
+            "brevo_configured": True,
+            "brevo_api_key": "school-key",
+            "brevo_sender_email": "office@brevoschool.test",
+            "brevo_sender_name": "Brevo School Office",
+        }
+        values.update(overrides)
+        return CommunicationSettings.objects.create(**values)
+
+    @override_settings(BREVO_API_KEY="platform-key",
+                       DEFAULT_FROM_EMAIL="alerts@platform.test")
+    def test_a_schools_own_account_is_preferred(self):
+        self._configure_school()
+
+        credentials = _brevo_credentials(self.tenant)
+
+        self.assertEqual(credentials.provider, "brevo")
+        self.assertEqual(credentials.api_key, "school-key")
+        self.assertEqual(credentials.sender_email, "office@brevoschool.test")
+
+    @override_settings(BREVO_API_KEY="platform-key",
+                       DEFAULT_FROM_EMAIL="alerts@platform.test")
+    def test_a_school_with_nothing_configured_falls_back_to_the_platform(self):
+        credentials = _brevo_credentials(self.tenant)
+
+        self.assertEqual(credentials.provider, "brevo_platform")
+        self.assertEqual(credentials.api_key, "platform-key")
+        self.assertEqual(credentials.sender_email, "alerts@platform.test")
+        # The parent still sees who it is from.
+        self.assertEqual(credentials.sender_name, "Brevo School")
+
+    @override_settings(BREVO_API_KEY="platform-key",
+                       DEFAULT_FROM_EMAIL="alerts@platform.test")
+    def test_a_half_configured_school_falls_back_rather_than_sending_broken(self):
+        """Marked configured but with no sender address is not usable."""
+        self._configure_school(brevo_sender_email="")
+
+        credentials = _brevo_credentials(self.tenant)
+
+        self.assertEqual(credentials.provider, "brevo_platform")
+
+    @override_settings(BREVO_API_KEY="your-brevo-api-key-here",
+                       DEFAULT_FROM_EMAIL="alerts@platform.test")
+    def test_the_placeholder_platform_key_does_not_count_as_configured(self):
+        self.assertIsNone(_brevo_credentials(self.tenant))
+
+    @override_settings(BREVO_API_KEY="", DEFAULT_FROM_EMAIL="a@b.test")
+    def test_no_credentials_anywhere_returns_none(self):
+        self.assertIsNone(_brevo_credentials(self.tenant))
+
+    @override_settings(BREVO_API_KEY="platform-key", DEFAULT_FROM_EMAIL="")
+    def test_platform_key_without_a_sender_address_is_unusable(self):
+        """Brevo rejects unverified senders, so a key alone is not enough."""
+        self.assertIsNone(_brevo_credentials(self.tenant))
+
+    @override_settings(BREVO_API_KEY="platform-key",
+                       DEFAULT_FROM_EMAIL="alerts@platform.test")
+    def test_one_schools_key_never_leaks_into_another_schools_mail(self):
+        self._configure_school()
+        other = Tenant.objects.create(
+            name="Other Brevo School",
+            slug="other-brevo-school",
+            status="active",
+            is_active=True,
+            owner_email="other@example.com",
+        )
+
+        credentials = _brevo_credentials(other)
+
+        self.assertEqual(credentials.provider, "brevo_platform")
+        self.assertNotEqual(credentials.api_key, "school-key")
+
+
+class UnconfiguredChannelIsSkippedTest(NotificationFixtureMixin, TestCase):
+    """
+    A channel a school has never set up is skipped, not failed.
+
+    Retrying it three times produces three identical errors per notification,
+    and that noise buries failures that are worth looking at.
+    """
+
+    def setUp(self):
+        self.build()
+
+    @override_settings(BREVO_API_KEY="", DEFAULT_FROM_EMAIL="")
+    def test_email_with_no_credentials_anywhere_is_skipped(self):
+        self._scan("in")
+        row = ScanNotification.objects.get(channel=NotificationChannel.EMAIL)
+
+        deliver(row)
+
+        row.refresh_from_db()
+        self.assertEqual(row.status, NotificationStatus.SKIPPED)
+        self.assertIn("No Brevo account", row.error)
+
+    @override_settings(BREVO_API_KEY="", DEFAULT_FROM_EMAIL="")
+    def test_a_skipped_row_is_not_retried_by_the_sweep(self):
+        self._scan("in")
+        row = ScanNotification.objects.get(channel=NotificationChannel.EMAIL)
+        deliver(row)
+
+        with patch("utils.notifications.requests.post") as poster:
+            flush_pending_scan_notifications()
+
+        poster.assert_not_called()
+
+    def test_sms_for_a_school_without_twilio_is_skipped_not_failed(self):
+        """No platform fallback for SMS: it costs money nobody agreed to."""
+        ParentAlertPreference.objects.create(
+            parent=self.mother, sms_enabled=True)
+        self._scan("in")
+        row = ScanNotification.objects.get(channel=NotificationChannel.SMS)
+
+        with patch("utils.sms.send_sms_via_twilio") as sender:
+            deliver(row)
+
+        sender.assert_not_called()
+        row.refresh_from_db()
+        self.assertEqual(row.status, NotificationStatus.SKIPPED)
+
+    @override_settings(BREVO_API_KEY="platform-key",
+                       DEFAULT_FROM_EMAIL="alerts@platform.test")
+    def test_the_platform_account_is_recorded_on_the_notification(self):
+        """'Who paid for this message?' has to be answerable later."""
+        self._scan("in")
+        row = ScanNotification.objects.get(channel=NotificationChannel.EMAIL)
+
+        response = Mock(status_code=201)
+        response.json.return_value = {"messageId": "brevo-1"}
+        with patch("utils.notifications.requests.post", return_value=response):
+            deliver(row)
+
+        row.refresh_from_db()
+        self.assertEqual(row.status, NotificationStatus.SENT)
+        self.assertEqual(row.provider, "brevo_platform")
+        self.assertEqual(row.provider_message_id, "brevo-1")
+
+    @override_settings(BREVO_API_KEY="platform-key",
+                       DEFAULT_FROM_EMAIL="alerts@platform.test")
+    def test_a_schools_own_broken_key_fails_rather_than_falling_back(self):
+        """
+        Silently re-sending through the platform would hide the school's
+        misconfiguration and move their mail onto shared sending reputation.
+        """
+        CommunicationSettings.objects.create(
+            tenant=self.tenant,
+            brevo_configured=True,
+            brevo_api_key="school-key-that-is-rejected",
+            brevo_sender_email="office@school.test",
+        )
+        self._scan("in")
+        row = ScanNotification.objects.get(channel=NotificationChannel.EMAIL)
+
+        response = Mock(status_code=401, text="unauthorized")
+        with patch("utils.notifications.requests.post",
+                   return_value=response) as poster:
+            deliver(row)
+
+        self.assertEqual(poster.call_count, 1)
+        row.refresh_from_db()
+        self.assertEqual(row.status, NotificationStatus.FAILED)
+        self.assertEqual(row.provider, "brevo")

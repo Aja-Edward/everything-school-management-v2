@@ -12,6 +12,26 @@ services:
     expose:
       - "8000"
 
+  # Executes queued tasks, with the CELERY_BEAT_SCHEDULE scheduler embedded via
+  # --beat. Without this running, CELERY_WORKER_AVAILABLE must stay unset: the
+  # gate scan path deliberately refuses to send notifications inline, so parents
+  # would get in-app alerts and nothing else.
+  #
+  # Embedded beat means exactly ONE replica of this service. Scale it and every
+  # replica runs its own scheduler, so each periodic task fires once per replica.
+  # If you ever need more than one worker, drop --beat here and add a separate
+  # `celery -A config beat` service instead.
+  celery:
+    build:
+      context: ./backend
+    image: edwad148/schoolmsapp-backend:latest
+    container_name: celery
+    command: celery -A config worker --beat --loglevel=info --pool=threads --concurrency=4
+    env_file:
+      - .env.backend
+    depends_on:
+      - backend
+
   frontend:
     build:
       context: ./frontend
