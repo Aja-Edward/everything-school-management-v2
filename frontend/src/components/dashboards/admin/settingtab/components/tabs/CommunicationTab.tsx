@@ -412,8 +412,8 @@ const CommunicationTab: React.FC = () => {
                 <Mail className="w-5 h-5 text-blue-600" />
               </div>
               <div>
-                <h4 className="font-semibold text-slate-900">Brevo Email Configuration</h4>
-                <p className="text-sm text-slate-600">Configure Brevo (formerly Sendinblue) for email delivery</p>
+                <h4 className="font-semibold text-slate-900">Email Delivery</h4>
+                <p className="text-sm text-slate-600">Optional — use your own Brevo account instead of ours</p>
               </div>
               {brevoConfig.isConfigured && (
                 <div className="ml-auto flex items-center gap-2 px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm">
@@ -422,15 +422,39 @@ const CommunicationTab: React.FC = () => {
               )}
             </div>
 
+            {/* Email works without any of this — the platform account is the
+                default. Saying so prevents a school thinking their alerts are
+                broken, and makes clear what changes if they do add a key. */}
+            {brevoConfig.isConfigured ? (
+              <div className="p-4 bg-green-50 border border-green-200 rounded-xl text-sm text-green-900">
+                <p className="font-medium mb-1">Emails are sending through your school's own Brevo account.</p>
+                <p className="text-green-800">
+                  They come from {brevoConfig.senderEmail || 'your sender address'}, and your Brevo account is billed for them.
+                  Clear the API key to go back to using ours.
+                </p>
+              </div>
+            ) : (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-900">
+                <p className="font-medium mb-1">Emails are already working — no setup needed.</p>
+                <p className="text-blue-800">
+                  Your school's emails currently go out through our email service, showing your school's name as the sender.
+                  Add your own Brevo account below only if you want them sent from your own address, or want to manage
+                  delivery and billing yourself.
+                </p>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 gap-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Brevo API Key</label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Brevo API Key <span className="font-normal text-slate-400">— optional</span>
+                </label>
                 <div className="relative">
                   <input
                     type={showBrevoKey ? 'text' : 'password'}
                     value={brevoConfig.apiKey}
                     onChange={(e) => setBrevoConfig({ ...brevoConfig, apiKey: e.target.value })}
-                    placeholder="Enter your Brevo API key"
+                    placeholder="Leave empty to keep using our email service"
                     className="w-full px-4 py-3 pr-12 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all duration-200"
                   />
                   <button
@@ -509,8 +533,8 @@ const CommunicationTab: React.FC = () => {
                 <Phone className="w-5 h-5 text-purple-600" />
               </div>
               <div>
-                <h4 className="font-semibold text-slate-900">Twilio SMS Configuration</h4>
-                <p className="text-sm text-slate-600">Configure Twilio for SMS delivery</p>
+                <h4 className="font-semibold text-slate-900">SMS Delivery</h4>
+                <p className="text-sm text-slate-600">Required — text messages need your own account</p>
               </div>
               {twilioConfig.isConfigured && (
                 <div className="ml-auto flex items-center gap-2 px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm">
@@ -518,6 +542,21 @@ const CommunicationTab: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* Unlike email, SMS has no platform fallback: every message costs
+                real money, so a school that has not set up an account has not
+                agreed to spend anything. Without this, "SMS silently does
+                nothing" is a support ticket waiting to happen. */}
+            {!twilioConfig.isConfigured && (
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-900">
+                <p className="font-medium mb-1">Text messages are not being sent.</p>
+                <p className="text-amber-800">
+                  Unlike email, SMS needs your own account — each message costs money, so we don't send texts on your
+                  behalf. Until this is set up, parents who chose SMS alerts will not receive them. They still get
+                  in-app and email alerts.
+                </p>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 gap-4">
               <div>
