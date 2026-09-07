@@ -14,17 +14,34 @@ rows `queued` instead. Nothing is lost; it just does not go out.
 
 1. `REDIS_URL` is set. Without it the broker falls back to `memory://`, which
    cannot carry work between processes.
-2. A worker process is running: `celery -A config worker`.
+2. A worker process is running: `celery -A config worker --beat`.
 3. `CELERY_WORKER_AVAILABLE=true` on the **web** service, so it hands tasks off
    instead of running them inline.
-4. Optionally a beat process for the periodic sweep: `celery -A config beat`.
 
 Order matters: set `CELERY_WORKER_AVAILABLE=true` only **after** the worker is
-up. Set it with no worker and tasks are handed to a queue nobody is draining.
+up. Set it with no worker and tasks are handed to a queue nobody is draining —
+which is worse than leaving it unset, because with it unset the tasks at least
+run inline.
+
+## One process, not two
+
+Celery can run the beat scheduler inside the worker with `--beat`, so a single
+process both schedules and executes. That is what everything below uses.
+
+The textbook arrangement is a separate `celery -A config beat` process, and it
+is the right answer at scale — beat inside the worker is a single point of
+failure, and it only works with **exactly one worker instance**, because every
+replica would run its own scheduler and fire each periodic task once per
+replica.
+
+At one school's volume neither concern bites, and on Render the split costs a
+second Background Worker at $7/month for a process that submits one task every
+five minutes. Start embedded. If you ever run more than one worker, drop
+`--beat` and add a dedicated beat service then.
 
 ## Render
 
-Three services, all from the same repo and the same `backend/` root.
+Background Workers have no free instance type — Starter is $7/month.
 
 **1. The existing Web Service** — add an environment variable:
 
@@ -32,38 +49,70 @@ Three services, all from the same repo and the same `backend/` root.
 CELERY_WORKER_AVAILABLE=true
 ```
 
-**2. A new Background Worker**
+**2. One new Background Worker**
 
-- Root directory: `backend`
-- Build command: `pip install -r requirements.txt`
-- Start command: `celery -A config worker --loglevel=info --pool=threads --concurrency=4`
-- Environment: same variables as the web service, including `REDIS_URL`,
-  `DJANGO_SECRET_KEY` and the database settings
+| Field | Value |
+|---|---|
+| Repository | this repo |
+| Branch | `main` |
+| Root Directory | `backend` |
+| Runtime | Python |
+| Build Command | `pip install -r requirements.txt` |
+| Start Command | `celery -A config worker --beat --loglevel=info --pool=threads --concurrency=4` |
+| Region | **the same region as the web service** |
+| Instance Type | Starter |
 
-**3. A second Background Worker for beat** (optional but recommended)
+Keep it to one instance; see above.
 
-- Same root, build command and environment as above
-- Start command: `celery -A config beat --loglevel=info`
+Two things that catch people:
 
-Beat only *submits* scheduled tasks; the worker in step 2 executes them. Beat
-without a worker does nothing at all.
+- **A new worker gets no environment variables.** It needs the same set as the
+  web service — `REDIS_URL`, `DJANGO_SECRET_KEY`, the database settings, plus
+  Cloudinary, Brevo and Twilio. If the variables live directly on the web
+  service rather than in an Environment Group, they have to be copied across,
+  and they then have to be kept in sync by hand. Moving the shared ones into an
+  Environment Group and linking both services is the version that does not rot.
+- **Region has to match.** A worker in another region cannot use Render's
+  internal networking and pays latency on every Redis and Postgres call.
 
 `--pool=threads` matches `CELERY_WORKER_POOL` in settings. These tasks are
 I/O-bound — waiting on Brevo and Twilio — so threads are the right pool and use
-far less memory than processes, which matters on a small Render instance.
+far less memory than processes, which matters on a small instance.
 
 ## Docker Compose
 
-`docker-compose-production.yml` already defines `celery-worker` and
-`celery-beat`. Add `CELERY_WORKER_AVAILABLE=true` to `.env.backend` and:
+`docker-compose-production.yml` defines a single `celery` service with `--beat`.
+Add `CELERY_WORKER_AVAILABLE=true` to `.env.backend` and:
 
 ```bash
-docker compose -f docker-compose-production.yml up -d celery-worker celery-beat
+docker compose -f docker-compose-production.yml up -d celery
 ```
+
+Do not `--scale` that service past 1 while `--beat` is on it.
 
 ## Locally
 
-Two terminals, plus Redis on `REDIS_URL`:
+Needs Redis reachable on `REDIS_URL`. Note that Render's Redis/Valkey hostname
+is internal — something like `red-xxxx:6379` — and resolves only from inside
+Render's own network. Pointing a local worker at it fails with
+
+```
+consumer: Cannot connect to redis://red-xxxx:6379//: Error 11001 ... getaddrinfo failed
+```
+
+which means the URL is fine and your machine simply is not on that network. For
+local work run your own Redis (`docker run -p 6379:6379 redis`) and set
+`REDIS_URL=redis://localhost:6379/0`.
+
+On macOS or Linux, one terminal:
+
+```bash
+cd backend && celery -A config worker --beat --loglevel=info --pool=threads
+```
+
+**On Windows `--beat` does not work.** Celery rejects it outright with
+`-B option does not work on Windows. Please run celery beat as a separate
+service.` So locally on Windows it is two terminals:
 
 ```bash
 cd backend && celery -A config worker --loglevel=info --pool=threads
@@ -73,8 +122,15 @@ cd backend && celery -A config worker --loglevel=info --pool=threads
 cd backend && celery -A config beat --loglevel=info
 ```
 
-On Windows the `threads` pool is required — Celery's default `prefork` pool does
-not work there.
+This only affects local development. Render and the Docker image both run Linux,
+where the single `--beat` process is fine.
+
+The `threads` pool is required on Windows too — Celery's default `prefork` pool
+does not work there.
+
+Beat writes a `celerybeat-schedule` file into the working directory to remember
+when each task last ran. It is gitignored; delete it if the schedule changes and
+beat seems to be using stale timings.
 
 ## Checking it works
 
