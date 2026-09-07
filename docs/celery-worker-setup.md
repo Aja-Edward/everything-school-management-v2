@@ -164,10 +164,27 @@ It will not retry past three attempts. A notification that fails three times
 stays `failed` with its error recorded, on the reasoning that a fourth attempt
 at an invalid phone number is not going to succeed either.
 
-One known rough edge: a school with no Brevo credentials configured produces a
-`failed` email row per notification, retried three times. Harmless but noisy,
-and it can mask real failures. "Not configured" should really be `skipped`
-(permanent) rather than `failed` (transient).
+A channel a school has never configured is recorded as `skipped`, not `failed`,
+so it is not retried — three identical "not configured" errors per notification
+would bury the failures worth looking at.
+
+Email falls back to the platform Brevo account when a school has not set up its
+own, so alerts still reach parents at a school that never finished the settings
+screen. Which account carried a message is recorded on the notification as
+`brevo` (the school's own) or `brevo_platform`.
+
+Two things follow from that fallback:
+
+- It needs `BREVO_API_KEY` **and** a `DEFAULT_FROM_EMAIL` that is a *verified
+  sender* on the platform Brevo account. Brevo refuses to send from an address
+  it has not verified, so a key alone is not enough.
+- A school whose own key is present but rejected fails loudly rather than
+  falling back. Quietly re-sending through the platform account would hide the
+  misconfiguration and move that school's mail onto shared sending reputation
+  without anyone choosing it.
+
+SMS has no fallback, deliberately: texts cost real money per message, and a
+school that has not configured an account has not agreed to spend anything.
 
 ## Other periodic tasks
 

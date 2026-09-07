@@ -297,6 +297,12 @@ def deliver(notification):
     if result.ok:
         notification.mark_sent(
             provider=result.provider, message_id=result.message_id)
+    elif result.permanent:
+        # Nothing to retry — the school has no credentials for this channel.
+        # Recorded as skipped so it does not sit in the failed pile being
+        # retried, where it would bury failures that are worth looking at.
+        notification.provider = result.provider or notification.provider
+        notification.mark_skipped(result.error)
     else:
         notification.mark_failed(result.error, provider=result.provider)
     return notification

@@ -21,6 +21,7 @@ import logging
 from dataclasses import dataclass
 
 import requests
+from django.conf import settings as django_settings
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +37,22 @@ class SendResult:
     provider: str = ""
     message_id: str = ""
     error: str = ""
+    permanent: bool = False
 
     @classmethod
     def failure(cls, provider, error):
+        """A send that failed but might succeed on a retry."""
         return cls(ok=False, provider=provider, error=str(error))
+
+    @classmethod
+    def unavailable(cls, provider, error):
+        """
+        No credentials for this channel, so there is nothing to retry. Kept
+        distinct from `failure` because retrying a school that has simply never
+        configured email produces three identical errors per notification, and
+        that noise buries the real failures.
+        """
+        return cls(ok=False, provider=provider, error=str(error), permanent=True)
 
     @classmethod
     def success(cls, provider, message_id=""):
@@ -58,6 +71,72 @@ def _school_name(tenant):
     if tenant is None:
         return "School"
     return getattr(tenant, "name", None) or "School"
+
+
+# Values that mean "nobody has set this yet".
+_PLACEHOLDER_KEYS = {"", "your-brevo-api-key-here"}
+
+
+@dataclass
+class BrevoCredentials:
+    api_key: str
+    sender_email: str
+    sender_name: str
+    provider: str
+
+
+def _brevo_credentials(tenant):
+    """
+    Which Brevo account sends for this school, or None if nothing is set up.
+
+    A school's own credentials win. When it has none, the platform account
+    carries the message so that a school which never finished the settings
+    screen still reaches its parents — asking every school to sign up for an
+    email API and paste a key is a step many will not complete, and silently
+    dropping "your child arrived at school" is the worst place to discover it.
+
+    The fallback applies only when a school has configured *nothing*. A school
+    whose own key is present but rejected fails loudly instead: quietly
+    re-sending through the platform account would hide a misconfiguration and
+    move the school's mail onto shared sending reputation without anyone
+    choosing that.
+
+    Which account was used is recorded on the notification as `brevo` or
+    `brevo_platform`, so "who paid for this message, and from what address?"
+    stays answerable.
+    """
+    comm = _communication_settings(tenant)
+    if comm and comm.brevo_configured:
+        api_key = (comm.brevo_api_key or "").strip()
+        sender_email = (comm.brevo_sender_email or "").strip()
+        if api_key and sender_email:
+            return BrevoCredentials(
+                api_key=api_key,
+                sender_email=sender_email,
+                sender_name=(comm.brevo_sender_name or "").strip()
+                            or _school_name(tenant),
+                provider="brevo",
+            )
+
+    platform_key = (getattr(django_settings, "BREVO_API_KEY", "") or "").strip()
+    if platform_key in _PLACEHOLDER_KEYS:
+        return None
+
+    # Brevo refuses to send from an address it has not verified, so this only
+    # works if DEFAULT_FROM_EMAIL is a verified sender on the platform account.
+    platform_sender = (
+        getattr(django_settings, "DEFAULT_FROM_EMAIL", "") or "").strip()
+    if not platform_sender:
+        return None
+
+    return BrevoCredentials(
+        api_key=platform_key,
+        sender_email=platform_sender,
+        # The school's name still shows as the display name, so a parent sees
+        # who it is from even though the address belongs to the platform.
+        sender_name=_school_name(tenant),
+        provider="brevo_platform",
+    )
 
 
 # ── Channels ──────────────────────────────────────────────────────────────────
@@ -101,21 +180,18 @@ class EmailChannel(Channel):
         return (getattr(user, "email", "") or "").strip() or None
 
     def deliver(self, *, tenant, destination, subject, body):
-        comm = _communication_settings(tenant)
-        if not comm or not comm.brevo_configured or not comm.brevo_api_key:
-            return SendResult.failure(
-                self.provider, "Brevo is not configured for this school")
-
-        sender_email = (comm.brevo_sender_email or "").strip()
-        if not sender_email:
-            return SendResult.failure(
-                self.provider, "No sender address configured for this school")
+        credentials = _brevo_credentials(tenant)
+        if credentials is None:
+            return SendResult.unavailable(
+                self.provider,
+                "No Brevo account configured for this school, and no platform "
+                "account to fall back on",
+            )
 
         payload = {
             "sender": {
-                "name": (comm.brevo_sender_name or "").strip()
-                        or _school_name(tenant),
-                "email": sender_email,
+                "name": credentials.sender_name,
+                "email": credentials.sender_email,
             },
             "to": [{"email": destination}],
             "subject": subject,
@@ -123,7 +199,7 @@ class EmailChannel(Channel):
         }
         headers = {
             "accept": "application/json",
-            "api-key": comm.brevo_api_key,
+            "api-key": credentials.api_key,
             "content-type": "application/json",
         }
 
@@ -133,7 +209,7 @@ class EmailChannel(Channel):
                 timeout=REQUEST_TIMEOUT,
             )
         except requests.exceptions.RequestException as error:
-            return SendResult.failure(self.provider, error)
+            return SendResult.failure(credentials.provider, error)
 
         if response.status_code in (200, 201, 202):
             message_id = ""
@@ -141,10 +217,10 @@ class EmailChannel(Channel):
                 message_id = (response.json() or {}).get("messageId", "") or ""
             except ValueError:
                 pass
-            return SendResult.success(self.provider, message_id)
+            return SendResult.success(credentials.provider, message_id)
 
         return SendResult.failure(
-            self.provider,
+            credentials.provider,
             f"Brevo returned {response.status_code}: {response.text[:500]}",
         )
 
@@ -173,6 +249,16 @@ class SmsChannel(Channel):
 
     def deliver(self, *, tenant, destination, subject, body):
         from utils.sms import send_sms_via_twilio
+
+        # There is no platform fallback for SMS, deliberately: texts cost real
+        # money per message, so a school that has not set up an account has not
+        # agreed to spend anything, and the platform should not spend it for
+        # them. Checked up front so an unconfigured school is skipped rather
+        # than retried three times.
+        comm = _communication_settings(tenant)
+        if not comm or not comm.twilio_configured:
+            return SendResult.unavailable(
+                self.provider, "SMS is not configured for this school")
 
         ok, detail, message_sid = send_sms_via_twilio(
             destination, body, tenant=tenant)
