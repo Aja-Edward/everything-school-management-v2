@@ -186,6 +186,13 @@ Two things follow from that fallback:
 SMS has no fallback, deliberately: texts cost real money per message, and a
 school that has not configured an account has not agreed to spend anything.
 
+Alert emails carry a `Reply-To` pointing at the school — its own Brevo sender
+address if it has one, otherwise its contact address, otherwise the address the
+school registered with. Nothing to configure: `owner_email` is required at
+registration, so every school has a working reply address. This matters under
+the platform fallback, where the From address belongs to a domain with no MX
+records, so a parent answering an alert would otherwise bounce.
+
 ## Other periodic tasks
 
 `CELERY_BEAT_SCHEDULE` currently contains only the notification sweep. Several

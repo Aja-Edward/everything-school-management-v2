@@ -139,6 +139,41 @@ def _brevo_credentials(tenant):
     )
 
 
+def _reply_to_for(tenant, credentials):
+    """
+    Where a parent's reply should land, or None.
+
+    This matters most under the platform fallback: the From address then
+    belongs to the platform, whose domain has no MX records at all, so a
+    parent replying to "your child has left school" would bounce. Some parents
+    will reply to a message like that, and the reply needs to reach their
+    school rather than disappear.
+
+    Derived from what a school already has rather than asking for another
+    setting — owner_email is required at registration, so every school gets a
+    working reply address with no configuration.
+    """
+    if tenant is None:
+        return None
+
+    candidates = []
+
+    comm = _communication_settings(tenant)
+    if comm:
+        candidates.append((comm.brevo_sender_email or "").strip())
+
+    settings_row = getattr(tenant, "settings", None)
+    if settings_row is not None:
+        candidates.append((getattr(settings_row, "email", "") or "").strip())
+
+    candidates.append((getattr(tenant, "owner_email", "") or "").strip())
+
+    for address in candidates:
+        if address:
+            return {"email": address, "name": _school_name(tenant)}
+    return None
+
+
 # ── Channels ──────────────────────────────────────────────────────────────────
 
 class Channel:
@@ -197,6 +232,10 @@ class EmailChannel(Channel):
             "subject": subject,
             "textContent": body,
         }
+
+        reply_to = _reply_to_for(tenant, credentials)
+        if reply_to:
+            payload["replyTo"] = reply_to
         headers = {
             "accept": "application/json",
             "api-key": credentials.api_key,

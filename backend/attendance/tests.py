@@ -34,7 +34,7 @@ from tenants.models import Tenant, TenantSettings
 
 from .gate import record_and_notify
 from .notifications import deliver
-from utils.notifications import _brevo_credentials
+from utils.notifications import _brevo_credentials, _reply_to_for
 from .tasks import flush_pending_scan_notifications
 from .models import (
     AlertPolicy,
@@ -1784,3 +1784,88 @@ class UnconfiguredChannelIsSkippedTest(NotificationFixtureMixin, TestCase):
         row.refresh_from_db()
         self.assertEqual(row.status, NotificationStatus.FAILED)
         self.assertEqual(row.provider, "brevo")
+
+
+class ReplyToResolutionTest(TestCase):
+    """
+    Where a parent's reply lands.
+
+    Under the platform fallback the From address belongs to the platform,
+    whose domain has no MX records, so without a Reply-To a parent answering
+    "your child has left school" would simply bounce.
+    """
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(
+            name="Reply School",
+            slug="reply-school",
+            status="active",
+            is_active=True,
+            owner_email="head@replyschool.test",
+        )
+
+    def test_it_falls_back_to_the_registration_contact(self):
+        """owner_email is required at registration, so this always exists."""
+        reply_to = _reply_to_for(self.tenant, None)
+
+        self.assertEqual(reply_to["email"], "head@replyschool.test")
+        self.assertEqual(reply_to["name"], "Reply School")
+
+    def test_the_schools_own_settings_address_wins_over_the_owner(self):
+        TenantSettings.objects.create(
+            tenant=self.tenant, email="office@replyschool.test")
+
+        reply_to = _reply_to_for(self.tenant, None)
+
+        self.assertEqual(reply_to["email"], "office@replyschool.test")
+
+    def test_a_configured_brevo_sender_wins_over_everything(self):
+        TenantSettings.objects.create(
+            tenant=self.tenant, email="office@replyschool.test")
+        CommunicationSettings.objects.create(
+            tenant=self.tenant,
+            brevo_configured=True,
+            brevo_api_key="school-key",
+            brevo_sender_email="noreply@replyschool.test",
+        )
+
+        reply_to = _reply_to_for(self.tenant, None)
+
+        self.assertEqual(reply_to["email"], "noreply@replyschool.test")
+
+    def test_a_blank_settings_address_is_skipped_not_used(self):
+        TenantSettings.objects.create(tenant=self.tenant, email="")
+
+        reply_to = _reply_to_for(self.tenant, None)
+
+        self.assertEqual(reply_to["email"], "head@replyschool.test")
+
+    def test_no_tenant_means_no_reply_to(self):
+        self.assertIsNone(_reply_to_for(None, None))
+
+
+class ReplyToIsSentToBrevoTest(NotificationFixtureMixin, TestCase):
+    """The header actually reaches Brevo, not just the helper."""
+
+    def setUp(self):
+        self.build()
+
+    @override_settings(BREVO_API_KEY="platform-key",
+                       DEFAULT_FROM_EMAIL="alerts@platform.test")
+    def test_the_payload_carries_a_reply_to_pointing_at_the_school(self):
+        self._scan("in")
+        row = ScanNotification.objects.get(channel=NotificationChannel.EMAIL)
+
+        response = Mock(status_code=201)
+        response.json.return_value = {"messageId": "brevo-reply-1"}
+        with patch("utils.notifications.requests.post",
+                   return_value=response) as poster:
+            deliver(row)
+
+        payload = poster.call_args.kwargs["json"]
+        # From is the platform's unmonitored address...
+        self.assertEqual(payload["sender"]["email"], "alerts@platform.test")
+        # ...so replies must be routed back to the school.
+        self.assertEqual(
+            payload["replyTo"]["email"], self.tenant.owner_email)
+        self.assertEqual(payload["replyTo"]["name"], "Notify School")
