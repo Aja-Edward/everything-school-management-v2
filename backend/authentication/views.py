@@ -19,6 +19,7 @@ import string
 import random
 from datetime import timedelta
 from django.contrib.auth.tokens import default_token_generator
+from django.contrib.auth.models import update_last_login
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
 from django.core.mail import send_mail
@@ -263,6 +264,17 @@ class SimpleLoginView(APIView):
 
             # Generate JWT tokens
             refresh = RefreshToken.for_user(user)
+
+            # RefreshToken.for_user() mints a token and nothing else. The
+            # SIMPLE_JWT["UPDATE_LAST_LOGIN"] setting only reaches
+            # TokenObtainPairSerializer, which this view does not use, so
+            # without this line every web login leaves last_login untouched.
+            # It stayed None for every account that had only ever signed in
+            # through the browser, which is nearly all of them -- and the field
+            # is the obvious one to reach for when asking whether a school is
+            # actually using the product.
+            update_last_login(None, user)
+
             record_login_attempt(
                 user.email, request, success=True, tenant=user.tenant)
             log_action('login_success', request=request, user=user)
