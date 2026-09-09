@@ -23,6 +23,7 @@ from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -31,6 +32,7 @@ from parent.models import ParentProfile
 from schoolSettings.permissions import (
     HasAttendancePermission,
     HasAttendancePermissionOrReadOnly,
+    HasSettingsPermissionOrReadOnly,
     HasStudentsPermission,
     HasStudentsPermissionOrReadOnly,
 )
@@ -46,6 +48,7 @@ from .gate import ScanError, record_and_notify, settings_for
 from .models import (
     Attendance,
     AttendanceSession,
+    AttendanceSettings,
     GateScan,
     NotificationChannel,
     ScanNotification,
@@ -54,6 +57,7 @@ from .models import (
     normalize_tag_uid,
 )
 from .serializers import (
+    AttendanceSettingsSerializer,
     AttendanceBulkUpsertSerializer,
     AttendanceSerializer,
     AttendanceStatsSerializer,
@@ -1331,3 +1335,74 @@ class ScanNotificationViewSet(TenantFilterMixin,
             .count()
         )
         return Response({"unread": count}, status=status.HTTP_200_OK)
+
+
+class AttendanceSettingsDetail(APIView):
+    """
+    A school's own attendance configuration, at /attendance/settings/.
+
+    A singleton rather than a collection: AttendanceSettings is keyed on the
+    tenant, one row per school, so there is nothing to list and no id to
+    address. The row is resolved from the request, never from the body, which
+    is what keeps one school out of another's settings.
+
+    This exists because alert_policy was reachable only through the Django
+    admin. That was tolerable while the default was to notify on every scan --
+    nobody had to touch it to get the loud behaviour -- but the default is now
+    anomalies-only, and a school that wants every crossing should not need a
+    superuser to say so.
+    """
+
+    permission_classes = [IsAuthenticated, HasSettingsPermissionOrReadOnly]
+
+    def _tenant(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant and request.user.is_authenticated:
+            tenant = getattr(request.user, "tenant", None)
+        return tenant
+
+    def _row(self, request):
+        """
+        get_or_create, matching gate.settings_for: a school that has never
+        opened this screen still has working defaults, and reading them should
+        not 404.
+        """
+        tenant = self._tenant(request)
+        if tenant is None:
+            return None, Response(
+                {"error": "No tenant found."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        row, _ = AttendanceSettings.objects.get_or_create(tenant=tenant)
+        return row, None
+
+    def get(self, request):
+        row, error = self._row(request)
+        if error:
+            return error
+        return Response(AttendanceSettingsSerializer(row).data)
+
+    def patch(self, request):
+        row, error = self._row(request)
+        if error:
+            return error
+
+        serializer = AttendanceSettingsSerializer(
+            row, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.save()
+
+        # Changing the alert policy changes what every parent receives, and
+        # changing the windows changes how every scan is classified. Both are
+        # worth being able to attribute afterwards.
+        log_action(
+            "attendance_settings_updated",
+            request=request,
+            user=request.user,
+            metadata={"fields": sorted(serializer.validated_data.keys())},
+        )
+        return Response(serializer.data)
+
+    def put(self, request):
+        """PUT is accepted as an alias for PATCH; this row always exists."""
+        return self.patch(request)
