@@ -356,7 +356,7 @@ class AttendanceSettingsTest(TestCase):
         settings_row.full_clean()  # must not raise
 
         self.assertEqual(settings_row.late_after, time(8, 0))
-        self.assertEqual(settings_row.alert_policy, AlertPolicy.ALL_SCANS)
+        self.assertEqual(settings_row.alert_policy, AlertPolicy.ANOMALIES_ONLY)
         self.assertEqual(settings_row.duplicate_scan_window_seconds, 90)
 
     def test_late_cutoff_must_follow_opening(self):
@@ -1419,7 +1419,9 @@ class ScanNotificationQueueingTest(NotificationFixtureMixin, TestCase):
 class AnomalyOnlyPolicyTest(NotificationFixtureMixin, TestCase):
     """
     The cost control: routine crossings go unmessaged, exceptions do not.
-    Roughly a 90% cut in volume, which matters more than the per-message rate.
+    A large cut in volume, which matters more than the per-message rate. Late
+    arrivals count as an exception, so the saving is smaller than suppressing
+    every on-time crossing would suggest.
     """
 
     def setUp(self):
@@ -1447,10 +1449,19 @@ class AnomalyOnlyPolicyTest(NotificationFixtureMixin, TestCase):
         self._scan("out", at=self._at(11, 15))
         self.assertTrue(ScanNotification.objects.exists())
 
-    def test_a_late_arrival_alone_is_not_an_anomaly(self):
-        """Lateness is already on the register; it is not a safeguarding event."""
+    def test_a_late_arrival_does_notify(self):
+        """
+        Lateness lands on the register either way, so this is not a
+        safeguarding alert in the sense the others are. It sends because a
+        parent who hears nothing assumes the ordinary happened, and arriving
+        after the bell is not the ordinary.
+        """
         self._scan("in", at=self._at(8, 30))
-        self.assertEqual(ScanNotification.objects.count(), 0)
+
+        self.assertTrue(ScanNotification.objects.exists())
+        row = ScanNotification.objects.filter(
+            channel=NotificationChannel.EMAIL).first()
+        self.assertIn("after the start of the school day", row.body)
 
 
 class NotificationDeliveryTest(NotificationFixtureMixin, TestCase):
