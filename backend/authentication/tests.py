@@ -44,7 +44,7 @@ class WebLoginUpdatesLastLoginTest(APITestCase):
 
     def _login(self, identifier):
         return self.client.post(
-            reverse("login"),
+            reverse("authentication:login"),
             {"email": identifier, "password": self.password},
             format="json",
             HTTP_X_TENANT_SLUG=self.tenant.slug,
@@ -73,7 +73,7 @@ class WebLoginUpdatesLastLoginTest(APITestCase):
 
     def test_a_failed_login_does_not_set_it(self):
         response = self.client.post(
-            reverse("login"),
+            reverse("authentication:login"),
             {"email": self.user.email, "password": "wrong-password"},
             format="json",
             HTTP_X_TENANT_SLUG=self.tenant.slug,
