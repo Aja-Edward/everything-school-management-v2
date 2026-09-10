@@ -2,6 +2,7 @@ from django.db.models.signals import m2m_changed, post_save
 from django.dispatch import receiver
 
 from .models import Subject
+from .utils import grade_levels_for_education_levels
 
 
 @receiver(m2m_changed, sender=Subject.grade_levels.through)
@@ -25,6 +26,17 @@ def sync_education_levels(sender, instance, action, **kwargs):
             if level
         }
     )
+
+    if not levels and instance.education_levels:
+        # An empty M2M is not evidence that a subject has no levels. It is also
+        # the state a subject sits in before derive_grade_levels runs, and the
+        # state it is left in when a school has not seeded grade levels for the
+        # level the admin chose (only Nursery and Primary get defaults). The
+        # JSON field is what the admin UI actually writes, so blanking it here
+        # erases their own selection — which is exactly what editing a subject
+        # used to do.
+        return
+
     # update() rather than save() so this doesn't re-enter post_save below.
     Subject.objects.filter(pk=instance.pk).update(education_levels=levels)
 
@@ -41,24 +53,16 @@ def derive_grade_levels(sender, instance, **kwargs):
     deprecated JSON field silently carries the whole feature.
 
     Only fills an empty M2M, so an explicit per-grade selection is never
-    overwritten.
+    overwritten. Changing the levels on an existing subject goes through
+    SubjectCreateUpdateSerializer.update() instead, which re-derives.
     """
     if not instance.tenant_id or not instance.education_levels:
         return
     if instance.grade_levels.exists():
         return
 
-    from classroom.models import GradeLevel
-    from common.education_levels import expand_tokens
-
-    wanted = expand_tokens(instance.education_levels)
-    if not wanted:
-        return
-
-    grade_levels = GradeLevel.objects.filter(
-        tenant_id=instance.tenant_id,
-        education_level__level_type__in=wanted,
-        is_active=True,
+    grade_levels = grade_levels_for_education_levels(
+        instance.tenant_id, instance.education_levels
     )
     if grade_levels.exists():
         instance.grade_levels.add(*grade_levels)
