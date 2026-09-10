@@ -36,7 +36,13 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 # Warnings that make a scan worth reporting even under anomalies-only.
+#
+# late_arrival belongs here for the same reason before_opening does: a parent
+# who hears nothing assumes the ordinary happened. Arriving after the start of
+# the day is not ordinary, and render_message already writes the line for it —
+# leaving it out meant the copy existed for an alert that never sent.
 ANOMALY_WARNINGS = frozenset({
+    "late_arrival",
     "early_departure",
     "exit_without_entry",
     "exit_before_entry",

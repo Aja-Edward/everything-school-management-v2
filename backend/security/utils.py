@@ -55,28 +55,24 @@ def log_action(action, request=None, user=None, target_user=None, metadata=None)
 
 
 def record_login_attempt(email, request, success, tenant=None):
-    from security.models import LoginAttempt
+    """
+    Record a login attempt and check for suspicious activity.
 
-    # ✅ Skip if tenant hasn't opted in
-    if not _is_security_enabled(tenant):
-        return
+    There used to be a second definition of this above, identical except that
+    it returned early unless the tenant had opted into security features.
+    Python kept whichever came last, so the gated one never ran and the opt-in
+    silently did nothing.
 
-    ip = get_client_ip(request)
-    user_agent = request.META.get('HTTP_USER_AGENT', '')
-    LoginAttempt.objects.create(
-        email=email,
-        ip_address=ip,
-        tenant=tenant,
-        success=success,
-        user_agent=user_agent,
-    )
+    Removing the dead copy rather than reviving it is deliberate. The early
+    return skipped _check_and_handle_brute_force as well as the insert, so
+    honouring that gate would switch off account lockout for every tenant that
+    has not opted in -- which is not a privacy setting, it is a hole. Recording
+    stays unconditional; if the IP and user-agent capture needs to be optional,
+    gate the insert alone and leave the brute-force check running.
 
-    if not success:
-        _check_and_handle_brute_force(email, ip, tenant, request)
-
-
-def record_login_attempt(email, request, success, tenant=None):
-    """Record a login attempt and check for suspicious activity."""
+    Note the inconsistency this leaves: log_action above IS gated on the same
+    opt-in, so audit entries are tenant-optional while login attempts are not.
+    """
     from security.models import LoginAttempt
 
     ip = get_client_ip(request)

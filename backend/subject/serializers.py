@@ -16,6 +16,8 @@ from classroom.models import GradeLevel, Stream
 # EducationLevel lives in students app — used for FK validation in filters
 from academics.models import EducationLevel
 
+from .utils import grade_levels_for_education_levels
+
 # ---------------------------------------------------------------------------
 # Minimal nested serializers (avoid circular imports)
 # ---------------------------------------------------------------------------
@@ -556,11 +558,35 @@ class SubjectCreateUpdateSerializer(serializers.ModelSerializer):
         return instance
 
     def update(self, instance, validated_data):
+        """
+        Levels chosen on an edit have to survive the save.
+
+        The admin UI collects coarse education levels and posts
+        grade_level_ids: [] every time, leaving the fine-grained M2M to be
+        derived. create() reads that empty list as "not supplied"; this read it
+        as "set the M2M to nothing", which emptied the M2M, fired m2m_changed,
+        and let sync_education_levels write the empty result back over the
+        levels the admin had just picked.
+
+        So an empty list means the same thing on both paths now, and when the
+        payload carries education_levels the M2M is re-derived from it — a
+        subject moved from Primary to JSS has to move its grade levels too, or
+        every filter that reads the M2M keeps returning it under Primary.
+        """
         grade_levels = validated_data.pop("grade_levels", None)
         prerequisites = validated_data.pop("prerequisites", None)
+        education_levels_given = "education_levels" in validated_data
+
         instance = super().update(instance, validated_data)
-        if grade_levels is not None:
+
+        if grade_levels:
             instance.grade_levels.set(grade_levels)
+        elif education_levels_given:
+            instance.grade_levels.set(
+                grade_levels_for_education_levels(
+                    instance.tenant_id, instance.education_levels
+                )
+            )
         if prerequisites is not None:
             instance.prerequisites.set(prerequisites)
         return instance

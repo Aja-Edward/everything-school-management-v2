@@ -374,7 +374,23 @@ CELERY_BEAT_SCHEDULE = {
         "task": "attendance.tasks.flush_pending_scan_notifications",
         "schedule": timedelta(minutes=5),
     },
+    # Bulk uploads keep the generated account password in result_data so the
+    # admin can download the credential sheet after an async import finishes.
+    # Daily is often enough to age them out; see common.tasks for why they are
+    # kept at all and why the window is not zero.
+    "purge-expired-bulk-upload-passwords": {
+        "task": "common.tasks.purge_expired_bulk_upload_passwords",
+        "schedule": timedelta(days=1),
+    },
 }
+
+# How long a bulk upload's credential sheet stays downloadable before the
+# passwords are stripped from the record. Long enough that an admin who loses
+# the file can come back for it; short enough that a database leak does not
+# hand over a working password for every account ever imported.
+BULK_UPLOAD_PASSWORD_RETENTION_DAYS = int(
+    os.getenv("BULK_UPLOAD_PASSWORD_RETENTION_DAYS", "7")
+)
 
 CORS_ALLOW_CREDENTIALS = True
 

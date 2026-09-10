@@ -6,6 +6,7 @@ from teacher.models import Teacher
 from .models import (
     Attendance,
     AttendanceSession,
+    AttendanceSettings,
     GateScan,
     ScanDirection,
     ScanNotification,
@@ -461,3 +462,58 @@ class ScanNotificationSerializer(serializers.ModelSerializer):
 
     def get_direction(self, obj):
         return obj.scan.direction if obj.scan_id else None
+
+
+class AttendanceSettingsSerializer(serializers.ModelSerializer):
+    """
+    A school's attendance configuration.
+
+    Read-only outside the model's own fields: tenant is never accepted from the
+    body. The row is looked up from the request's tenant, so allowing it here
+    would let one school rewrite another's settings by posting an id.
+    """
+
+    alert_policy_display = serializers.CharField(
+        source="get_alert_policy_display", read_only=True
+    )
+
+    class Meta:
+        model = AttendanceSettings
+        fields = [
+            "morning_opens",
+            "late_after",
+            "afternoon_opens",
+            "dismissal_after",
+            "duplicate_scan_window_seconds",
+            "alert_policy",
+            "alert_policy_display",
+            "updated_at",
+        ]
+        read_only_fields = ["alert_policy_display", "updated_at"]
+
+    def validate(self, attrs):
+        """
+        Run the model's own clean().
+
+        ModelSerializer does not call it, and the rules here are cross-field --
+        the late cut-off has to follow the morning opening, the afternoon
+        cannot start before the late cut-off. Field-level validation cannot see
+        those, so without this the API would accept a school day the admin form
+        rejects, and the incoherent row would only surface later as scans
+        landing in the wrong session.
+
+        Merged onto the existing instance because updates are partial: a PATCH
+        of alert_policy alone must still be checked against the times already
+        stored, not against empty values.
+        """
+        instance = self.instance or AttendanceSettings()
+        candidate = AttendanceSettings(
+            pk=instance.pk,
+            tenant_id=instance.tenant_id,
+            morning_opens=attrs.get("morning_opens", instance.morning_opens),
+            late_after=attrs.get("late_after", instance.late_after),
+            afternoon_opens=attrs.get("afternoon_opens", instance.afternoon_opens),
+            dismissal_after=attrs.get("dismissal_after", instance.dismissal_after),
+        )
+        candidate.clean()
+        return attrs

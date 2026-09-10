@@ -34,7 +34,7 @@ from tenants.models import Tenant, TenantSettings
 
 from .gate import record_and_notify
 from .notifications import deliver
-from utils.notifications import _brevo_credentials
+from utils.notifications import _brevo_credentials, _reply_to_for
 from .tasks import flush_pending_scan_notifications
 from .models import (
     AlertPolicy,
@@ -356,7 +356,7 @@ class AttendanceSettingsTest(TestCase):
         settings_row.full_clean()  # must not raise
 
         self.assertEqual(settings_row.late_after, time(8, 0))
-        self.assertEqual(settings_row.alert_policy, AlertPolicy.ALL_SCANS)
+        self.assertEqual(settings_row.alert_policy, AlertPolicy.ANOMALIES_ONLY)
         self.assertEqual(settings_row.duplicate_scan_window_seconds, 90)
 
     def test_late_cutoff_must_follow_opening(self):
@@ -1419,7 +1419,9 @@ class ScanNotificationQueueingTest(NotificationFixtureMixin, TestCase):
 class AnomalyOnlyPolicyTest(NotificationFixtureMixin, TestCase):
     """
     The cost control: routine crossings go unmessaged, exceptions do not.
-    Roughly a 90% cut in volume, which matters more than the per-message rate.
+    A large cut in volume, which matters more than the per-message rate. Late
+    arrivals count as an exception, so the saving is smaller than suppressing
+    every on-time crossing would suggest.
     """
 
     def setUp(self):
@@ -1447,10 +1449,19 @@ class AnomalyOnlyPolicyTest(NotificationFixtureMixin, TestCase):
         self._scan("out", at=self._at(11, 15))
         self.assertTrue(ScanNotification.objects.exists())
 
-    def test_a_late_arrival_alone_is_not_an_anomaly(self):
-        """Lateness is already on the register; it is not a safeguarding event."""
+    def test_a_late_arrival_does_notify(self):
+        """
+        Lateness lands on the register either way, so this is not a
+        safeguarding alert in the sense the others are. It sends because a
+        parent who hears nothing assumes the ordinary happened, and arriving
+        after the bell is not the ordinary.
+        """
         self._scan("in", at=self._at(8, 30))
-        self.assertEqual(ScanNotification.objects.count(), 0)
+
+        self.assertTrue(ScanNotification.objects.exists())
+        row = ScanNotification.objects.filter(
+            channel=NotificationChannel.EMAIL).first()
+        self.assertIn("after the start of the school day", row.body)
 
 
 class NotificationDeliveryTest(NotificationFixtureMixin, TestCase):
@@ -1784,3 +1795,284 @@ class UnconfiguredChannelIsSkippedTest(NotificationFixtureMixin, TestCase):
         row.refresh_from_db()
         self.assertEqual(row.status, NotificationStatus.FAILED)
         self.assertEqual(row.provider, "brevo")
+
+
+class ReplyToResolutionTest(TestCase):
+    """
+    Where a parent's reply lands.
+
+    Under the platform fallback the From address belongs to the platform,
+    whose domain has no MX records, so without a Reply-To a parent answering
+    "your child has left school" would simply bounce.
+    """
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(
+            name="Reply School",
+            slug="reply-school",
+            status="active",
+            is_active=True,
+            owner_email="head@replyschool.test",
+        )
+
+    def test_it_falls_back_to_the_registration_contact(self):
+        """owner_email is required at registration, so this always exists."""
+        reply_to = _reply_to_for(self.tenant, None)
+
+        self.assertEqual(reply_to["email"], "head@replyschool.test")
+        self.assertEqual(reply_to["name"], "Reply School")
+
+    def test_the_schools_own_settings_address_wins_over_the_owner(self):
+        TenantSettings.objects.create(
+            tenant=self.tenant, email="office@replyschool.test")
+
+        reply_to = _reply_to_for(self.tenant, None)
+
+        self.assertEqual(reply_to["email"], "office@replyschool.test")
+
+    def test_a_configured_brevo_sender_wins_over_everything(self):
+        TenantSettings.objects.create(
+            tenant=self.tenant, email="office@replyschool.test")
+        CommunicationSettings.objects.create(
+            tenant=self.tenant,
+            brevo_configured=True,
+            brevo_api_key="school-key",
+            brevo_sender_email="noreply@replyschool.test",
+        )
+
+        reply_to = _reply_to_for(self.tenant, None)
+
+        self.assertEqual(reply_to["email"], "noreply@replyschool.test")
+
+    def test_a_blank_settings_address_is_skipped_not_used(self):
+        TenantSettings.objects.create(tenant=self.tenant, email="")
+
+        reply_to = _reply_to_for(self.tenant, None)
+
+        self.assertEqual(reply_to["email"], "head@replyschool.test")
+
+    def test_no_tenant_means_no_reply_to(self):
+        self.assertIsNone(_reply_to_for(None, None))
+
+
+class ReplyToIsSentToBrevoTest(NotificationFixtureMixin, TestCase):
+    """The header actually reaches Brevo, not just the helper."""
+
+    def setUp(self):
+        self.build()
+
+    @override_settings(BREVO_API_KEY="platform-key",
+                       DEFAULT_FROM_EMAIL="alerts@platform.test")
+    def test_the_payload_carries_a_reply_to_pointing_at_the_school(self):
+        self._scan("in")
+        row = ScanNotification.objects.get(channel=NotificationChannel.EMAIL)
+
+        response = Mock(status_code=201)
+        response.json.return_value = {"messageId": "brevo-reply-1"}
+        with patch("utils.notifications.requests.post",
+                   return_value=response) as poster:
+            deliver(row)
+
+        payload = poster.call_args.kwargs["json"]
+        # From is the platform's unmonitored address...
+        self.assertEqual(payload["sender"]["email"], "alerts@platform.test")
+        # ...so replies must be routed back to the school.
+        self.assertEqual(
+            payload["replyTo"]["email"], self.tenant.owner_email)
+        self.assertEqual(payload["replyTo"]["name"], "Notify School")
+
+
+class AttendanceSettingsAPITest(APITestCase):
+    """
+    The settings endpoint, which exists so a school can choose its own alert
+    policy without a superuser opening the Django admin.
+
+    Three things are worth holding down: that one school cannot read or write
+    another's row, that reading works before anyone has ever saved it, and that
+    the model's cross-field rules survive a partial update.
+    """
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(
+            name="Settings School",
+            slug="settings-school",
+            status="active",
+            is_active=True,
+            owner_email="settings-api@example.com",
+        )
+        self.other_tenant = Tenant.objects.create(
+            name="Other School",
+            slug="other-school",
+            status="active",
+            is_active=True,
+            owner_email="other-api@example.com",
+        )
+
+        self.admin = self._user("setadmin", self.tenant, role="admin")
+        self._grant_settings_write(self.admin)
+        self.reader = self._user("setreader", self.tenant, role="teacher")
+        self.outsider = self._user("setoutsider", self.other_tenant, role="admin")
+        self._grant_settings_write(self.outsider)
+
+    # ── Fixtures ──────────────────────────────────────────────────────────────
+
+    def _user(self, username, tenant, role):
+        return User.objects.create_user(
+            username=username,
+            email=f"{username}@example.com",
+            first_name=username,
+            last_name="User",
+            role=role,
+            password="testpass123",
+            is_active=True,
+            tenant=tenant,
+        )
+
+    def _grant_settings_write(self, user):
+        perm, _ = SchoolPermission.objects.get_or_create(
+            module="settings", permission_type="write", section="all",
+            defaults={"granted": True},
+        )
+        role, _ = Role.objects.get_or_create(name=f"Settings Role {user.username}")
+        role.permissions.add(perm)
+        UserRole.objects.create(user=user, role=role, is_active=True)
+
+    def _headers(self, tenant=None):
+        return {"HTTP_X_TENANT_SLUG": (tenant or self.tenant).slug}
+
+    def _url(self):
+        return reverse("attendance-settings")
+
+    # ── Reading ───────────────────────────────────────────────────────────────
+
+    def test_reading_before_anything_is_saved_returns_the_defaults(self):
+        """
+        get_or_create, so a school that has never opened the screen reads its
+        working defaults rather than a 404.
+        """
+        self.assertFalse(
+            AttendanceSettings.objects.filter(tenant=self.tenant).exists())
+
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get(self._url(), **self._headers())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["alert_policy"], AlertPolicy.ANOMALIES_ONLY)
+        self.assertTrue(
+            AttendanceSettings.objects.filter(tenant=self.tenant).exists())
+
+    def test_the_display_label_comes_back_with_the_value(self):
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get(self._url(), **self._headers())
+
+        self.assertEqual(
+            response.data["alert_policy_display"], "Notify only on unexpected scans")
+
+    # ── Writing ───────────────────────────────────────────────────────────────
+
+    def test_a_school_can_switch_itself_to_every_scan(self):
+        """The reason this endpoint exists."""
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.patch(
+            self._url(), {"alert_policy": AlertPolicy.ALL_SCANS},
+            format="json", **self._headers())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        row = AttendanceSettings.objects.get(tenant=self.tenant)
+        self.assertEqual(row.alert_policy, AlertPolicy.ALL_SCANS)
+
+    def test_an_unknown_policy_is_rejected(self):
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.patch(
+            self._url(), {"alert_policy": "whenever"},
+            format="json", **self._headers())
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("alert_policy", response.data)
+
+    def test_a_partial_update_is_checked_against_the_stored_times(self):
+        """
+        The model's rules are cross-field, and PATCH only carries one of them.
+        Validating the payload alone would let a late cut-off land before the
+        morning opening as long as the opening was not in the same request.
+        """
+        AttendanceSettings.objects.create(
+            tenant=self.tenant,
+            morning_opens=time(6, 30),
+            late_after=time(8, 0),
+            afternoon_opens=time(12, 0),
+            dismissal_after=time(14, 0),
+        )
+
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.patch(
+            self._url(), {"late_after": "05:00"},
+            format="json", **self._headers())
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("late_after", response.data)
+
+    def test_a_coherent_time_change_is_accepted(self):
+        self.client.force_authenticate(user=self.admin)
+        self.client.get(self._url(), **self._headers())  # materialise defaults
+
+        response = self.client.patch(
+            self._url(), {"late_after": "08:30"},
+            format="json", **self._headers())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        row = AttendanceSettings.objects.get(tenant=self.tenant)
+        self.assertEqual(row.late_after, time(8, 30))
+
+    # ── Isolation and permissions ─────────────────────────────────────────────
+
+    def test_one_school_cannot_write_anothers_settings(self):
+        """
+        The row is resolved from the request, never from the body, so a user
+        authenticated against another school edits their own row and leaves
+        this one alone.
+        """
+        AttendanceSettings.objects.create(
+            tenant=self.tenant, alert_policy=AlertPolicy.ANOMALIES_ONLY)
+
+        self.client.force_authenticate(user=self.outsider)
+        self.client.patch(
+            self._url(), {"alert_policy": AlertPolicy.ALL_SCANS},
+            format="json", **self._headers(self.other_tenant))
+
+        untouched = AttendanceSettings.objects.get(tenant=self.tenant)
+        self.assertEqual(untouched.alert_policy, AlertPolicy.ANOMALIES_ONLY)
+
+    def test_a_user_without_settings_write_cannot_change_the_policy(self):
+        self.client.force_authenticate(user=self.reader)
+        response = self.client.patch(
+            self._url(), {"alert_policy": AlertPolicy.ALL_SCANS},
+            format="json", **self._headers())
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_anonymous_callers_are_refused(self):
+        response = self.client.get(self._url(), **self._headers())
+        self.assertIn(
+            response.status_code,
+            (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN),
+        )
+
+    def test_tenant_is_not_writable_through_the_body(self):
+        """
+        Posting a tenant must not move the row. It is not in the serializer's
+        fields, so it is ignored rather than honoured.
+        """
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.patch(
+            self._url(),
+            {"alert_policy": AlertPolicy.ALL_SCANS,
+             "tenant": self.other_tenant.id},
+            format="json", **self._headers())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(
+            AttendanceSettings.objects.filter(
+                tenant=self.tenant, alert_policy=AlertPolicy.ALL_SCANS).exists())
+        self.assertFalse(
+            AttendanceSettings.objects.filter(tenant=self.other_tenant).exists())

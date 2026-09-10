@@ -448,10 +448,16 @@ class AttendanceSettings(models.Model):
             "seconds is treated as one scan — no second record, no second alert."
         ),
     )
+    # Defaults to anomalies only, deliberately. Alerting on every crossing is
+    # roughly 190,000 messages a year for a 500-pupil school; at the ~N7.35 per
+    # SMS quoted by Nigerian aggregators that is over a million naira a year
+    # for one school, which is more than most will pay for the whole system.
+    # A school that wants every scan can still say so, but it should be a
+    # decision someone made rather than the setting they were given.
     alert_policy = models.CharField(
         max_length=20,
         choices=AlertPolicy.choices,
-        default=AlertPolicy.ALL_SCANS,
+        default=AlertPolicy.ANOMALIES_ONLY,
         help_text=(
             "Whether parents hear about every crossing or only unexpected "
             "ones. Drives the messaging bill as much as the provider does."
