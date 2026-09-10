@@ -399,17 +399,28 @@ class Subject(TenantMixin, models.Model):
 
     @property
     def education_levels_display(self):
-        """Return human-readable education levels"""
+        """
+        Return human-readable education levels.
+
+        Reads the education levels off the M2M by name. It used to call
+        grade_level.get_education_level_display(), but education_level is a
+        foreign key, not a field with choices, so Django never generates that
+        method and the property raised AttributeError for every subject whose
+        M2M was populated. DRF renders a property that raises as null, so the
+        error never surfaced -- the subject list simply showed "No levels" for
+        subjects that had them.
+        """
         # Try new field first
         if self.grade_levels.exists():
-            levels = self.grade_levels.values_list(
-                "education_level", flat=True
-            ).distinct()
-            level_names = []
-            for level in levels:
-                grade_level = self.grade_levels.filter(education_level=level).first()
-                if grade_level:
-                    level_names.append(grade_level.get_education_level_display())
+            level_names = list(
+                dict.fromkeys(
+                    name
+                    for name in self.grade_levels.order_by(
+                        "education_level__display_order"
+                    ).values_list("education_level__name", flat=True)
+                    if name
+                )
+            )
             return ", ".join(level_names) if level_names else "No levels specified"
 
         # Fall back to old field

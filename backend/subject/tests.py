@@ -21,7 +21,7 @@ from rest_framework.test import APITestCase
 from academics.models import EducationLevel
 from classroom.models import GradeLevel
 from subject.models import Subject
-from subject.serializers import SubjectCreateUpdateSerializer
+from subject.serializers import SubjectCreateUpdateSerializer, SubjectListSerializer
 from tenants.models import Tenant
 
 User = get_user_model()
@@ -257,3 +257,52 @@ class SubjectUpdateThroughTheApiTest(SubjectLevelTestCase):
         self.subject.refresh_from_db()
         self.assertEqual(self.subject.education_levels, ["PRIMARY"])
         self.assertEqual(self.subject.grade_levels.count(), len(self.primary_grades))
+
+
+class EducationLevelsDisplayTest(SubjectLevelTestCase):
+    """
+    The string the subject list renders under each subject.
+
+    education_levels_display called grade_level.get_education_level_display().
+    education_level is a foreign key, not a field with choices, so Django never
+    generates that method -- the property raised AttributeError for every
+    subject whose M2M was populated. DRF renders a raising property as null and
+    the dashboard falls back to the literal "No levels", so a subject with its
+    levels correctly filled in still read as having none, with nothing in the
+    logs to say why.
+    """
+
+    def test_it_names_the_levels_from_the_m2m(self):
+        self.assertEqual(self.subject.education_levels_display, "Primary")
+
+    def test_it_names_every_level_the_subject_spans(self):
+        self.subject.grade_levels.add(*self.junior_grades)
+
+        self.assertEqual(
+            self.subject.education_levels_display, "Primary, Junior Secondary"
+        )
+
+    def test_it_falls_back_to_the_json_field(self):
+        """A subject whose M2M was never derived still has to render."""
+        subject = Subject.objects.create(
+            tenant=self.tenant,
+            name="Further Maths",
+            code="FMT-SSS",
+            education_levels=["SENIOR_SECONDARY"],
+        )
+        subject.grade_levels.clear()
+
+        self.assertEqual(subject.education_levels_display, "Senior Secondary")
+
+    def test_a_subject_with_no_levels_says_so(self):
+        subject = Subject.objects.create(
+            tenant=self.tenant, name="Unassigned", code="UNA-000"
+        )
+
+        self.assertEqual(subject.education_levels_display, "No levels specified")
+
+    def test_the_list_endpoint_sends_it(self):
+        """DRF turned the exception into null, which is what reached the UI."""
+        data = SubjectListSerializer(self.subject).data
+
+        self.assertEqual(data["education_levels_display"], "Primary")
