@@ -3,6 +3,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 from rest_framework.exceptions import AuthenticationFailed
 from security.models import RevokedToken
+from tenants.membership import restrict_to_request_tenant
 
 
 class SecureJWTAuthentication(JWTAuthentication):
@@ -10,7 +11,11 @@ class SecureJWTAuthentication(JWTAuthentication):
     Extends SimpleJWT to also check:
     1. Token is not in the revoked list (jti check)
     2. Token version matches current user token_version
+    3. The user belongs to the school the request is for
     """
+
+    def authenticate(self, request):
+        return restrict_to_request_tenant(request, super().authenticate(request))
 
     def get_validated_token(self, raw_token):
         token = super().get_validated_token(raw_token)

@@ -8,6 +8,7 @@ average, and the actions decide who moves into which class.
 from rest_framework.permissions import BasePermission
 
 from common.education_levels import expand_tokens
+from tenants.membership import user_belongs_to_tenant
 
 # A school's own top admin is registered as role="superadmin" with a tenant
 # (platform staff are the tenant-less ones, see CustomUser.is_platform_staff).
@@ -34,10 +35,9 @@ def promotion_level_access(user, tenant):
     if getattr(user, "is_platform_staff", False):
         return None
 
-    # Nothing upstream ties the tenant a request names (X-Tenant-Slug) to the
-    # user's own school, so check it here: an admin of one school is nobody
-    # in another.
-    if tenant is None or user.tenant_id != tenant.id:
+    # Authentication already treats a user from another school as anonymous
+    # (tenants.membership); checked again here so this can't drift from it.
+    if tenant is None or not user_belongs_to_tenant(user, tenant):
         return []
 
     role = (getattr(user, "role", "") or "").lower()

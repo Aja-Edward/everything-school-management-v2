@@ -4,7 +4,6 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from authentication.cookie_auth import CookieJWTAuthentication
 from .models import Teacher, AssignmentRequest, TeacherSchedule
 from .serializers import (
     TeacherSerializer,
@@ -16,7 +15,6 @@ from classroom.models import GradeLevel, Section
 from subject.models import Subject
 from utils.section_filtering import AutoSectionFilterMixin
 from utils.pagination import StandardResultsPagination
-from rest_framework.authentication import TokenAuthentication, SessionAuthentication
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.db import models
 from rest_framework import permissions as drf_permissions
@@ -154,11 +152,9 @@ class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
 
     queryset = Teacher.objects.select_related("user").all()
     serializer_class = TeacherSerializer
-    authentication_classes = [
-        CookieJWTAuthentication,  # ✅ reads from cookie
-        TokenAuthentication,
-        SessionAuthentication,
-    ]
+    # Project default authenticators (cookie JWT first). DRF's own Token and
+    # Session authentication used to be listed here too; they skip the check
+    # that a user belongs to the request's school.
     permission_classes = [TeacherModulePermission]
     pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate teachers
 

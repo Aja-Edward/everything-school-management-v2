@@ -5,6 +5,7 @@ from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.request import Request
 from security.authentication import SecureJWTAuthentication  # ✅ changed import
+from tenants.membership import restrict_to_request_tenant
 import logging
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,9 @@ class CookieJWTAuthentication(SecureJWTAuthentication):  # ✅ changed base clas
             user = self.get_user(validated_token)
             logger.debug(
                 f"Cookie authentication successful for user: {user.email}")
-            return (user, validated_token)
+            # The header fallbacks above and below go through
+            # SecureJWTAuthentication.authenticate, which applies this itself.
+            return restrict_to_request_tenant(request, (user, validated_token))
         except (InvalidToken, TokenError) as e:
             logger.debug(f"Cookie token validation failed: {e}")
             return super().authenticate(request)

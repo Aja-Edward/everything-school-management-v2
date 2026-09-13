@@ -8,6 +8,8 @@ from django.contrib.auth import get_user_model
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 
+from tenants.membership import restrict_to_request_tenant
+
 User = get_user_model()
 
 class SupabaseJWTAuthentication(BaseAuthentication):
@@ -56,5 +58,5 @@ class SupabaseJWTAuthentication(BaseAuthentication):
             user = User.objects.get(superbase_id=superbase_id)
         except User.DoesNotExist:
             raise AuthenticationFailed("No Django user for this superbase ID.")
-        
-        return (user, payload)
+
+        return restrict_to_request_tenant(request, (user, payload))
