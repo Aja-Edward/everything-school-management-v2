@@ -141,6 +141,8 @@ export interface AutoPromotionSummary {
 
 export interface AutoPromotionResult {
   summary: AutoPromotionSummary;
+  /** Plain-language reasons some results couldn't be counted (missing terms, drafts, wrong session…). */
+  warnings?: string[];
   outcomes: Record<string, unknown>[];   // raw per-student dicts from engine
   student_promotions: StudentPromotion[];
 }

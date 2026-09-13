@@ -195,6 +195,91 @@ class RunAutoPromotionTest(PromotionFixtureMixin, TestCase):
         self.assertEqual(promo.status, "PROMOTED")
 
 
+class TermResultsVisibilityTest(PromotionFixtureMixin, TestCase):
+    """Results that exist must be counted, and when they can't be, the run says why."""
+
+    def setUp(self):
+        self.make_school()
+        self.student = self.make_student("visible")
+        self.engine = PromotionEngine(self.tenant)
+
+    def warnings(self, student_class=None, session=None):
+        return self.engine.class_warnings(session or self.session, student_class or self.p1)
+
+    def test_schools_seeded_with_short_level_spellings_read_their_results(self):
+        """The regression: level_type 'JSS' matched no report model, so every JSS student showed 0/3."""
+        from result.models import JuniorSecondaryTermReport
+
+        for level_type, code in (("JSS", "jss"), ("", "jss")):
+            with self.subTest(level_type=level_type, code=code):
+                EducationLevel.objects.filter(pk=self.jss.pk).update(level_type=level_type, code=code)
+                self.jss1.refresh_from_db()
+                student = self.make_student(f"jss_{level_type or 'code'}", student_class=self.jss1)
+                for exam_session, avg in zip(self.exam_sessions, [60, 70, 80]):
+                    JuniorSecondaryTermReport.objects.create(
+                        tenant=self.tenant, student=student, exam_session=exam_session,
+                        average_score=Decimal(avg), status="PUBLISHED")
+
+                self.run_auto(student_class=self.jss1)
+
+                promo = StudentPromotion.objects.get(student=student)
+                self.assertEqual(promo.terms_counted, 3)
+                self.assertEqual(promo.term3_average, Decimal("80.00"))
+
+    def test_a_clean_class_has_no_warnings(self):
+        self.give_results(self.student, [60, 70, 80])
+        self.assertEqual(self.warnings(), [])
+
+    def test_results_on_an_exam_session_with_no_term(self):
+        self.give_results(self.student, [60, 70])
+        termless = ExamSession.objects.create(
+            tenant=self.tenant, name="Third Term Exam (no term)", exam_type=self.exam_type,
+            academic_session=self.session, term=None,
+            start_date=date(2026, 6, 1), end_date=date(2026, 6, 20))
+        PrimaryTermReport.objects.create(
+            tenant=self.tenant, student=self.student, exam_session=termless,
+            average_score=Decimal("75"), status="PUBLISHED")
+
+        self.run_auto()
+
+        self.assertEqual(StudentPromotion.objects.get(student=self.student).terms_counted, 2)
+        [warning] = self.warnings()
+        self.assertIn("no term set", warning)
+        self.assertIn("Third Term Exam (no term)", warning)
+
+    def test_draft_results(self):
+        self.give_results(self.student, [60, 70, 80], status_="DRAFT")
+        [warning] = self.warnings()
+        self.assertIn("3 result(s) are still in Draft", warning)
+
+    def test_results_in_a_different_session(self):
+        self.give_results(self.student, [60, 70, 80])
+        next_session = AcademicSession.objects.create(
+            tenant=self.tenant, name="2026/2027",
+            start_date=date(2026, 9, 1), end_date=date(2027, 7, 31))
+
+        warnings = self.warnings(session=next_session)
+
+        self.assertTrue(any("they are in 2025/2026" in w for w in warnings), warnings)
+
+    def test_session_with_missing_terms(self):
+        self.give_results(self.student, [60, 70, 80])
+        self.exam_sessions[2].delete()  # and its report; ExamSession.term protects the term
+        self.terms[2].delete()
+
+        warnings = self.warnings()
+
+        self.assertTrue(any("only 2 term(s)" in w for w in warnings), warnings)
+
+    def test_unrecognised_education_level(self):
+        odd = self.make_level("kg", "Kindergarten", "", 0)
+        kg = self.make_class("KG", order=1, level=odd)
+
+        [warning] = self.warnings(student_class=kg)
+
+        self.assertIn("Kindergarten", warning)
+
+
 class ApplyPromotionsTest(PromotionFixtureMixin, TestCase):
     def setUp(self):
         self.make_school()

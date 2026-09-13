@@ -461,28 +461,16 @@ class PromotionEngine:
         is a FK to Term, so the old term="FIRST" filter raised ValueError.
         """
         student = student_promotions.student
-        education_level = student.education_level
-        if hasattr(education_level, "level_type"):
-            level_type = education_level.level_type
-        elif isinstance(education_level, str):
-            level_type = education_level
-        else:
+        level_type = self._level_type(student.student_class)
+        term_report_model, avg_field = self._resolve_term_report_model(level_type)
+        if term_report_model is None:
             logger.warning(
                 "Could not resolve education level for student %s — skipping term averages",
                 student.id,
             )
             return
 
-        term_report_model, avg_field = self._resolve_term_report_model(level_type)
-        if term_report_model is None:
-            return
-
-        from academics.models import Term
-
-        terms = list(
-            Term.objects.filter(tenant=self.tenant, academic_session=academic_session)
-            .order_by("term_type__display_order", "start_date")[:3]
-        )
+        terms = self._session_terms(academic_session)
 
         for index, attr in enumerate(["term1_average", "term2_average", "term3_average"]):
             if index >= len(terms):
@@ -506,6 +494,110 @@ class PromotionEngine:
                 setattr(student_promotions, attr, getattr(report, avg_field))
             else:
                 setattr(student_promotions, attr, None)
+
+    def class_warnings(self, academic_session, student_class):
+        """
+        Plain-language reasons results for `student_class` in
+        `academic_session` can't be counted.
+
+        Every one of these used to surface only as a student showing 0/3
+        terms, with nothing to say why.
+        """
+        from result.models import ExamSession
+
+        warnings = []
+        level_type = self._level_type(student_class)
+        report_model, _ = self._resolve_term_report_model(level_type)
+        if report_model is None:
+            level = student_class.education_level
+            return [
+                f"{student_class.name}'s education level \"{level.name}\" isn't one promotion "
+                "recognises (Nursery, Primary, Junior Secondary or Senior Secondary), "
+                "so none of its results can be read."
+            ]
+
+        terms = self._session_terms(academic_session)
+        if not terms:
+            warnings.append(
+                f"{academic_session.name} has no terms set up, so no results can be matched to a term."
+            )
+        elif len(terms) < 3:
+            warnings.append(
+                f"{academic_session.name} has only {len(terms)} term(s) set up "
+                f"({', '.join(t.name for t in terms)}), so no student can have three."
+            )
+
+        reports = report_model.objects.filter(
+            tenant=self.tenant,
+            student__student_class=student_class,
+            student__is_active=True,
+        )
+        in_session = reports.filter(exam_session__academic_session=academic_session)
+
+        if not in_session.exists():
+            elsewhere = sorted(set(
+                reports.exclude(exam_session__academic_session=academic_session)
+                .values_list("exam_session__academic_session__name", flat=True)
+            ))
+            if elsewhere:
+                warnings.append(
+                    f"No results for {student_class.name} are in {academic_session.name}; "
+                    f"they are in {', '.join(elsewhere)}. Pick that session to promote on those results."
+                )
+            else:
+                warnings.append(f"No results have been recorded for {student_class.name} yet.")
+            return warnings
+
+        termless = in_session.filter(exam_session__term__isnull=True)
+        if termless.exists():
+            names = sorted(set(
+                ExamSession.objects.filter(pk__in=termless.values("exam_session"))
+                .values_list("name", flat=True)
+            ))
+            warnings.append(
+                f"{termless.count()} result(s) are on exam sessions with no term set "
+                f"({', '.join(names)}), so they can't be counted towards any term. "
+                "Set the term on those exam sessions, then run again."
+            )
+
+        drafts = in_session.exclude(status__in=["APPROVED", "PUBLISHED"]).count()
+        if drafts:
+            warnings.append(
+                f"{drafts} result(s) are still in Draft. Only approved or published results count."
+            )
+
+        return warnings
+
+    def _level_type(self, student_class):
+        """
+        The canonical level_type of a class's education level, or None.
+
+        Schools were seeded with different spellings -- 'SSS' and 'JSS' as
+        well as 'SENIOR_SECONDARY' -- so level_type, then code, then name are
+        each tried through the shared alias table. An exact match on
+        level_type alone left every JSS and SSS student at 0/3 in schools
+        seeded the other way.
+        """
+        from common.education_levels import canonical_level_type
+
+        level = getattr(student_class, "education_level", None)
+        if level is None:
+            return None
+        for token in (level.level_type, level.code, level.name):
+            level_type = canonical_level_type(token)
+            if level_type:
+                return level_type
+        return None
+
+    def _session_terms(self, academic_session):
+        """The session's first three terms, in order."""
+        from academics.models import Term
+
+        return list(
+            Term.objects.filter(tenant=self.tenant, academic_session=academic_session)
+            .select_related("term_type")
+            .order_by("term_type__display_order", "start_date")[:3]
+        )
 
     def _resolve_term_report_model(self, level_type):
         """

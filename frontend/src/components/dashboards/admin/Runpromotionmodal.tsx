@@ -172,6 +172,17 @@ export default function RunPromotionModal({
                 />
               </div>
 
+              {(result?.warnings?.length ?? 0) > 0 && (
+                <div className="text-xs text-red-800 bg-red-50 border border-red-200 rounded p-2 space-y-1">
+                  <p className="font-medium">Some results couldn't be counted</p>
+                  <ul className="list-disc pl-4 space-y-0.5">
+                    {result!.warnings!.map((w) => (
+                      <li key={w}>{w}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {summary!.flagged > 0 && (
                 <p className="text-xs text-amber-700 bg-amber-50 rounded p-2">
                   {summary!.flagged} student

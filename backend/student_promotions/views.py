@@ -207,6 +207,8 @@ class StudentPromotionViewSet(PromotionScopeMixin, TenantFilterMixin, viewsets.R
         return Response(
             {
                 "summary": summary,
+                # Why terms are missing, when they are.
+                "warnings": engine.class_warnings(academic_session, student_class),
                 "outcomes": outcomes,
                 "student_promotions": StudentPromotionSerializer(student_promotions, many=True).data,
             },
