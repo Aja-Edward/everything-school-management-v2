@@ -34,6 +34,7 @@ class PromotionEngine:
     ───────────────────────
     NURSERY / PRIMARY / JUNIOR_SECONDARY / SENIOR_SECONDARY each store their term
     average in a different model:
+        • NurseryTermReport.overall_percentage
         • PrimaryTermReport.average_score
         • JuniorSecondaryTermReport.average_score
         • SeniorSecondaryTermReport.average_score
@@ -405,7 +406,7 @@ class PromotionEngine:
 
     def _populate_term_averages(self, student_promotions, academic_session):
         """
-        Fetch the average_score from the relevant TermReport model for
+        Fetch the term percentage from the relevant TermReport model for
         each of the three terms and write them onto the student_promotions record.
 
         A session's terms are identified by position (term_type.display_order),
@@ -452,7 +453,10 @@ class PromotionEngine:
             ).first()
 
             if report:
-                setattr(student_promotions, attr, getattr(report, avg_field, None))
+                # No default: a field name the report doesn't have must fail,
+                # not read as a missing term. That is how every Nursery pupil
+                # sat in Pending with no averages.
+                setattr(student_promotions, attr, getattr(report, avg_field))
             else:
                 setattr(student_promotions, attr, None)
 
@@ -468,8 +472,10 @@ class PromotionEngine:
             SeniorSecondaryTermReport,
         )
 
+        # Nursery reports aggregate marks rather than subject averages, so
+        # their term percentage lives in overall_percentage.
         mapping = {
-            "NURSERY": (NurseryTermReport, "average_score"),
+            "NURSERY": (NurseryTermReport, "overall_percentage"),
             "PRIMARY": (PrimaryTermReport, "average_score"),
             "JUNIOR_SECONDARY": (JuniorSecondaryTermReport, "average_score"),
             "SENIOR_SECONDARY": (SeniorSecondaryTermReport, "average_score"),

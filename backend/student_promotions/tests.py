@@ -13,7 +13,7 @@ from rest_framework.test import APITestCase
 
 from academics.models import AcademicSession, EducationLevel, Term, TermType
 from classroom.models import Class, Classroom, Section, StudentEnrollment
-from result.models import ExamSession, ExamType, PrimaryTermReport
+from result.models import ExamSession, ExamType, NurseryTermReport, PrimaryTermReport
 from students.models import Student
 from tenants.models import Tenant
 
@@ -101,6 +101,12 @@ class PromotionFixtureMixin:
                 tenant=self.tenant, student=student, exam_session=exam_session,
                 average_score=Decimal(str(avg)), status=status_)
 
+    def give_nursery_results(self, student, percentages, status_="PUBLISHED"):
+        for exam_session, pct in zip(self.exam_sessions, percentages):
+            NurseryTermReport.objects.create(
+                tenant=self.tenant, student=student, exam_session=exam_session,
+                overall_percentage=Decimal(str(pct)), status=status_)
+
     def run_auto(self, student_class=None):
         return PromotionEngine(self.tenant).run_for_class(
             academic_session=self.session, student_class=student_class or self.p1)
@@ -131,6 +137,30 @@ class RunAutoPromotionTest(PromotionFixtureMixin, TestCase):
         self.assertEqual(promo.terms_counted, 3)
         self.assertEqual(promo.status, "PROMOTED")
         self.assertEqual(StudentPromotion.objects.get(student=failing).status, "FLAGGED")
+
+    def test_nursery_reads_the_overall_percentage(self):
+        """The regression: Nursery reports have no average_score, so every pupil stayed Pending."""
+        passing = self.make_student("nursery_passing", student_class=self.nursery2)
+        failing = self.make_student("nursery_failing", student_class=self.nursery2)
+        self.give_nursery_results(passing, [55, 65, 75])
+        self.give_nursery_results(failing, [30, 35, 40])
+
+        self.run_auto(student_class=self.nursery2)
+
+        promo = StudentPromotion.objects.get(student=passing)
+        self.assertEqual(
+            (promo.term1_average, promo.term2_average, promo.term3_average),
+            (Decimal("55.00"), Decimal("65.00"), Decimal("75.00")))
+        self.assertEqual(promo.terms_counted, 3)
+        self.assertEqual(promo.status, "PROMOTED")
+        self.assertEqual(StudentPromotion.objects.get(student=failing).status, "FLAGGED")
+
+    def test_every_level_reads_a_field_its_report_has(self):
+        engine = PromotionEngine(self.tenant)
+        for level_type in ("NURSERY", "PRIMARY", "JUNIOR_SECONDARY", "SENIOR_SECONDARY"):
+            with self.subTest(level_type=level_type):
+                model, field = engine._resolve_term_report_model(level_type)
+                self.assertIn(field, {f.name for f in model._meta.get_fields()})
 
     def test_draft_reports_do_not_count(self):
         student = self.make_student("drafty")
