@@ -12,6 +12,7 @@ from django.db.models import Avg, Count, Q
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from tenants.mixins import  TenantFilterMixin
 
@@ -21,6 +22,7 @@ from students.models import Student
 
 from .models import StudentPromotion, PromotionRule
 from .engine import PromotionEngine, PromotionApplyError
+from .permissions import IsPromotionAdmin, can_manage_level, promotion_level_access
 from .serializers import (
     StudentPromotionSerializer,
     PromotionRuleSerializer,
@@ -36,26 +38,61 @@ logger = logging.getLogger(__name__)
 
 # ── Helper mixin ──────────────────────────────────────────────────────────────
 
+class PromotionScopeMixin:
+    """Narrows a promotion admin to the education levels they manage."""
+
+    def level_access(self):
+        """None for every level, else the level_type spellings allowed."""
+        return promotion_level_access(self.request.user, getattr(self.request, "tenant", None))
+
+    def check_level(self, education_level):
+        if not can_manage_level(self.level_access(), education_level):
+            raise PermissionDenied(
+                f"You can only manage promotions for your own section, not {education_level.name}."
+            )
+
 
 # ── Promotion Rule ViewSet ─────────────────────────────────────────────────────
 
-class PromotionRuleViewSet(TenantFilterMixin, viewsets.ModelViewSet):
+class PromotionRuleViewSet(PromotionScopeMixin, TenantFilterMixin, viewsets.ModelViewSet):
     """
     CRUD for student_promotions thresholds per education level.
     """
 
     queryset = PromotionRule.objects.all().select_related("education_level", "created_by")
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsPromotionAdmin]
 
     def get_serializer_class(self):
         if self.action in ("create", "update", "partial_update"):
             return PromotionRuleCreateUpdateSerializer
         return PromotionRuleSerializer
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        access = self.level_access()
+        if access is not None:
+            qs = qs.filter(education_level__level_type__in=access)
+        return qs
+
+    def _check_rule_level(self, serializer):
+        level = serializer.validated_data.get("education_level") or serializer.instance.education_level
+        # The serializer's queryset spans every school's levels.
+        if level.tenant_id != getattr(getattr(self.request, "tenant", None), "id", None):
+            raise ValidationError({"education_level": "Education level not found."})
+        self.check_level(level)
+
+    def perform_create(self, serializer):
+        self._check_rule_level(serializer)
+        super().perform_create(serializer)
+
+    def perform_update(self, serializer):
+        self._check_rule_level(serializer)
+        serializer.save()
+
 
 # ── Student Promotion ViewSet ──────────────────────────────────────────────────
 
-class StudentPromotionViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
+class StudentPromotionViewSet(PromotionScopeMixin, TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
     """
     Read + action endpoints for student student_promotions.
 
@@ -80,7 +117,7 @@ class StudentPromotionViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
         .order_by("student__user__last_name", "student__user__first_name")
     )
     serializer_class = StudentPromotionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsPromotionAdmin]
 
     # ── Filtering ──────────────────────────────────────────────────────
 
@@ -90,6 +127,11 @@ class StudentPromotionViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         params = self.request.query_params
+
+        # Section admins see, and so can act on, only their own levels.
+        access = self.level_access()
+        if access is not None:
+            qs = qs.filter(student_class__education_level__level_type__in=access)
 
         if session_id := params.get("academic_session_id"):
             qs = qs.filter(academic_session_id=session_id)
@@ -137,6 +179,7 @@ class StudentPromotionViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
             id=serializer.validated_data["student_class_id"],
             tenant=tenant,
         )
+        self.check_level(student_class.education_level)
 
         engine = PromotionEngine(tenant=tenant)
         try:
@@ -201,6 +244,7 @@ class StudentPromotionViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
             id=serializer.validated_data["student_class_id"],
             tenant=tenant,
         )
+        self.check_level(student_class.education_level)
 
         engine = PromotionEngine(tenant=tenant)
         try:
@@ -299,6 +343,11 @@ class StudentPromotionViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
             academic_session_id=session_id,
             student_class_id=class_id,
         )
+        access = self.level_access()
+        if access is not None:
+            student_promotions = student_promotions.filter(
+                student_class__education_level__level_type__in=access
+            )
 
         return Response(self._build_summary(student_promotions), status=status.HTTP_200_OK)
 

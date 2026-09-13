@@ -356,3 +356,135 @@ class ApplyPromotionsAPITest(PromotionFixtureMixin, APITestCase):
             format="json", HTTP_X_TENANT_SLUG=self.tenant.slug)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("last class", response.data["detail"])
+
+
+class PromotionPermissionTest(PromotionFixtureMixin, APITestCase):
+    """Only admins reach promotions, and section admins only their own levels."""
+
+    BASE = "/api/student_promotions/"
+
+    def setUp(self):
+        self.make_school()
+        self.primary_student = self.make_student("perm_primary")
+        self.give_results(self.primary_student, [60, 70, 80])
+        self.run_auto()
+        self.primary_record = StudentPromotion.objects.get(student=self.primary_student)
+
+        self.jss_student = self.make_student("perm_jss", student_class=self.jss1)
+        self.jss_record = StudentPromotion.objects.create(
+            tenant=self.tenant, student=self.jss_student, academic_session=self.session,
+            student_class=self.jss1, status="FLAGGED")
+
+    def login(self, role, tenant=None, username=None):
+        user = User.objects.create_user(
+            username=username or f"perm_{role}", email=f"{username or role}@example.com",
+            role=role, password="testpass123", is_active=True, tenant=tenant or self.tenant)
+        self.client.force_authenticate(user=user)
+        return user
+
+    def get(self, path, params=None):
+        return self.client.get(self.BASE + path, params or {}, HTTP_X_TENANT_SLUG=self.tenant.slug)
+
+    def post(self, path, data=None):
+        return self.client.post(
+            self.BASE + path, data or {}, format="json", HTTP_X_TENANT_SLUG=self.tenant.slug)
+
+    def for_class(self, student_class, **extra):
+        return {"academic_session_id": self.session.id, "student_class_id": student_class.id, **extra}
+
+    def assert_refused_everywhere(self):
+        self.assertEqual(self.get("").status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.get("summary/", self.for_class(self.p1)).status_code,
+                         status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.get("rules/").status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.post("run-auto/", self.for_class(self.p1)).status_code,
+                         status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.post("apply/", self.for_class(self.p1)).status_code,
+                         status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            self.post(f"{self.jss_record.id}/manual-promote/",
+                      {"status": "PROMOTED", "reason": "Promoting myself, thanks"}).status_code,
+            status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            self.post("rules/", {"education_level": self.primary.id, "pass_threshold": "1.00"}).status_code,
+            status.HTTP_403_FORBIDDEN)
+
+    def assert_nothing_changed(self):
+        self.primary_student.refresh_from_db()
+        self.jss_record.refresh_from_db()
+        self.assertEqual(self.primary_student.student_class, self.p1)
+        self.assertEqual(self.jss_record.status, "FLAGGED")
+
+    def test_students_parents_and_teachers_are_refused(self):
+        for role in ("student", "parent", "teacher"):
+            with self.subTest(role=role):
+                self.login(role)
+                self.assert_refused_everywhere()
+        self.assert_nothing_changed()
+
+    def test_admin_of_another_school_is_refused(self):
+        other = Tenant.objects.create(
+            name="Other School", slug="other-promo-school", status="active",
+            is_active=True, owner_email="other@example.com")
+        self.login("superadmin", tenant=other, username="other_superadmin")
+
+        self.assert_refused_everywhere()
+        self.assert_nothing_changed()
+
+    def test_school_admins_have_full_access(self):
+        for role in ("superadmin", "admin"):
+            with self.subTest(role=role):
+                self.login(role)
+                listed = self.get("")
+                self.assertEqual(listed.status_code, status.HTTP_200_OK)
+                self.assertEqual(len(listed.data["results"] if "results" in listed.data else listed.data), 2)
+                self.assertEqual(self.post("apply/", self.for_class(self.p1, dry_run=True)).status_code,
+                                 status.HTTP_200_OK)
+
+        applied = self.post("apply/", self.for_class(self.p1))
+        self.assertEqual(applied.status_code, status.HTTP_200_OK)
+        self.primary_student.refresh_from_db()
+        self.assertEqual(self.primary_student.student_class, self.p2)
+
+    def test_section_admin_manages_only_their_own_levels(self):
+        self.login("primary_admin")
+
+        listed = self.get("")
+        rows = listed.data["results"] if "results" in listed.data else listed.data
+        self.assertEqual([r["id"] for r in rows], [str(self.primary_record.id)])
+
+        self.assertEqual(self.post("apply/", self.for_class(self.p1)).status_code, status.HTTP_200_OK)
+        self.primary_student.refresh_from_db()
+        self.assertEqual(self.primary_student.student_class, self.p2)
+
+        refused = self.post("run-auto/", self.for_class(self.jss1))
+        self.assertEqual(refused.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Junior Secondary", refused.data["detail"])
+        self.assertEqual(self.post("apply/", self.for_class(self.jss1)).status_code,
+                         status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            self.post(f"{self.jss_record.id}/manual-promote/",
+                      {"status": "PROMOTED", "reason": "Not my section at all"}).status_code,
+            status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.get("summary/", self.for_class(self.jss1)).data["total"], 0)
+
+        self.assertEqual(
+            self.post("rules/", {"education_level": self.jss.id, "pass_threshold": "1.00"}).status_code,
+            status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            self.post("rules/", {"education_level": self.primary.id, "pass_threshold": "45.00"}).status_code,
+            status.HTTP_201_CREATED)
+        self.jss_record.refresh_from_db()
+        self.assertEqual(self.jss_record.status, "FLAGGED")
+
+    def test_rule_cannot_point_at_another_schools_level(self):
+        other = Tenant.objects.create(
+            name="Rule Other School", slug="rule-other-school", status="active",
+            is_active=True, owner_email="rules@example.com")
+        foreign_level = EducationLevel.objects.filter(tenant=other).first() or EducationLevel.objects.create(
+            tenant=other, code="primary", name="Primary", level_type="PRIMARY")
+        self.login("superadmin")
+
+        response = self.post("rules/", {"education_level": foreign_level.id, "pass_threshold": "45.00"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
