@@ -185,6 +185,10 @@ class StudentPromotion(TenantMixin, models.Model):
         related_name="incoming_promotions",
         help_text="Class the student was moved into when this promotion was applied",
     )
+    graduated = models.BooleanField(
+        default=False,
+        help_text="Applied in the school's final class: the student left rather than moving up",
+    )
     applied_at = models.DateTimeField(null=True, blank=True)
     applied_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

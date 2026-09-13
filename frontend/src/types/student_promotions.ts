@@ -105,6 +105,8 @@ export interface StudentPromotion {
   // Set once "Apply promotions" has moved the student into the next class
   promoted_to_class?: string | number | null;
   promoted_to_class_name?: string | null;
+  /** Applied in the school's final class: the student left instead of moving up. */
+  graduated?: boolean;
   applied_at?: string | null;
 
   created_at: string;
@@ -152,8 +154,11 @@ export interface ApplyPromotionsPayload extends AutoPromotionPayload {
 
 export interface ApplyPromotionsResult {
   dry_run: boolean;
+  /** The class is the school's last: promoted students graduate rather than move. */
+  graduating: boolean;
   from_class: { id: number; name: string };
-  to_class: { id: number; name: string };
+  /** null when graduating. */
+  to_class: { id: number; name: string } | null;
   moved: { student_id: string; student_name: string; section: string | null }[];
   skipped: { student_id: string; student_name: string; reason: string }[];
   /** Students in the class still without a promotion decision, or held back. */

@@ -260,6 +260,38 @@ class ApplyPromotionsTest(PromotionFixtureMixin, TestCase):
                 student=self.promoted, academic_session=self.session,
                 status="HELD_BACK", reason="Changed our mind about this", acted_by=None)
 
+    def test_student_whose_user_has_no_school_still_moves(self):
+        """Real data: users created without a school made Student.save() reject the move."""
+        User.objects.filter(pk=self.promoted.user_id).update(tenant=None)
+
+        result = self.apply()
+
+        self.assertEqual(result["skipped"], [])
+        self.promoted.refresh_from_db()
+        self.assertEqual(self.promoted.student_class, self.p2)
+        self.assertEqual(self.promoted.user.tenant, self.tenant)
+
+    def test_a_record_that_cannot_be_saved_is_skipped_not_fatal(self):
+        other = Tenant.objects.create(
+            name="Elsewhere", slug="elsewhere-school", status="active",
+            is_active=True, owner_email="elsewhere@example.com")
+        second = self.make_student("second_promoted")
+        self.give_results(second, [70, 70, 70])
+        self.run_auto()
+        # A user recorded at a different school isn't guessed at.
+        User.objects.filter(pk=self.promoted.user_id).update(tenant=other)
+
+        result = self.apply()
+
+        self.assertEqual([r["student_id"] for r in result["moved"]], [str(second.id)])
+        self.assertEqual(len(result["skipped"]), 1)
+        self.assertIn("needs fixing", result["skipped"][0]["reason"])
+        self.promoted.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(self.promoted.student_class, self.p1)
+        self.assertEqual(second.student_class, self.p2)
+        self.assertIsNone(StudentPromotion.objects.get(student=self.promoted).applied_at)
+
     def test_student_moved_by_hand_is_skipped(self):
         self.promoted.student_class = self.make_class("Primary 1 Gold", order=5)
         self.promoted.save()
@@ -288,10 +320,6 @@ class ApplyPromotionsTest(PromotionFixtureMixin, TestCase):
         self.assertEqual(self.apply(student_class=self.nursery2, dry_run=True)["to_class"]["name"],
                          "Primary 1")
 
-    def test_last_class_cannot_be_applied(self):
-        with self.assertRaises(PromotionApplyError):
-            self.apply(student_class=self.jss1)
-
     def test_ambiguous_next_class_is_refused(self):
         self.make_class("Primary 2 Science", order=2)
 
@@ -309,6 +337,85 @@ class ApplyPromotionsTest(PromotionFixtureMixin, TestCase):
 
         self.promoted.refresh_from_db()
         self.assertEqual(self.promoted.student_class, p3)
+
+
+class GraduationTest(PromotionFixtureMixin, TestCase):
+    """JSS 1 is the fixture school's final class, so passing it means leaving."""
+
+    def setUp(self):
+        self.make_school()
+        self.section = Section.objects.create(tenant=self.tenant, class_grade=self.jss1, name="A")
+        self.leaver = self.make_student("leaver", student_class=self.jss1, section=self.section)
+        self.repeater = self.make_student("repeater", student_class=self.jss1, section=self.section)
+        for student, status_ in ((self.leaver, "PROMOTED"), (self.repeater, "FLAGGED")):
+            StudentPromotion.objects.create(
+                tenant=self.tenant, student=student, academic_session=self.session,
+                student_class=self.jss1, status=status_)
+        classroom = Classroom.objects.create(
+            tenant=self.tenant, name="JSS 1 A", section=self.section,
+            academic_session=self.session, term=self.terms[2])
+        self.enrolment = StudentEnrollment.objects.create(
+            tenant=self.tenant, student=self.leaver, classroom=classroom)
+
+    def test_promoted_students_graduate(self):
+        result = self.apply(student_class=self.jss1)
+
+        self.assertTrue(result["graduating"])
+        self.assertIsNone(result["to_class"])
+        self.assertEqual([r["student_id"] for r in result["moved"]], [str(self.leaver.id)])
+
+        self.leaver.refresh_from_db()
+        self.assertFalse(self.leaver.is_active)
+        # Left in place for the record, and still able to sign in.
+        self.assertEqual(self.leaver.student_class, self.jss1)
+        self.assertEqual(self.leaver.section, self.section)
+        self.assertTrue(self.leaver.user.is_active)
+
+        self.enrolment.refresh_from_db()
+        self.assertFalse(self.enrolment.is_active)
+
+        record = StudentPromotion.objects.get(student=self.leaver)
+        self.assertTrue(record.graduated)
+        self.assertIsNone(record.promoted_to_class)
+        self.assertIsNotNone(record.applied_at)
+
+        self.repeater.refresh_from_db()
+        self.assertTrue(self.repeater.is_active)
+        self.assertFalse(StudentPromotion.objects.get(student=self.repeater).graduated)
+
+    def test_leaver_whose_user_has_no_school_still_graduates(self):
+        User.objects.filter(pk=self.leaver.user_id).update(tenant=None)
+
+        self.apply(student_class=self.jss1)
+
+        self.leaver.refresh_from_db()
+        self.assertFalse(self.leaver.is_active)
+        self.assertEqual(self.leaver.user.tenant, self.tenant)
+
+    def test_dry_run_changes_nothing(self):
+        User.objects.filter(pk=self.leaver.user_id).update(tenant=None)
+
+        result = self.apply(student_class=self.jss1, dry_run=True)
+
+        self.assertIsNone(User.objects.get(pk=self.leaver.user_id).tenant)
+        self.assertTrue(result["graduating"])
+        self.leaver.refresh_from_db()
+        self.assertTrue(self.leaver.is_active)
+        self.assertIsNone(StudentPromotion.objects.get(student=self.leaver).applied_at)
+
+    def test_graduate_is_left_alone_afterwards(self):
+        self.apply(student_class=self.jss1)
+
+        self.run_auto(student_class=self.jss1)
+        self.assertEqual(self.apply(student_class=self.jss1)["moved"], [])
+
+        record = StudentPromotion.objects.get(student=self.leaver)
+        self.assertEqual(record.status, "PROMOTED")
+        self.assertTrue(record.graduated)
+        with self.assertRaisesMessage(ValueError, "graduated"):
+            PromotionEngine(self.tenant).manual_promote(
+                student=self.leaver, academic_session=self.session,
+                status="HELD_BACK", reason="Should have repeated the year", acted_by=None)
 
 
 class ApplyPromotionsSectionTest(PromotionFixtureMixin, TestCase):
@@ -379,13 +486,15 @@ class ApplyPromotionsAPITest(PromotionFixtureMixin, APITestCase):
         self.student.refresh_from_db()
         self.assertEqual(self.student.student_class, self.p2)
 
-    def test_last_class_is_a_400(self):
+    def test_final_class_previews_as_graduating(self):
         response = self.client.post(
             "/api/student_promotions/apply/",
-            {"academic_session_id": self.session.id, "student_class_id": self.jss1.id},
+            {"academic_session_id": self.session.id, "student_class_id": self.jss1.id,
+             "dry_run": True},
             format="json", HTTP_X_TENANT_SLUG=self.tenant.slug)
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("last class", response.data["detail"])
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertTrue(response.data["graduating"])
+        self.assertIsNone(response.data["to_class"])
 
 
 class PromotionPermissionTest(PromotionFixtureMixin, APITestCase):

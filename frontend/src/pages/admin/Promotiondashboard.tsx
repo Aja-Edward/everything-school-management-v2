@@ -387,7 +387,9 @@ export default function PromotionDashboard() {
                             <StatusBadge status={promo.status} />
                             {promo.applied_at && (
                               <div className="text-xs text-gray-400 mt-0.5">
-                                Moved to {promo.promoted_to_class_name ?? "next class"}
+                                {promo.graduated
+                                  ? "Graduated"
+                                  : `Moved to ${promo.promoted_to_class_name ?? "next class"}`}
                               </div>
                             )}
                           </td>

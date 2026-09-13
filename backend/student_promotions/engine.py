@@ -148,6 +148,11 @@ class PromotionEngine:
                 },
             )
             if student_promotions.applied_at:
+                if student_promotions.graduated:
+                    raise ValueError(
+                        "This promotion was already applied — the student has graduated. "
+                        "Reactivate them directly instead."
+                    )
                 raise ValueError(
                     f"This promotion was already applied — the student was moved to "
                     f"{student_promotions.promoted_to_class}. Change their class directly instead."
@@ -171,6 +176,12 @@ class PromotionEngine:
         Move every PROMOTED student of `student_class` for `academic_session`
         into the next class (see _next_class).
 
+        In the school's final class there is nowhere to move them: they
+        graduate instead.  A graduate keeps their class, for the record, and
+        their login, so they and their parents can still see past results,
+        but is no longer an active student — off class lists, attendance,
+        fee runs and future promotions.
+
         Deliberately separate from run_for_class: flagged students can be
         reviewed and overridden first, and nobody changes class until an
         admin confirms.  Safe to call again later — records already applied
@@ -181,18 +192,21 @@ class PromotionEngine:
         Returns:
             {
                 "dry_run":    bool,
+                "graduating": bool,
                 "from_class": {"id", "name"},
-                "to_class":   {"id", "name"},
+                "to_class":   {"id", "name"} | None,   # None when graduating
                 "moved":      [{"student_id", "student_name", "section"}],
                 "skipped":    [{"student_id", "student_name", "reason"}],
                 "remaining":  {"flagged", "pending", "held_back"},
             }
         """
+        from django.core.exceptions import ValidationError
         from django.db.models import F
         from classroom.models import Section, StudentEnrollment
         from .models import StudentPromotion
 
         next_class = self._next_class(student_class)
+        graduating = next_class is None
 
         moved, skipped = [], []
         with transaction.atomic():
@@ -220,9 +234,11 @@ class PromotionEngine:
 
                 # Keep the section letter if the next class has one of the same
                 # name (JSS 1 A -> JSS 2 A); otherwise clear it, since a section
-                # must belong to the student's class.
+                # must belong to the student's class. A graduate keeps theirs.
                 new_section = None
-                if student.section:
+                if graduating:
+                    new_section = student.section
+                elif student.section:
                     new_section = (
                         Section.objects.filter(
                             tenant=self.tenant,
@@ -233,14 +249,46 @@ class PromotionEngine:
                         .order_by(F("academic_year__is_current").desc(nulls_last=True))
                         .first()
                     )
+
+                # Student.save() validates the whole record, and older students'
+                # users often have no school at all (teacher/parent-style
+                # creation never set one) -- which it rejects. Fill that in from
+                # the student record instead of failing the class; a user
+                # recorded at a *different* school is left for a person to sort.
+                repair_user_school = student.user.tenant_id is None
+                if repair_user_school:
+                    student.user.tenant_id = student.tenant_id
+
+                if graduating:
+                    student.is_active = False
+                else:
+                    student.student_class = next_class
+                    student.section = new_section
+
+                # Validate before touching anything, so one bad record is
+                # reported and skipped rather than rolling back everyone else.
+                try:
+                    student.full_clean()
+                except ValidationError as exc:
+                    skipped.append(self._apply_row(
+                        student, reason="Student record needs fixing first: " + "; ".join(exc.messages)))
+                    continue
+
                 moved.append(self._apply_row(
                     student, section=new_section.name if new_section else None))
 
                 if dry_run:
                     continue
 
+                if repair_user_school:
+                    # A queryset update: saving the user would fire its
+                    # profile signals, which validate records of their own.
+                    student.user.__class__.objects.filter(pk=student.user_id).update(
+                        tenant_id=student.tenant_id)
+
                 # End enrolment in the old class's classrooms; the Student
-                # post_save signal enrols them in the new section's classroom.
+                # post_save signal enrols them in the new section's classroom
+                # (and skips graduates, who are inactive).
                 StudentEnrollment.objects.filter(
                     tenant=self.tenant,
                     student=student,
@@ -248,15 +296,14 @@ class PromotionEngine:
                     classroom__section__class_grade=student_class,
                 ).update(is_active=False)
 
-                student.student_class = next_class
-                student.section = new_section
                 student.save()
 
                 record.promoted_to_class = next_class
+                record.graduated = graduating
                 record.applied_at = timezone.now()
                 record.applied_by = acted_by
                 record.save(update_fields=[
-                    "promoted_to_class", "applied_at", "applied_by", "updated_at"])
+                    "promoted_to_class", "graduated", "applied_at", "applied_by", "updated_at"])
 
             remaining = StudentPromotion.objects.filter(
                 tenant=self.tenant,
@@ -271,8 +318,9 @@ class PromotionEngine:
 
         return {
             "dry_run": dry_run,
+            "graduating": graduating,
             "from_class": {"id": student_class.id, "name": student_class.name},
-            "to_class": {"id": next_class.id, "name": next_class.name},
+            "to_class": None if graduating else {"id": next_class.id, "name": next_class.name},
             "moved": moved,
             "skipped": skipped,
             "remaining": remaining_counts,
@@ -284,7 +332,8 @@ class PromotionEngine:
 
     def _next_class(self, student_class):
         """
-        The active class that follows this one.
+        The active class that follows this one, or None for the school's
+        final class.
 
         Class.order restarts inside each education level (Primary 1, JSS 1
         and SSS 1 are all order 1), so classes are sequenced by
@@ -304,9 +353,7 @@ class PromotionEngine:
             if position(cls) > current
         ]
         if not later:
-            raise PromotionApplyError(
-                f"{student_class.name} is the last class — there is no class to promote into."
-            )
+            return None
 
         candidate = min(later, key=position)
         tied = sorted(cls.name for cls in later if position(cls) == position(candidate))
