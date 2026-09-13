@@ -20,12 +20,13 @@ from classroom.models import Class as StudentClass
 from students.models import Student
 
 from .models import StudentPromotion, PromotionRule
-from .engine import PromotionEngine
+from .engine import PromotionEngine, PromotionApplyError
 from .serializers import (
     StudentPromotionSerializer,
     PromotionRuleSerializer,
     PromotionRuleCreateUpdateSerializer,
     RunAutoPromotionSerializer,
+    ApplyPromotionsSerializer,
     ManualPromotionSerializer,
     PromotionSummarySerializer,
 )
@@ -64,6 +65,7 @@ class StudentPromotionViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
     POST /api/student_promotions/{id}/manual-promote/      — admin override per student
     GET  /api/student_promotions/summary/                  — stats for a class+session
     POST /api/student_promotions/{id}/recalculate/         — re-run auto for one student
+    POST /api/student_promotions/apply/                    — move promoted students to the next class
     """
 
     queryset = (
@@ -167,6 +169,51 @@ class StudentPromotionViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+    # ── apply ──────────────────────────────────────────────────────────
+
+    @action(detail=False, methods=["post"], url_path="apply")
+    def apply(self, request):
+        """
+        Move every PROMOTED student in a class into the next class by order.
+
+        Body:
+            {
+                "academic_session_id": 5,
+                "student_class_id": 3,
+                "dry_run": true          # preview only, nothing is changed
+            }
+        """
+        serializer = ApplyPromotionsSerializer(
+            data=request.data,
+            context={"tenant": self.get_tenant()},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        tenant = self.get_tenant()
+        academic_session = get_object_or_404(
+            AcademicSession,
+            id=serializer.validated_data["academic_session_id"],
+            tenant=tenant,
+        )
+        student_class = get_object_or_404(
+            StudentClass,
+            id=serializer.validated_data["student_class_id"],
+            tenant=tenant,
+        )
+
+        engine = PromotionEngine(tenant=tenant)
+        try:
+            result = engine.apply_promotions(
+                academic_session=academic_session,
+                student_class=student_class,
+                acted_by=request.user,
+                dry_run=serializer.validated_data["dry_run"],
+            )
+        except PromotionApplyError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(result, status=status.HTTP_200_OK)
 
     # ── manual-promote ─────────────────────────────────────────────────
 

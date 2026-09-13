@@ -21,6 +21,10 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 
+class PromotionApplyError(ValueError):
+    """Promotions for a class can't be applied (e.g. no next class)."""
+
+
 class PromotionEngine:
     """
     Resolves term averages for every student in a class and writes
@@ -142,6 +146,12 @@ class PromotionEngine:
                     "student_class": student.student_class,
                 },
             )
+            if student_promotions.applied_at:
+                raise ValueError(
+                    f"This promotion was already applied — the student was moved to "
+                    f"{student_promotions.promoted_to_class}. Change their class directly instead."
+                )
+
             # Refresh term averages in case they've changed
             self._populate_term_averages(student_promotions, academic_session)
             student_promotions.compute_session_average()
@@ -155,9 +165,168 @@ class PromotionEngine:
 
         return student_promotions
 
+    def apply_promotions(self, academic_session, student_class, acted_by=None, dry_run=False):
+        """
+        Move every PROMOTED student of `student_class` for `academic_session`
+        into the next class (see _next_class).
+
+        Deliberately separate from run_for_class: flagged students can be
+        reviewed and overridden first, and nobody changes class until an
+        admin confirms.  Safe to call again later — records already applied
+        are left alone, so newly promoted students are picked up.
+
+        Raises PromotionApplyError when there is no single next class.
+
+        Returns:
+            {
+                "dry_run":    bool,
+                "from_class": {"id", "name"},
+                "to_class":   {"id", "name"},
+                "moved":      [{"student_id", "student_name", "section"}],
+                "skipped":    [{"student_id", "student_name", "reason"}],
+                "remaining":  {"flagged", "pending", "held_back"},
+            }
+        """
+        from django.db.models import F
+        from classroom.models import Section, StudentEnrollment
+        from .models import StudentPromotion
+
+        next_class = self._next_class(student_class)
+
+        moved, skipped = [], []
+        with transaction.atomic():
+            records = (
+                StudentPromotion.objects.select_for_update(of=("self",))
+                .filter(
+                    tenant=self.tenant,
+                    academic_session=academic_session,
+                    student_class=student_class,
+                    status="PROMOTED",
+                    applied_at__isnull=True,
+                )
+                .select_related("student__user", "student__section")
+            )
+
+            for record in records:
+                student = record.student
+                if student.student_class_id != student_class.id:
+                    skipped.append(self._apply_row(
+                        student, reason=f"No longer in {student_class.name}"))
+                    continue
+                if not student.is_active:
+                    skipped.append(self._apply_row(student, reason="Student is inactive"))
+                    continue
+
+                # Keep the section letter if the next class has one of the same
+                # name (JSS 1 A -> JSS 2 A); otherwise clear it, since a section
+                # must belong to the student's class.
+                new_section = None
+                if student.section:
+                    new_section = (
+                        Section.objects.filter(
+                            tenant=self.tenant,
+                            class_grade=next_class,
+                            name__iexact=student.section.name,
+                            is_active=True,
+                        )
+                        .order_by(F("academic_year__is_current").desc(nulls_last=True))
+                        .first()
+                    )
+                moved.append(self._apply_row(
+                    student, section=new_section.name if new_section else None))
+
+                if dry_run:
+                    continue
+
+                # End enrolment in the old class's classrooms; the Student
+                # post_save signal enrols them in the new section's classroom.
+                StudentEnrollment.objects.filter(
+                    tenant=self.tenant,
+                    student=student,
+                    is_active=True,
+                    classroom__section__class_grade=student_class,
+                ).update(is_active=False)
+
+                student.student_class = next_class
+                student.section = new_section
+                student.save()
+
+                record.promoted_to_class = next_class
+                record.applied_at = timezone.now()
+                record.applied_by = acted_by
+                record.save(update_fields=[
+                    "promoted_to_class", "applied_at", "applied_by", "updated_at"])
+
+            remaining = StudentPromotion.objects.filter(
+                tenant=self.tenant,
+                academic_session=academic_session,
+                student_class=student_class,
+            )
+            remaining_counts = {
+                "flagged": remaining.filter(status="FLAGGED").count(),
+                "pending": remaining.filter(status="PENDING").count(),
+                "held_back": remaining.filter(status="HELD_BACK").count(),
+            }
+
+        return {
+            "dry_run": dry_run,
+            "from_class": {"id": student_class.id, "name": student_class.name},
+            "to_class": {"id": next_class.id, "name": next_class.name},
+            "moved": moved,
+            "skipped": skipped,
+            "remaining": remaining_counts,
+        }
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _next_class(self, student_class):
+        """
+        The active class that follows this one.
+
+        Class.order restarts inside each education level (Primary 1, JSS 1
+        and SSS 1 are all order 1), so classes are sequenced by
+        (education level display_order, class order): the last Primary class
+        is followed by the first Junior Secondary one.
+        """
+        from classroom.models import Class
+
+        def position(cls):
+            return (cls.education_level.display_order, cls.order)
+
+        current = position(student_class)
+        later = [
+            cls for cls in Class.objects.filter(
+                tenant=self.tenant, is_active=True, education_level__is_active=True,
+            ).exclude(pk=student_class.pk).select_related("education_level")
+            if position(cls) > current
+        ]
+        if not later:
+            raise PromotionApplyError(
+                f"{student_class.name} is the last class — there is no class to promote into."
+            )
+
+        candidate = min(later, key=position)
+        tied = sorted(cls.name for cls in later if position(cls) == position(candidate))
+        if len(tied) > 1:
+            raise PromotionApplyError(
+                f"Can't tell which class comes after {student_class.name}: "
+                f"{', '.join(tied)} are in the same position. "
+                "Give each class a distinct order first."
+            )
+        if (candidate.education_level_id != student_class.education_level_id
+                and candidate.education_level.display_order == current[0]):
+            raise PromotionApplyError(
+                f"Can't tell which class comes after {student_class.name}: "
+                f"{student_class.education_level.name} and {candidate.education_level.name} "
+                "have the same display order. Give each education level a distinct order first."
+            )
+        return candidate
+
+    @staticmethod
+    def _apply_row(student, **extra):
+        return {"student_id": str(student.id), "student_name": student.full_name, **extra}
 
     def _get_rule(self, education_level):
         """Return the active PromotionRule for this level, or a default."""
@@ -201,6 +370,11 @@ class PromotionEngine:
         if student_promotions.promotion_type == "MANUAL" and student_promotions.status in ("PROMOTED", "HELD_BACK"):
             return self._result_dict(student_promotions, skipped=True)
 
+        # Once applied the student has moved class; re-evaluating could flip
+        # the status without moving them back.
+        if student_promotions.applied_at:
+            return self._result_dict(student_promotions, skipped=True)
+
         # Populate / refresh term averages
         self._populate_term_averages(student_promotions, academic_session)
         student_promotions.compute_session_average()
@@ -233,6 +407,10 @@ class PromotionEngine:
         """
         Fetch the average_score from the relevant TermReport model for
         each of the three terms and write them onto the student_promotions record.
+
+        A session's terms are identified by position (term_type.display_order),
+        not by name: TermTypes are configurable per tenant, and ExamSession.term
+        is a FK to Term, so the old term="FIRST" filter raised ValueError.
         """
         student = student_promotions.student
         education_level = student.education_level
@@ -251,26 +429,25 @@ class PromotionEngine:
         if term_report_model is None:
             return
 
-        from result.models import ExamSession
+        from academics.models import Term
 
-        for term_key, attr in [
-            ("FIRST", "term1_average"),
-            ("SECOND", "term2_average"),
-            ("THIRD", "term3_average"),
-        ]:
-            exam_session = ExamSession.objects.filter(
-                tenant=self.tenant,
-                academic_session=academic_session,
-                term=term_key,
-            ).first()
-            if not exam_session:
+        terms = list(
+            Term.objects.filter(tenant=self.tenant, academic_session=academic_session)
+            .order_by("term_type__display_order", "start_date")[:3]
+        )
+
+        for index, attr in enumerate(["term1_average", "term2_average", "term3_average"]):
+            if index >= len(terms):
                 setattr(student_promotions, attr, None)
                 continue
 
+            # A term can have several exam sessions (one per exam type), so
+            # look across all of them rather than picking one arbitrarily.
             report = term_report_model.objects.filter(
                 tenant=self.tenant,
                 student=student,
-                exam_session=exam_session,
+                exam_session__academic_session=academic_session,
+                exam_session__term=terms[index],
                 status__in=["APPROVED", "PUBLISHED"],
             ).first()
 

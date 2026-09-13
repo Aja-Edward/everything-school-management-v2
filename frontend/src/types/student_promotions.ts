@@ -101,6 +101,12 @@ export interface StudentPromotion {
   /** Flat name string the serialiser may include alongside the FK id. */
   processed_by_name?: string;
   processed_at?: string | null;
+
+  // Set once "Apply promotions" has moved the student into the next class
+  promoted_to_class?: string | number | null;
+  promoted_to_class_name?: string | null;
+  applied_at?: string | null;
+
   created_at: string;
   updated_at: string;
 }
@@ -135,6 +141,23 @@ export interface AutoPromotionResult {
   summary: AutoPromotionSummary;
   outcomes: Record<string, unknown>[];   // raw per-student dicts from engine
   student_promotions: StudentPromotion[];
+}
+
+// ─── Apply promotions ─────────────────────────────────────────────────────────
+
+export interface ApplyPromotionsPayload extends AutoPromotionPayload {
+  /** Preview only — nothing is changed. */
+  dry_run?: boolean;
+}
+
+export interface ApplyPromotionsResult {
+  dry_run: boolean;
+  from_class: { id: number; name: string };
+  to_class: { id: number; name: string };
+  moved: { student_id: string; student_name: string; section: string | null }[];
+  skipped: { student_id: string; student_name: string; reason: string }[];
+  /** Students in the class still without a promotion decision, or held back. */
+  remaining: { flagged: number; pending: number; held_back: number };
 }
 
 // ─── Manual override ──────────────────────────────────────────────────────────
@@ -200,6 +223,14 @@ export interface UseAutoPromotionReturn {
   reset: () => void;
 }
 
+/** useApplyPromotions — previews, then moves promoted students to the next class. */
+export interface UseApplyPromotionsReturn {
+  preview: (payload: AutoPromotionPayload) => Promise<ApplyPromotionsResult | null>;
+  apply: (payload: AutoPromotionPayload) => Promise<ApplyPromotionsResult | null>;
+  working: boolean;
+  error: string | null;
+}
+
 /** useManualOverride — submits a manual promote / hold-back decision. */
 export interface UseManualOverrideReturn {
   submit: (
@@ -248,6 +279,8 @@ export interface UsePromotionDashboardReturn {
   applyOverrideResult: (updated: StudentPromotion) => void;
   /** Re-fetch the summary independently (used after an override). */
   refreshSummary: () => Promise<void>;
+  /** Re-fetch promotion records and summary (used after applying promotions). */
+  reload: () => Promise<void>;
 }
 
 export interface UsePromotionThresholdParams {

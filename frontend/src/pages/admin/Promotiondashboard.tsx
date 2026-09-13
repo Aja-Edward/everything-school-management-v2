@@ -12,6 +12,7 @@ import {
   usePromotionThreshold,
 } from "@/hooks/usePromotionThreshold";
 import RunPromotionModal from "@/components/dashboards/admin/Runpromotionmodal";
+import ApplyPromotionsModal from "@/components/dashboards/admin/ApplyPromotionsModal";
 import StudentOverrideDrawer from "@/components/dashboards/admin/StudentOverrideDrawer";
 import {
   PromotionStatus,
@@ -153,6 +154,7 @@ export default function PromotionDashboard() {
     applyAutoRunResult,
     applyOverrideResult,
     refreshSummary,
+    reload,
   } = usePromotionDashboard();
 
   // Threshold is derived from the selected class — same hook used everywhere
@@ -160,7 +162,13 @@ export default function PromotionDashboard() {
 
   // Modal / drawer visibility — purely local UI state, not data
   const [showRunModal,   setShowRunModal]   = useState(false);
+  const [showApplyModal, setShowApplyModal] = useState(false);
   const [drawerStudent,  setDrawerStudent]  = useState<StudentPromotion | null>(null);
+
+  const handleApplied = async () => {
+    setShowApplyModal(false);
+    await reload();
+  };
 
   const handleAutoRun = (result: AutoPromotionResult) => {
     applyAutoRunResult(result);
@@ -201,13 +209,22 @@ export default function PromotionDashboard() {
                 </p>
               )}
           </div>
-          <button
-            onClick={() => setShowRunModal(true)}
-            disabled={!selectedSession || !selectedClass}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
-          >
-            Run auto-promotion
-          </button>
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              onClick={() => setShowApplyModal(true)}
+              disabled={!selectedSession || !selectedClass}
+              className="px-4 py-2 border border-indigo-200 text-indigo-700 bg-white hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium rounded-lg transition-colors"
+            >
+              Apply promotions
+            </button>
+            <button
+              onClick={() => setShowRunModal(true)}
+              disabled={!selectedSession || !selectedClass}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              Run auto-promotion
+            </button>
+          </div>
         </div>
 
         {/* ── Filters ── */}
@@ -368,6 +385,11 @@ export default function PromotionDashboard() {
                           </td>
                           <td className="px-4 py-3 text-center">
                             <StatusBadge status={promo.status} />
+                            {promo.applied_at && (
+                              <div className="text-xs text-gray-400 mt-0.5">
+                                Moved to {promo.promoted_to_class_name ?? "next class"}
+                              </div>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-center">
                             <span className="text-xs text-gray-400">
@@ -379,12 +401,16 @@ export default function PromotionDashboard() {
                             </span>
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <button
-                              onClick={() => setDrawerStudent(promo)}
-                              className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
-                            >
-                              Override
-                            </button>
+                            {promo.applied_at ? (
+                              <span className="text-xs text-gray-400">Applied</span>
+                            ) : (
+                              <button
+                                onClick={() => setDrawerStudent(promo)}
+                                className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+                              >
+                                Override
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );
@@ -413,6 +439,16 @@ export default function PromotionDashboard() {
           threshold={threshold}
           onSuccess={handleAutoRun}
           onClose={() => setShowRunModal(false)}
+        />
+      )}
+
+      {showApplyModal && (
+        <ApplyPromotionsModal
+          sessionId={selectedSession}
+          classId={selectedClass}
+          sessionName={sessions.find((s) => String(s.id) === selectedSession)?.name ?? ""}
+          onApplied={handleApplied}
+          onClose={() => setShowApplyModal(false)}
         />
       )}
 

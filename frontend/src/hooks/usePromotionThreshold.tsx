@@ -12,11 +12,13 @@ import {
   StudentPromotion,
   AutoPromotionPayload,
   AutoPromotionResult,
+  ApplyPromotionsResult,
   ManualOverridePayload,
   ManualOverrideResult,
   UsePromotionThresholdReturn,
   UsePromotionRulesReturn,
   UseAutoPromotionReturn,
+  UseApplyPromotionsReturn,
   UseManualOverrideReturn,
   UsePromotionDashboardReturn,
 } from "@/types/student_promotions";
@@ -272,6 +274,37 @@ export function useAutoPromotion(): UseAutoPromotionReturn {
   return { run, running, error, result, reset };
 }
 
+// ─── useApplyPromotions ───────────────────────────────────────────────────────
+
+export function useApplyPromotions(): UseApplyPromotionsReturn {
+  const [working, setWorking] = useState<boolean>(false);
+  const [error, setError]     = useState<string | null>(null);
+
+  const post = useCallback(
+    async (payload: AutoPromotionPayload, dryRun: boolean): Promise<ApplyPromotionsResult | null> => {
+      setWorking(true);
+      setError(null);
+      try {
+        const res = await api.post("/api/student_promotions/apply/", { ...payload, dry_run: dryRun });
+        return (res?.data ?? res) as ApplyPromotionsResult;
+      } catch (err: unknown) {
+        const detail = (err as { response?: { data?: { detail?: string } } })
+          ?.response?.data?.detail;
+        setError(detail ?? "Could not apply promotions. Please try again.");
+        return null;
+      } finally {
+        setWorking(false);
+      }
+    },
+    []
+  );
+
+  const preview = useCallback((payload: AutoPromotionPayload) => post(payload, true), [post]);
+  const apply   = useCallback((payload: AutoPromotionPayload) => post(payload, false), [post]);
+
+  return { preview, apply, working, error };
+}
+
 // ─── useManualOverride ────────────────────────────────────────────────────────
 
 export function useManualOverride(): UseManualOverrideReturn {
@@ -328,9 +361,11 @@ export function usePromotionDashboard(): UsePromotionDashboardReturn {
       return [];
     };
 
+    // Classes, not classrooms: the promotion endpoints take a Class id, and a
+    // classroom is a section-level record ("Primary 1 A") with unrelated ids.
     Promise.all([
       api.get("/api/academics/sessions/"),
-      api.get("/api/classrooms/classrooms/"),
+      api.get("/api/classrooms/classes/", { is_active: true }),
     ]).then(([sessRes, clsRes]) => {
       setSessions(normalise<AcademicSession>(sessRes?.data ?? sessRes));
       setClasses(normalise<ClassItem>(clsRes?.data ?? clsRes));
@@ -402,5 +437,6 @@ export function usePromotionDashboard(): UsePromotionDashboardReturn {
     promotions, filteredPromotions, summary,
     loading, error,
     applyAutoRunResult, applyOverrideResult, refreshSummary,
+    reload: loadPromotions,
   };
 }

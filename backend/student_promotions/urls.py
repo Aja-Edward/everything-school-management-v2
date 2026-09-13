@@ -27,6 +27,7 @@ app_name = "student_promotions"
 # POST   /api/student_promotions/run-auto/                      trigger auto for class
 # POST   /api/student_promotions/{id}/manual-promote/           admin override
 # POST   /api/student_promotions/{id}/recalculate/              re-run auto for student
+# POST   /api/student_promotions/apply/                         move promoted students to next class
 # GET    /api/student_promotions/summary/                       aggregate stats
 # GET    /api/student_promotions/rules/                         list rules
 # POST   /api/student_promotions/rules/                         create rule

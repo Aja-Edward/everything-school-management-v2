@@ -80,6 +80,9 @@ class StudentPromotionSerializer(serializers.ModelSerializer):
     processed_by_name = serializers.CharField(
         source="processed_by.get_full_name", read_only=True, allow_null=True
     )
+    promoted_to_class_name = serializers.CharField(
+        source="promoted_to_class.name", read_only=True, allow_null=True
+    )
 
     class Meta:
         model = StudentPromotion
@@ -107,6 +110,10 @@ class StudentPromotionSerializer(serializers.ModelSerializer):
             "processed_by_name",
             "processed_at",
             "pass_threshold_applied",
+            "promoted_to_class",
+            "promoted_to_class_name",
+            "applied_at",
+            "applied_by",
             "created_at",
             "updated_at",
         ]
@@ -119,6 +126,9 @@ class StudentPromotionSerializer(serializers.ModelSerializer):
             "terms_counted",
             "pass_threshold_applied",
             "processed_at",
+            "promoted_to_class",
+            "applied_at",
+            "applied_by",
             "created_at",
             "updated_at",
         ]
@@ -149,6 +159,12 @@ class RunAutoPromotionSerializer(serializers.Serializer):
         if not qs.exists():
             raise serializers.ValidationError("Student class not found")
         return value
+
+
+class ApplyPromotionsSerializer(RunAutoPromotionSerializer):
+    """Input for POST /student_promotions/apply/"""
+
+    dry_run = serializers.BooleanField(default=False)
 
 
 class ManualPromotionSerializer(serializers.Serializer):

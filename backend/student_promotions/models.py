@@ -176,6 +176,24 @@ class StudentPromotion(TenantMixin, models.Model):
     )
     processed_at = models.DateTimeField(null=True, blank=True)
 
+    # ----- applied (student actually moved class) -----
+    promoted_to_class = models.ForeignKey(
+        StudentClass,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="incoming_promotions",
+        help_text="Class the student was moved into when this promotion was applied",
+    )
+    applied_at = models.DateTimeField(null=True, blank=True)
+    applied_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="applied_promotions",
+    )
+
     # ----- rule snapshot (for audit) -----
     pass_threshold_applied = models.DecimalField(
         max_digits=5, decimal_places=2, null=True, blank=True,
