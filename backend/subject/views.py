@@ -50,7 +50,8 @@ from .analyticalviewset import SubjectAnalyticsViewSet
 from .subjectmanagementviewset import SubjectManagementViewSet
 
 logger = logging.getLogger(__name__)
-from .utils import filter_subjects_by_education_level, clear_subject_caches
+from .utils import filter_subjects_by_education_level
+from .cache import invalidate as clear_subject_caches
 
 
 logger = logging.getLogger(__name__)

@@ -7,14 +7,12 @@ import logging
 from datetime import datetime, timedelta
 
 # import pandas as pd  # Commented out - not available in container
-from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q, Count, Avg, Sum, Prefetch, Max, Min
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.decorators import method_decorator
-from django.views.decorators.cache import cache_page
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
@@ -23,6 +21,7 @@ from rest_framework.response import Response
 
 logger = logging.getLogger(__name__)
 
+from . import cache as subject_cache
 from .models import (
     Subject,
     SUBJECT_CATEGORY_CHOICES,
@@ -57,6 +56,27 @@ class SubjectManagementViewSet(viewsets.ViewSet):
 
     permission_classes = [IsAdminUser]  # Admin only
     queryset = Subject.objects.all()
+
+    def _addressable(self):
+        """
+        The subjects this caller is allowed to act on by id.
+
+        A plain ViewSet, so TenantFilterMixin has no queryset to filter and the
+        scoping has to be explicit. The bulk endpoints take subject_ids from
+        the request body and fed them straight to Subject.objects.filter(), so
+        a request carrying another school's ids would deactivate, reassess or
+        delete that school's subjects.
+
+        IsAdminUser here means platform staff, not a school's own admin, so
+        this was a footgun rather than an exposure -- but a platform admin
+        working inside one school's context should not be able to reach
+        another school's rows by id either.
+        """
+        tenant = getattr(self.request, "tenant", None)
+        if tenant is None:
+            return Subject.objects.all()
+        return Subject.objects.filter(tenant=tenant)
+
 
     @action(detail=False, methods=["post"])
     def bulk_create(self, request):
@@ -137,7 +157,7 @@ class SubjectManagementViewSet(viewsets.ViewSet):
 
         try:
             with transaction.atomic():
-                subjects = Subject.objects.filter(id__in=subject_ids)
+                subjects = self._addressable().filter(id__in=subject_ids)
 
                 # Check for dependencies before deactivating
                 if is_active is False:
@@ -196,7 +216,7 @@ class SubjectManagementViewSet(viewsets.ViewSet):
 
         try:
             with transaction.atomic():
-                updated_count = Subject.objects.filter(id__in=subject_ids).update(
+                updated_count = self._addressable().filter(id__in=subject_ids).update(
                     **assessment_config
                 )
 
@@ -227,7 +247,7 @@ class SubjectManagementViewSet(viewsets.ViewSet):
         if not subject_ids:
             return Response({"error": "subject_ids required"}, status=400)
 
-        subjects = Subject.objects.filter(id__in=subject_ids)
+        subjects = self._addressable().filter(id__in=subject_ids)
 
         if not subjects.exists():
             return Response({"error": "No subjects found"}, status=404)
@@ -409,7 +429,7 @@ class SubjectManagementViewSet(viewsets.ViewSet):
         if not subject_ids:
             return Response({"error": "subject_ids required"}, status=400)
 
-        subjects = Subject.objects.filter(id__in=subject_ids)
+        subjects = self._addressable().filter(id__in=subject_ids)
 
         # Check if prerequisites are available if requested
         if check_prerequisites:
@@ -510,8 +530,8 @@ class SubjectManagementViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["get"])
     def analytics_dashboard(self, request):
         """Enhanced analytics dashboard for subjects"""
-        cache_key = "subjects_analytics_dashboard_v4"
-        dashboard_data = cache.get(cache_key)
+        tenant_id = subject_cache.tenant_id_from(request)
+        dashboard_data = subject_cache.read("management_dashboard", tenant_id)
 
         if not dashboard_data:
             dashboard_data = {
@@ -523,7 +543,7 @@ class SubjectManagementViewSet(viewsets.ViewSet):
                 "quality_metrics": self._get_quality_metrics(),
                 "last_updated": timezone.now().isoformat(),
             }
-            cache.set(cache_key, dashboard_data, timeout=3600)  # Cache for 1 hour
+            subject_cache.write("management_dashboard", tenant_id, dashboard_data)
 
         return Response(dashboard_data)
 
@@ -609,15 +629,8 @@ class SubjectManagementViewSet(viewsets.ViewSet):
         return ca_weight + exam_weight + practical_weight == 100
 
     def _clear_subject_caches(self):
-        """Clear all subject-related caches"""
-        cache_keys = [
-            "subjects_cache_v1",
-            "subjects_analytics_dashboard_v3",
-            "subjects_analytics_dashboard_v4",
-            "subjects_overview_v1",
-            "subjects_distribution_v1",
-        ]
-        cache.delete_many(cache_keys)
+        """Throw away the cached subject views for the school being worked on."""
+        subject_cache.invalidate(subject_cache.tenant_id_from(self.request))
 
     def _check_subject_dependencies(self, subjects):
         """Check for subject dependencies"""

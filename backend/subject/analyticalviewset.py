@@ -7,9 +7,6 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q, Prefetch, Avg, Sum, Count, Case, When, IntegerField
-from django.utils.decorators import method_decorator
-from django.views.decorators.cache import cache_page
-from django.core.cache import cache
 from django.db import transaction
 from django.core.exceptions import ValidationError
 from django.utils import timezone
@@ -26,9 +23,12 @@ from .models import (
 import logging
 
 from classroom.models import GradeLevel
+from tenants.mixins import TenantFilterMixin
+
+from . import cache as subject_cache
 
 
-class SubjectAnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
+class SubjectAnalyticsViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
     """
     Analytics ViewSet for Subject statistics, reports, and data insights.
 
@@ -52,11 +52,11 @@ class SubjectAnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False, methods=["get"])
     def dashboard(self, request):
         """Comprehensive analytics dashboard with Nigerian education system metrics"""
-        cache_key = "subjects_analytics_dashboard_v4"
-        stats = cache.get(cache_key)
+        tenant_id = subject_cache.tenant_id_from(getattr(self, "request", None))
+        stats = subject_cache.read("analytics_dashboard", tenant_id)
 
         if not stats:
-            queryset = Subject.objects.all()
+            queryset = self.get_queryset()
 
             # Core metrics
             total_subjects = queryset.count()
@@ -97,8 +97,7 @@ class SubjectAnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
                 "trends": self._get_trend_analysis(queryset),
             }
 
-            # Cache for 1 hour
-            cache.set(cache_key, stats, 60 * 60)
+            subject_cache.write("analytics_dashboard", tenant_id, stats)
 
         return Response(stats)
 
@@ -108,9 +107,9 @@ class SubjectAnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
         category = request.query_params.get("category")
 
         if category and category in dict(SUBJECT_CATEGORY_CHOICES):
-            queryset = Subject.objects.filter(category=category)
+            queryset = self.get_queryset().filter(category=category)
         else:
-            queryset = Subject.objects.all()
+            queryset = self.get_queryset()
 
         analysis = {
             "category_overview": self._get_category_breakdown(queryset),
@@ -130,9 +129,9 @@ class SubjectAnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
         level = request.query_params.get("level")
 
         if level and level in dict(EDUCATION_LEVELS):
-            queryset = Subject.objects.filter(education_levels__contains=[level])
+            queryset = self.get_queryset().filter(education_levels__contains=[level])
         else:
-            queryset = Subject.objects.all()
+            queryset = self.get_queryset()
 
         analysis = {
             "level_overview": self._get_education_level_breakdown(queryset),
@@ -156,7 +155,7 @@ class SubjectAnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False, methods=["get"])
     def nursery_analytics(self, request):
         """Specialized analytics for nursery education"""
-        nursery_subjects = Subject.objects.filter(
+        nursery_subjects = self.get_queryset().filter(
             education_levels__contains=["NURSERY"]
         )
 
@@ -185,7 +184,7 @@ class SubjectAnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False, methods=["get"])
     def senior_secondary_analytics(self, request):
         """Specialized analytics for Senior Secondary education"""
-        ss_subjects = Subject.objects.filter(
+        ss_subjects = self.get_queryset().filter(
             education_levels__contains=["SENIOR_SECONDARY"]
         )
 
@@ -215,7 +214,7 @@ class SubjectAnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False, methods=["get"])
     def resource_utilization(self, request):
         """Analyze resource requirements and utilization"""
-        queryset = Subject.objects.filter(is_active=True)
+        queryset = self.get_queryset().filter(is_active=True)
 
         utilization = {
             "lab_requirements": {
@@ -597,7 +596,7 @@ class SubjectAnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
     def _get_subjects_export(self):
         """Get detailed subjects data for export"""
         return list(
-            Subject.objects.values(
+            self.get_queryset().values(
                 "name",
                 "short_name",
                 "code",
@@ -616,19 +615,19 @@ class SubjectAnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
 
     def _get_education_level_export(self):
         """Get education level analysis for export"""
-        return self._get_education_level_breakdown(Subject.objects.all())
+        return self._get_education_level_breakdown(self.get_queryset())
 
     def _get_nursery_export(self):
         """Get nursery analysis for export"""
-        return self._get_nursery_level_breakdown(Subject.objects.all())
+        return self._get_nursery_level_breakdown(self.get_queryset())
 
     def _get_ss_export(self):
         """Get Senior Secondary analysis for export"""
-        return self._get_ss_subject_breakdown(Subject.objects.all())
+        return self._get_ss_subject_breakdown(self.get_queryset())
 
     def _get_trends_export(self):
         """Get trends analysis for export"""
-        return self._get_trend_analysis(Subject.objects.all())
+        return self._get_trend_analysis(self.get_queryset())
 
     # Placeholder methods for advanced analytics (to be implemented)
     def _get_category_performance(self, queryset, category):

@@ -341,6 +341,47 @@ _REDIS_URL = os.environ.get("REDIS_URL")
 CELERY_BROKER_URL = _REDIS_URL or "memory://"
 CELERY_RESULT_BACKEND = _REDIS_URL or "cache+memory://"
 
+# Django's cache.
+#
+# Without this block Django falls back to LocMemCache, which is a dict inside
+# each process. Production runs gunicorn with --workers 4, so that was four
+# independent caches: an invalidation triggered by a request reached at most
+# one of them and the other three kept serving stale data until the TTL ran
+# out. Redis is already running for Celery, so the cache shares it and every
+# worker sees the same entries.
+#
+# django-redis is deliberately not added: Django ships a Redis backend built
+# on redis-py, which is already a dependency. Two things it does not give us
+# are handled instead -- delete_pattern(), which subject/cache.py avoids by
+# listing its keys, and IGNORE_EXCEPTIONS, which config.cache provides so an
+# unreachable Redis makes pages slow rather than broken.
+#
+# KEY_PREFIX keeps cache entries clear of Celery's own keys in the same
+# database. Nothing calls cache.clear(); it would issue FLUSHDB and take
+# Celery's queues with it.
+# Tests never touch the real Redis. cache.clear() on the Redis backend issues
+# FLUSHDB, which would empty the whole database -- Celery's queues included --
+# and a developer with REDIS_URL set in their environment would do that by
+# running the test suite.
+_RUNNING_TESTS = "test" in sys.argv or "pytest" in sys.modules
+
+if _REDIS_URL and not _RUNNING_TESTS:
+    CACHES = {
+        "default": {
+            "BACKEND": "config.cache.ResilientRedisCache",
+            "LOCATION": _REDIS_URL,
+            "KEY_PREFIX": "esm",
+        }
+    }
+else:
+    # Dev, CI and tests: one process, nothing to share.
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "esm-locmem",
+        }
+    }
+
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"

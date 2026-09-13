@@ -6,7 +6,6 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q, Prefetch, Count, Avg
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
-from django.core.cache import cache
 from django.db import transaction, connection
 from django.core.exceptions import ValidationError
 from utils.section_filtering import SectionFilterMixin
@@ -35,7 +34,7 @@ from utils.pagination import StandardResultsPagination, LargeResultsPagination
 
 from classroom.models import GradeLevel
 from academics.models import EducationLevel
-from .utils import clear_subject_caches
+from . import cache as subject_cache
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +71,18 @@ def filter_subjects_by_nursery_level(queryset, nursery_level):
         if nursery_level in getattr(subject, "nursery_levels", [])
     ]
     return queryset.filter(id__in=subject_ids)
+
+
+def owned_by(tenant_id):
+    """
+    Configuration rows this school may see: its own, plus any left unowned.
+
+    Categories, education levels and subject types are per-tenant, but a row
+    with no tenant is a platform-wide default that every school relies on.
+    Filtering on tenant alone would empty the subject list for any school
+    whose configuration was seeded without one.
+    """
+    return Q(tenant_id=tenant_id) | Q(tenant__isnull=True)
 
 
 # ---------------------------------------------------------------------------
@@ -377,7 +388,7 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
         with transaction.atomic():
             tenant = getattr(self.request, "tenant", None)
             subject = serializer.save(tenant=tenant)
-            clear_subject_caches()
+            subject_cache.invalidate(getattr(tenant, "id", None))
             logger.info(
                 "Subject '%s' (%s) created by %s",
                 subject.name,
@@ -390,7 +401,7 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             old_name = serializer.instance.name
             tenant = getattr(self.request, "tenant", None)
             subject = serializer.save(tenant=tenant)
-            clear_subject_caches()
+            subject_cache.invalidate(getattr(tenant, "id", None))
             logger.info(
                 "Subject '%s' updated to '%s' by %s",
                 old_name,
@@ -423,7 +434,7 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                     f"Subject '{subject_info['name']}' has been permanently deleted"
                 )
 
-            clear_subject_caches()
+            subject_cache.invalidate(subject_cache.tenant_id_from(request))
             return Response(
                 {
                     "success": True,
@@ -445,17 +456,6 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-    def _clear_subject_caches(self):
-        for key in [
-            "subjects_cache_v1",
-            "subjects_by_category_v3",
-            "subjects_by_education_level_v2",
-            "nursery_subjects_v1",
-            "ss_subjects_by_type_v1",
-            "cross_cutting_subjects_v1",
-        ]:
-            cache.delete(key)
-
     # -----------------------------------------------------------------------
     # Custom actions
     # -----------------------------------------------------------------------
@@ -463,14 +463,14 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
     @action(detail=False, methods=["get"])
     def by_category(self, request):
         """Subjects grouped by SubjectCategory FK."""
-        cache_key = "subjects_by_category_v4"
-        result = cache.get(cache_key)
+        tenant_id = subject_cache.tenant_id_from(request)
+        result = subject_cache.read("by_category", tenant_id)
 
         if not result:
             result = {}
-            categories = SubjectCategory.objects.filter(is_active=True).order_by(
-                "display_order"
-            )
+            categories = SubjectCategory.objects.filter(
+                owned_by(tenant_id), is_active=True
+            ).order_by("display_order")
 
             for category in categories:
                 subjects = (
@@ -488,20 +488,20 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                     "subjects": SubjectListSerializer(subjects, many=True).data,
                 }
 
-            cache.set(cache_key, result, 60 * 30)
+            subject_cache.write("by_category", tenant_id, result)
 
         return Response(result)
 
     @action(detail=False, methods=["get"])
     def by_education_level(self, request):
         """Subjects grouped by EducationLevel FK (via grade_levels M2M)."""
-        cache_key = "subjects_by_education_level_v3"
-        result = cache.get(cache_key)
+        tenant_id = subject_cache.tenant_id_from(request)
+        result = subject_cache.read("by_education_level", tenant_id)
 
         if not result:
             result = {}
-            education_levels = EducationLevel.objects.filter(is_active=True).order_by(
-                "order"
+            education_levels = EducationLevel.objects.filter(
+                owned_by(tenant_id), is_active=True
             )
 
             for edu_level in education_levels:
@@ -523,7 +523,7 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                     "subjects": SubjectListSerializer(subjects, many=True).data,
                 }
 
-            cache.set(cache_key, result, 60 * 30)
+            subject_cache.write("by_education_level", tenant_id, result)
 
         return Response(result)
 
@@ -678,8 +678,8 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
     @action(detail=False, methods=["get"])
     def statistics(self, request):
         """Comprehensive subject statistics (cached 10 min)."""
-        cache_key = "subject_statistics_v2"
-        result = cache.get(cache_key)
+        tenant_id = subject_cache.tenant_id_from(request)
+        result = subject_cache.read("statistics", tenant_id)
 
         if not result:
             queryset = self.get_queryset()
@@ -694,7 +694,9 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                 "by_subject_type": {},
             }
 
-            for edu_level in EducationLevel.objects.filter(is_active=True):
+            for edu_level in EducationLevel.objects.filter(
+                owned_by(tenant_id), is_active=True
+            ):
                 level_subjects = queryset.filter(
                     grade_levels__education_level=edu_level
                 ).distinct()
@@ -704,21 +706,25 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                     "count": level_subjects.count(),
                 }
 
-            for category in SubjectCategory.objects.filter(is_active=True):
+            for category in SubjectCategory.objects.filter(
+                owned_by(tenant_id), is_active=True
+            ):
                 result["by_category"][category.code] = {
                     "id": category.id,
                     "name": category.name,
                     "count": queryset.filter(category_new=category).count(),
                 }
 
-            for subject_type in SubjectType.objects.filter(is_active=True):
+            for subject_type in SubjectType.objects.filter(
+                owned_by(tenant_id), is_active=True
+            ):
                 result["by_subject_type"][subject_type.code] = {
                     "id": subject_type.id,
                     "name": subject_type.name,
                     "count": queryset.filter(subject_type_new=subject_type).count(),
                 }
 
-            cache.set(cache_key, result, 60 * 10)
+            subject_cache.write("statistics", tenant_id, result)
 
         return Response(result)
 

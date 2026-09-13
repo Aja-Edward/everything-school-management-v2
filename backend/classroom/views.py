@@ -2207,7 +2207,6 @@ class SubjectByEducationLevelView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    @method_decorator(cache_page(60 * 10))
     def get(self, request):
         """
         Get subjects filtered by education level with comprehensive information
@@ -2235,10 +2234,25 @@ class SubjectByEducationLevelView(APIView):
                 status=400,
             )
 
-        # Base queryset
+        # Base queryset, scoped to the caller's school.
+        #
+        # This filtered on education level alone, so any authenticated user at
+        # any school received every school's subjects for that level. It is an
+        # APIView rather than a ViewSet, so TenantFilterMixin does not reach
+        # it and the isolation has to be spelled out here.
+        tenant = getattr(request, "tenant", None)
+        if tenant is None and not getattr(request.user, "is_platform_staff", False):
+            return Response(
+                {"error": "Tenant context required. Please access via your school subdomain."},
+                status=403,
+            )
+
         queryset = Subject.objects.filter(
             education_levels__contains=[level]
         ).prefetch_related("grade_levels", "prerequisites")
+
+        if tenant is not None:
+            queryset = queryset.filter(tenant=tenant)
 
         # Additional filters
         active_only = request.query_params.get(
@@ -2591,42 +2605,21 @@ class SubjectComparisonView(APIView):
 # ==============================================================================
 # UTILITY FUNCTIONS
 # ==============================================================================
-def clear_subject_caches():
+def clear_subject_caches(tenant_id=None):
     """
-    Enhanced helper function to clear all subject-related caches
+    Clear the subject caches. Delegates to the one implementation.
+
+    This used to keep its own key list, one of four that had drifted apart.
+    It also passed globs -- "subject_*", "nursery_*" -- to cache.delete_many(),
+    which takes literal key names and so deleted nothing, and then called
+    cache.delete_pattern(), which only exists on django-redis and is not
+    installed. It reported success either way.
     """
-    cache_keys = [
-        # Legacy cache keys
-        "subjects_statistics",
-        "subjects_statistics_v2",
-        "subjects_by_category",
-        "subjects_by_category_v2",
-        "active_subjects_count",
-        # New cache keys from enhanced model
-        "subjects_cache_v1",
-        "subjects_by_category_v3",
-        "subjects_by_education_level_v2",
-        "nursery_subjects_v1",
-        "ss_subjects_by_type_v1",
-        "cross_cutting_subjects_v1",
-        "subject_statistics_v1",
-        # Pattern-based cache clearing
-        "subject_*",
-        "education_level_*",
-        "nursery_*",
-        "ss_*",
-    ]
+    from subject.cache import invalidate
 
     try:
-        cache.delete_many(cache_keys)
-
-        # If using Redis or similar, also clear pattern-based keys
-        if hasattr(cache, "delete_pattern"):
-            patterns = ["subject_*", "education_*", "nursery_*", "ss_*"]
-            for pattern in patterns:
-                cache.delete_pattern(pattern)
-
-        logger.info("Subject caches cleared successfully")
+        cleared = invalidate(tenant_id)
+        logger.info("Cleared %s subject cache keys", cleared)
         return True
     except Exception as e:
         logger.error(f"Error clearing subject caches: {str(e)}")
