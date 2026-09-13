@@ -1,15 +1,63 @@
-from django.test import TestCase
+import base64
+import shutil
+import tempfile
+
+from django.test import TestCase, override_settings
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from rest_framework.test import APITestCase
 from rest_framework import status
-from rest_framework.authtoken.models import Token
 from datetime import date, timedelta
 from .models import UserProfile
 from .serializers import UserProfileSerializer, UserProfileSummarySerializer
 
 User = get_user_model()
+
+
+def use_temporary_media(test):
+    """
+    Send uploads to a scratch directory for the duration of one test.
+
+    The picture upload test posts a real image now, which the endpoint saves
+    under MEDIA_ROOT -- backend/media/profile_pics/ in the working tree. The
+    suite was quietly dropping files into the repository on every run.
+    """
+    media_root = tempfile.mkdtemp(prefix="userprofile-media-")
+    test.addCleanup(shutil.rmtree, media_root, ignore_errors=True)
+    overridden = override_settings(MEDIA_ROOT=media_root)
+    overridden.enable()
+    test.addCleanup(overridden.disable)
+
+
+def one_pixel_png():
+    """A real 1x1 PNG, so an ImageField can actually open it."""
+    return base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8"
+        "z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+
+
+def profile_for(user, **fields):
+    """
+    The profile this user already has, with `fields` applied.
+
+    userprofile.signals.handle_user_profile creates a UserProfile on post_save
+    for every user whose role is teacher, admin or student. Each setUp below
+    then created its own, and UserProfile.save() runs full_clean(), so setUp
+    died on "User Profile with this User already exists." before a single test
+    body ran -- all 23 of them, every run.
+    """
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    # Hold on to the caller's own User instance. Fetching the profile leaves
+    # the FK unloaded, so profile.user would lazily load a second copy and a
+    # test that flips a flag on its own instance would read the stale one.
+    profile.user = user
+    for name, value in fields.items():
+        setattr(profile, name, value)
+    if fields:
+        profile.save()
+    return profile
 
 
 class UserProfileModelTest(TestCase):
@@ -25,8 +73,8 @@ class UserProfileModelTest(TestCase):
             role="student",
             password="testpass123",
         )
-        self.profile = UserProfile.objects.create(
-            user=self.user,
+        self.profile = profile_for(
+            self.user,
             phone_number="+2348123456789",
             address="123 Test Street",
             bio="Test bio",
@@ -86,7 +134,7 @@ class UserProfileSerializerTest(TestCase):
             role="student",
             password="testpass123",
         )
-        self.profile = UserProfile.objects.create(user=self.user)
+        self.profile = profile_for(self.user)
 
     def test_profile_serializer(self):
         """Test UserProfileSerializer"""
@@ -158,11 +206,11 @@ class UserProfileAPITest(APITestCase):
             email_verified=True,
             is_active=True,
         )
-        self.profile = UserProfile.objects.create(
-            user=self.user, phone_number="+2348123456789", bio="Test bio"
+        self.profile = profile_for(
+            self.user, phone_number="+2348123456789", bio="Test bio"
         )
-        self.token = Token.objects.create(user=self.user)
-        self.client.credentials(HTTP_AUTHORIZATION="Token " + self.token.key)
+        self.client.force_authenticate(user=self.user)
+        use_temporary_media(self)
 
     def test_get_profile_me(self):
         """Test GET /profiles/me/ endpoint"""
@@ -220,8 +268,28 @@ class UserProfileAPITest(APITestCase):
         self.assertIn("can_login", response.data)
 
     def test_get_contact_info(self):
-        """Test GET /profiles/contact_info/ endpoint"""
+        """
+        GET /profiles/contact_info/.
+
+        This asserted phone_number and social_media, which is the shape of the
+        neighbouring contact_details endpoint. contact_info serialises through
+        UserProfileContactSerializer and returns primary_phone with the social
+        links flat, so the assertions described a different endpoint from the
+        one the test called. Both are covered now rather than one being bent
+        into the shape of the other.
+        """
         url = reverse("userprofile:userprofile-contact-info")
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("email", response.data)
+        self.assertIn("primary_phone", response.data)
+        self.assertEqual(response.data["primary_phone"], "+2348123456789")
+        self.assertIn("linkedin_url", response.data)
+
+    def test_get_contact_details(self):
+        """GET /profiles/contact_details/ -- the grouped shape."""
+        url = reverse("userprofile:userprofile-contact-details")
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -233,9 +301,8 @@ class UserProfileAPITest(APITestCase):
         """Test POST /profiles/upload_profile_picture/ endpoint"""
         url = reverse("userprofile:userprofile-upload-profile-picture")
 
-        # Create a fake image file
         image = SimpleUploadedFile(
-            "test_image.jpg", b"file_content", content_type="image/jpeg"
+            "test_image.png", one_pixel_png(), content_type="image/png"
         )
 
         data = {"profile_picture": image}
@@ -247,7 +314,7 @@ class UserProfileAPITest(APITestCase):
 
     def test_unauthorized_access(self):
         """Test unauthorized access to protected endpoints"""
-        self.client.credentials()  # Remove authentication
+        self.client.force_authenticate(user=None)
 
         url = reverse("userprofile:userprofile-me")
         response = self.client.get(url)
@@ -291,16 +358,14 @@ class UserProfilePermissionTest(APITestCase):
             email_verified=True,
             is_active=True,
         )
-        self.profile1 = UserProfile.objects.create(user=self.user1)
-        self.profile2 = UserProfile.objects.create(user=self.user2)
+        self.profile1 = profile_for(self.user1)
+        self.profile2 = profile_for(self.user2)
 
-        self.token1 = Token.objects.create(user=self.user1)
-        self.token2 = Token.objects.create(user=self.user2)
+        self.client.force_authenticate(user=self.user1)
+        use_temporary_media(self)
 
     def test_user_can_only_access_own_profile(self):
         """Test that users can only access their own profile"""
-        self.client.credentials(HTTP_AUTHORIZATION="Token " + self.token1.key)
-
         # User1 accessing own profile - should work
         url = reverse("userprofile:userprofile-me")
         response = self.client.get(url)
@@ -318,8 +383,6 @@ class UserProfilePermissionTest(APITestCase):
         self.user1.is_active = False
         self.user1.save()
 
-        self.client.credentials(HTTP_AUTHORIZATION="Token " + self.token1.key)
-
         url = reverse("userprofile:userprofile-me")
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -329,11 +392,9 @@ class UserProfilePermissionTest(APITestCase):
         self.user1.email_verified = False
         self.user1.save()
 
-        self.client.credentials(HTTP_AUTHORIZATION="Token " + self.token1.key)
-
         url = reverse("userprofile:userprofile-upload-profile-picture")
         image = SimpleUploadedFile(
-            "test_image.jpg", b"file_content", content_type="image/jpeg"
+            "test_image.png", one_pixel_png(), content_type="image/png"
         )
 
         data = {"profile_picture": image}
