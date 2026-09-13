@@ -858,7 +858,11 @@ class StudentCreateSerializer(serializers.ModelSerializer):
                 )
                 parent_profile, created = ParentProfile.objects.get_or_create(
                     user=parent_user,
-                    defaults={"phone": parent_contact, "address": parent_address},
+                    defaults={
+                        "phone": parent_contact,
+                        "address": parent_address,
+                        "tenant": current_tenant,
+                    },
                 )
                 if not created:
                     parent_profile.phone = parent_contact

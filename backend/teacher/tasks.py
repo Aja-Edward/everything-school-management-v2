@@ -228,6 +228,7 @@ def _create_teacher_from_cleaned(tenant, cleaned):
         role="teacher",
         password=password,
         is_active=cleaned["is_active"],
+        tenant=tenant,
     )
 
     # Create Teacher profile

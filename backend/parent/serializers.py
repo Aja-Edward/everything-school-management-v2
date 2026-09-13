@@ -1,3 +1,4 @@
+from django.db.models import Q
 from rest_framework import serializers
 from .models import ParentProfile
 from students.models import Student
@@ -133,16 +134,28 @@ class ParentProfileSerializer(serializers.ModelSerializer):
         # Extract students if provided (student_ids becomes students via source="students")
         students = validated_data.pop("students", None)
 
+        # Put there by the viewset's save(tenant=...).
+        tenant = validated_data.get("tenant")
+
         parent_username = None
         parent_password = None
         user = None
         if not (user_email and user_first_name and user_last_name):
             raise serializers.ValidationError("user_email, user_first_name, and user_last_name are required to create a parent user.")
-        user_qs = CustomUser.objects.filter(email=user_email, role="parent")
+        # Only reuse a parent account from this school, or one that has no
+        # school yet. Another school's parent is a different account there:
+        # attaching this school's profile to it would leave the parent unable
+        # to use this school, since they'd belong to the other one.
+        user_qs = CustomUser.objects.filter(email=user_email, role="parent").filter(
+            Q(tenant=tenant) | Q(tenant__isnull=True)
+        )
         if user_qs.exists():
             user = user_qs.first()
             if ParentProfile.objects.filter(user=user).exists():
                 raise serializers.ValidationError("A parent profile for this user already exists.")
+            if user.tenant_id is None and tenant is not None:
+                CustomUser.objects.filter(pk=user.pk).update(tenant=tenant)
+                user.tenant = tenant
         else:
             parent_username = generate_unique_username("parent")
             parent_password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(10))
@@ -154,6 +167,7 @@ class ParentProfileSerializer(serializers.ModelSerializer):
                 role="parent",
                 password=parent_password,
                 is_active=True,
+                tenant=tenant,
             )
         print(f"Creating ParentProfile for user: {user} (username: {user.username})")
         validated_data["user"] = user

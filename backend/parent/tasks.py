@@ -154,6 +154,7 @@ def _create_parent(tenant, cleaned):
         role="parent",
         password=password,
         is_active=True,
+        tenant=tenant,
     )
 
     parent = ParentProfile.objects.create(

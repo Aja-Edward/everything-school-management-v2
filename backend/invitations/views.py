@@ -75,6 +75,10 @@ class AcceptInvitationView(APIView):
         if invitation.is_used or invitation.is_expired():
             return Response({"detail": "Invitation expired or used"}, status=400)
 
+        # An Invitation records no school of its own; the person joins the
+        # school of whoever invited them.
+        from tenants.membership import user_school_id
+
         user = CustomUser.objects.create(
             email=invitation.email,
             first_name=first_name,
@@ -82,6 +86,7 @@ class AcceptInvitationView(APIView):
             role=invitation.role,
             is_active=True,
             password=make_password(password),
+            tenant_id=user_school_id(invitation.invited_by),
         )
 
         invitation.is_used = True

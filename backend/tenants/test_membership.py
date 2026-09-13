@@ -207,3 +207,134 @@ class EveryViewUsesCheckedAuthenticationTest(TestCase):
             if not issubclass(auth, self.CHECKED)
         })
         self.assertEqual(offenders, [])
+
+
+class NewUsersGetTheirSchoolTest(TwoSchoolsMixin, APITestCase):
+    """
+    Every way of creating a school's user records the school on the user.
+    Several didn't, which left accounts the membership check can only place
+    by falling back to their profile -- and some with no school at all.
+    """
+
+    def setUp(self):
+        self.make_schools()
+        self.request = type("Request", (), {"tenant": self.school_a, "user": None})()
+
+    def assert_at_school_a(self, user):
+        user.refresh_from_db()
+        self.assertEqual(user.tenant, self.school_a)
+
+    def test_bulk_teacher_upload(self):
+        from teacher.tasks import _create_teacher_from_cleaned, _validate_row
+
+        errors, cleaned = _validate_row(2, {
+            "employee_id": "T-100", "staff_type": "Teaching", "first_name": "Ada",
+            "last_name": "Obi", "email": "ada.bulk@example.com", "phone_number": "08030000000",
+            "hire_date": "2024-09-01", "qualification": "B.Ed", "specialization": "Maths",
+        }, self.school_a.id)
+        self.assertEqual(errors, [])
+
+        teacher, _, _ = _create_teacher_from_cleaned(self.school_a, cleaned)
+
+        self.assert_at_school_a(teacher.user)
+
+    def test_bulk_parent_upload(self):
+        from parent.tasks import _create_parent, _validate_row
+
+        errors, cleaned = _validate_row(2, {
+            "first_name": "Bola", "last_name": "Eze", "gender": "F", "phone": "08031111111",
+            "email": "bola.bulk@example.com", "address": "1 School Road", "relationship": "Mother",
+        })
+        self.assertEqual(errors, [])
+
+        parent, _, _, _ = _create_parent(self.school_a, cleaned)
+
+        self.assert_at_school_a(parent.user)
+
+    def test_teacher_form(self):
+        from teacher.serializers import TeacherSerializer
+
+        serializer = TeacherSerializer(data={
+            "user_email": "chidi.form@example.com", "user_first_name": "Chidi",
+            "user_last_name": "Okafor", "employee_id": "T-200",
+        }, context={"request": self.request})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        teacher = serializer.save(tenant=self.school_a)
+
+        self.assert_at_school_a(teacher.user)
+
+    def parent_form(self, email):
+        from parent.serializers import ParentProfileSerializer
+
+        serializer = ParentProfileSerializer(data={
+            "user_email": email, "user_first_name": "Dayo", "user_last_name": "Ade",
+            "phone": "08032222222", "address": "2 School Road",
+        }, context={"request": self.request})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        return serializer.save(tenant=self.school_a)
+
+    def test_parent_form(self):
+        self.assert_at_school_a(self.parent_form("dayo.form@example.com").user)
+
+    def test_parent_form_does_not_borrow_another_schools_account(self):
+        theirs = self.make_user("beta_parent", "parent", self.school_b)
+        theirs.email = "shared.parent@example.com"
+        theirs.save()
+
+        profile = self.parent_form("shared.parent@example.com")
+
+        self.assertNotEqual(profile.user_id, theirs.pk)
+        self.assert_at_school_a(profile.user)
+        theirs.refresh_from_db()
+        self.assertEqual(theirs.tenant, self.school_b)
+
+    def test_parent_form_adopts_an_account_with_no_school(self):
+        orphan = self.make_user("schoolless_parent", "parent", tenant=None)
+        orphan.email = "schoolless.parent@example.com"
+        orphan.save()
+
+        profile = self.parent_form("schoolless.parent@example.com")
+
+        self.assertEqual(profile.user_id, orphan.pk)
+        self.assert_at_school_a(orphan)
+
+    def test_student_form_with_a_new_parent(self):
+        from parent.models import ParentProfile
+        from students.serializers import StudentCreateSerializer
+
+        serializer = StudentCreateSerializer(data={
+            "user_first_name": "Emeka", "user_last_name": "Nwosu", "gender": "M",
+            "date_of_birth": "2015-03-01", "parent_first_name": "Ngozi",
+            "parent_last_name": "Nwosu", "parent_email": "ngozi.form@example.com",
+            "parent_contact": "08033333333",
+        }, context={"request": self.request})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        # StudentViewSet.create() saves without a tenant; the serializer
+        # takes it from the request.
+        student = serializer.save()
+
+        self.assert_at_school_a(student.user)
+        parent = ParentProfile.objects.get(user__email="ngozi.form@example.com")
+        self.assertEqual(parent.tenant, self.school_a)
+        self.assert_at_school_a(parent.user)
+
+    def test_accepting_an_invitation(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+        from invitations.models import Invitation
+
+        inviter = self.make_user("alpha_inviter", "superadmin", self.school_a)
+        invitation = Invitation.objects.create(
+            email="invited.teacher@example.com", role="teacher", invited_by=inviter,
+            expires_at=timezone.now() + timedelta(days=3))
+
+        response = self.client.post("/api/invitations/accept/", {
+            "token": str(invitation.token), "first_name": "Ife",
+            "last_name": "Bello", "password": "a-long-enough-password",
+        }, format="json", HTTP_X_TENANT_SLUG=self.school_a.slug)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assert_at_school_a(User.objects.get(email="invited.teacher@example.com"))

@@ -510,6 +510,8 @@ class TeacherSerializer(serializers.ModelSerializer):
                 last_name=last_name or "",
                 role="teacher",
                 is_active=True,
+                # Put there by TeacherViewSet.perform_create's save(tenant=...).
+                tenant=validated_data.get("tenant"),
             )
             print(f"goodCreated user: {user.username} with ID: {user.id}")
 
