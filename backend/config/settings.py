@@ -179,6 +179,7 @@ INSTALLED_APPS = [
     "timetable",
     "attendance",
     "exam",
+    "cbt",
     "result",
     "assignment",
     "notice",
