@@ -26,6 +26,7 @@ import {
   MessageSquare as MsgSq,
   BookOpen,
   CreditCard,
+  Monitor,
 } from 'lucide-react';
 // import StudentResultChecker from './StudentResultChecker';
 import TokenGenerator from '@/pages/admin/TokenGenerator';
@@ -167,6 +168,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       { name: 'Lessons', icon: Clock, path: '/admin/lessons' },
       { name: 'Exams', icon: FileText, path: '/admin/exams' },
       { name: 'Exam Schedules', icon: Calendar, path: '/admin/exam-schedules' },
+      { name: 'CBT Invigilation', icon: Monitor, path: '/admin/cbt-invigilation' },
       { name: 'Results', icon: BarChart3, path: '/admin/results' },
       { name: 'Admin Remarks', icon: PenTool, path: '/admin/admin-remarks' },
       { name: 'Token Generator', icon: Key, path: '/admin/token-generator' },

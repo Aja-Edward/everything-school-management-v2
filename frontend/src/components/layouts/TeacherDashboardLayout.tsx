@@ -25,6 +25,7 @@ import {
   Eye,
   EyeOff,
   ClipboardList,
+  Monitor,
 } from 'lucide-react';
 import { useGlobalTheme } from '@/contexts/GlobalThemeContext';
 import { useSettings } from '@/contexts/SettingsContext';
@@ -193,6 +194,7 @@ const TeacherDashboardLayout: React.FC<TeacherDashboardLayoutProps> = ({ childre
       { id: 'students', name: 'Students', icon: Users, path: '/teacher/students' },
       { id: 'attendance', name: 'Attendance', icon: CheckSquare, path: '/teacher/classes' },
       { id: 'exams', name: 'Exams & Tests', icon: FileText, path: '/teacher/exams' },
+      { id: 'invigilate', name: 'CBT Invigilation', icon: Monitor, path: '/teacher/invigilate' },
       { id: 'results', name: 'Results', icon: Award, path: '/teacher/results' },
       { id: 'schedule', name: 'Schedule', icon: Calendar, path: '/teacher/schedule' },
       { id: 'reports', name: 'Reports', icon: BarChart3, path: '/teacher/reports' },

@@ -405,6 +405,7 @@ class CBTEvent(TenantMixin, models.Model):
         CONNECTION_LOST = "connection_lost", "Lost connection"
         RECONNECTED = "reconnected", "Reconnected"
         TIME_EXTENDED = "time_extended", "Given extra time"
+        REOPENED = "reopened", "Let back in"
         SUBMITTED = "submitted", "Submitted"
         TIMED_OUT = "timed_out", "Submitted when time ran out"
         VOIDED = "voided", "Voided"

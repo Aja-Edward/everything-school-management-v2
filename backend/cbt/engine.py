@@ -92,6 +92,28 @@ def eligible_papers(student):
     )
 
 
+def eligible_students(paper):
+    """
+    The students who may sit `paper`: the same rule as eligible_papers(),
+    seen from the paper's side. The two must agree; tests_invigilation checks
+    that they do.
+    """
+    exam = paper.exam
+    registrations = ExamRegistration.objects.filter(exam=exam)
+    in_class = Q(pk__in=[])
+    if exam.grade_level_id:
+        in_class = Q(student_class__grade_level_id=exam.grade_level_id)
+        if exam.section_id:
+            in_class &= Q(section_id=exam.section_id)
+        if exam.stream_id:
+            in_class &= Q(stream_id=exam.stream_id)
+    return (
+        Student.objects.filter(tenant=paper.tenant, is_active=True)
+        .filter(in_class | Q(id__in=registrations.filter(is_registered=True).values("student_id")))
+        .exclude(id__in=registrations.filter(is_registered=False).values("student_id"))
+    )
+
+
 # ── Attempt state ─────────────────────────────────────────────────────────────
 
 
@@ -366,14 +388,14 @@ def record_events(attempt, events, ip_address=None):
     return len(rows)
 
 
-def _end(attempt, now, timed_out):
-    """End a locked, in-progress attempt."""
+def _end(attempt, now, timed_out, actor=None, detail=None):
+    """End a locked, in-progress attempt. `actor` is the staff member who ended it, if one did."""
     attempt.status = CBTAttempt.Status.TIMED_OUT if timed_out else CBTAttempt.Status.SUBMITTED
     # A timed-out attempt ended when its time ran out, however late it is noticed.
     attempt.submitted_at = attempt.deadline if timed_out else now
     attempt.save(update_fields=["status", "submitted_at", "updated_at"])
     CBTEvent.objects.create(
-        tenant=attempt.tenant, attempt=attempt,
+        tenant=attempt.tenant, attempt=attempt, actor=actor, detail=detail or {},
         kind=CBTEvent.Kind.TIMED_OUT if timed_out else CBTEvent.Kind.SUBMITTED)
 
 

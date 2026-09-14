@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle, Eye, Monitor, RefreshCw, Rocket, Trash2, Undo2, X } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { AlertCircle, CheckCircle, Eye, Monitor, Radio, RefreshCw, Rocket, Trash2, Undo2, X } from 'lucide-react';
 import { toast } from 'react-toastify';
 import CBTService, {
   CBTCheck,
@@ -75,6 +76,8 @@ const Problems: React.FC<{ title: string; problems: string[] }> = ({ title, prob
 );
 
 const CBTPaperModal: React.FC<Props> = ({ open, exam, onClose, onChanged }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [paper, setPaper] = useState<CBTPaper | null>(null);
@@ -408,6 +411,13 @@ const CBTPaperModal: React.FC<Props> = ({ open, exam, onClose, onChanged }) => {
                 <button onClick={remove} disabled={busy}
                   className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-60">
                   <Trash2 className="h-4 w-4" /> Remove CBT
+                </button>
+              )}
+              {paper.status !== 'draft' && (
+                <button
+                  onClick={() => navigate(`${location.pathname.startsWith('/teacher') ? '/teacher/invigilate' : '/admin/cbt-invigilation'}/${paper.id}`)}
+                  className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300">
+                  <Radio className="h-4 w-4" /> Live board
                 </button>
               )}
               {paper.status === 'published' && !started && (

@@ -60,6 +60,9 @@ const TenantSchoolActivitiesPage = lazy(() => import('./../pages/subdomain/Tenan
 // Dashboard pages (Subdomain - Protected)
 const StudentDashboard = lazy(() => import('./../pages/student/Dashboard'));
 const StudentCBTExamPage = lazy(() => import('./../pages/student/CBTExamPage'));
+const AdminInvigilationPage = lazy(() => import('./../pages/cbt/InvigilationPage'));
+const TeacherInvigilationPage = lazy(() =>
+  import('./../pages/cbt/InvigilationPage').then((m) => ({ default: m.TeacherInvigilationPage })));
 const ParentDashboard = lazy(() => import('./../pages/parent/Dashboard'));
 const PromotionDashboard = lazy(() => import('./../pages/admin/Promotiondashboard'));
 
@@ -517,6 +520,14 @@ export const router = createBrowserRouter([
             element: <LazyWrapper><TeacherExams /></LazyWrapper>,
           },
           {
+            path: 'invigilate',
+            element: <LazyWrapper><TeacherInvigilationPage /></LazyWrapper>,
+          },
+          {
+            path: 'invigilate/:paperId',
+            element: <LazyWrapper><TeacherInvigilationPage /></LazyWrapper>,
+          },
+          {
             path: 'question-bank',
             element: <LazyWrapper><QuestionBankManager /></LazyWrapper>,
           },
@@ -638,6 +649,14 @@ export const router = createBrowserRouter([
           {
             path: 'exam-schedules',
             element: <LazyWrapper><AdminExamScheduleManagement /></LazyWrapper>,
+          },
+          {
+            path: 'cbt-invigilation',
+            element: <LazyWrapper><AdminInvigilationPage /></LazyWrapper>,
+          },
+          {
+            path: 'cbt-invigilation/:paperId',
+            element: <LazyWrapper><AdminInvigilationPage /></LazyWrapper>,
           },
           {
             path: 'lessons',
