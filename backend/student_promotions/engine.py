@@ -207,6 +207,8 @@ class PromotionEngine:
 
         next_class = self._next_class(student_class)
         graduating = next_class is None
+        next_sections = [] if graduating else list(
+            Section.objects.filter(tenant=self.tenant, class_grade=next_class, is_active=True))
 
         moved, skipped = [], []
         with transaction.atomic():
@@ -233,22 +235,29 @@ class PromotionEngine:
                     continue
 
                 # Keep the section letter if the next class has one of the same
-                # name (JSS 1 A -> JSS 2 A); otherwise clear it, since a section
-                # must belong to the student's class. A graduate keeps theirs.
+                # name (JSS 1 A -> JSS 2 A). Failing that, a class with a single
+                # section can only mean that one: schools that name each class's
+                # section differently (Onyx, Frankincense) otherwise had every
+                # promoted student lose their section and drop out of classrooms.
+                # With several sections and no match it is cleared for a person
+                # to decide. A graduate keeps theirs.
                 new_section = None
                 if graduating:
                     new_section = student.section
-                elif student.section:
-                    new_section = (
-                        Section.objects.filter(
-                            tenant=self.tenant,
-                            class_grade=next_class,
-                            name__iexact=student.section.name,
-                            is_active=True,
+                else:
+                    if student.section:
+                        new_section = (
+                            Section.objects.filter(
+                                tenant=self.tenant,
+                                class_grade=next_class,
+                                name__iexact=student.section.name,
+                                is_active=True,
+                            )
+                            .order_by(F("academic_year__is_current").desc(nulls_last=True))
+                            .first()
                         )
-                        .order_by(F("academic_year__is_current").desc(nulls_last=True))
-                        .first()
-                    )
+                    if new_section is None and len(next_sections) == 1:
+                        new_section = next_sections[0]
 
                 # Student.save() validates the whole record, and older students'
                 # users often have no school at all (teacher/parent-style

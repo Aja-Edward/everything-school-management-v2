@@ -609,6 +609,35 @@ class ApplyPromotionsSectionTest(PromotionFixtureMixin, TestCase):
         student.refresh_from_db()
         self.assertEqual(student.section, p2_a)
 
+    def test_next_classs_only_section_is_used_when_names_differ(self):
+        """The regression: schools name each class's section differently (Onyx, Frankincense),
+        so every promoted student lost their section and dropped out of classrooms."""
+        onyx = Section.objects.create(tenant=self.tenant, class_grade=self.p1, name="Onyx")
+        frankincense = Section.objects.create(tenant=self.tenant, class_grade=self.p2, name="Frankincense")
+        sectioned = self._promoted_student("gem_sectioned", onyx)
+        unsectioned = self._promoted_student("gem_unsectioned", None)
+        self.run_auto()
+
+        self.apply()
+
+        for student in (sectioned, unsectioned):
+            student.refresh_from_db()
+            self.assertEqual(student.student_class, self.p2)
+            self.assertEqual(student.section, frankincense)
+
+    def test_several_sections_and_no_name_match_leaves_the_section_clear(self):
+        p1_a = Section.objects.create(tenant=self.tenant, class_grade=self.p1, name="A")
+        Section.objects.create(tenant=self.tenant, class_grade=self.p2, name="Gold")
+        Section.objects.create(tenant=self.tenant, class_grade=self.p2, name="Silver")
+        student = self._promoted_student("undecided", p1_a)
+        self.run_auto()
+
+        self.apply()
+
+        student.refresh_from_db()
+        self.assertEqual(student.student_class, self.p2)
+        self.assertIsNone(student.section)
+
     def test_section_is_cleared_and_old_enrolment_ended_when_no_match(self):
         p1_a = Section.objects.create(tenant=self.tenant, class_grade=self.p1, name="A")
         student = self._promoted_student("orphaned", p1_a)
