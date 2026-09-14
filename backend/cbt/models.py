@@ -124,6 +124,25 @@ class CBTPaper(TenantMixin, models.Model):
         if problems:
             raise ValidationError(problems)
 
+    def prepare(self):
+        """
+        What publishing now would put on the paper: (sections, questions, problems).
+
+        Writes nothing. `questions` are field dicts for CBTQuestion; publishing
+        refuses while `problems` has anything in it.
+        """
+        sections, questions, problems = build_paper(
+            self.exam, include_objective=self.include_objective, include_theory=self.include_theory)
+        problems = self._missing_settings() + self._setting_problems() + problems
+        if not questions:
+            problems.append("The exam has no questions to put on the paper.")
+        objective_count = sum(1 for q in questions if q["kind"] == CBTQuestion.Kind.OBJECTIVE)
+        if self.objective_questions_per_attempt and self.objective_questions_per_attempt > objective_count:
+            problems.append(
+                f"Each student is to get {self.objective_questions_per_attempt} objective questions, "
+                f"but the exam only has {objective_count}.")
+        return sections, questions, problems
+
     def publish(self, user=None):
         """
         Copy the exam's current questions onto the paper and open it for its window.
@@ -137,17 +156,7 @@ class CBTPaper(TenantMixin, models.Model):
                 raise ValidationError(
                     "Students have already started this paper, so its questions can't be replaced.")
 
-            sections, questions, problems = build_paper(
-                self.exam, include_objective=self.include_objective, include_theory=self.include_theory)
-            problems = self._missing_settings() + self._setting_problems() + problems
-            if not questions:
-                problems.append("The exam has no questions to put on the paper.")
-            objective_count = sum(1 for q in questions if q["kind"] == CBTQuestion.Kind.OBJECTIVE)
-            if (self.objective_questions_per_attempt
-                    and self.objective_questions_per_attempt > objective_count):
-                problems.append(
-                    f"Each student is to get {self.objective_questions_per_attempt} objective questions, "
-                    f"but the exam only has {objective_count}.")
+            sections, questions, problems = self.prepare()
             if problems:
                 raise ValidationError(problems)
 
@@ -161,27 +170,31 @@ class CBTPaper(TenantMixin, models.Model):
             self.published_by = user
             self.save()
 
-    def draw_questions(self, rng=None):
+    def draw_questions(self, questions=None, rng=None):
         """
         One student's questions and option order: (questions, {question_id: [keys]}).
 
         Sections stay in paper order. Within each, questions are shuffled if
-        the paper says so, after drawing the objective sample.
+        the paper says so, after drawing the objective sample. `questions`
+        defaults to the paper's published ones; a draft preview passes unsaved
+        rows instead.
         """
         rng = rng or random.SystemRandom()
+        if questions is None:
+            questions = self.questions.all()
         by_section = {}
-        for question in self.questions.order_by("order"):
+        for question in sorted(questions, key=lambda q: q.order):
             by_section.setdefault(question.section, []).append(question)
 
         served = []
-        for key, questions in by_section.items():
+        for key, group in by_section.items():
             wanted = self.objective_questions_per_attempt
-            if key == OBJECTIVE_SECTION and wanted and wanted < len(questions):
-                drawn = set(rng.sample(questions, wanted))
-                questions = [question for question in questions if question in drawn]
+            if key == OBJECTIVE_SECTION and wanted and wanted < len(group):
+                drawn = set(rng.sample(group, wanted))
+                group = [question for question in group if question in drawn]
             if self.shuffle_questions:
-                rng.shuffle(questions)
-            served.extend(questions)
+                rng.shuffle(group)
+            served.extend(group)
 
         option_order = {}
         for question in served:

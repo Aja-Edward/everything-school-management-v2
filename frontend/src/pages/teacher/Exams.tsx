@@ -30,8 +30,10 @@ import {
   Target,
   Clock3,
   Filter,
-  ChevronDown
+  ChevronDown,
+  Monitor
 } from 'lucide-react';
+import CBTPaperModal from '@/components/cbt/CBTPaperModal';
 
 interface TeacherExamData {
   id: number;
@@ -73,6 +75,7 @@ const TeacherExams: React.FC = () => {
   const [selectedExamDetail, setSelectedExamDetail] = useState<Exam | null>(null);
   const [activeTab, setActiveTab] = useState<'exams' | 'tests'>('exams');
   const [showFilters, setShowFilters] = useState(false);
+  const [cbtExam, setCbtExam] = useState<TeacherExamData | null>(null);
 
   // Load teacher data and exams
   useEffect(() => {
@@ -821,6 +824,15 @@ const handleDeleteExam = async (examId: number) => {
                     </button>
                   )}
                   
+                  <button
+                    onClick={() => setCbtExam(exam)}
+                    className="flex-1 sm:flex-none flex items-center justify-center space-x-1.5 px-3 py-2 text-sm text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 rounded-lg transition-colors"
+                    title="Computer-based test"
+                  >
+                    <Monitor className="w-4 h-4" />
+                    <span>CBT</span>
+                  </button>
+
                   {(exam.status === 'completed' || exam.status === 'in_progress') && (
                     <button
                       onClick={() => navigate('/teacher/results')}
@@ -872,6 +884,12 @@ const handleDeleteExam = async (examId: number) => {
           } : undefined}
         />
       )}
+
+      <CBTPaperModal
+        open={!!cbtExam}
+        exam={cbtExam}
+        onClose={() => setCbtExam(null)}
+      />
 
       {/* Test Creation Modal */}
       {showTestModal && (

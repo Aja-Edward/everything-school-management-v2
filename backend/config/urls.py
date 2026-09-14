@@ -89,6 +89,7 @@ urlpatterns = [
     # Backward compatibility aliases for /api/sessions/ and /api/terms/
     path("api/attendance/", include("attendance.urls")),
     path("api/exams/", include("exam.urls")),
+    path("api/cbt/", include("cbt.urls")),
     path(
         "api/results/", include("result.urls")
     ),  # Updated with new hierarchical structure

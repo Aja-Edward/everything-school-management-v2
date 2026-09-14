@@ -329,7 +329,7 @@ class DrawQuestionsTest(CBTTestCase):
         paper = self.make_paper(self.mixed_exam(), include_theory=True, objective_questions_per_attempt=4)
         questions = {q.id: q for q in paper.questions.all()}
 
-        served, option_order = paper.draw_questions(random.Random(7))
+        served, option_order = paper.draw_questions(rng=random.Random(7))
 
         self.assertEqual([q.section for q in served], ["objective"] * 4 + ["theory"] * 3)
         self.assertEqual(len({q.id for q in served}), 7)
@@ -340,7 +340,7 @@ class DrawQuestionsTest(CBTTestCase):
     def test_questions_and_options_are_shuffled(self):
         paper = self.make_paper(self.mixed_exam(), include_theory=True)
 
-        served, option_order = paper.draw_questions(random.Random(7))
+        served, option_order = paper.draw_questions(rng=random.Random(7))
 
         self.assertNotEqual([q.order for q in served], sorted(q.order for q in served))
         self.assertNotEqual(
@@ -350,7 +350,7 @@ class DrawQuestionsTest(CBTTestCase):
         paper = self.make_paper(self.mixed_exam(), include_theory=True,
                                 shuffle_questions=False, shuffle_options=False)
 
-        served, option_order = paper.draw_questions(random.Random(7))
+        served, option_order = paper.draw_questions(rng=random.Random(7))
 
         self.assertEqual([q.order for q in served], list(range(1, 14)))
         self.assertEqual(set(map(tuple, option_order.values())), {("A", "B", "C", "D")})

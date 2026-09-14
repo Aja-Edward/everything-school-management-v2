@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { Search, Plus, X, Filter, Edit2, Printer, CheckCircle, Trash2, Calendar, BookOpen, GraduationCap, FileText, ChevronDown, Upload, FileDown } from "lucide-react";
+import { Search, Plus, X, Filter, Edit2, Printer, CheckCircle, Trash2, Calendar, BookOpen, GraduationCap, FileText, ChevronDown, Upload, FileDown, Monitor } from "lucide-react";
 import { generateExamWordTemplate, generateExamCsvTemplate } from "@/utils/examTemplateGenerator";
 import { Exam, ExamCreateData, ExamUpdateData, ExamFilters, ExamService } from "@/services/ExamService";
 import ExamFormModal from "./ExamFormModal";
@@ -7,6 +7,22 @@ import PrintPreviewModal from "./PrintPreviewModal";
 import ApprovalModal from "./ApprovalModal";
 import { normalizeExamDataForDisplay, normalizeExamDataForEdit } from "@/utils/examDataNormalizer";
 import { ExamDocumentUploader } from "@/components/shared/ExamDocumentUploader";
+import CBTPaperModal from "@/components/cbt/CBTPaperModal";
+import CBTService, { CBTPaper } from "@/services/CBTService";
+
+const CBT_BADGE: Record<string, string> = {
+  draft: "bg-slate-100 text-slate-600 border-slate-200",
+  published: "bg-indigo-50 text-indigo-700 border-indigo-200",
+  closed: "bg-amber-50 text-amber-700 border-amber-200",
+};
+
+const CBTBadge: React.FC<{ paper?: CBTPaper }> = ({ paper }) =>
+  paper ? (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold border ${CBT_BADGE[paper.status]}`}>
+      <Monitor className="w-3 h-3" />
+      CBT {paper.status === "draft" ? "draft" : paper.status}
+    </span>
+  ) : null;
 
 interface ExamsPageProps {
   searchTerm?: string;
@@ -37,6 +53,8 @@ const ExamsPage: React.FC<ExamsPageProps> = ({
   const [selectedExamForPrint, setSelectedExamForPrint] = useState<Exam | null>(null);
   const [showApprovalModal, setShowApprovalModal] = useState(false);
   const [examForApproval, setExamForApproval] = useState<Exam | null>(null);
+  const [cbtExam, setCbtExam] = useState<Exam | null>(null);
+  const [cbtPapers, setCbtPapers] = useState<Record<number, CBTPaper>>({});
 
   // Local filter states
   const [localSearchTerm, setLocalSearchTerm] = useState(searchTerm);
@@ -50,6 +68,23 @@ const ExamsPage: React.FC<ExamsPageProps> = ({
   useEffect(() => {
     fetchExams();
   }, [localSearchTerm, localExamType, localStatus, localGrade, localSubject]);
+
+  // Which of the listed exams are set up for CBT. A failure only hides the badges.
+  useEffect(() => {
+    const ids = exams.map((exam) => exam.id).filter(Boolean);
+    CBTService.getPapersForExams(ids)
+      .then(setCbtPapers)
+      .catch((err) => console.warn("Could not load CBT papers:", err));
+  }, [exams]);
+
+  const handleCbtChanged = useCallback((examId: number, paper: CBTPaper | null) => {
+    setCbtPapers((prev) => {
+      const next = { ...prev };
+      if (paper) next[examId] = paper;
+      else delete next[examId];
+      return next;
+    });
+  }, []);
 
   const fetchExams = async () => {
     setLoading(true);
@@ -573,6 +608,7 @@ const handleEditExam = useCallback((exam: Exam) => {
                   <div className="flex-1">
                     <h3 className="font-semibold text-slate-900 text-lg mb-1">{exam.title}</h3>
                     <p className="text-sm text-slate-500">{exam.code || "--"}</p>
+                    <div className="mt-1"><CBTBadge paper={cbtPapers[exam.id]} /></div>
                   </div>
                   <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${getStatusColor(exam.status)}`}>
                     {getStatusIcon(exam.status)}
@@ -615,6 +651,13 @@ const handleEditExam = useCallback((exam: Exam) => {
                     Print
                   </button>
                   <button
+                    onClick={() => setCbtExam(exam)}
+                    className="flex-1 min-w-[80px] px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium flex items-center justify-center gap-1.5"
+                  >
+                    <Monitor className="w-4 h-4" />
+                    CBT
+                  </button>
+                  <button
                     onClick={() => handleApproveExam(exam)}
                     className="px-3 py-2 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition-colors text-sm font-medium"
                   >
@@ -654,6 +697,7 @@ const handleEditExam = useCallback((exam: Exam) => {
                         <div>
                           <div className="font-semibold text-slate-900">{exam.title}</div>
                           <div className="text-sm text-slate-500 mt-0.5">{exam.code || "--"}</div>
+                          <div className="mt-1"><CBTBadge paper={cbtPapers[exam.id]} /></div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
@@ -696,6 +740,13 @@ const handleEditExam = useCallback((exam: Exam) => {
                             title="Print"
                           >
                             <Printer className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setCbtExam(exam)}
+                            className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                            title="Computer-based test"
+                          >
+                            <Monitor className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => handleApproveExam(exam)}
@@ -793,6 +844,13 @@ const handleEditExam = useCallback((exam: Exam) => {
         onApprove={handleSubmitApproval}
         onReject={handleRejectExam}
         onClose={() => setShowApprovalModal(false)}
+      />
+
+      <CBTPaperModal
+        open={!!cbtExam}
+        exam={cbtExam}
+        onClose={() => setCbtExam(null)}
+        onChanged={handleCbtChanged}
       />
     </div>
   );
