@@ -403,6 +403,8 @@ const [traitFieldForm, setTraitFieldForm] = useState(blankTraitField('AFFECTIVE'
     start_date: '', end_date: '', result_release_date: '', is_published: false, is_active: true,
   });
   const [examSessionForm, setExamSessionForm] = useState(blankExamSession());
+  const termsForExamSession = academicTerms.filter(
+    (t: any) => String(t.academic_session) === String(examSessionForm.academic_session));
 
   const blankExamType = (): ExamTypeCreateUpdate & { id?: number } => ({
     name: '', code: '', category: 'OTHER', description: '', display_order: 0, is_active: true,
@@ -870,7 +872,13 @@ const [traitFieldForm, setTraitFieldForm] = useState(blankTraitField('AFFECTIVE'
       setShowExamSessionForm(false);
       setExamSessionForm(blankExamSession());
       loadData();
-    } catch { toast.error('Failed to update exam session'); }
+    } catch (e: any) {
+      const data = e?.response?.data;
+      if (data && typeof data === 'object') {
+        const msgs = Object.values(data).flat();
+        toast.error(String(msgs[0]));
+      } else { toast.error('Failed to update exam session'); }
+    }
     finally { setSaving(false); }
   };
 
@@ -2211,30 +2219,47 @@ const [traitFieldForm, setTraitFieldForm] = useState(blankTraitField('AFFECTIVE'
               </select>
             </FormField>
             <FormField label="Term" required>
+              {/* Only the chosen session's terms: a term from another session files
+                  the exam's results under the wrong year. */}
               <select
                 value={String(examSessionForm.term)}
                 onChange={(e) => setExamSessionForm((f) => ({ ...f, term: e.target.value }))}
                 className={inputCls}
+                disabled={!examSessionForm.academic_session}
               >
-                <option value="">Select term…</option>
-                {academicTerms.length > 0
-                  ? academicTerms.map((t: any) => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))
-                  : (
-                    <>
-                      <option value="1">First Term</option>
-                      <option value="2">Second Term</option>
-                      <option value="3">Third Term</option>
-                    </>
-                  )}
+                <option value="">
+                  {!examSessionForm.academic_session
+                    ? 'Choose an academic session first'
+                    : termsForExamSession.length === 0
+                      ? 'This session has no terms yet'
+                      : 'Select term…'}
+                </option>
+                {termsForExamSession.map((t: any) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
               </select>
+              {examSessionForm.academic_session && termsForExamSession.length === 0 && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Add this session's terms in the Academic Calendar settings first.
+                </p>
+              )}
             </FormField>
           </div>
           <FormField label="Academic Session" required>
             <select
               value={String(examSessionForm.academic_session)}
-              onChange={(e) => setExamSessionForm((f) => ({ ...f, academic_session: e.target.value }))}
+              onChange={(e) => {
+                const session = e.target.value;
+                // Clear a term that belongs to a different session.
+                setExamSessionForm((f) => ({
+                  ...f,
+                  academic_session: session,
+                  term: academicTerms.some((t: any) =>
+                    String(t.id) === String(f.term) && String(t.academic_session) === session)
+                    ? f.term
+                    : '',
+                }));
+              }}
               className={inputCls}
             >
               <option value="">Select academic session…</option>

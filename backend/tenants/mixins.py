@@ -103,12 +103,21 @@ class TenantFilterMixin:
             save_kwargs["tenant"] = tenant
 
         if hasattr(model, "academic_session"):
-            academic_session = AcademicSession.objects.filter(
-                tenant=tenant, is_active=True
-            ).first()
+            # Keep the session the request chose. Replacing it with the first
+            # active session filed a school's new exam session under last year
+            # when both sessions shared a start date.
+            academic_session = serializer.validated_data.get("academic_session")
+            if isinstance(academic_session, AcademicSession):
+                if tenant is not None and academic_session.tenant_id != tenant.id:
+                    raise ValidationError(
+                        {"academic_session": "That academic session belongs to another school."})
+            elif not academic_session:
+                academic_session = AcademicSession.objects.filter(
+                    tenant=tenant, is_active=True
+                ).first()
 
-            if not academic_session:
-                raise ValidationError("No active academic session found.")
+                if not academic_session:
+                    raise ValidationError("No active academic session found.")
 
             save_kwargs["academic_session"] = academic_session
 

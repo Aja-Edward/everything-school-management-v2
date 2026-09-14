@@ -865,6 +865,22 @@ class ExamSessionCreateUpdateSerializer(serializers.ModelSerializer):
             if data["start_date"] >= data["end_date"]:
                 raise serializers.ValidationError(
                     "Start date must be before end date")
+
+        session = data.get("academic_session", getattr(self.instance, "academic_session", None))
+        term = data.get("term", getattr(self.instance, "term", None))
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if tenant and session and session.tenant_id != tenant.id:
+            raise serializers.ValidationError(
+                {"academic_session": "That academic session belongs to another school."})
+        # Results are counted towards a term through their exam session, so a
+        # term from another session files them under the wrong year: a school's
+        # June exam went in as next year's First Term, and promotion found no
+        # third-term results at all.
+        if term and session and term.academic_session_id != session.pk:
+            raise serializers.ValidationError({
+                "term": f"{term.name} is a term of {term.academic_session.name}, not {session.name}. "
+                        f"Choose a term from {session.name}, or set one up for it first."
+            })
         return data
 
 
