@@ -59,6 +59,7 @@ const TenantSchoolActivitiesPage = lazy(() => import('./../pages/subdomain/Tenan
 
 // Dashboard pages (Subdomain - Protected)
 const StudentDashboard = lazy(() => import('./../pages/student/Dashboard'));
+const StudentCBTExamPage = lazy(() => import('./../pages/student/CBTExamPage'));
 const ParentDashboard = lazy(() => import('./../pages/parent/Dashboard'));
 const PromotionDashboard = lazy(() => import('./../pages/admin/Promotiondashboard'));
 
@@ -439,7 +440,15 @@ export const router = createBrowserRouter([
                 <LazyWrapper><StudentDashboard /></LazyWrapper>
               </ProtectedRoute>
             ),
-          }
+          },
+          {
+            path: 'cbt/:paperId',
+            element: (
+              <ProtectedRoute allowedRoles={[UserRole.STUDENT]}>
+                <LazyWrapper><StudentCBTExamPage /></LazyWrapper>
+              </ProtectedRoute>
+            ),
+          },
         ]
       },
 

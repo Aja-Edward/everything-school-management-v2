@@ -278,6 +278,14 @@ class SittingTest(EngineTest):
         self.assertNotIn("paper", after)
         self.assertEqual(self.request("get", MY_EXAMS).data["exams"][0]["state"], "done")
 
+    def test_a_submit_after_the_deadline_counts_as_timed_out(self):
+        """The exam page submits by itself at zero, so it usually lands a moment late."""
+        self.expire(self.attempt, seconds_ago=2)
+
+        response = self.request("post", f"{ATTEMPTS}{self.attempt.id}/submit/")
+
+        self.assertEqual(response.data["status"], "timed_out")
+
     def test_without_backtracking_an_earlier_question_cannot_be_changed(self):
         CBTPaper.objects.filter(pk=self.paper.pk).update(allow_backtracking=False)
 

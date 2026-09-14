@@ -378,12 +378,18 @@ def _end(attempt, now, timed_out):
 
 
 def submit(attempt, now=None):
-    """End the attempt at the student's request. Submitting twice is harmless."""
+    """
+    End the attempt at the student's request. Submitting twice is harmless.
+
+    A submit that arrives after the deadline counts as timed out, even inside
+    the grace window. The exam page submits by itself when its clock reaches
+    zero, and those students did run out of time.
+    """
     now = now or timezone.now()
     with transaction.atomic():
         attempt = CBTAttempt.objects.select_for_update().select_related("paper__exam").get(pk=attempt.pk)
         if attempt.status == CBTAttempt.Status.IN_PROGRESS:
-            _end(attempt, now, timed_out=now > attempt.deadline + GRACE)
+            _end(attempt, now, timed_out=now > attempt.deadline)
     return attempt
 
 

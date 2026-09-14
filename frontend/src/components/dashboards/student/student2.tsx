@@ -2,8 +2,9 @@ import { useState, useEffect } from "react";
 import {
   User, Calendar, BookOpen, Trophy, Clock, CreditCard, MessageSquare, Settings,
   GraduationCap, Home, AlertTriangle, ArrowLeft,
-  LogOut, Menu, X, Check
+  LogOut, Menu, X, Check, Monitor
 } from 'lucide-react';
+import StudentCBTExams from '@/components/cbt/student/StudentCBTExams';
 import { useDesign } from '@/contexts/DesignContext';
 
 // Import your actual components
@@ -61,7 +62,10 @@ const StudentPortal = () => {
   const isStudentPortalEnabled = settings?.student_portal_enabled !== false;
 
   // Navigation state
-  const [activeSection, setActiveSection] = useState('dashboard');
+  // ?section=cbt lets the exam page send a student back to their exams list.
+  const [activeSection, setActiveSection] = useState(
+    () => new URLSearchParams(window.location.search).get('section') || 'dashboard'
+  );
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Portal authentication flow states
@@ -185,6 +189,7 @@ const StudentPortal = () => {
     { id: 'portal', label: 'Portal', icon: GraduationCap },
     { id: 'profile', label: 'Profile', icon: User },
     { id: 'academics', label: 'Academics', icon: GraduationCap },
+    { id: 'cbt', label: 'CBT Exams', icon: Monitor },
     { id: 'schedule', label: 'Schedule', icon: Calendar },
     { id: 'assignments', label: 'Assignments', icon: BookOpen },
     { id: 'grades', label: 'Grades', icon: Trophy },
@@ -409,6 +414,8 @@ const StudentPortal = () => {
               <StudentLessons />
             ) : activeSection === 'academics' ? (
               <StudentAcademics />
+            ) : activeSection === 'cbt' ? (
+              <StudentCBTExams />
             ) : activeSection === 'grades' ? (
               <StudentGrades />
             ) : activeSection === 'attendance' ? (
