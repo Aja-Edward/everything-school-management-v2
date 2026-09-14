@@ -1,7 +1,7 @@
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from .models import Student
-from classroom.models import Classroom, StudentEnrollment, Section
+from classroom.models import Classroom, StudentEnrollment
 from academics.models import AcademicSession, Term
 
 
@@ -22,36 +22,22 @@ def auto_enroll_or_update_student(sender, instance, created, **kwargs):
             print(f"⚠️ {instance} has no class assigned. Skipping enrollment.")
             return
 
-        # Step 2: Get section name from classroom string e.g. "SSS 2 Diamond" → "Diamond"
-        classroom_name = instance.classroom  # string like "SSS 2 Diamond"
-        section_name = None
-        if classroom_name:
-            parts = str(classroom_name).strip().split()
-            # Section name is the last word e.g. "Diamond"
-            if parts:
-                section_name = parts[-1]  # preserve original casing e.g. "Diamond"
-
-        if not section_name:
-            print(
-                f"⚠️ Could not extract section name from '{classroom_name}'. Skipping."
-            )
+        # Step 2: The student's own section. It used to be recovered from the
+        # classroom name by taking its last word, so "Pre-Nursery 1 Star Kids"
+        # looked for a section called "Kids" and the student was never enrolled.
+        section = instance.section
+        if not section:
+            print(f"⚠️ {instance} has no section. Skipping enrollment.")
             return
 
-        # Step 3: Get Section — links via class_grade (which is the Class object)
-        section = Section.objects.filter(
-            class_grade=student_class,
-            name__iexact=section_name,
-            tenant=instance.tenant,
-        ).first()
-
-        if not section:
+        if section.class_grade_id != student_class.id or section.tenant_id != instance.tenant_id:
             print(
-                f"⚠️ No section '{section_name}' found for class '{student_class.name}' "
+                f"⚠️ Section '{section.name}' is not a section of class '{student_class.name}' "
                 f"in tenant '{instance.tenant}'. Skipping."
             )
             return
 
-        # Step 4: Get current academic session and term
+        # Step 3: Get current academic session and term
         academic_session = AcademicSession.objects.filter(
             is_current=True, tenant=instance.tenant
         ).first()
@@ -63,7 +49,7 @@ def auto_enroll_or_update_student(sender, instance, created, **kwargs):
             )
             return
 
-        # Step 5: Find existing classroom by section — prefer current session/term
+        # Step 4: Find existing classroom by section — prefer current session/term
         # but fall back to any active classroom for that section.
         # This prevents duplicate classrooms being created alongside admin-created ones.
         classroom = (
@@ -87,7 +73,7 @@ def auto_enroll_or_update_student(sender, instance, created, **kwargs):
                 academic_session=academic_session,
                 term=term,
                 tenant=instance.tenant,
-                name=f"{student_class.name} {section_name}",
+                name=f"{student_class.name} {section.name}",
                 room_number="TBD",
                 max_capacity=student_class.default_capacity or 30,
                 is_active=True,
@@ -96,7 +82,7 @@ def auto_enroll_or_update_student(sender, instance, created, **kwargs):
         else:
             print(f"🏫 Using existing classroom: {classroom.name} (id={classroom.id})")
 
-        # Step 6: Enroll or update
+        # Step 5: Enroll or update
         active_enrollment = StudentEnrollment.objects.filter(
             student=instance, is_active=True
         ).first()

@@ -8,11 +8,12 @@ from datetime import date
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from academics.models import EducationLevel
-from classroom.models import Class
+from academics.models import AcademicSession, EducationLevel, Term, TermType
+from classroom.models import Class, Classroom, Section, StudentEnrollment
 from parent.models import ParentProfile
 from students.models import Student
 from tenants.models import Tenant
@@ -133,3 +134,58 @@ class AddStudentPermissionTest(APITestCase):
         response = self.add_with_existing_parent(ours)
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+
+class ClassroomEnrolmentTest(TestCase):
+    """Saving a student enrols them in their section's classroom."""
+
+    def setUp(self):
+        self.school = Tenant.objects.create(
+            name="Enrol School", slug="enrol-school", status="active", is_active=True,
+            owner_email="owner@enrol-school.example.com")
+        level, _ = EducationLevel.objects.update_or_create(
+            tenant=self.school, code="nursery", defaults={"name": "Nursery", "level_type": "NURSERY"})
+        self.pre_nursery = Class.objects.create(
+            tenant=self.school, name="Pre-Nursery 1 (enrol)", code="PRE_NURSERY_1_ENROL",
+            education_level=level, grade_number=1, order=1)
+        session = AcademicSession.objects.create(
+            tenant=self.school, name="2026/2027", start_date=date(2026, 9, 7),
+            end_date=date(2027, 7, 23), is_current=True)
+        term_type, _ = TermType.objects.get_or_create(
+            tenant=self.school, code="FT", defaults={"name": "First Term", "display_order": 1})
+        term = Term.objects.create(
+            tenant=self.school, term_type=term_type, academic_session=session,
+            start_date=date(2026, 9, 7), end_date=date(2026, 12, 16), is_current=True)
+        self.star_kids = Section.objects.create(
+            tenant=self.school, class_grade=self.pre_nursery, name="Star Kids")
+        self.classroom = Classroom.objects.create(
+            tenant=self.school, name="Pre-Nursery 1 Star Kids", section=self.star_kids,
+            academic_session=session, term=term)
+
+    def make_student(self, username, section=None):
+        user = User.objects.create_user(
+            username=username, email=f"{username}@example.com", role="student",
+            password="testpass123", is_active=True, tenant=self.school)
+        return Student.objects.create(
+            user=user, gender="F", date_of_birth=date(2022, 1, 1),
+            student_class=self.pre_nursery, section=section, tenant=self.school)
+
+    def enrolled_classrooms(self, student):
+        return list(StudentEnrollment.objects.filter(student=student, is_active=True)
+                    .values_list("classroom", flat=True))
+
+    def test_new_student_in_a_multi_word_section_is_enrolled(self):
+        """The regression: the section was read back as the last word of "Pre-Nursery 1 Star Kids",
+        so "Kids" matched no section and the student was never enrolled."""
+        student = self.make_student("star_new", section=self.star_kids)
+
+        self.assertEqual(self.enrolled_classrooms(student), [self.classroom.id])
+
+    def test_student_placed_into_a_multi_word_section_is_enrolled(self):
+        student = self.make_student("star_moved")
+        self.assertEqual(self.enrolled_classrooms(student), [])
+
+        student.section = self.star_kids
+        student.save()
+
+        self.assertEqual(self.enrolled_classrooms(student), [self.classroom.id])
