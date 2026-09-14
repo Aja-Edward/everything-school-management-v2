@@ -130,6 +130,20 @@ const AcademicCalendarTab: React.FC = () => {
     }
   };
 
+  // The server's reason a save failed. Field errors ({end_date: [...]}),
+  // {detail} and non-JSON error pages all used to collapse into a generic toast.
+  const saveErrorMessage = async (response: Response, fallback: string): Promise<string> => {
+    try {
+      const data = await response.json();
+      if (typeof data === 'string') return data;
+      const first = Object.values(data ?? {}).flat()[0];
+      if (first) return String(first);
+    } catch {
+      // Not JSON: an error page from the server.
+    }
+    return `${fallback} (server responded ${response.status})`;
+  };
+
   const getHeaders = (includeContentType = false): HeadersInit => {
    
     const tenantId = getTenantId();
@@ -266,15 +280,7 @@ const loadData = async () => {
         setSessionForm({ name: '', start_date: '', end_date: '', is_current: false });
         await loadData();
       } else {
-        const errorData = await response.json();
-        console.error('Session creation error:', errorData);
-        if (errorData.non_field_errors) {
-          toast.error(errorData.non_field_errors[0]);
-        } else if (errorData.message) {
-          toast.error(errorData.message);
-        } else {
-          toast.error('Failed to create session. Please check your input.');
-        }
+        toast.error(await saveErrorMessage(response, 'Failed to create session'));
       }
     } catch (error) {
       console.error('Error creating session:', error);
@@ -317,14 +323,7 @@ const loadData = async () => {
         setSessionForm({ name: '', start_date: '', end_date: '', is_current: false });
         await loadData();
       } else {
-        const errorData = await response.json();
-        if (errorData.non_field_errors) {
-          toast.error(errorData.non_field_errors[0]);
-        } else if (errorData.message) {
-          toast.error(errorData.message);
-        } else {
-          toast.error('Failed to update session. Please check your input.');
-        }
+        toast.error(await saveErrorMessage(response, 'Failed to update session'));
       }
     } catch (error) {
       console.error('Error updating session:', error);
