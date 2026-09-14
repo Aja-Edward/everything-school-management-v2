@@ -472,19 +472,18 @@ class PromotionEngine:
 
         terms = self._session_terms(academic_session)
 
-        for index, attr in enumerate(["term1_average", "term2_average", "term3_average"]):
-            if index >= len(terms):
+        for term, attr in zip(terms, ["term1_average", "term2_average", "term3_average"]):
+            if term is None:
                 setattr(student_promotions, attr, None)
                 continue
 
             # A term can have several exam sessions (one per exam type), so
             # look across all of them rather than picking one arbitrarily.
-            report = term_report_model.objects.filter(
+            report = self._counted_reports(term_report_model).filter(
                 tenant=self.tenant,
                 student=student,
                 exam_session__academic_session=academic_session,
-                exam_session__term=terms[index],
-                status__in=["APPROVED", "PUBLISHED"],
+                exam_session__term=term,
             ).first()
 
             if report:
@@ -516,16 +515,24 @@ class PromotionEngine:
                 "so none of its results can be read."
             ]
 
-        terms = self._session_terms(academic_session)
+        terms = [t for t in self._session_terms(academic_session) if t is not None]
         if not terms:
             warnings.append(
                 f"{academic_session.name} has no terms set up, so no results can be matched to a term."
             )
         elif len(terms) < 3:
-            warnings.append(
+            warning = (
                 f"{academic_session.name} has only {len(terms)} term(s) set up "
                 f"({', '.join(t.name for t in terms)}), so no student can have three."
             )
+            # Typically a school that joined part-way through the year.
+            if self._get_rule(student_class.education_level).require_all_three_terms:
+                warning += (
+                    " They stay Pending while this level's promotion rule is set to require all "
+                    "three terms: turn that off to decide on the terms there are, or promote "
+                    "students manually."
+                )
+            warnings.append(warning)
 
         reports = report_model.objects.filter(
             tenant=self.tenant,
@@ -560,7 +567,7 @@ class PromotionEngine:
                 "Set the term on those exam sessions, then run again."
             )
 
-        drafts = in_session.exclude(status__in=["APPROVED", "PUBLISHED"]).count()
+        drafts = in_session.exclude(pk__in=self._counted_reports(report_model).values("pk")).count()
         if drafts:
             warnings.append(
                 f"{drafts} result(s) are still in Draft. Only approved or published results count."
@@ -589,15 +596,56 @@ class PromotionEngine:
                 return level_type
         return None
 
-    def _session_terms(self, academic_session):
-        """The session's first three terms, in order."""
-        from academics.models import Term
+    @staticmethod
+    def _counted_reports(report_model):
+        """
+        Term reports whose results count: approved or published, or with an
+        approved or published subject result.
 
-        return list(
+        Approving subject results creates the term report as Draft and leaves
+        it there until the report card itself is signed off -- yet its average
+        is already built only from approved subject results. Requiring the
+        report card's own status left those students at 0/3.
+        """
+        from django.db.models import Exists, OuterRef, Q
+
+        counted = ("APPROVED", "PUBLISHED")
+        subject_results = report_model._meta.get_field("subject_results").related_model
+        return report_model.objects.filter(
+            Q(status__in=counted)
+            | Q(Exists(subject_results.objects.filter(term_report=OuterRef("pk"), status__in=counted)))
+        )
+
+    def _session_terms(self, academic_session):
+        """
+        The session's [first, second, third] terms, None where it has none.
+
+        Slotted by the school's term types, not by counting the session's
+        terms: a school that joined in the third term has only a Third Term,
+        and read positionally its results showed as first-term ones.
+        """
+        from academics.models import Term, TermType
+
+        type_ids = list(
+            TermType.objects.filter(tenant=self.tenant, is_active=True)
+            .order_by("display_order", "name")
+            .values_list("pk", flat=True)[:3]
+        )
+        slots, unplaced = [None, None, None], []
+        for term in (
             Term.objects.filter(tenant=self.tenant, academic_session=academic_session)
             .select_related("term_type")
-            .order_by("term_type__display_order", "start_date")[:3]
-        )
+            .order_by("term_type__display_order", "start_date")
+        ):
+            if term.term_type_id in type_ids and slots[type_ids.index(term.term_type_id)] is None:
+                slots[type_ids.index(term.term_type_id)] = term
+            else:
+                unplaced.append(term)
+        # A term with no active type can't be placed by it; fill the gaps in order.
+        for term in unplaced:
+            if None in slots:
+                slots[slots.index(None)] = term
+        return slots
 
     def _resolve_term_report_model(self, level_type):
         """

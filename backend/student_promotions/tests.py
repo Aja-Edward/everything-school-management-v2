@@ -226,6 +226,53 @@ class TermResultsVisibilityTest(PromotionFixtureMixin, TestCase):
                 self.assertEqual(promo.terms_counted, 3)
                 self.assertEqual(promo.term3_average, Decimal("80.00"))
 
+    def test_school_that_started_in_the_third_term(self):
+        """The regression: a session with only a Third Term read it as term 1."""
+        for exam_session in self.exam_sessions[:2]:
+            exam_session.delete()
+        for term in self.terms[:2]:
+            term.delete()
+        PrimaryTermReport.objects.create(
+            tenant=self.tenant, student=self.student, exam_session=self.exam_sessions[2],
+            average_score=Decimal("72"), status="PUBLISHED")
+
+        self.run_auto()
+
+        promo = StudentPromotion.objects.get(student=self.student)
+        self.assertEqual(
+            (promo.term1_average, promo.term2_average, promo.term3_average),
+            (None, None, Decimal("72.00")))
+        self.assertEqual(promo.terms_counted, 1)
+        self.assertEqual(promo.session_average, Decimal("72.00"))
+        self.assertEqual(promo.status, "PENDING")
+        [warning] = self.warnings()
+        self.assertIn("only 1 term(s) set up (Third Term)", warning)
+        self.assertIn("require all three terms", warning)
+
+    def test_draft_report_card_with_approved_subject_results_counts(self):
+        """The regression: approving subject results leaves the term report in Draft, which read as no result."""
+        from result.models import GradingSystem, PrimaryResult
+        from subject.models import Subject
+
+        report = PrimaryTermReport.objects.create(
+            tenant=self.tenant, student=self.student, exam_session=self.exam_sessions[2],
+            average_score=Decimal("64"), status="DRAFT")
+        grading = GradingSystem.objects.create(
+            tenant=self.tenant, name="Promo grading", grading_type="PERCENTAGE")
+        subject = Subject.objects.create(
+            tenant=self.tenant, name="Promo Maths", code="PROMO-MATH", education_levels=["PRIMARY"])
+        result = PrimaryResult.objects.create(
+            tenant=self.tenant, student=self.student, subject=subject,
+            exam_session=self.exam_sessions[2], grading_system=grading)
+        PrimaryResult.objects.filter(pk=result.pk).update(term_report=report, status="APPROVED")
+
+        self.run_auto()
+
+        promo = StudentPromotion.objects.get(student=self.student)
+        self.assertEqual(promo.term3_average, Decimal("64.00"))
+        self.assertEqual(promo.terms_counted, 1)
+        self.assertFalse(any("Draft" in w for w in self.warnings()), self.warnings())
+
     def test_a_clean_class_has_no_warnings(self):
         self.give_results(self.student, [60, 70, 80])
         self.assertEqual(self.warnings(), [])
