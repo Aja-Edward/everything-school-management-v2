@@ -24,6 +24,30 @@ from teacher.models import Teacher
 from students.models import Student
 
 
+class SchoolScopedRelationsMixin:
+    """
+    Accept related ids from the request's school only.
+
+    PrimaryKeyRelatedField(queryset=Model.objects.all()) accepts any school's
+    id. That let an exam be created against another school's subject, and a
+    registration point at another school's exam -- a registration returns its
+    exam nested inside it, questions and answer key included.
+    """
+
+    def get_fields(self):
+        fields = super().get_fields()
+        request = self.context.get("request")
+        tenant = getattr(request, "tenant", None)
+        if tenant is None:
+            return fields
+        for field in fields.values():
+            relation = getattr(field, "child_relation", field)
+            queryset = getattr(relation, "queryset", None)
+            if queryset is not None and hasattr(queryset.model, "tenant"):
+                relation.queryset = queryset.filter(tenant=tenant)
+        return fields
+
+
 # ==============================================================================
 # NEW FK MODEL SERIALIZERS
 # ==============================================================================
@@ -137,7 +161,7 @@ class StudentSerializer(serializers.ModelSerializer):
         return obj.admission_number
 
 
-class ExamScheduleSerializer(serializers.ModelSerializer):
+class ExamScheduleSerializer(SchoolScopedRelationsMixin, serializers.ModelSerializer):
     is_registration_open = serializers.ReadOnlyField()
     is_ongoing = serializers.ReadOnlyField()
 
@@ -398,7 +422,7 @@ class ExamDetailSerializer(serializers.ModelSerializer):
         return None
 
 
-class ExamCreateUpdateSerializer(serializers.ModelSerializer):
+class ExamCreateUpdateSerializer(SchoolScopedRelationsMixin, serializers.ModelSerializer):
     """Serializer for creating and updating exams"""
 
     subject = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all())
@@ -554,7 +578,7 @@ class ExamCreateUpdateSerializer(serializers.ModelSerializer):
 # REGISTRATION AND RESULT SERIALIZERS
 # ==============================================================================
 
-class ExamRegistrationSerializer(serializers.ModelSerializer):
+class ExamRegistrationSerializer(SchoolScopedRelationsMixin, serializers.ModelSerializer):
     exam = ExamListSerializer(read_only=True)
     student = StudentSerializer(read_only=True)
     exam_id = serializers.PrimaryKeyRelatedField(
@@ -625,7 +649,7 @@ class ResultSerializer(serializers.ModelSerializer):
         ]
 
 
-class ResultCreateUpdateSerializer(serializers.ModelSerializer):
+class ResultCreateUpdateSerializer(SchoolScopedRelationsMixin, serializers.ModelSerializer):
     student = serializers.PrimaryKeyRelatedField(queryset=Student.objects.all())
     exam = serializers.PrimaryKeyRelatedField(queryset=Exam.objects.all())
     subject = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all())
@@ -877,7 +901,7 @@ class QuestionBankDetailSerializer(serializers.ModelSerializer):
         ]
 
 
-class QuestionBankCreateUpdateSerializer(serializers.ModelSerializer):
+class QuestionBankCreateUpdateSerializer(SchoolScopedRelationsMixin, serializers.ModelSerializer):
     """Serializer for creating and updating questions in bank"""
 
     subject = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all())
@@ -986,7 +1010,7 @@ class ExamTemplateDetailSerializer(serializers.ModelSerializer):
         ]
 
 
-class ExamTemplateCreateUpdateSerializer(serializers.ModelSerializer):
+class ExamTemplateCreateUpdateSerializer(SchoolScopedRelationsMixin, serializers.ModelSerializer):
     """Serializer for creating and updating templates"""
 
     grade_level = serializers.PrimaryKeyRelatedField(queryset=GradeLevel.objects.all())

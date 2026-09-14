@@ -1,4 +1,4 @@
-from rest_framework import viewsets, filters, status, permissions
+from rest_framework import viewsets, filters, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
@@ -105,6 +105,27 @@ def _exam_status_code(exam):
 def _review_status_code(review):
     """Safely get the code string from a review's FK status. Returns '' if unset."""
     return review.status.code if review.status else ""
+
+
+def _in_request_school(queryset, request):
+    """
+    Limit `queryset` to the request's school, as TenantFilterMixin does for a
+    viewset's own queryset.
+
+    Actions that look a record up by an id from the request body never pass
+    through get_queryset(), so a bare Model.objects.get(id=...) there reached
+    every school's rows.
+    """
+    tenant = getattr(request, "tenant", None)
+    if tenant is None:
+        if getattr(request.user, "is_platform_staff", False):
+            return queryset
+        return queryset.none()
+    return queryset.filter(tenant=tenant)
+
+
+# Setting these through bulk_update would move an exam to another school.
+_BULK_UPDATE_PROTECTED_FIELDS = frozenset({"id", "pk", "tenant", "tenant_id"})
 
 
 # ==============================================================================
@@ -303,7 +324,7 @@ class ExamViewSet(
     search_fields = ["title", "description", "code", "subject__name", "venue"]
     ordering_fields = ["exam_date", "start_time", "title", "created_at"]
     ordering = ["-exam_date", "start_time"]
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsTeacherOrAdmin]
     pagination_class = StandardResultsPagination
 
     def get_serializer_class(self):
@@ -802,7 +823,7 @@ class ExamViewSet(
             )
 
         try:
-            student = Student.objects.get(id=student_id)
+            student = Student.objects.get(id=student_id, tenant=exam.tenant)
         except Student.DoesNotExist:
             return Response(
                 {"error": "Student not found"}, status=status.HTTP_404_NOT_FOUND
@@ -815,7 +836,7 @@ class ExamViewSet(
             )
 
         registration = ExamRegistration.objects.create(
-            exam=exam, student=student, registration_date=timezone.now()
+            tenant=exam.tenant, exam=exam, student=student, registration_date=timezone.now()
         )
         return Response(
             ExamRegistrationSerializer(registration).data,
@@ -1008,13 +1029,21 @@ class ExamViewSet(
                 {"error": "Exam IDs are required"}, status=status.HTTP_400_BAD_REQUEST
             )
 
+        protected = sorted(_BULK_UPDATE_PROTECTED_FIELDS.intersection(update_data))
+        if protected:
+            return Response(
+                {"error": f"These fields cannot be bulk updated: {', '.join(protected)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        exams = self.get_queryset()
         updated_count = 0
         errors = []
 
         with transaction.atomic():
             for exam_id in exam_ids:
                 try:
-                    exam = Exam.objects.get(id=exam_id)
+                    exam = exams.get(id=exam_id)
                     for field, value in update_data.items():
                         if hasattr(exam, field):
                             setattr(exam, field, value)
@@ -1041,13 +1070,14 @@ class ExamViewSet(
                 {"error": "Exam IDs are required"}, status=status.HTTP_400_BAD_REQUEST
             )
 
+        exams = self.get_queryset()
         deleted_count = 0
         errors = []
 
         with transaction.atomic():
             for exam_id in exam_ids:
                 try:
-                    Exam.objects.get(id=exam_id).delete()
+                    exams.get(id=exam_id).delete()
                     deleted_count += 1
                 except Exam.DoesNotExist:
                     errors.append(f"Exam {exam_id} not found")
@@ -1306,7 +1336,7 @@ class ExamScheduleViewSet(
     queryset = ExamSchedule.objects.all()
     serializer_class = ExamScheduleSerializer
     ordering = ["-created_at"]
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsTeacherOrAdmin]
     pagination_class = StandardResultsPagination
 
     def get_queryset(self):
@@ -1374,7 +1404,9 @@ class ExamScheduleViewSet(
     @action(detail=True, methods=["post"])
     def set_default(self, request, pk=None):
         schedule = self.get_object()
-        ExamSchedule.objects.exclude(pk=schedule.pk).update(is_default=False)
+        ExamSchedule.objects.filter(tenant=schedule.tenant).exclude(pk=schedule.pk).update(
+            is_default=False
+        )
         schedule.is_default = True
         schedule.save()
         return Response(
@@ -1414,7 +1446,7 @@ class ExamRegistrationViewSet(
     queryset = ExamRegistration.objects.select_related("exam", "student")
     serializer_class = ExamRegistrationSerializer
     ordering = ["-registration_date"]
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsTeacherOrAdmin]
     pagination_class = LargeResultsPagination
 
     def get_queryset(self):
@@ -1480,7 +1512,7 @@ class ExamRegistrationViewSet(
             )
 
         try:
-            exam = Exam.objects.get(id=exam_id)
+            exam = _in_request_school(Exam.objects.all(), request).get(id=exam_id)
         except Exam.DoesNotExist:
             return Response(
                 {"error": "Exam not found"}, status=status.HTTP_404_NOT_FOUND
@@ -1492,14 +1524,17 @@ class ExamRegistrationViewSet(
         with transaction.atomic():
             for student_id in student_ids:
                 try:
-                    student = Student.objects.get(id=student_id)
+                    student = Student.objects.get(id=student_id, tenant=exam.tenant)
                     if ExamRegistration.objects.filter(
                         exam=exam, student=student
                     ).exists():
                         errors.append(f"Student {student_id} already registered")
                         continue
                     reg = ExamRegistration.objects.create(
-                        exam=exam, student=student, registration_date=timezone.now()
+                        tenant=exam.tenant,
+                        exam=exam,
+                        student=student,
+                        registration_date=timezone.now(),
                     )
                     created_registrations.append(reg.id)
                 except Student.DoesNotExist:
@@ -1542,6 +1577,7 @@ class ExamRegistrationViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        registrations = _in_request_school(ExamRegistration.objects.all(), request)
         updated_count = 0
         errors = []
 
@@ -1553,7 +1589,7 @@ class ExamRegistrationViewSet(
                     errors.append("Registration ID is required")
                     continue
                 try:
-                    reg = ExamRegistration.objects.get(id=registration_id)
+                    reg = registrations.get(id=registration_id)
                     reg.is_present = is_present
                     reg.save()
                     updated_count += 1
@@ -1590,7 +1626,7 @@ class ResultViewSet(
     queryset = StudentResult.objects.select_related("exam", "student", "subject")
     serializer_class = ResultSerializer
     ordering = ["-created_at"]
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsTeacherOrAdmin]
     pagination_class = LargeResultsPagination
 
     def get_queryset(self):
@@ -1676,7 +1712,7 @@ class ExamStatisticsViewSet(
     queryset = ExamStatistics.objects.select_related("exam")
     serializer_class = ExamStatisticsSerializer
     ordering = ["-calculated_at"]
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsTeacherOrAdmin]
     pagination_class = StandardResultsPagination
 
     def get_queryset(self):
@@ -1868,13 +1904,15 @@ class QuestionBankViewSet(
             )
 
         try:
-            exam = Exam.objects.get(id=exam_id)
+            exam = _in_request_school(Exam.objects.all(), request).get(id=exam_id)
         except Exam.DoesNotExist:
             return Response(
                 {"error": "Exam not found"}, status=status.HTTP_404_NOT_FOUND
             )
 
-        questions = QuestionBank.objects.filter(id__in=question_ids)
+        # Only questions this user could open in the bank: importing copies the
+        # answer key into an exam they can read.
+        questions = self.get_queryset().filter(id__in=question_ids)
         if questions.count() != len(question_ids):
             return Response(
                 {"error": "Some questions not found"}, status=status.HTTP_404_NOT_FOUND
@@ -2011,7 +2049,7 @@ class ExamTemplateViewSet(
     search_fields = ["name", "description"]
     ordering_fields = ["created_at", "usage_count", "name"]
     ordering = ["-created_at"]
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsTeacherOrAdmin]
     pagination_class = StandardResultsPagination
 
     def get_serializer_class(self):
@@ -2148,7 +2186,7 @@ class ExamReviewViewSet(
     # UPDATED: ordering by status now uses FK traversal
     ordering_fields = ["created_at", "submitted_at", "status__name"]
     ordering = ["-created_at"]
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsTeacherOrAdmin]
     pagination_class = StandardResultsPagination
 
     def get_serializer_class(self):
@@ -2188,7 +2226,7 @@ class ExamReviewViewSet(
         submission_note = serializer.validated_data.get("submission_note", "")
 
         try:
-            exam = Exam.objects.get(id=exam_id)
+            exam = _in_request_school(Exam.objects.all(), request).get(id=exam_id)
         except Exam.DoesNotExist:
             return Response(
                 {"error": "Exam not found"}, status=status.HTTP_404_NOT_FOUND
@@ -2219,6 +2257,7 @@ class ExamReviewViewSet(
 
         with transaction.atomic():
             review = ExamReview.objects.create(
+                tenant=exam.tenant,
                 exam=exam,
                 submitted_by=user.teacher,
                 submission_note=submission_note,
@@ -2227,8 +2266,10 @@ class ExamReviewViewSet(
 
             for reviewer_id in reviewer_ids:
                 try:
-                    reviewer = Teacher.objects.get(id=reviewer_id)
-                    ExamReviewer.objects.create(review=review, reviewer=reviewer)
+                    reviewer = Teacher.objects.get(id=reviewer_id, tenant=exam.tenant)
+                    ExamReviewer.objects.create(
+                        tenant=exam.tenant, review=review, reviewer=reviewer
+                    )
                 except Teacher.DoesNotExist:
                     pass
 

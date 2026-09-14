@@ -7,16 +7,17 @@ class IsTeacherOrAdmin(BasePermission):
     """
     Allows access only to teachers and admin roles.
 
-    The question bank stores `correct_answer` alongside the question, and
-    QuestionBankDetailSerializer returns it. Authentication alone is therefore
-    not a sufficient gate: with only IsAuthenticated, a signed-in student falls
+    Used on every endpoint in the exam app. Exams store their answer keys in
+    objective_questions, and the question bank stores `correct_answer` next to
+    each question; both are returned as-is. Authentication alone is therefore
+    not a sufficient gate. With only IsAuthenticated, a signed-in student falls
     through QuestionBankViewSet.get_queryset()'s `elif not user.is_staff`
-    branch and can read every is_shared=True question in their school —
-    answer keys included. `is_shared` means "shared with other teachers", not
-    "safe for learners".
+    branch and can read every is_shared=True question in their school, answer
+    keys included. They could also create exams and call the bulk actions.
+    `is_shared` means "shared with other teachers", not "safe for learners".
 
-    Students never need this endpoint. They reach questions through the exam
-    flow, which is responsible for stripping answers before serving them.
+    Students never need these endpoints. When they sit exams, they will go
+    through a separate exam-taking API that strips answers before serving them.
     """
 
     # Mirrors CustomUser.is_admin, plus 'principal' as used elsewhere in the

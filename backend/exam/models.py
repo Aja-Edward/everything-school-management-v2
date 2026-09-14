@@ -244,9 +244,10 @@ class ExamSchedule(TenantMixin, models.Model):
 
     def save(self, *args, **kwargs):
         if self.is_default:
-            ExamSchedule.objects.filter(is_default=True).exclude(pk=self.pk).update(
-                is_default=False
-            )
+            # Each school has its own default; leave every other school's alone.
+            ExamSchedule.objects.filter(tenant=self.tenant, is_default=True).exclude(
+                pk=self.pk
+            ).update(is_default=False)
         super().save(*args, **kwargs)
 
     @classmethod

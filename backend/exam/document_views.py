@@ -6,12 +6,12 @@ Handles uploading and parsing of exam documents (PDF, Word).
 
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.utils import timezone
 import logging
 
 from .document_parser import ExamDocumentParser
+from .permissions import IsTeacherOrAdmin
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ MAX_PASTE_CHARS = 50_000
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsTeacherOrAdmin])
 def parse_exam_document(request):
     """
     Parse uploaded exam document (PDF or Word) and return structured data.
@@ -161,7 +161,7 @@ def parse_exam_document(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsTeacherOrAdmin])
 def document_parser_status(request):
     """
     Check if document parsing libraries are available.
@@ -205,7 +205,7 @@ def document_parser_status(request):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsTeacherOrAdmin])
 def parse_pasted_exam_text(request):
     """
     Parse exam questions pasted as raw text and return structured data.
