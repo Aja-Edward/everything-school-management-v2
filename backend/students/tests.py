@@ -189,3 +189,22 @@ class ClassroomEnrolmentTest(TestCase):
         student.save()
 
         self.assertEqual(self.enrolled_classrooms(student), [self.classroom.id])
+
+    def test_classroom_created_for_a_new_section_uses_the_current_sessions_term(self):
+        """Another session's term can still be marked current; a new classroom must not take it.
+        Kebi's 2025/2026 carried 2026/2027's dates, so it sorted ahead of the current session."""
+        other_session = AcademicSession.objects.create(
+            tenant=self.school, name="2025/2026", start_date=date(2026, 9, 8), end_date=date(2027, 7, 24))
+        third_type, _ = TermType.objects.get_or_create(
+            tenant=self.school, code="TT", defaults={"name": "Third Term", "display_order": 3})
+        Term.objects.create(
+            tenant=self.school, term_type=third_type, academic_session=other_session,
+            start_date=date(2026, 9, 8), end_date=date(2026, 12, 16), is_current=True)
+        moonbeams = Section.objects.create(
+            tenant=self.school, class_grade=self.pre_nursery, name="Moon Beams")
+
+        student = self.make_student("moon_new", section=moonbeams)
+
+        classroom = Classroom.objects.get(section=moonbeams)
+        self.assertEqual(self.enrolled_classrooms(student), [classroom.id])
+        self.assertEqual(classroom.term.academic_session_id, classroom.academic_session_id)

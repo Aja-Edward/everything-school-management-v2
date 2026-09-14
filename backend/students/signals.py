@@ -41,7 +41,11 @@ def auto_enroll_or_update_student(sender, instance, created, **kwargs):
         academic_session = AcademicSession.objects.filter(
             is_current=True, tenant=instance.tenant
         ).first()
-        term = Term.objects.filter(is_current=True, tenant=instance.tenant).first()
+        # The current term of the current session: "current" is only unique
+        # within a session, so last session's term can still be marked current.
+        term = Term.objects.filter(
+            is_current=True, tenant=instance.tenant, academic_session=academic_session
+        ).first()
 
         if not academic_session or not term:
             print(

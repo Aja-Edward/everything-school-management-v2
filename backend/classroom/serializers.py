@@ -851,6 +851,22 @@ class ClassroomSerializer(serializers.ModelSerializer):
                 "Maximum capacity cannot exceed 100.")
         return value
 
+    def validate(self, data):
+        session = data.get("academic_session", getattr(self.instance, "academic_session", None))
+        term = data.get("term", getattr(self.instance, "term", None))
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if tenant and session and session.tenant_id != tenant.id:
+            raise serializers.ValidationError(
+                {"academic_session": "That academic session belongs to another school."})
+        # A school's classrooms all ended up recorded as last session with this
+        # session's First Term, which the edit form couldn't even show.
+        if term and session and term.academic_session_id != session.pk:
+            raise serializers.ValidationError({
+                "term": f"{term.name} is a term of {term.academic_session.name}, not {session.name}. "
+                        f"Choose a term from {session.name}."
+            })
+        return data
+
 
 class ClassroomDetailSerializer(ClassroomSerializer):
     subjects = SubjectSerializer(many=True, read_only=True)

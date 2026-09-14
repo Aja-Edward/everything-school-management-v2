@@ -138,8 +138,8 @@ const handleSubmit = async (e: React.FormEvent) => {
       setShowAddModal(false);
       setShowEditModal(false);
   
-    } catch (err: any) {
-      toast.error(err.message || 'Operation failed');
+    } catch {
+      // createClassroom/updateClassroom already showed the reason.
     }
   };
     // Handle teacher assignment

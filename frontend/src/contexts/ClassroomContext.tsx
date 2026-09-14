@@ -244,9 +244,15 @@ export const ClassroomProvider: React.FC<{ children: ReactNode }> = ({ children 
     setLoading(prev => ({ ...prev, [key]: value }));
 
   const handleError = (err: any, fallback: string): string => {
+    const data = err?.response?.data;
+    // Field errors ({term: ["..."]}) otherwise reached the toast as raw JSON.
+    const fieldError = data && typeof data === 'object'
+      ? Object.values(data).flat().find((v) => typeof v === 'string')
+      : undefined;
     const msg =
-      err?.response?.data?.detail ||
-      err?.response?.data?.error ||
+      data?.detail ||
+      data?.error ||
+      fieldError ||
       err?.message ||
       fallback;
     setError(msg);
