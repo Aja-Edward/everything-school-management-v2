@@ -811,7 +811,10 @@ class StudentCreateSerializer(serializers.ModelSerializer):
             existing_parent_id = validated_data.pop("existing_parent_id", None)
             if existing_parent_id:
                 try:
-                    parent_profile = ParentProfile.objects.get(id=existing_parent_id)
+                    # Only this school's parents: the id alone could name any.
+                    parent_profile = ParentProfile.objects.get(
+                        id=existing_parent_id, tenant=current_tenant
+                    )
                     parent_user = parent_profile.user
                     parent_email = parent_user.email  # available for fallback below
                     self._generated_parent_password = None

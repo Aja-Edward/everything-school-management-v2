@@ -18,11 +18,12 @@ from tenants.mixins import  TenantFilterMixin
 
 from academics.models import AcademicSession
 from classroom.models import Class as StudentClass
+from common.admin_access import admin_level_access, can_manage_level
 from students.models import Student
 
 from .models import StudentPromotion, PromotionRule
 from .engine import PromotionEngine, PromotionApplyError
-from .permissions import IsPromotionAdmin, can_manage_level, promotion_level_access
+from .permissions import IsPromotionAdmin
 from .serializers import (
     StudentPromotionSerializer,
     PromotionRuleSerializer,
@@ -43,7 +44,7 @@ class PromotionScopeMixin:
 
     def level_access(self):
         """None for every level, else the level_type spellings allowed."""
-        return promotion_level_access(self.request.user, getattr(self.request, "tenant", None))
+        return admin_level_access(self.request.user, getattr(self.request, "tenant", None))
 
     def check_level(self, education_level):
         if not can_manage_level(self.level_access(), education_level):

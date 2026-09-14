@@ -46,6 +46,8 @@ from rest_framework import viewsets, status, filters
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser, BasePermission
+from rest_framework.exceptions import PermissionDenied
+from common.admin_access import admin_level_access, can_manage_level
 
 
 class IsPlatformAdmin(BasePermission):
@@ -62,6 +64,25 @@ class IsPlatformAdmin(BasePermission):
         # admin (role='superadmin' but tenant-scoped) is correctly excluded -
         # this docstring already promised that; the old check did not deliver it.
         return request.user.is_platform_staff
+
+
+class CanAddStudents(BasePermission):
+    """
+    Adding a student creates working student and parent logins and returns
+    their passwords. It used to be open to anyone, signed in or not.
+
+    Now: whoever the viewset's students-write permission admits, plus the
+    school's own admins and section admins, who reach the add-student form
+    without holding a students-write role. Section admins are narrowed to
+    their levels in StudentViewSet.create().
+    """
+
+    message = "Only school admins can add students."
+
+    def has_permission(self, request, view):
+        if HasStudentsPermissionOrReadOnly().has_permission(request, view):
+            return True
+        return admin_level_access(request.user, getattr(request, "tenant", None)) != []
 
 
 logger = logging.getLogger(__name__)
@@ -1655,12 +1676,21 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
 
     def get_permissions(self):
         if self.action == "create":
-            return [AllowAny()]
+            return [CanAddStudents()]
         return super().get_permissions()
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
+        # A section admin only adds students to classes in their own levels.
+        access = admin_level_access(request.user, getattr(request, "tenant", None))
+        student_class = serializer.validated_data.get("student_class")
+        if access and student_class and not can_manage_level(access, student_class.education_level):
+            raise PermissionDenied(
+                f"You can only add students to your own section, not {student_class.education_level.name}."
+            )
+
         student = serializer.save()
         student_password = getattr(
             serializer, "_generated_student_password", None)
