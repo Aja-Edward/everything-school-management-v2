@@ -294,6 +294,45 @@ class TermResultsVisibilityTest(PromotionFixtureMixin, TestCase):
         self.assertIn("no term set", warning)
         self.assertIn("Third Term Exam (no term)", warning)
 
+    def test_results_on_an_exam_session_whose_term_is_from_another_session(self):
+        next_session = AcademicSession.objects.create(
+            tenant=self.tenant, name="2026/2027",
+            start_date=date(2026, 9, 1), end_date=date(2027, 7, 31))
+        next_first_term = Term.objects.create(
+            tenant=self.tenant, term_type=self.terms[0].term_type, academic_session=next_session,
+            start_date=date(2026, 9, 7), end_date=date(2026, 12, 16))
+        ExamSession.objects.filter(pk=self.exam_sessions[2].pk).update(term=next_first_term)
+        self.give_results(self.student, [60, 70, 80])
+
+        self.run_auto()
+
+        self.assertEqual(StudentPromotion.objects.get(student=self.student).terms_counted, 2)
+        [warning] = self.warnings()
+        self.assertIn("1 result(s)", warning)
+        self.assertIn('"Third Term Exam" has First Term of 2026/2027', warning)
+        self.assertIn("Change those exam sessions' term to one of 2025/2026's terms", warning)
+
+    def test_session_with_no_terms_whose_results_use_another_sessions_term(self):
+        """The real case: the June exam was filed under 2025/2026 with 2026/2027's First Term,
+        and the only warning said 2025/2026 had no terms."""
+        last_session = AcademicSession.objects.create(
+            tenant=self.tenant, name="2024/2025",
+            start_date=date(2024, 9, 1), end_date=date(2025, 7, 31))
+        june_exam = ExamSession.objects.create(
+            tenant=self.tenant, name="2024/2025", exam_type=self.exam_type,
+            academic_session=last_session, term=self.terms[0],
+            start_date=date(2025, 6, 15), end_date=date(2025, 7, 3))
+        PrimaryTermReport.objects.create(
+            tenant=self.tenant, student=self.student, exam_session=june_exam,
+            average_score=Decimal("67.5"), status="PUBLISHED")
+
+        warnings = self.warnings(session=last_session)
+
+        self.assertEqual(len(warnings), 2, warnings)
+        self.assertIn("2024/2025 has no terms set up", warnings[0])
+        self.assertIn('"2024/2025" has First Term of 2025/2026', warnings[1])
+        self.assertIn("Set up 2024/2025's terms, then change those exam sessions' term", warnings[1])
+
     def test_draft_results(self):
         self.give_results(self.student, [60, 70, 80], status_="DRAFT")
         [warning] = self.warnings()

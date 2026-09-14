@@ -567,6 +567,28 @@ class PromotionEngine:
                 "Set the term on those exam sessions, then run again."
             )
 
+        # A term from another session can't be matched to any of this one's
+        # terms. A school's June exam filed with next year's First Term only
+        # ever said the session had no terms.
+        misfiled = in_session.filter(exam_session__term__isnull=False).exclude(
+            exam_session__term__academic_session=academic_session)
+        if misfiled.exists():
+            described = "; ".join(
+                f'"{es.name}" has {es.term.name} of {es.term.academic_session.name}'
+                for es in ExamSession.objects.filter(pk__in=misfiled.values("exam_session"))
+                .select_related("term__term_type", "term__academic_session").order_by("name")
+            )
+            if terms:
+                fix = f"Change those exam sessions' term to one of {academic_session.name}'s terms, then run again."
+            else:
+                fix = (f"Set up {academic_session.name}'s terms, then change those exam sessions' "
+                       "term to one of them, and run again.")
+            warnings.append(
+                f"{misfiled.count()} result(s) are on exam sessions whose term belongs to a different "
+                f"academic session ({described}), so they can't be counted towards any "
+                f"{academic_session.name} term. {fix}"
+            )
+
         drafts = in_session.exclude(pk__in=self._counted_reports(report_model).values("pk")).count()
         if drafts:
             warnings.append(
