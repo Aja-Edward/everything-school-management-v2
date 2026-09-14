@@ -10,6 +10,8 @@ questions, a preview as a student will see it, and publishing.
     /api/cbt/papers/<id>/preview/     GET: one student's paper, without answers
     /api/cbt/papers/<id>/publish/     POST: copy the questions and open the paper
     /api/cbt/papers/<id>/unpublish/   POST: back to draft, until anyone has started
+    /api/cbt/papers/<id>/bank/        GET: bank questions available to draw, by topic and difficulty
+    /api/cbt/papers/<id>/draw/        POST: add random bank questions to the exam
 """
 
 from decimal import Decimal
@@ -24,7 +26,8 @@ from rest_framework.response import Response
 from exam.permissions import IsTeacherOrAdmin
 from tenants.mixins import TenantFilterMixin
 
-from .access import manageable_exams, publish_refusal
+from . import bank
+from .access import manageable_exams, publish_refusal, question_edit_refusal
 from .models import CBTPaper, CBTQuestion
 from .serializers import CBTPaperSerializer
 from .student_payload import paper_for_student
@@ -128,3 +131,47 @@ class CBTPaperViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         paper.status = CBTPaper.Status.DRAFT
         paper.save(update_fields=["status", "updated_at"])
         return Response(self._fresh(paper))
+
+    @action(detail=True, methods=["get"], url_path="bank")
+    def bank_summary(self, request, pk=None):
+        """?question_type=objective|theory&any_grade_level=true"""
+        paper = self.get_object()
+        question_type = request.query_params.get("question_type", "objective")
+        any_grade_level = request.query_params.get("any_grade_level") == "true"
+        try:
+            available = bank.summary(request.user, paper.exam, question_type, any_grade_level)
+        except ValidationError as error:
+            return _problems(status.HTTP_400_BAD_REQUEST, error.messages)
+        return Response({
+            "subject": paper.exam.subject.name,
+            "grade_level": paper.exam.grade_level.name,
+            "question_type": question_type,
+            "any_grade_level": any_grade_level,
+            "available": available,
+            "edit_refusal": question_edit_refusal(request.user, request.tenant, paper.exam),
+        })
+
+    @action(detail=True, methods=["post"])
+    def draw(self, request, pk=None):
+        """
+        {"question_type": "objective", "count": 10, "topics": [...], "difficulties": [...],
+         "any_grade_level": false}. Topics and difficulties left out mean all of them.
+        """
+        paper = self.get_object()
+        refusal = question_edit_refusal(request.user, request.tenant, paper.exam)
+        if refusal:
+            return _problems(status.HTTP_403_FORBIDDEN, [refusal])
+
+        data = request.data
+        try:
+            count = int(data.get("count"))
+        except (TypeError, ValueError):
+            count = 0
+        try:
+            drawn = bank.draw(
+                request.user, paper.exam, data.get("question_type", "objective"), count,
+                topics=data.get("topics") or [], difficulties=data.get("difficulties") or [],
+                any_grade_level=bool(data.get("any_grade_level")))
+        except ValidationError as error:
+            return _problems(status.HTTP_400_BAD_REQUEST, error.messages)
+        return Response({"added": len(drawn), "question_ids": [q.id for q in drawn]})

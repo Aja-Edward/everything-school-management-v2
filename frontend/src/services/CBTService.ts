@@ -86,6 +86,34 @@ export interface CBTStudentPaper {
   problems: string[];
 }
 
+export type CBTBankQuestionType = 'objective' | 'theory';
+
+/** How many bank questions of one topic and difficulty could be drawn into the exam. */
+export interface CBTBankAvailability {
+  topic: string;
+  difficulty: string;
+  difficulty_name: string;
+  count: number;
+}
+
+export interface CBTBankSummary {
+  subject: string;
+  grade_level: string;
+  question_type: CBTBankQuestionType;
+  any_grade_level: boolean;
+  available: CBTBankAvailability[];
+  /** Why this user can't add questions to the exam right now, if they can't. */
+  edit_refusal: string | null;
+}
+
+export interface CBTBankDraw {
+  question_type: CBTBankQuestionType;
+  count: number;
+  topics: string[];
+  difficulties: string[];
+  any_grade_level: boolean;
+}
+
 /** The sentences the API returns when it refuses a paper, or the error's own message. */
 export const cbtProblems = (error: any): string[] => {
   const data = error?.response?.data;
@@ -138,6 +166,18 @@ export const CBTService = {
 
   unpublishPaper(paperId: number): Promise<CBTPaper> {
     return api.post(`${PAPERS}${paperId}/unpublish/`);
+  },
+
+  getBankSummary(paperId: number, questionType: CBTBankQuestionType, anyGradeLevel: boolean): Promise<CBTBankSummary> {
+    return api.get(`${PAPERS}${paperId}/bank/`, {
+      question_type: questionType,
+      any_grade_level: anyGradeLevel ? 'true' : undefined,
+    });
+  },
+
+  /** Adds random bank questions to the exam behind the paper. */
+  drawFromBank(paperId: number, draw: CBTBankDraw): Promise<{ added: number; question_ids: number[] }> {
+    return api.post(`${PAPERS}${paperId}/draw/`, draw);
   },
 };
 

@@ -9,6 +9,7 @@ import CBTService, {
   cbtProblems,
 } from '@/services/CBTService';
 import { buildPreviewDocument } from './previewDocument';
+import BankDrawPanel from './BankDrawPanel';
 
 interface Props {
   open: boolean;
@@ -18,7 +19,13 @@ interface Props {
   onChanged?: (examId: number, paper: CBTPaper | null) => void;
 }
 
-type Tab = 'settings' | 'preview';
+type Tab = 'settings' | 'bank' | 'preview';
+
+const TAB_LABELS: Record<Tab, string> = {
+  settings: 'Settings',
+  bank: 'Question bank',
+  preview: 'Preview as student',
+};
 
 const QUESTION_SETTINGS: (keyof CBTPaperSettings)[] = [
   'include_objective', 'include_theory', 'objective_questions_per_attempt',
@@ -211,15 +218,15 @@ const CBTPaperModal: React.FC<Props> = ({ open, exam, onClose, onChanged }) => {
 
         {paper && (
           <div className="flex gap-1 border-b border-slate-200 px-5 dark:border-slate-700">
-            {(['settings', 'preview'] as Tab[]).map((name) => (
+            {(Object.keys(TAB_LABELS) as Tab[]).map((name) => (
               <button
                 key={name}
                 onClick={() => (name === 'preview' && !preview ? loadPreview() : setTab(name))}
-                className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium capitalize ${
+                className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${
                   tab === name ? 'border-indigo-600 text-indigo-700 dark:text-indigo-300' : 'border-transparent text-slate-500'
                 }`}
               >
-                {name === 'preview' ? 'Preview as student' : 'Settings'}
+                {TAB_LABELS[name]}
               </button>
             ))}
           </div>
@@ -333,7 +340,15 @@ const CBTPaperModal: React.FC<Props> = ({ open, exam, onClose, onChanged }) => {
                   {check.objective_count + check.text_count === 1 ? '' : 's'}.
                 </div>
               ) : (
-                <Problems title="Fix these before publishing" problems={check.problems} />
+                <>
+                  <Problems title="Fix these before publishing" problems={check.problems} />
+                  {check.objective_count + check.text_count === 0 && (
+                    <button onClick={() => setTab('bank')}
+                      className="text-sm font-medium text-indigo-700 hover:underline dark:text-indigo-300">
+                      Add questions from the question bank
+                    </button>
+                  )}
+                </>
               ))}
 
               {paper.status !== 'draft' && (
@@ -344,6 +359,17 @@ const CBTPaperModal: React.FC<Props> = ({ open, exam, onClose, onChanged }) => {
                 </p>
               )}
             </>
+          )}
+
+          {!loading && paper && tab === 'bank' && (
+            <BankDrawPanel
+              paperId={paper.id}
+              onDrawn={() => {
+                // The exam's questions changed, so any earlier check or preview is out of date.
+                setCheck(null);
+                setPreview(null);
+              }}
+            />
           )}
 
           {!loading && paper && tab === 'preview' && preview && (
