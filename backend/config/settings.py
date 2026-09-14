@@ -424,6 +424,12 @@ CELERY_BEAT_SCHEDULE = {
         "task": "common.tasks.purge_expired_bulk_upload_passwords",
         "schedule": timedelta(days=1),
     },
+    # CBT attempts also end when anything touches them after their deadline;
+    # this catches the ones nobody touches (see cbt/tasks.py).
+    "close-expired-cbt-attempts": {
+        "task": "cbt.tasks.close_expired_attempts",
+        "schedule": timedelta(minutes=1),
+    },
 }
 
 # How long a bulk upload's credential sheet stays downloadable before the
@@ -448,6 +454,8 @@ CORS_ALLOW_HEADERS = [
     "x-requested-with",
     "x-tenant-id",
     "x-tenant-slug",
+    # The device session of a CBT attempt; see cbt/engine.py.
+    "x-cbt-session",
 ]
 
 CORS_EXPOSE_HEADERS = [

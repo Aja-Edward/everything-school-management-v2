@@ -276,6 +276,10 @@ class CBTAttempt(TenantMixin, models.Model):
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.CharField(max_length=255, blank=True)
     last_seen_at = models.DateTimeField(null=True, blank=True)
+    session_token_hash = models.CharField(
+        max_length=64, blank=True, help_text="SHA-256 of the token the device sitting the attempt holds")
+    furthest_position = models.PositiveIntegerField(
+        default=0, help_text="Furthest question the student has reached, counting from 0")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
