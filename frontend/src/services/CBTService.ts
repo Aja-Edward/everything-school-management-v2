@@ -42,6 +42,8 @@ export interface CBTPaper {
   objective_count: number;
   text_count: number;
   attempt_count: number;
+  /** Packages made to sit this paper on an exam station. */
+  offline_package_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -277,6 +279,45 @@ export interface CBTAnalysis {
   questions: CBTAnalysisItem[];
 }
 
+/** A paper as it was taken to a school's exam station. */
+export interface CBTOfflinePackage {
+  id: string;
+  created_at: string;
+  created_by: string;
+  students: number;
+  questions: number;
+  /** Questions showing a picture or playing a sound from the internet, which a station may not reach. */
+  questions_needing_internet: number;
+  attempts_imported: number;
+}
+
+/** One student's sign-in slip for the exam station. The PIN is only ever shown when the package is made. */
+export interface CBTPinSlip {
+  number: number;
+  name: string;
+  registration_number: string;
+  class: string;
+  pin: string;
+}
+
+/** A station's results file, or a batch of its attempts. */
+export interface CBTOfflineResults {
+  format: 'cbt-offline-results';
+  version: number;
+  package_id: string;
+  exported_at: string;
+  exam_title: string;
+  attempts: unknown[];
+  still_in_progress: number;
+  voided: number;
+}
+
+export interface CBTOfflineImport {
+  imported: number;
+  already_imported: number;
+  refused: { student: string; reason: string }[];
+}
+
 /** The sentences the API returns when it refuses a paper, or the error's own message. */
 export const cbtProblems = (error: any): string[] => {
   const data = error?.response?.data;
@@ -380,6 +421,25 @@ export const CBTService = {
 
   withholdResults(paperId: number): Promise<CBTPaper> {
     return api.post(`${PAPERS}${paperId}/results/withhold/`);
+  },
+
+  offlinePackages(paperId: number): Promise<{ packages: CBTOfflinePackage[] }> {
+    return api.get(`${PAPERS}${paperId}/offline/packages/`);
+  },
+
+  /** A new package with new PINs. Earlier packages stay good for results already sat from them. */
+  makeOfflinePackage(paperId: number): Promise<{ package: CBTOfflinePackage; slips: CBTPinSlip[] }> {
+    return api.post(`${PAPERS}${paperId}/offline/packages/`);
+  },
+
+  /** The package file, for loading onto the exam station. */
+  offlinePackageFile(paperId: number, packageId: string): Promise<Record<string, unknown>> {
+    return api.get(`${PAPERS}${paperId}/offline/packages/${packageId}/`);
+  },
+
+  /** Attempts from the station's results file. At most 200 attempts at a time. */
+  importOfflineResults(paperId: number, results: CBTOfflineResults): Promise<CBTOfflineImport> {
+    return api.post(`${PAPERS}${paperId}/offline/results/`, results);
   },
 
   analysis(paperId: number): Promise<CBTAnalysis> {

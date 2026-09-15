@@ -22,6 +22,7 @@ class CBTPaperSerializer(serializers.ModelSerializer):
     objective_count = serializers.IntegerField(read_only=True, default=0)
     text_count = serializers.IntegerField(read_only=True, default=0)
     attempt_count = serializers.IntegerField(read_only=True, default=0)
+    offline_package_count = serializers.IntegerField(read_only=True, default=0)
 
     class Meta:
         model = CBTPaper
@@ -33,7 +34,7 @@ class CBTPaperSerializer(serializers.ModelSerializer):
             "access_code", "result_release", "results_released_at",
             "result_exam_session", "result_component", "results_pushed_at",
             "instructions", "sections", "published_at",
-            "objective_count", "text_count", "attempt_count",
+            "objective_count", "text_count", "attempt_count", "offline_package_count",
             "created_at", "updated_at",
         ]
         read_only_fields = [

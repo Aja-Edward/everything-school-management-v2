@@ -6,6 +6,9 @@ while it is cheap. This covers deploying, a dress rehearsal the day before, the
 exam itself, what to do afterwards, and how much load the system has been
 checked against.
 
+If the lab's internet can't be relied on, run the pilot on an exam station on
+the school's own network instead: see [cbt-offline-station.md](cbt-offline-station.md).
+
 **Suggested pilot:** one class of up to 60 students, in the computer lab, with
 a 30–45 minute paper of 20–40 objective questions and at most one typed
 question. Keep a printed copy of the paper, in case the pilot has to finish on
@@ -15,7 +18,7 @@ paper.
 
 | Check | How |
 |---|---|
-| Migrations `cbt` 0001–0007 and `exam` 0001–0004 are applied | The build runs `python manage.py migrate` (see `backend/build.sh`; Render's dashboard Build Command must match). Confirm with `python manage.py showmigrations cbt`. |
+| Migrations `cbt` 0001–0008 and `exam` 0001–0004 are applied | The build runs `python manage.py migrate` (see `backend/build.sh`; Render's dashboard Build Command must match). Confirm with `python manage.py showmigrations cbt`. |
 | The frontend build includes DOMPurify | `dompurify` is in `frontend/package.json`. A fresh `pnpm install` picks it up. Question text is sanitised with it before it is shown. |
 | A Celery worker with beat is running, and `CELERY_WORKER_AVAILABLE=true` is set on the web service | See [celery-worker-setup.md](celery-worker-setup.md). Beat runs `close-expired-cbt-attempts` every minute. |
 | `X-CBT-Session` gets through | It is in `CORS_ALLOW_HEADERS` in settings. A proxy or CDN with its own header allowlist needs it added there too. |

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, CheckCircle2, Clock, KeyRound, Loader2, Monitor, TimerOff } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, Clock, KeyRound, Loader2, LogOut, Monitor, TimerOff } from 'lucide-react';
+import StationService from '@/services/StationService';
 import StudentCBTService, {
   CBTAttemptDetail, CBTAttemptState, CBTMyExam, CBTRequestError, sessionTokens,
 } from '@/services/StudentCBTService';
@@ -15,14 +16,21 @@ type View =
 
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
-const Shell: React.FC<{ children: React.ReactNode; onBack: () => void }> = ({ children, onBack }) => (
+// On an exam station the next student sits at this computer, so leaving signs out.
+const onStation = StationService.isStationBrowser();
+
+const Shell: React.FC<{ children: React.ReactNode; onBack: () => void; showBack?: boolean }> = ({
+  children, onBack, showBack = true,
+}) => (
   <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4 dark:bg-slate-950">
     <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-8">
       {children}
-      <button type="button" onClick={onBack}
-        className="mt-6 flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">
-        <ArrowLeft className="h-4 w-4" /> Back to my exams
-      </button>
+      {showBack && (
+        <button type="button" onClick={onBack}
+          className="mt-6 flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">
+          {onStation ? <><LogOut className="h-4 w-4" /> Sign out</> : <><ArrowLeft className="h-4 w-4" /> Back to my exams</>}
+        </button>
+      )}
     </div>
   </div>
 );
@@ -35,7 +43,10 @@ const CBTExamPage: React.FC = () => {
   const [starting, setStarting] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
-  const backToExams = useCallback(() => navigate('/student/dashboard?section=cbt'), [navigate]);
+  const backToExams = useCallback(() => {
+    if (onStation) void StationService.signOut();
+    else navigate('/student/dashboard?section=cbt');
+  }, [navigate]);
 
   const openAttempt = useCallback(async (attemptId: number, exam: CBTMyExam) => {
     const detail = await StudentCBTService.attempt(attemptId);
@@ -131,7 +142,7 @@ const CBTExamPage: React.FC = () => {
   if (view.name === 'finished') {
     const timedOut = view.state?.status === 'timed_out';
     return (
-      <Shell onBack={backToExams}>
+      <Shell onBack={backToExams} showBack={!onStation}>
         {timedOut ? <TimerOff className="h-10 w-10 text-amber-500" /> : <CheckCircle2 className="h-10 w-10 text-emerald-600" />}
         <h1 className="mt-3 text-xl font-bold text-slate-900 dark:text-white">
           {view.state ? (timedOut ? 'Time ran out' : 'Exam submitted') : 'This exam has ended'}
@@ -139,11 +150,17 @@ const CBTExamPage: React.FC = () => {
         <p className="mt-2 text-slate-600 dark:text-slate-300">
           {view.state
             ? `Your answers were handed in${view.state.submitted_at ? ` at ${when(view.state.submitted_at)}` : ''}. ${
-              timedOut ? 'Everything you had saved before time ran out counts.' : 'You can close this page.'}`
+              timedOut ? 'Everything you had saved before time ran out counts.' : onStation ? '' : 'You can close this page.'}`
             : view.exam?.state === 'missed'
               ? 'The window for this exam has closed.'
               : 'Your answers have been handed in.'}
         </p>
+        {onStation && (
+          <button type="button" onClick={backToExams}
+            className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3 text-base font-semibold text-white hover:bg-indigo-700">
+            <LogOut className="h-5 w-5" /> Sign out so the next student can sign in
+          </button>
+        )}
         {view.state?.score && (
           <p className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-lg font-semibold text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-200">
             Your score: {Number(view.state.score.total)} / {Number(view.state.score.max)} ({view.state.score.percentage}%)

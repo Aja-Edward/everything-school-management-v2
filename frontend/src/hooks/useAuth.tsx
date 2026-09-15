@@ -35,6 +35,7 @@ import type {
 } from '@/types/types';
 import { UserRole } from '@/types/types';
 import api, { clearTokens } from '@/services/api';
+import StationService from '@/services/StationService';
 
 /**
  * Auth-specific response shape used by login, register, password reset, etc.
@@ -58,7 +59,11 @@ const clearAuthData = () => {
   localStorage.removeItem('userProfile');
   localStorage.removeItem('tenantSlug');
   clearTokens();
+  // An exam station's key isn't a login. The station's pages load with nobody
+  // signed in, which lands here, so clearing it would ask staff for it on every page.
+  const stationKey = StationService.savedKey();
   sessionStorage.clear();
+  if (stationKey) StationService.saveKey(stationKey);
 };
 
 const mapServerRoleToEnum = (rawRole: any): UserRole => {

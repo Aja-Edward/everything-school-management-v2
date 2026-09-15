@@ -22,6 +22,7 @@ import json
 import secrets
 from datetime import timedelta
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
@@ -463,7 +464,10 @@ def _end(attempt, now, timed_out, actor=None, detail=None):
     CBTEvent.objects.create(
         tenant=attempt.tenant, attempt=attempt, actor=actor, detail=detail or {},
         kind=CBTEvent.Kind.TIMED_OUT if timed_out else CBTEvent.Kind.SUBMITTED)
-    # Objective answers are marked the moment the attempt ends.
+    # Objective answers are marked the moment the attempt ends. An exam
+    # station has no answer keys: its attempts are marked in the cloud.
+    if getattr(settings, "CBT_STATION", False):
+        return
     from .marking import mark_attempt
 
     mark_attempt(attempt)

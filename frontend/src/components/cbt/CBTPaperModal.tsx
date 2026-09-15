@@ -14,6 +14,7 @@ import { buildPreviewDocument, formulaProblems } from './previewDocument';
 import BankDrawPanel from './BankDrawPanel';
 import MarkingPanel from './MarkingPanel';
 import AnalysisPanel from './AnalysisPanel';
+import OfflinePanel from './OfflinePanel';
 
 interface Props {
   open: boolean;
@@ -23,7 +24,7 @@ interface Props {
   onChanged?: (examId: number, paper: CBTPaper | null) => void;
 }
 
-type Tab = 'settings' | 'bank' | 'preview' | 'marking' | 'analysis';
+type Tab = 'settings' | 'bank' | 'preview' | 'marking' | 'analysis' | 'offline';
 
 const TAB_LABELS: Record<Tab, string> = {
   settings: 'Settings',
@@ -31,10 +32,11 @@ const TAB_LABELS: Record<Tab, string> = {
   preview: 'Preview as student',
   marking: 'Marking & results',
   analysis: 'Analysis',
+  offline: 'Exam station',
 };
 
-/** Tabs about what students did, which a draft has nothing to show for. */
-const AFTER_PUBLISHING: Tab[] = ['marking', 'analysis'];
+/** Tabs about a paper students can sit, which a draft has nothing to show for. */
+const AFTER_PUBLISHING: Tab[] = ['marking', 'analysis', 'offline'];
 
 const QUESTION_SETTINGS: (keyof CBTPaperSettings)[] = [
   'include_objective', 'include_theory', 'objective_questions_per_attempt',
@@ -182,6 +184,11 @@ const CBTPaperModal: React.FC<Props> = ({ open, exam, onClose, onChanged }) => {
 
   const publish = () => run(async () => {
     if (!paper) return;
+    if (paper.status !== 'draft' && paper.offline_package_count > 0 && !window.confirm(
+      "This paper has been packaged for an exam station. Publishing again replaces its questions, so results sat "
+      + 'from those packages can no longer be uploaded. Make a new package afterwards. Publish again?')) {
+      return;
+    }
     if (dirty) showPaper(await CBTService.updatePaper(paper.id, form));
     showPaper(await CBTService.publishPaper(paper.id));
     setCheck(null);
@@ -395,6 +402,13 @@ const CBTPaperModal: React.FC<Props> = ({ open, exam, onClose, onChanged }) => {
           )}
 
           {!loading && paper && tab === 'analysis' && <AnalysisPanel paperId={paper.id} />}
+
+          {!loading && paper && tab === 'offline' && (
+            <OfflinePanel
+              paper={paper}
+              onImported={() => { CBTService.getPaperForExam(exam.id).then(showPaper).catch(() => {}); }}
+            />
+          )}
 
           {!loading && paper && tab === 'bank' && (
             <BankDrawPanel

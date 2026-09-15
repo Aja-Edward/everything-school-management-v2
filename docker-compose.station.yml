@@ -1,0 +1,61 @@
+# An exam station: computer-based tests on a school's own network, with no
+# internet needed while students sit them. See docs/cbt-offline-station.md.
+#
+#   copy station.env.example station.env        # then fill it in
+#   docker compose -f docker-compose.station.yml --env-file station.env up -d --build
+#
+# Students and staff open http://<this computer's address>/station
+
+name: cbt-station
+
+services:
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: station
+      POSTGRES_USER: station
+      POSTGRES_PASSWORD: ${STATION_DB_PASSWORD:?Set STATION_DB_PASSWORD in station.env}
+    volumes:
+      - station_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U station -d station"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    # No ports: only the frontend's nginx reaches the backend, which is what
+    # lets the backend trust the X-Real-IP header nginx sets.
+    command: sh -c "python manage.py migrate --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:8000"
+    environment:
+      # "station" has no .env.station file, so nothing from the image's
+      # development settings is loaded.
+      ENV: station
+      DEBUG: "false"
+      LOCAL_DATABASE_URL: postgres://station:${STATION_DB_PASSWORD}@db:5432/station
+      DJANGO_SECRET_KEY: ${STATION_SECRET_KEY:?Set STATION_SECRET_KEY in station.env}
+      CBT_STATION: "true"
+      CBT_STATION_KEY: ${CBT_STATION_KEY:?Set CBT_STATION_KEY in station.env}
+      REDIS_URL: ""
+      GUNICORN_WORKERS: "3"
+      GUNICORN_TIMEOUT: "60"
+    volumes:
+      - station_cache:/tmp/cbt-station-cache
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "${STATION_PORT:-80}:80"
+    depends_on:
+      - backend
+
+volumes:
+  station_db:
+  station_cache:

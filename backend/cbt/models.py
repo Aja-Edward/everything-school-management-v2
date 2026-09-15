@@ -8,6 +8,7 @@ Computer-based testing: an exam sat on screen.
     CBTAttempt   one student's sitting: their deadline, questions and order
     CBTAnswer    one answer per question per attempt
     CBTEvent     what happened during an attempt, for invigilators
+    CBTOfflinePackage  a paper taken to a school's own exam station (see cbt/offline.py)
 
 The exam keeps its questions as JSON (Exam.objective_questions and friends),
 which teachers go on editing. Answers need a stable row to point at, and
@@ -16,6 +17,7 @@ are marked against, so publishing copies the questions into CBTQuestion rows.
 """
 
 import random
+import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -256,6 +258,8 @@ class CBTQuestion(TenantMixin, models.Model):
     unit = models.CharField(max_length=30, blank=True, help_text="Shown beside a numeric answer box, e.g. cm")
     award_all = models.BooleanField(
         default=False, help_text="Every student gets this question's marks, for a question found to be faulty")
+    key_withheld = models.BooleanField(
+        default=False, help_text="A copy on an exam station, which is never given the answer key; marked in the cloud")
     marking_guide = models.TextField(blank=True, help_text="For teachers marking typed answers; never sent to students")
     bank_question = models.ForeignKey(
         "exam.QuestionBank", on_delete=models.SET_NULL, null=True, blank=True, related_name="cbt_questions",
@@ -272,7 +276,7 @@ class CBTQuestion(TenantMixin, models.Model):
         constraints = [
             models.UniqueConstraint(fields=["paper", "order"], name="uq_cbt_question_order"),
             models.CheckConstraint(
-                condition=Q(kind=scoring.TEXT)
+                condition=Q(kind=scoring.TEXT) | Q(key_withheld=True)
                 | (Q(kind=scoring.NUMERIC) & ~Q(numeric_answer=""))
                 | (Q(kind__in=sorted(scoring.CHOICE_KINDS)) & ~Q(correct_option="")),
                 name="chk_cbt_question_has_answer"),
@@ -337,6 +341,11 @@ class CBTAttempt(TenantMixin, models.Model):
     time_on_questions = models.JSONField(
         default=dict, blank=True,
         help_text='Seconds the student\'s screen showed each question, as the exam page reports it: {"<question id>": seconds}')
+    offline_package = models.ForeignKey(
+        "CBTOfflinePackage", on_delete=models.PROTECT, null=True, blank=True, related_name="attempts",
+        help_text="The package this attempt was sat from, on the school's exam station")
+    offline_id = models.UUIDField(
+        null=True, blank=True, unique=True, help_text="The station's id for the attempt, so an upload can be repeated")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -509,3 +518,28 @@ class CBTEvent(TenantMixin, models.Model):
 
     def __str__(self):
         return f"{self.attempt}: {self.get_kind_display()}"
+
+
+class CBTOfflinePackage(TenantMixin, models.Model):
+    """
+    A published paper as it was taken to a school's exam station, with a PIN
+    for each student who may sit it. The answer keys stay here. Attempts come
+    back signed with `secret`, and are marked here when they are uploaded.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    paper = models.ForeignKey(CBTPaper, on_delete=models.CASCADE, related_name="offline_packages")
+    secret = models.CharField(max_length=64, help_text="Signs the attempts the station sends back")
+    question_ids = models.JSONField(default=list, help_text="The paper's questions when the package was made")
+    student_ids = models.JSONField(default=list, help_text="The students given a PIN")
+    content = models.JSONField(help_text="The package file, as the station receives it")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "cbt_offline_package"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Offline package {self.id} for {self.paper}"

@@ -25,6 +25,12 @@ Marking and results (see cbt/marking.py):
     /api/cbt/papers/<id>/results/release/                 POST: let students see their scores
     /api/cbt/papers/<id>/results/withhold/                POST: hide them again
 
+Offline, on a school's exam station (see cbt/offline.py):
+
+    /api/cbt/papers/<id>/offline/packages/                GET: packages made; POST: a new one, with its PIN slips
+    /api/cbt/papers/<id>/offline/packages/<package>/      GET: the package file
+    /api/cbt/papers/<id>/offline/results/                 POST: attempts from the station's results file
+
 Analysis (see cbt/analysis.py):
 
     /api/cbt/papers/<id>/analysis/                        GET: how each question performed
@@ -34,7 +40,9 @@ Analysis (see cbt/analysis.py):
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
-from django.db.models import Count, Q
+from django.db.models import Count, OuterRef, Q, Subquery
+from django.db.models.functions import Coalesce
+from django.http import JsonResponse
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status, viewsets
@@ -44,10 +52,10 @@ from rest_framework.response import Response
 from exam.permissions import IsTeacherOrAdmin
 from tenants.mixins import TenantFilterMixin
 
-from . import analysis, bank, marking
+from . import analysis, bank, marking, offline
 from .access import manageable_exams, publish_refusal, question_edit_refusal
 from .engine import Refused
-from .models import CBTPaper, CBTQuestion
+from .models import CBTOfflinePackage, CBTPaper, CBTQuestion
 from .serializers import CBTPaperSerializer
 from .snapshot import OBJECTIVE_SECTION
 from .student_payload import paper_for_student
@@ -72,6 +80,10 @@ class CBTPaperViewSet(TenantFilterMixin, viewsets.ModelViewSet):
             objective_count=Count("questions", filter=Q(questions__section=OBJECTIVE_SECTION), distinct=True),
             text_count=Count("questions", filter=Q(questions__kind="text"), distinct=True),
             attempt_count=Count("attempts", distinct=True),
+            # A subquery: one more join would multiply the rows the counts above go through.
+            offline_package_count=Coalesce(Subquery(
+                CBTOfflinePackage.objects.filter(paper=OuterRef("pk")).order_by()
+                .values("paper").annotate(n=Count("id")).values("n")), 0),
         )
 
     def handle_exception(self, exc):
@@ -255,6 +267,32 @@ class CBTPaperViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         paper.results_released_at = None
         paper.save(update_fields=["results_released_at", "updated_at"])
         return Response(self._fresh(paper))
+
+    # ── Offline, on a school's exam station ──────────────────────────────────
+
+    @action(detail=True, methods=["get", "post"], url_path="offline/packages")
+    def offline_packages(self, request, pk=None):
+        paper = self.get_object()
+        if request.method == "POST":
+            package, slips = offline.make_package(paper, request.user)
+            return Response({"package": offline.package_summary(package), "slips": slips},
+                            status=status.HTTP_201_CREATED)
+        packages = paper.offline_packages.select_related("created_by").annotate(attempt_count=Count("attempts"))
+        return Response({"packages": [offline.package_summary(p) for p in packages]})
+
+    @action(detail=True, methods=["get"], url_path=r"offline/packages/(?P<package_id>[0-9a-f-]{36})")
+    def offline_package_file(self, request, pk=None, package_id=None):
+        paper = self.get_object()
+        package = CBTOfflinePackage.objects.filter(paper=paper, pk=package_id).first()
+        if package is None:
+            raise Refused("Package not found.", status=404, code="not_found")
+        response = JsonResponse(package.content)
+        response["Content-Disposition"] = f'attachment; filename="cbt-package-{paper.id}-{str(package.id)[:8]}.json"'
+        return response
+
+    @action(detail=True, methods=["post"], url_path="offline/results")
+    def offline_results(self, request, pk=None):
+        return Response(offline.import_results(self.get_object(), request.data))
 
     @action(detail=True, methods=["get"], url_path="analysis")
     def question_analysis(self, request, pk=None):

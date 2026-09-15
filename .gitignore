@@ -14,6 +14,7 @@ env/
 .env.*.local
 .env.frontend
 .env.backend
+station.env
 .env.dev
 .env.prod
 

@@ -21,6 +21,7 @@ import { lazy, Suspense } from 'react';
 import Navbar from '@/components/home/Nav';
 import Footer from '@/components/home/Footer';
 import TeacherDashboardRoute from './../pages/teacher/TeacherDashboardRoute';
+import StationService from '@/services/StationService';
 
 
 // Loading component
@@ -63,6 +64,9 @@ const StudentCBTExamPage = lazy(() => import('./../pages/student/CBTExamPage'));
 const AdminInvigilationPage = lazy(() => import('./../pages/cbt/InvigilationPage'));
 const TeacherInvigilationPage = lazy(() =>
   import('./../pages/cbt/InvigilationPage').then((m) => ({ default: m.TeacherInvigilationPage })));
+const StationPage = lazy(() => import('./../pages/station/StationPage'));
+const StationStaffPage = lazy(() => import('./../pages/station/StationStaffPage'));
+const StationBoardPage = lazy(() => import('./../pages/station/StationBoardPage'));
 const ParentDashboard = lazy(() => import('./../pages/parent/Dashboard'));
 const PromotionDashboard = lazy(() => import('./../pages/admin/Promotiondashboard'));
 
@@ -447,12 +451,30 @@ export const router = createBrowserRouter([
           {
             path: 'cbt/:paperId',
             element: (
-              <ProtectedRoute allowedRoles={[UserRole.STUDENT]}>
+              <ProtectedRoute allowedRoles={[UserRole.STUDENT]}
+                loginPath={StationService.isStationBrowser() ? '/station' : '/login'}>
                 <LazyWrapper><StudentCBTExamPage /></LazyWrapper>
               </ProtectedRoute>
             ),
           },
         ]
+      },
+
+      // Exam station: CBT on a school's own network (see docs/cbt-offline-station.md)
+      {
+        path: 'station',
+        children: [
+          { index: true, element: <LazyWrapper><StationPage /></LazyWrapper> },
+          { path: 'staff', element: <LazyWrapper><StationStaffPage /></LazyWrapper> },
+          {
+            path: 'board/:paperId',
+            element: (
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN]} loginPath="/station/staff">
+                <LazyWrapper><StationBoardPage /></LazyWrapper>
+              </ProtectedRoute>
+            ),
+          },
+        ],
       },
 
       // Parent routes

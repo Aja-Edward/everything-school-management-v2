@@ -826,3 +826,35 @@ LOGGING = {
     },
 
 }
+
+
+# ============================================
+# EXAM STATION (offline CBT on a school's own network)
+# ============================================
+# A station runs this backend on a lab computer, reached by its address on the
+# school network over plain HTTP. See docs/cbt-offline-station.md.
+CBT_STATION = os.getenv("CBT_STATION", "false").lower() in ["true", "1", "yes"]
+CBT_STATION_KEY = os.getenv("CBT_STATION_KEY", "")
+
+if CBT_STATION:
+    ALLOWED_HOSTS = ["*"]
+    SECURE_SSL_REDIRECT = False
+    SECURE_HSTS_SECONDS = 0
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+    AUTH_COOKIE_SECURE = False
+    AUTH_COOKIE_SAMESITE = "Lax"
+    AUTH_COOKIE_DOMAIN = None
+    CSRF_TRUSTED_ORIGINS = CSRF_TRUSTED_ORIGINS + [
+        origin.strip() for origin in os.getenv("CBT_STATION_ORIGINS", "").split(",") if origin.strip()
+    ]
+    # Behind the station's nginx every lab computer arrives from nginx's own
+    # address, which would put a whole lab under one rate limit.
+    RATELIMIT_IP_META_KEY = "cbt.station_views.client_address"
+    if not _REDIS_URL:
+        # Gunicorn's workers are separate processes: a file cache lets them
+        # share one count of wrong PINs and keys.
+        CACHES = {"default": {
+            "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+            "LOCATION": os.getenv("CBT_STATION_CACHE_DIR", "/tmp/cbt-station-cache"),
+        }}
