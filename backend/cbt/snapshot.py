@@ -158,9 +158,11 @@ def build_paper(exam, include_objective=True, include_theory=False):
                 problems.append(f"{name} has no question text.")
             if marks is None:
                 problems.append(f"{name} needs marks greater than zero.")
+            guide = raw.get("expectedPoints") or raw.get("answerGuideline") or raw.get("markingGuide") or ""
             add(key, number, {
                 "kind": "text", "content": raw.get("question") or "", "image_url": image,
                 "parts": parts, "table": raw.get("table") or None, "marks": marks,
+                "marking_guide": guide if isinstance(guide, str) else "",
             })
 
     return sections, questions, problems

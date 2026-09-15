@@ -12,12 +12,24 @@ questions, a preview as a student will see it, and publishing.
     /api/cbt/papers/<id>/unpublish/   POST: back to draft, until anyone has started
     /api/cbt/papers/<id>/bank/        GET: bank questions available to draw, by topic and difficulty
     /api/cbt/papers/<id>/draw/        POST: add random bank questions to the exam
+
+Marking and results (see cbt/marking.py):
+
+    /api/cbt/papers/<id>/marking/                         GET: progress and answer-key statistics
+    /api/cbt/papers/<id>/marking/questions/<question>/    GET: every written answer to one typed question
+    /api/cbt/papers/<id>/marking/marks/                   POST: {"marks": [{"attempt", "question", "marks"}]}
+    /api/cbt/papers/<id>/questions/<question>/answer-key/ POST: {"correct_option" | "award_all", "reason"}
+    /api/cbt/papers/<id>/results/targets/                 GET: exam sessions and score columns to send to
+    /api/cbt/papers/<id>/results/push/                    POST: write scores into the school's results
+    /api/cbt/papers/<id>/results/release/                 POST: let students see their scores
+    /api/cbt/papers/<id>/results/withhold/                POST: hide them again
 """
 
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db.models import Count, Q
+from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -26,8 +38,9 @@ from rest_framework.response import Response
 from exam.permissions import IsTeacherOrAdmin
 from tenants.mixins import TenantFilterMixin
 
-from . import bank
+from . import bank, marking
 from .access import manageable_exams, publish_refusal, question_edit_refusal
+from .engine import Refused
 from .models import CBTPaper, CBTQuestion
 from .serializers import CBTPaperSerializer
 from .student_payload import paper_for_student
@@ -53,6 +66,11 @@ class CBTPaperViewSet(TenantFilterMixin, viewsets.ModelViewSet):
             text_count=Count("questions", filter=Q(questions__kind="text"), distinct=True),
             attempt_count=Count("attempts", distinct=True),
         )
+
+    def handle_exception(self, exc):
+        if isinstance(exc, Refused):
+            return Response({"detail": exc.message, "code": exc.code, "problems": [exc.message]}, status=exc.status)
+        return super().handle_exception(exc)
 
     def _fresh(self, paper):
         return self.get_serializer(self.get_queryset().get(pk=paper.pk)).data
@@ -175,3 +193,57 @@ class CBTPaperViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         except ValidationError as error:
             return _problems(status.HTTP_400_BAD_REQUEST, error.messages)
         return Response({"added": len(drawn), "question_ids": [q.id for q in drawn]})
+
+    # ── Marking and results ──────────────────────────────────────────────────
+
+    def _question(self, paper, question_id):
+        question = paper.questions.filter(pk=question_id).first()
+        if question is None:
+            raise Refused("Question not found on this paper.", status=404, code="not_found")
+        return question
+
+    @action(detail=True, methods=["get"])
+    def marking(self, request, pk=None):
+        return Response(marking.overview(self.get_object()))
+
+    @action(detail=True, methods=["get"], url_path=r"marking/questions/(?P<question_id>\d+)")
+    def marking_question(self, request, pk=None, question_id=None):
+        paper = self.get_object()
+        return Response(marking.answers_to_mark(paper, self._question(paper, question_id)))
+
+    @action(detail=True, methods=["post"], url_path="marking/marks")
+    def marks(self, request, pk=None):
+        paper = self.get_object()
+        marking.set_marks(paper, request.data.get("marks"), request.user)
+        return Response(marking.overview(paper))
+
+    @action(detail=True, methods=["post"], url_path=r"questions/(?P<question_id>\d+)/answer-key")
+    def answer_key(self, request, pk=None, question_id=None):
+        paper = self.get_object()
+        data = request.data
+        change = marking.correct_answer_key(
+            self._question(paper, question_id), request.user, correct_option=data.get("correct_option", ""),
+            award_all=bool(data.get("award_all")), reason=data.get("reason", ""))
+        return Response({"remarked_attempts": change.remarked_attempts, "marking": marking.overview(paper)})
+
+    @action(detail=True, methods=["get"], url_path="results/targets")
+    def result_targets(self, request, pk=None):
+        return Response(marking.result_targets(self.get_object()))
+
+    @action(detail=True, methods=["post"], url_path="results/push")
+    def push_results(self, request, pk=None):
+        return Response(marking.push_results(self.get_object(), request.user))
+
+    @action(detail=True, methods=["post"], url_path="results/release")
+    def release_results(self, request, pk=None):
+        paper = self.get_object()
+        paper.results_released_at = timezone.now()
+        paper.save(update_fields=["results_released_at", "updated_at"])
+        return Response(self._fresh(paper))
+
+    @action(detail=True, methods=["post"], url_path="results/withhold")
+    def withhold_results(self, request, pk=None):
+        paper = self.get_object()
+        paper.results_released_at = None
+        paper.save(update_fields=["results_released_at", "updated_at"])
+        return Response(self._fresh(paper))

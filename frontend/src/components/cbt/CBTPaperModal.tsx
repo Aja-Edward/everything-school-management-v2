@@ -11,6 +11,7 @@ import CBTService, {
 } from '@/services/CBTService';
 import { buildPreviewDocument } from './previewDocument';
 import BankDrawPanel from './BankDrawPanel';
+import MarkingPanel from './MarkingPanel';
 
 interface Props {
   open: boolean;
@@ -20,12 +21,13 @@ interface Props {
   onChanged?: (examId: number, paper: CBTPaper | null) => void;
 }
 
-type Tab = 'settings' | 'bank' | 'preview';
+type Tab = 'settings' | 'bank' | 'preview' | 'marking';
 
 const TAB_LABELS: Record<Tab, string> = {
   settings: 'Settings',
   bank: 'Question bank',
   preview: 'Preview as student',
+  marking: 'Marking & results',
 };
 
 const QUESTION_SETTINGS: (keyof CBTPaperSettings)[] = [
@@ -221,7 +223,7 @@ const CBTPaperModal: React.FC<Props> = ({ open, exam, onClose, onChanged }) => {
 
         {paper && (
           <div className="flex gap-1 border-b border-slate-200 px-5 dark:border-slate-700">
-            {(Object.keys(TAB_LABELS) as Tab[]).map((name) => (
+            {(Object.keys(TAB_LABELS) as Tab[]).filter((name) => name !== 'marking' || paper.status !== 'draft').map((name) => (
               <button
                 key={name}
                 onClick={() => (name === 'preview' && !preview ? loadPreview() : setTab(name))}
@@ -362,6 +364,10 @@ const CBTPaperModal: React.FC<Props> = ({ open, exam, onClose, onChanged }) => {
                 </p>
               )}
             </>
+          )}
+
+          {!loading && paper && tab === 'marking' && (
+            <MarkingPanel paper={paper} onPaperChanged={showPaper} />
           )}
 
           {!loading && paper && tab === 'bank' && (

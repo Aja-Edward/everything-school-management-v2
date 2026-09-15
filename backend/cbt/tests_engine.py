@@ -278,6 +278,14 @@ class SittingTest(EngineTest):
         self.assertNotIn("paper", after)
         self.assertEqual(self.request("get", MY_EXAMS).data["exams"][0]["state"], "done")
 
+    def test_the_exams_list_shows_an_expired_attempt_as_done_the_first_time_it_is_asked(self):
+        """The regression: the list ended the attempt but reported the copy it had read before ending it."""
+        self.expire(self.attempt, seconds_ago=engine.GRACE.total_seconds() + 5)
+
+        item = next(e for e in self.request("get", MY_EXAMS).data["exams"] if e["paper"] == self.paper.id)
+
+        self.assertEqual((item["state"], item["attempt"]["status"]), ("done", "timed_out"))
+
     def test_a_submit_after_the_deadline_counts_as_timed_out(self):
         """The exam page submits by itself at zero, so it usually lands a moment late."""
         self.expire(self.attempt, seconds_ago=2)

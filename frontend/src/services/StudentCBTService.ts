@@ -26,6 +26,8 @@ export interface CBTAttemptState {
   allow_backtracking: boolean;
   furthest_position: number;
   question_count: number;
+  /** Present once the paper is fully marked and the school's release setting allows it. */
+  score?: { total: string; max: string; percentage: number } | null;
   session_token?: string;
 }
 

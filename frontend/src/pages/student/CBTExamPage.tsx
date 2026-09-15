@@ -144,6 +144,11 @@ const CBTExamPage: React.FC = () => {
               ? 'The window for this exam has closed.'
               : 'Your answers have been handed in.'}
         </p>
+        {view.state?.score && (
+          <p className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-lg font-semibold text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-200">
+            Your score: {Number(view.state.score.total)} / {Number(view.state.score.max)} ({view.state.score.percentage}%)
+          </p>
+        )}
       </Shell>
     );
   }

@@ -72,6 +72,16 @@ class CBTPaper(TenantMixin, models.Model):
         max_length=20, choices=ResultRelease.choices, default=ResultRelease.MANUAL)
     results_released_at = models.DateTimeField(null=True, blank=True)
 
+    # Where scores go in the school's results: a score column (component) in an exam session.
+    result_exam_session = models.ForeignKey(
+        "result.ExamSession", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    result_component = models.ForeignKey(
+        "result.AssessmentComponent", on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+        help_text="The score column CBT scores are written to, scaled to its maximum")
+    results_pushed_at = models.DateTimeField(null=True, blank=True)
+    results_pushed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+
     # Copied from the exam when published.
     instructions = models.TextField(blank=True)
     sections = models.JSONField(
@@ -221,6 +231,9 @@ class CBTQuestion(TenantMixin, models.Model):
     image_url = models.TextField(blank=True)
     options = models.JSONField(default=list, blank=True, help_text='[{"key": "A", "text": "..."}]')
     correct_option = models.CharField(max_length=5, blank=True)
+    award_all = models.BooleanField(
+        default=False, help_text="Every student gets this question's marks, for a question found to be faulty")
+    marking_guide = models.TextField(blank=True, help_text="For teachers marking typed answers; never sent to students")
     parts = models.JSONField(default=list, blank=True, help_text="Sub-questions, as written on the exam")
     table = models.JSONField(null=True, blank=True)
     marks = models.DecimalField(
@@ -390,6 +403,25 @@ class CBTAnswer(TenantMixin, models.Model):
                 raise ValidationError("That option is not one of this question's options.")
         elif self.selected_option:
             raise ValidationError("This question is answered by typing, not by choosing an option.")
+
+
+class CBTAnswerKeyChange(TenantMixin, models.Model):
+    """A correction to a published question's answer, which re-marks everyone who had it."""
+
+    question = models.ForeignKey(CBTQuestion, on_delete=models.CASCADE, related_name="key_changes")
+    previous_option = models.CharField(max_length=5, blank=True)
+    previous_award_all = models.BooleanField(default=False)
+    new_option = models.CharField(max_length=5, blank=True)
+    new_award_all = models.BooleanField(default=False)
+    reason = models.CharField(max_length=500, blank=True)
+    remarked_attempts = models.PositiveIntegerField(default=0)
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "cbt_answer_key_change"
+        ordering = ["-changed_at"]
 
 
 class CBTEvent(TenantMixin, models.Model):

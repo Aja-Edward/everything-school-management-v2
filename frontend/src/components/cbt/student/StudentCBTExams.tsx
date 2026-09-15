@@ -80,6 +80,14 @@ const StudentCBTExams: React.FC = () => {
                       <p className="flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4 text-emerald-600" />
                         {exam.attempt.status === 'timed_out' ? 'Time ran out' : 'Submitted'} {when(exam.attempt.submitted_at)}</p>
                     )}
+                    {state === 'done' && (exam.attempt?.score ? (
+                      <p className="mt-2 text-base font-semibold text-gray-900 dark:text-white">
+                        Score: {Number(exam.attempt.score.total)} / {Number(exam.attempt.score.max)}
+                        <span className="ml-2 text-sm font-normal text-gray-500">({exam.attempt.score.percentage}%)</span>
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-500">Your score will show here when it is released.</p>
+                    ))}
                   </div>
                   {(state === 'open' || state === 'in_progress') && (
                     <button type="button" onClick={() => open(exam)}

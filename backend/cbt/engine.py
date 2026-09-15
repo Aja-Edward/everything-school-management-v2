@@ -148,6 +148,9 @@ def attempt_state(attempt, now, session_token=None):
         "furthest_position": attempt.furthest_position,
         "question_count": len(attempt.question_ids),
     }
+    from .marking import score_for_student
+
+    state["score"] = score_for_student(attempt, now)
     if session_token:
         state["session_token"] = session_token
     return state
@@ -160,7 +163,7 @@ def my_exams(student, now=None):
     attempts = {}
     for attempt in (CBTAttempt.objects.filter(student=student, paper__in=papers)
                     .select_related("paper__exam").order_by("number")):
-        finalize_if_expired(attempt, now)
+        attempt = finalize_if_expired(attempt, now)
         attempts.setdefault(attempt.paper_id, []).append(attempt)
 
     items = []
@@ -397,6 +400,10 @@ def _end(attempt, now, timed_out, actor=None, detail=None):
     CBTEvent.objects.create(
         tenant=attempt.tenant, attempt=attempt, actor=actor, detail=detail or {},
         kind=CBTEvent.Kind.TIMED_OUT if timed_out else CBTEvent.Kind.SUBMITTED)
+    # Objective answers are marked the moment the attempt ends.
+    from .marking import mark_attempt
+
+    mark_attempt(attempt)
 
 
 def submit(attempt, now=None):

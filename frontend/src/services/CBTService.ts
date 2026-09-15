@@ -28,6 +28,9 @@ export interface CBTPaper {
   access_code: string;
   result_release: CBTResultRelease;
   results_released_at: string | null;
+  result_exam_session: number | null;
+  result_component: number | null;
+  results_pushed_at: string | null;
   instructions: string;
   sections: CBTSection[];
   published_at: string | null;
@@ -42,7 +45,7 @@ export type CBTPaperSettings = Partial<Pick<CBTPaper,
   | 'opens_at' | 'closes_at' | 'duration_minutes'
   | 'include_objective' | 'include_theory' | 'objective_questions_per_attempt'
   | 'shuffle_questions' | 'shuffle_options' | 'allow_backtracking' | 'max_attempts'
-  | 'access_code' | 'result_release'>>;
+  | 'access_code' | 'result_release' | 'result_exam_session' | 'result_component'>>;
 
 export interface CBTCheck {
   ready: boolean;
@@ -114,6 +117,86 @@ export interface CBTBankDraw {
   any_grade_level: boolean;
 }
 
+export interface CBTObjectiveMarking {
+  id: number;
+  order: number;
+  number: number;
+  content: string;
+  options: { key: string; text: string }[];
+  correct_option: string;
+  award_all: boolean;
+  marks: string;
+  given_to: number;
+  answered: number;
+  correct: number;
+  option_counts: Record<string, number>;
+}
+
+export interface CBTTextMarking {
+  id: number;
+  order: number;
+  number: number;
+  section: string;
+  content: string;
+  marks: string;
+  given_to: number;
+  answers: number;
+  marked: number;
+}
+
+export interface CBTMarkingOverview {
+  finished_attempts: number;
+  in_progress: number;
+  fully_marked: number;
+  still_to_mark: number;
+  objective: CBTObjectiveMarking[];
+  text: CBTTextMarking[];
+  results: {
+    exam_session: number | null;
+    exam_session_name: string;
+    component: number | null;
+    component_name: string;
+    component_max: string;
+    pushed_at: string | null;
+    pushed_by: string;
+  };
+  release: { mode: CBTResultRelease; released_at: string | null };
+}
+
+export interface CBTAnswerToMark {
+  attempt: number;
+  student: string;
+  text_answer: string;
+  marks_awarded: string | null;
+  marked_by: string;
+  marked_at: string | null;
+}
+
+export interface CBTQuestionToMark {
+  question: {
+    id: number;
+    number: number;
+    section: string;
+    content: string;
+    parts: CBTStudentPart[];
+    marks: string;
+    marking_guide: string;
+  };
+  answers: CBTAnswerToMark[];
+}
+
+export interface CBTResultTargets {
+  education_level: string;
+  supported: boolean;
+  exam_sessions: { id: number; name: string; academic_session: string; term: string }[];
+  components: { id: number; name: string; code: string; max_score: string; component_type: string }[];
+}
+
+export interface CBTPushResults {
+  pushed: number;
+  skipped: { student: string; reason: string }[];
+}
+
 /** The sentences the API returns when it refuses a paper, or the error's own message. */
 export const cbtProblems = (error: any): string[] => {
   const data = error?.response?.data;
@@ -178,6 +261,39 @@ export const CBTService = {
   /** Adds random bank questions to the exam behind the paper. */
   drawFromBank(paperId: number, draw: CBTBankDraw): Promise<{ added: number; question_ids: number[] }> {
     return api.post(`${PAPERS}${paperId}/draw/`, draw);
+  },
+
+  marking(paperId: number): Promise<CBTMarkingOverview> {
+    return api.get(`${PAPERS}${paperId}/marking/`);
+  },
+
+  questionToMark(paperId: number, questionId: number): Promise<CBTQuestionToMark> {
+    return api.get(`${PAPERS}${paperId}/marking/questions/${questionId}/`);
+  },
+
+  /** `marks` null clears a mark. Returns the refreshed overview. */
+  saveMarks(paperId: number, marks: { attempt: number; question: number; marks: number | null }[]): Promise<CBTMarkingOverview> {
+    return api.post(`${PAPERS}${paperId}/marking/marks/`, { marks });
+  },
+
+  correctAnswerKey(paperId: number, questionId: number, change: { correct_option?: string; award_all?: boolean; reason: string }): Promise<{ remarked_attempts: number; marking: CBTMarkingOverview }> {
+    return api.post(`${PAPERS}${paperId}/questions/${questionId}/answer-key/`, change);
+  },
+
+  resultTargets(paperId: number): Promise<CBTResultTargets> {
+    return api.get(`${PAPERS}${paperId}/results/targets/`);
+  },
+
+  pushResults(paperId: number): Promise<CBTPushResults> {
+    return api.post(`${PAPERS}${paperId}/results/push/`);
+  },
+
+  releaseResults(paperId: number): Promise<CBTPaper> {
+    return api.post(`${PAPERS}${paperId}/results/release/`);
+  },
+
+  withholdResults(paperId: number): Promise<CBTPaper> {
+    return api.post(`${PAPERS}${paperId}/results/withhold/`);
   },
 };
 
