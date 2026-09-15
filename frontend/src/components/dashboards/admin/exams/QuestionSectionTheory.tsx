@@ -1,6 +1,6 @@
 // components/QuestionSectionTheory.tsx
 import React from "react";
-import { RichTextEditor } from "@/components/shared/ExamEditor";
+import { RichTextEditor, SoundClipField } from "@/components/shared/ExamEditor";
 import { TheoryQuestion, SubQuestion } from "@/types/types";
 
 
@@ -80,6 +80,7 @@ const QuestionSectionTheory: React.FC<Props> = ({ value, onChange }) => {
             onChange={val => updateQuestion(i, "question", val)}
             placeholder="Enter question text..."
           />
+          <SoundClipField value={q.audio} onChange={audio => updateQuestion(i, "audio", audio)} />
 
           <label>Expected Points</label>
           <RichTextEditor

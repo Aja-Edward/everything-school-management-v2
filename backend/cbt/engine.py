@@ -47,7 +47,10 @@ CLIENT_EVENT_KINDS = frozenset({
     CBTEvent.Kind.FOCUS_LOST, CBTEvent.Kind.FOCUS_RETURNED, CBTEvent.Kind.FULLSCREEN_EXITED,
     CBTEvent.Kind.COPY_ATTEMPTED, CBTEvent.Kind.PASTE_ATTEMPTED,
     CBTEvent.Kind.CONNECTION_LOST, CBTEvent.Kind.RECONNECTED,
+    CBTEvent.Kind.AUDIO_PLAYED, CBTEvent.Kind.AUDIO_FAILED,
 })
+# Plays of a clip with no limit are still capped, to keep a broken page from writing nonsense.
+MAX_RECORDED_PLAYS = 1000
 
 
 class Refused(Exception):
@@ -150,6 +153,7 @@ def attempt_state(attempt, now, session_token=None):
         "allow_backtracking": attempt.paper.allow_backtracking,
         "furthest_position": attempt.furthest_position,
         "question_count": len(attempt.question_ids),
+        "audio_plays": attempt.audio_plays or {},
     }
     from .marking import score_for_student
 
@@ -367,11 +371,27 @@ def save_answers(attempt, answers, now=None):
     return attempt, len(rows)
 
 
-def heartbeat(attempt, position=None, now=None, time_spent=None):
+def clip_limits(attempt):
+    """The attempt's sound clips and the plays each allows (0: any number): {"question:<id>" | "section:<key>": plays}."""
+    limits = {f"section:{s['key']}": int(s["audio"].get("plays") or 0)
+              for s in attempt.paper.sections or [] if isinstance(s.get("audio"), dict)}
+    for question in CBTQuestion.objects.filter(id__in=attempt.question_ids).exclude(audio={}).only("id", "audio"):
+        if question.audio.get("url"):
+            limits[f"question:{question.id}"] = int(question.audio.get("plays") or 0)
+    return limits
+
+
+def heartbeat(attempt, position=None, now=None, time_spent=None, audio_plays=None):
     """
     The exam page checking in: keeps last_seen current, records how far the
     student has moved, and adds the seconds each question has been on screen
     since the last check-in ({"<question id>": seconds}).
+
+    `audio_plays` is how many times the page has started each sound clip. A
+    limit on plays is kept by the exam page, which still works offline; the
+    server keeps the highest count it has been told, so a reload or another
+    device picks up where the student was. A count is never lowered, and
+    never raised past the clip's limit.
 
     Time is the browser's word for it, so it is capped. The page checks in
     every 30 seconds; a report covering more than MAX_SECONDS_PER_HEARTBEAT
@@ -401,6 +421,17 @@ def heartbeat(attempt, position=None, now=None, time_spent=None):
                     break
             attempt.time_on_questions = totals
             fields.append("time_on_questions")
+        if isinstance(audio_plays, dict) and audio_plays:
+            limits = clip_limits(attempt)
+            plays = dict(attempt.audio_plays or {})
+            for clip, count in audio_plays.items():
+                if clip not in limits or not isinstance(count, int) or isinstance(count, bool) or count < 0:
+                    continue
+                cap = limits[clip] or MAX_RECORDED_PLAYS
+                plays[clip] = max(plays.get(clip, 0), min(count, cap))
+            if plays != (attempt.audio_plays or {}):
+                attempt.audio_plays = plays
+                fields.append("audio_plays")
         attempt.save(update_fields=fields)
     return attempt
 

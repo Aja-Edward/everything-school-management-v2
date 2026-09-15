@@ -282,6 +282,7 @@ def answers_to_mark(paper, question):
         "question": {
             "id": question.id, "number": question.source_number, "section": question.section,
             "content": question.content, "parts": question.parts, "marks": str(question.marks),
+            "audio": question.audio or None,
             "marking_guide": question.marking_guide,
         },
         "answers": [{

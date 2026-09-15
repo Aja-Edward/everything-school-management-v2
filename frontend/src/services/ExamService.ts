@@ -1,3 +1,4 @@
+import type { SoundClip } from './SoundClipService';
 import api, { API_BASE_URL, buildHeaders } from './api';
 
 // Exam Types
@@ -60,6 +61,8 @@ export interface Exam {
   objective_instructions?: string;
   theory_instructions?: string;
   practical_instructions?: string;
+  /** Sound clips for whole sections: {objective?, theory?}. Custom sections keep their own. */
+  section_audio?: Record<string, SoundClip>;
   // Per-exam print settings
   print_settings?: PrintSettings;
 }
@@ -129,6 +132,8 @@ export interface ExamCreateData {
   objective_instructions?: string;
   theory_instructions?: string;
   practical_instructions?: string;
+  /** Sound clips for whole sections: {objective?, theory?}. Custom sections keep their own. */
+  section_audio?: Record<string, SoundClip>;
   print_settings?: PrintSettings;
 }
 
@@ -157,6 +162,8 @@ export interface ExamUpdateData {
   objective_instructions?: string;
   theory_instructions?: string;
   practical_instructions?: string;
+  /** Sound clips for whole sections: {objective?, theory?}. Custom sections keep their own. */
+  section_audio?: Record<string, SoundClip>;
   pass_marks?: number;
   venue?: string;
   max_students?: number;

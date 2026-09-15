@@ -1,6 +1,6 @@
 // components/QuestionSectionCustom.tsx
 import React from "react";
-import { RichTextEditor } from "@/components/shared/ExamEditor";
+import { RichTextEditor, SoundClipField } from "@/components/shared/ExamEditor";
 import { CustomSection, Question } from "@/types/types";
 
 
@@ -92,6 +92,7 @@ const QuestionSectionCustom: React.FC<Props> = ({ value, onChange }) => {
             onChange={val => updateSection(i, "instructions", val)}
             placeholder="Enter section instructions..."
           />
+          <SoundClipField value={section.audio} onChange={audio => updateSection(i, "audio", audio)} forWhat="this section" />
 
           <div style={{ marginTop: 16, marginLeft: 16 }}>
             <strong>Questions</strong>
@@ -103,6 +104,7 @@ const QuestionSectionCustom: React.FC<Props> = ({ value, onChange }) => {
                   onChange={val => updateQuestion(i, j, "question", val)}
                   placeholder="Enter question text..."
                 />
+                <SoundClipField value={q.audio} onChange={audio => updateQuestion(i, j, "audio", audio)} />
 
                 <label>Marks *</label>
                 <input

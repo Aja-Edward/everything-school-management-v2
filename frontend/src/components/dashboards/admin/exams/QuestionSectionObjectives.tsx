@@ -1,6 +1,6 @@
 // components/QuestionSectionObjectives.tsx
 import React from "react";
-import { ObjectiveAnswerFields, RichTextEditor } from "@/components/shared/ExamEditor";
+import { ObjectiveAnswerFields, RichTextEditor, SoundClipField } from "@/components/shared/ExamEditor";
 import { ObjectiveQuestion } from "@/types/types";
 
 
@@ -47,6 +47,7 @@ const QuestionSectionObjectives: React.FC<Props> = ({ value, onChange }) => {
             onChange={val => updateQuestion(i, "question", val)}
             placeholder="Enter question text..."
           />
+          <SoundClipField value={q.audio} onChange={audio => updateQuestion(i, "audio", audio)} />
 
           <ObjectiveAnswerFields
             question={q}

@@ -19,6 +19,7 @@ from .document_views import (
     document_parser_status,
 )
 from .pdf_views import export_exam_pdf
+from .audio_views import audio_upload_signature
 
 # Create router for ViewSets
 router = DefaultRouter()
@@ -306,6 +307,11 @@ custom_patterns = [
         "<int:exam_id>/export-pdf/",
         export_exam_pdf,
         name="exam-export-pdf",
+    ),
+    path(
+        "audio/upload-signature/",
+        audio_upload_signature,
+        name="exam-audio-upload-signature",
     ),
 ]
 

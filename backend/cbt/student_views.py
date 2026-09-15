@@ -102,7 +102,8 @@ class AttemptViewSet(StudentCBTMixin, viewsets.ViewSet):
     @action(detail=True, methods=["post"])
     def heartbeat(self, request, pk=None):
         attempt = engine.heartbeat(self._attempt(pk), request.data.get("position"),
-                                   time_spent=request.data.get("time_spent"))
+                                   time_spent=request.data.get("time_spent"),
+                                   audio_plays=request.data.get("audio_plays"))
         return Response(engine.attempt_state(attempt, timezone.now()))
 
     @method_decorator(ratelimit(key="user", rate="60/m", method="POST", block=True))

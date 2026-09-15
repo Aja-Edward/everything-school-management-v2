@@ -40,6 +40,8 @@ MAX_EXTRA_MINUTES = 240
 WARNING_KINDS = [
     CBTEvent.Kind.FOCUS_LOST, CBTEvent.Kind.FULLSCREEN_EXITED, CBTEvent.Kind.COPY_ATTEMPTED,
     CBTEvent.Kind.PASTE_ATTEMPTED, CBTEvent.Kind.CONNECTION_LOST, CBTEvent.Kind.DEVICE_CHANGED,
+    # The student may need help, and it matters if they later say they couldn't hear it.
+    CBTEvent.Kind.AUDIO_FAILED,
 ]
 STAFF_KINDS = [
     CBTEvent.Kind.TIME_EXTENDED, CBTEvent.Kind.REOPENED, CBTEvent.Kind.VOIDED,

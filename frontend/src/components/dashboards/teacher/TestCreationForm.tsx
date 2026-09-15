@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import TeacherDashboardService from '@/services/TeacherDashboardService';
 import { ExamService, ExamCreateData } from '@/services/ExamService';
-import { MathTextInput, ObjectiveAnswerFields } from '@/components/shared/ExamEditor';
+import { MathTextInput, ObjectiveAnswerFields, SoundClipField } from '@/components/shared/ExamEditor';
 import { toast } from 'react-toastify';
 import { X, XCircle, Plus, Trash2, Save, Clock, Clock3, CheckCircle, AlertCircle, BookOpen } from 'lucide-react';
 
@@ -557,6 +557,7 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
                               className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
                               placeholder="Enter question"
                             />
+                            <SoundClipField value={question.audio} onChange={(audio) => replaceObjectiveQuestion(index, { ...question, audio })} />
 
                             <ObjectiveAnswerFields
                               question={question}

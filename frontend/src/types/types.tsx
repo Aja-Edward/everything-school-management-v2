@@ -1,3 +1,4 @@
+import type { SoundClip } from '@/services/SoundClipService';
 // import { User } from '@/services/AuthService';
 import { RecentActivity } from '@/services/AdminDashboardService';
 import { ReactNode, ComponentType } from 'react';
@@ -2248,6 +2249,8 @@ export interface ObjectiveQuestion {
   partialCredit?: boolean;
   tolerance?: string | number;
   unit?: string;
+  /** A sound clip for listening questions; see services/SoundClipService. */
+  audio?: SoundClip;
 }
 
 export interface SubSubQuestion {
@@ -2274,6 +2277,7 @@ export interface TheoryQuestion {
   marks: number;
   wordLimit: string;
   subQuestions: SubQuestion[];
+  audio?: SoundClip;
 }
 
 export interface PracticalQuestion {
@@ -2290,6 +2294,7 @@ export interface Question {
   question: string;
   marks: number;
   wordLimit?: string;
+  audio?: SoundClip;
 }
 
 export interface CustomSection {
@@ -2297,6 +2302,8 @@ export interface CustomSection {
   name: string;
   instructions: string;
   questions: Question[];
+  /** A sound clip the whole section listens to. */
+  audio?: SoundClip;
 }
 
 

@@ -7,7 +7,8 @@ import { ExamService, ExamCreateData } from '@/services/ExamService';
 import { toast } from 'react-toastify';
 import { X, XCircle, Plus, Trash2, Save, Clock, Clock3, CheckCircle, AlertCircle, Upload, FileDown } from 'lucide-react';
 import { generateExamWordTemplate, generateExamCsvTemplate } from '@/utils/examTemplateGenerator';
-import { MathTextInput, ObjectiveAnswerFields, RichTextEditor } from '@/components/shared/ExamEditor';
+import { MathTextInput, ObjectiveAnswerFields, RichTextEditor, SoundClipField } from '@/components/shared/ExamEditor';
+import type { SoundClip } from '@/services/SoundClipService';
 import {
   normalizeExamDataForSave,
   normalizeExamDataForEdit
@@ -73,6 +74,13 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({
   const [examStatuses,     setExamStatuses]     = useState<any[]>([]);
   const [objectiveInstructions, setObjectiveInstructions] = useState<string>('');
   const [theoryInstructions, setTheoryInstructions] = useState<string>('');
+  // Sound clips for the objective and theory sections; custom sections keep their own.
+  const [sectionAudio, setSectionAudio] = useState<Record<string, SoundClip>>({});
+  const setSectionClip = (section: string, clip: SoundClip | undefined) => setSectionAudio((current) => {
+    const next = { ...current };
+    if (clip) next[section] = clip; else delete next[section];
+    return next;
+  });
   const [practicalInstructions, setPracticalInstructions] = useState<string>('');
   const [currentTeacherId, setCurrentTeacherId] = useState<number | null>(null);
 
@@ -155,6 +163,7 @@ useEffect(() => {
     setCustomSections(existingCustom);
     setObjectiveInstructions(normalized.objective_instructions || '');
     setTheoryInstructions(normalized.theory_instructions || '');
+    setSectionAudio(normalized.section_audio || {});
     setPracticalInstructions(normalized.practical_instructions || '');
     const order: Array<{ kind: 'objective' | 'theory' | 'practical' | 'custom'; id?: number }> = [
       { kind: 'objective' },
@@ -681,6 +690,7 @@ const saveAsDraft = async () => {
       objective_instructions: objectiveInstructions,
       theory_instructions: theoryInstructions,
       practical_instructions: practicalInstructions,
+      section_audio: sectionAudio,
       total_marks: computedTotalMarks,
       pass_marks: Math.min(formData.pass_marks ?? computedTotalMarks, computedTotalMarks),
     };
@@ -726,6 +736,7 @@ const submitForApproval = async () => {
       objective_instructions: objectiveInstructions,
       theory_instructions: theoryInstructions,
       practical_instructions: practicalInstructions,
+      section_audio: sectionAudio,
       total_marks: computedTotalMarks,
       pass_marks: Math.min(formData.pass_marks ?? computedTotalMarks, computedTotalMarks),
     };
@@ -1070,6 +1081,7 @@ const submitForApproval = async () => {
                         <div>
                           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Section Instructions (Objective)</label>
                           <textarea value={objectiveInstructions} onChange={(e) => setObjectiveInstructions(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" rows={2} placeholder="Enter instructions for this section" />
+                          <div className="mt-2"><SoundClipField value={sectionAudio.objective} onChange={(clip) => setSectionClip('objective', clip)} forWhat="this section" /></div>
                         </div>
                         <div className="flex items-center justify-between">
                           <button onClick={addObjectiveQuestion} className="flex items-center space-x-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
@@ -1095,6 +1107,7 @@ const submitForApproval = async () => {
                                     enableImageUpload={true}
                                     enableTables={true}
                                   />
+                                  <SoundClipField value={question.audio} onChange={(audio) => replaceObjectiveQuestion(index, { ...question, audio })} />
                                   <ObjectiveAnswerFields
                                     question={question}
                                     onChange={(next) => replaceObjectiveQuestion(index, next)}
@@ -1118,6 +1131,7 @@ const submitForApproval = async () => {
                         <div>
                           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Section Instructions (Theory)</label>
                           <textarea value={theoryInstructions} onChange={(e) => setTheoryInstructions(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" rows={2} placeholder="Enter instructions for this section" />
+                          <div className="mt-2"><SoundClipField value={sectionAudio.theory} onChange={(clip) => setSectionClip('theory', clip)} forWhat="this section" /></div>
                         </div>
                         <div className="flex items-center justify-between">
                           <button onClick={addTheoryQuestion} className="flex items-center space-x-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
@@ -1143,6 +1157,8 @@ const submitForApproval = async () => {
                                     enableImageUpload={true}
                                     enableTables={true}
                                   />
+                                  <SoundClipField value={question.audio}
+                                    onChange={(audio) => setTheoryQuestions(prev => prev.map((q, i) => (i === index ? { ...q, audio } : q)))} />
 
                                   <div className="grid grid-cols-3 gap-3">
                                     <input type="text" value={question.expectedPoints} onChange={(e) => updateTheoryQuestion(index, 'expectedPoints', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Expected points" />
@@ -1296,6 +1312,7 @@ const submitForApproval = async () => {
                                 <input type="text" value={custom.name} onChange={(e) => updateCustomField('name', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Section name (e.g., Comprehension)" />
                                 <input type="text" value={custom.instructions} onChange={(e) => updateCustomField('instructions', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Section instructions" />
                               </div>
+                              <SoundClipField value={custom.audio} onChange={(audio) => updateCustomField('audio', audio)} forWhat="this section" />
                               <div className="flex items-center justify-between">
                                 <button onClick={addQuestionToCustom} className="flex items-center space-x-2 px-3 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors">
                                   <Plus className="w-4 h-4" />
@@ -1320,6 +1337,7 @@ const submitForApproval = async () => {
                                           enableImageUpload={true}
                                           enableTables={true}
                                         />
+                                        <SoundClipField value={q.audio} onChange={(audio) => updateCustomQuestion(qi, 'audio', audio)} />
                                         <div className="flex items-center gap-3">
                                           <label className="text-sm text-slate-600 dark:text-slate-300">Marks:</label>
                                           <input type="number" value={q.marks} onChange={(e) => updateCustomQuestion(qi, 'marks', parseInt(e.target.value))} className="w-24 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Marks" min="0" />

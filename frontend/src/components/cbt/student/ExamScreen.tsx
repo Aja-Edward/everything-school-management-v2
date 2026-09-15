@@ -8,6 +8,9 @@ import StudentCBTService, {
 import { hasMath, preloadMathFonts } from '@/utils/math';
 import QuestionView, { OPTION_LETTERS, isChoice, toggleKey } from './QuestionView';
 import { forgetStoredAnswers, useAnswerQueue } from './useAnswerQueue';
+import SoundClipPlayer from './SoundClipPlayer';
+import { forgetStoredPlays, useSoundClips } from './useSoundClips';
+import type { SoundClip } from '@/services/SoundClipService';
 
 interface Props {
   detail: Required<CBTAttemptDetail>;
@@ -77,6 +80,7 @@ const ExamScreen: React.FC<Props> = ({ detail, onEnded, onReplaced }) => {
     if (endedRef.current) return;
     endedRef.current = true;
     forgetStoredAnswers(attemptId);
+    forgetStoredPlays(attemptId);
     onEnded(state);
   }, [attemptId, onEnded]);
 
@@ -169,7 +173,8 @@ const ExamScreen: React.FC<Props> = ({ detail, onEnded, onReplaced }) => {
   const heartbeat = useCallback(async (position: number, saved: boolean) => {
     const time = takeTime();
     try {
-      acceptState(await StudentCBTService.heartbeat(attemptId, saved ? position : attempt.furthest_position, time));
+      acceptState(await StudentCBTService.heartbeat(
+        attemptId, saved ? position : attempt.furthest_position, time, playsRef.current));
     } catch (error) {
       giveBackTime(time);
       handleError(error);
@@ -179,6 +184,26 @@ const ExamScreen: React.FC<Props> = ({ detail, onEnded, onReplaced }) => {
 
   const pendingRef = useRef(queue.pendingCount);
   pendingRef.current = queue.pendingCount;
+
+  // Sound clips, keyed the way the server counts their plays.
+  const clips = useMemo(() => {
+    const all: Record<string, SoundClip> = {};
+    paper.sections.forEach((s) => { if (s.audio?.url) all[`section:${s.key}`] = s.audio; });
+    questions.forEach((q) => { if (q.audio?.url) all[`question:${q.id}`] = q.audio; });
+    return all;
+  }, [paper.sections, questions]);
+  const soundClips = useSoundClips({
+    attemptId,
+    clips,
+    serverPlays: attempt.audio_plays ?? {},
+    onReport: (kind, eventDetail) => report(kind, eventDetail),
+    // Tell the server now, so a reload on another computer can't start the count again.
+    onPlayCounted: () => window.setTimeout(() => {
+      void heartbeatRef.current(furthestRef.current, pendingRef.current === 0);
+    }, 0),
+  });
+  const playsRef = useRef(soundClips.plays);
+  playsRef.current = soundClips.plays;
 
   // The clock.
   useEffect(() => {
@@ -245,9 +270,10 @@ const ExamScreen: React.FC<Props> = ({ detail, onEnded, onReplaced }) => {
         "Some answers haven't reached the school server yet. Check the connection and try again. Your answers are safe on this computer.");
       return;
     }
+    soundClips.stopAll();
     await sendEvents();
     // The last few seconds on screen; the server's furthest position is sent back unchanged.
-    await StudentCBTService.heartbeat(attemptId, attempt.furthest_position, takeTime()).catch(() => undefined);
+    await StudentCBTService.heartbeat(attemptId, attempt.furthest_position, takeTime(), playsRef.current).catch(() => undefined);
     try {
       const state = await StudentCBTService.submit(attemptId);
       queue.stop();
@@ -447,6 +473,14 @@ const ExamScreen: React.FC<Props> = ({ detail, onEnded, onReplaced }) => {
               disabled={!!finishing}
               onChoose={choose}
               onType={(text) => queue.update(question.id, { text_answer: text }, true)}
+              sectionClip={section?.audio?.url ? (
+                <SoundClipPlayer clipKey={`section:${section.key}`} clip={section.audio} clips={soundClips}
+                  heading={`${section.title}: listen`} disabled={!!finishing} />
+              ) : undefined}
+              questionClip={question.audio?.url ? (
+                <SoundClipPlayer clipKey={`question:${question.id}`} clip={question.audio} clips={soundClips}
+                  heading="Listen to this question" disabled={!!finishing} />
+              ) : undefined}
             />
           </div>
 

@@ -1,5 +1,6 @@
 import api from './api';
 import type { CBTQuestionKind } from './StudentCBTService';
+import type { SoundClip } from './SoundClipService';
 
 export type { CBTQuestionKind };
 
@@ -10,6 +11,7 @@ export interface CBTSection {
   key: string;
   title: string;
   instructions: string;
+  audio?: SoundClip;
 }
 
 export interface CBTPaper {
@@ -76,6 +78,7 @@ export interface CBTStudentQuestion {
   marks: string;
   options?: { key: string; text: string }[];
   unit?: string;
+  audio?: SoundClip;
   parts?: CBTStudentPart[];
   table?: unknown;
 }
@@ -203,6 +206,7 @@ export interface CBTQuestionToMark {
     parts: CBTStudentPart[];
     marks: string;
     marking_guide: string;
+    audio?: SoundClip | null;
   };
   answers: CBTAnswerToMark[];
 }

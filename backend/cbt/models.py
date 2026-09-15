@@ -86,7 +86,7 @@ class CBTPaper(TenantMixin, models.Model):
     # Copied from the exam when published.
     instructions = models.TextField(blank=True)
     sections = models.JSONField(
-        default=list, blank=True, help_text='[{"key", "title", "instructions"}] in paper order')
+        default=list, blank=True, help_text='[{"key", "title", "instructions", "audio"?}] in paper order')
 
     published_at = models.DateTimeField(null=True, blank=True)
     published_by = models.ForeignKey(
@@ -242,6 +242,9 @@ class CBTQuestion(TenantMixin, models.Model):
 
     content = models.TextField(blank=True, help_text="HTML from the exam editor")
     image_url = models.TextField(blank=True)
+    audio = models.JSONField(
+        default=dict, blank=True,
+        help_text='A sound clip to listen to: {"url", "title", "plays", "duration"}. plays 0 is as often as they like.')
     options = models.JSONField(default=list, blank=True, help_text='[{"key": "A", "text": "..."}]')
     correct_option = models.CharField(
         max_length=10, blank=True, help_text='The correct key, or every correct key in order for "choose all that apply": "AC"')
@@ -327,6 +330,10 @@ class CBTAttempt(TenantMixin, models.Model):
         max_length=64, blank=True, help_text="SHA-256 of the token the device sitting the attempt holds")
     furthest_position = models.PositiveIntegerField(
         default=0, help_text="Furthest question the student has reached, counting from 0")
+    audio_plays = models.JSONField(
+        default=dict, blank=True,
+        help_text='Times the student has started each sound clip, as the exam page reports it: '
+                  '{"question:<id>" or "section:<key>": plays}')
     time_on_questions = models.JSONField(
         default=dict, blank=True,
         help_text='Seconds the student\'s screen showed each question, as the exam page reports it: {"<question id>": seconds}')
@@ -477,6 +484,8 @@ class CBTEvent(TenantMixin, models.Model):
         PASTE_ATTEMPTED = "paste_attempted", "Tried to paste"
         CONNECTION_LOST = "connection_lost", "Lost connection"
         RECONNECTED = "reconnected", "Reconnected"
+        AUDIO_PLAYED = "audio_played", "Played a sound clip"
+        AUDIO_FAILED = "audio_failed", "A sound clip wouldn't play"
         TIME_EXTENDED = "time_extended", "Given extra time"
         REOPENED = "reopened", "Let back in"
         SUBMITTED = "submitted", "Submitted"

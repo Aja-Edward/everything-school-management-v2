@@ -15,11 +15,13 @@ paper.
 
 | Check | How |
 |---|---|
-| Migrations `cbt` 0001–0005 are applied | The build runs `python manage.py migrate` (see `backend/build.sh`; Render's dashboard Build Command must match). Confirm with `python manage.py showmigrations cbt`. |
+| Migrations `cbt` 0001–0007 and `exam` 0001–0004 are applied | The build runs `python manage.py migrate` (see `backend/build.sh`; Render's dashboard Build Command must match). Confirm with `python manage.py showmigrations cbt`. |
 | The frontend build includes DOMPurify | `dompurify` is in `frontend/package.json`. A fresh `pnpm install` picks it up. Question text is sanitised with it before it is shown. |
 | A Celery worker with beat is running, and `CELERY_WORKER_AVAILABLE=true` is set on the web service | See [celery-worker-setup.md](celery-worker-setup.md). Beat runs `close-expired-cbt-attempts` every minute. |
 | `X-CBT-Session` gets through | It is in `CORS_ALLOW_HEADERS` in settings. A proxy or CDN with its own header allowlist needs it added there too. |
 | Redis is set in production | Rate limits are counted in the cache. With Redis every web worker shares the count. |
+| Cloudinary credentials are set on the web service, for sound clips | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` and `CLOUDINARY_API_SECRET`. The server signs each upload, and the teacher's browser sends the file straight to Cloudinary. Without them, adding a clip says file storage isn't set up. |
+| The computer lab's network allows `res.cloudinary.com` | Students' exam pages download every clip when the exam opens. A school filter that blocks the host leaves listening questions silent. |
 
 **Without the worker**, an attempt still ends at its deadline as soon as
 anything touches it: the student's page, their exam list, or the invigilation
@@ -82,6 +84,10 @@ computers. Make a separate throwaway exam for it, not the pilot paper.
    and a number with a margin and a unit, e.g. 9.8 with 0.1 either side, in
    m/s². The preview shows ticks for choose all that apply and a number box
    with its unit.
+
+   For listening, add a short sound clip to one question with **Add a sound
+   clip**, allowed to play twice, and one to the objective section (under its
+   instructions). Play both in the preview.
 4. **Publish**. The exam list shows a "CBT published" badge.
 
 **Student A, computer 1**
@@ -91,6 +97,9 @@ computers. Make a separate throwaway exam for it, not the pilot paper.
    Tick two options on the choose-all question, and type the number as a
    fraction or with its unit, e.g. 49/5 or 9.8 m/s². Type "9.8." and check
    the warning that it can't be read as a number.
+   Play the question's clip twice: the button then says both plays are used.
+   Play the section's clip, move to the next question while it plays, and
+   check it keeps playing. Reload the page: the plays used are still used.
 6. Reload the page. The answers are still there, and so is the clock.
 7. Turn off the Wi-Fi and answer two more. The page shows answers waiting.
    Turn the Wi-Fi back on: they save within a few seconds.
@@ -112,6 +121,8 @@ computers. Make a separate throwaway exam for it, not the pilot paper.
     shows as offline. **Submit** B's attempt, then **Reopen** it with 5
     minutes. B can carry on.
 13. Student A submits. No score is shown, because release is set to manual.
+    On the board, student A's event log shows "Played a sound clip" for each
+    play. A clip that wouldn't play shows as a warning.
 
 **Time-out, which checks the worker**
 

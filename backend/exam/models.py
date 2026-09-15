@@ -416,6 +416,10 @@ class Exam(TenantMixin, models.Model):
     objective_instructions = models.TextField(blank=True)
     theory_instructions = models.TextField(blank=True)
     practical_instructions = models.TextField(blank=True)
+    section_audio = models.JSONField(
+        default=dict, blank=True,
+        help_text='A sound clip for the objective or theory section, played on the CBT paper: '
+                  '{"objective": {"url", "title", "plays", "duration"}}. A custom section keeps its own under "audio".')
 
     # File uploads (optional)
     questions_file = models.FileField(

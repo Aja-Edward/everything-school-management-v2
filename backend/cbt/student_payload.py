@@ -14,6 +14,11 @@ question-bank import adds `expectedPoints`, which is the marking guide.
 from .scoring import CHOICE_KINDS, NUMERIC
 
 PART_KEYS = ("id", "question", "marks", "table")
+CLIP_KEYS = ("url", "title", "plays", "duration")
+
+
+def clip_for_student(clip):
+    return {key: clip.get(key) for key in CLIP_KEYS} if isinstance(clip, dict) and clip.get("url") else None
 
 
 def _part(raw):
@@ -37,6 +42,8 @@ def question_for_student(question, number, option_order=None):
         "image_url": question.image_url,
         "marks": str(question.marks),
     }
+    if clip_for_student(question.audio):
+        payload["audio"] = clip_for_student(question.audio)
     if question.kind in CHOICE_KINDS:
         text_by_key = {option["key"]: option["text"] for option in question.options}
         keys = option_order or list(text_by_key)
@@ -61,7 +68,11 @@ def paper_for_student(paper, questions, option_order, sections=None, instruction
         "exam_title": paper.exam.title,
         "subject": paper.exam.subject.name if paper.exam.subject_id else "",
         "instructions": paper.instructions if instructions is None else instructions,
-        "sections": paper.sections if sections is None else sections,
+        "sections": [
+            {"key": s.get("key"), "title": s.get("title"), "instructions": s.get("instructions"),
+             **({"audio": clip_for_student(s.get("audio"))} if clip_for_student(s.get("audio")) else {})}
+            for s in (paper.sections if sections is None else sections)
+        ],
         "duration_minutes": paper.duration_minutes,
         "allow_backtracking": paper.allow_backtracking,
         "total_marks": str(sum(question.marks for question in questions)),

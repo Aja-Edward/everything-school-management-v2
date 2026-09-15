@@ -7,6 +7,8 @@
  * refresh. Tokens are kept in localStorage, so a reloaded page carries on as
  * the same device.
  */
+
+import type { SoundClip } from './SoundClipService';
 import { API_BASE_URL, buildHeaders, handleResponseError } from './api';
 
 export type CBTExamState = 'upcoming' | 'open' | 'in_progress' | 'done' | 'missed';
@@ -26,6 +28,8 @@ export interface CBTAttemptState {
   allow_backtracking: boolean;
   furthest_position: number;
   question_count: number;
+  /** Times each sound clip has been started: {"question:<id>" | "section:<key>": plays}. */
+  audio_plays: Record<string, number>;
   /** Present once the paper is fully marked and the school's release setting allows it. */
   score?: { total: string; max: string; percentage: number } | null;
   session_token?: string;
@@ -74,6 +78,7 @@ export interface CBTQuestion {
   marks: string;
   options?: { key: string; text: string }[];
   unit?: string;
+  audio?: SoundClip;
   parts?: CBTPart[];
   table?: unknown;
 }
@@ -82,7 +87,7 @@ export interface CBTPaperForStudent {
   exam_title: string;
   subject: string;
   instructions: string;
-  sections: { key: string; title: string; instructions: string }[];
+  sections: { key: string; title: string; instructions: string; audio?: SoundClip }[];
   duration_minutes: number;
   allow_backtracking: boolean;
   total_marks: string;
@@ -104,7 +109,8 @@ export interface CBTAttemptDetail {
 
 export type CBTClientEventKind =
   | 'focus_lost' | 'focus_returned' | 'fullscreen_exited'
-  | 'copy_attempted' | 'paste_attempted' | 'connection_lost' | 'reconnected';
+  | 'copy_attempted' | 'paste_attempted' | 'connection_lost' | 'reconnected'
+  | 'audio_played' | 'audio_failed';
 
 export interface CBTClientEvent {
   kind: CBTClientEventKind;
@@ -194,8 +200,11 @@ export const StudentCBTService = {
   },
 
   /** `timeSpent`: whole seconds each question was on screen since the last check-in, by question id. */
-  heartbeat(attemptId: number, position: number, timeSpent: Record<string, number> = {}): Promise<CBTAttemptState> {
-    return request('POST', `/cbt/attempts/${attemptId}/heartbeat/`, { position, time_spent: timeSpent }, sessionTokens.get(attemptId));
+  heartbeat(
+    attemptId: number, position: number, timeSpent: Record<string, number> = {}, audioPlays: Record<string, number> = {},
+  ): Promise<CBTAttemptState> {
+    return request('POST', `/cbt/attempts/${attemptId}/heartbeat/`,
+      { position, time_spent: timeSpent, audio_plays: audioPlays }, sessionTokens.get(attemptId));
   },
 
   events(attemptId: number, events: CBTClientEvent[]): Promise<{ recorded: number }> {

@@ -18,6 +18,13 @@ before types existed:
 - "numeric": its answer is a number, with an optional `tolerance` either side
   and a `unit` shown to students.
 
+A question or section may have a sound clip, for listening tests:
+    {"url": "https://...", "title": "...", "plays": 2, "duration": 45.2}
+A question keeps it under "audio"; the objective and theory sections under
+Exam.section_audio["objective"] and ["theory"]; a custom section under its
+own "audio". `plays` is how many times a student may play it, 0 for as often
+as they like. `duration` is in seconds, as the upload reported it.
+
 Practical questions are never put on a CBT paper: they are done in person.
 """
 
@@ -29,6 +36,7 @@ from .scoring import MULTIPLE, NUMERIC, OBJECTIVE, TRUE_FALSE, parse_keys, parse
 LETTERS = "ABCDEFGHIJ"
 TRUE_FALSE_OPTIONS = [{"key": "A", "text": "True"}, {"key": "B", "text": "False"}]
 MAX_UNIT_LENGTH = 30
+MAX_PLAYS = 10
 
 _QUESTION_TYPES = {
     "": OBJECTIVE, "single": OBJECTIVE, "objective": OBJECTIVE,
@@ -201,11 +209,41 @@ def _objective_answer(kind, raw, fields):
     return [] if fields["correct_option"] else ["has no correct answer, or its answer is not one of its options."]
 
 
+def sound_clip(raw):
+    """
+    (clip, problems) for a question's or section's "audio": the clip as
+    {"url", "title", "plays", "duration"}, or None when there isn't one, and
+    what is wrong with it, each phrased to follow "its sound clip".
+    """
+    if not isinstance(raw, dict) or not str(raw.get("url") or "").strip():
+        return None, []
+    problems = []
+    url = str(raw["url"]).strip()
+    if not url.lower().startswith("https://"):
+        problems.append("has a link that doesn't start with https://.")
+    try:
+        plays = int(raw.get("plays") or 0)
+    except (TypeError, ValueError):
+        plays = -1
+    if not 0 <= plays <= MAX_PLAYS:
+        problems.append(f"can be allowed at most {MAX_PLAYS} plays.")
+    try:
+        duration = float(raw.get("duration"))
+    except (TypeError, ValueError):
+        duration = None
+    clip = {
+        "url": url, "title": _text(raw.get("title"))[:200], "plays": max(plays, 0),
+        "duration": round(duration, 1) if duration and duration > 0 else None,
+    }
+    return clip, problems
+
+
 def build_paper(exam, include_objective=True, include_theory=False):
     """
     Read `exam` into (sections, questions, problems).
 
-    sections  -- [{"key", "title", "instructions"}], in paper order
+    sections  -- [{"key", "title", "instructions"}], in paper order, with
+                 "audio" for a section that has a sound clip
     questions -- unsaved field dicts for CBTQuestion, in paper order
     problems  -- one sentence per question that can't go on a paper as it
                  stands, naming it the way the teacher numbered it
@@ -216,9 +254,24 @@ def build_paper(exam, include_objective=True, include_theory=False):
         questions.append({"section": section, "source_number": number,
                           "order": len(questions) + 1, **fields})
 
+    def add_section(key, title, instructions, raw_clip):
+        section = {"key": key, "title": title, "instructions": instructions}
+        clip, clip_problems = sound_clip(raw_clip)
+        if clip:
+            section["audio"] = clip
+        problems.extend(f"The {title} section's sound clip {problem}" for problem in clip_problems)
+        sections.append(section)
+
+    def question_clip(name, raw, fields):
+        clip, clip_problems = sound_clip(raw.get("audio"))
+        fields["audio"] = clip or {}
+        problems.extend(f"{name}'s sound clip {problem}" for problem in clip_problems)
+        return clip
+
+    section_audio = exam.section_audio if isinstance(exam.section_audio, dict) else {}
+
     if include_objective and exam.objective_questions:
-        sections.append({"key": OBJECTIVE_SECTION, "title": "Objective",
-                         "instructions": exam.objective_instructions or ""})
+        add_section(OBJECTIVE_SECTION, "Objective", exam.objective_instructions or "", section_audio.get(OBJECTIVE_SECTION))
         for number, raw in enumerate(exam.objective_questions, start=1):
             name = f"Objective question {number}"
             kind = question_type(raw)
@@ -228,7 +281,8 @@ def build_paper(exam, include_objective=True, include_theory=False):
                 "kind": kind or OBJECTIVE, "content": raw.get("question") or "", "image_url": image,
                 "marks": marks, "bank_question_id": _bank_id(raw),
             }
-            if is_blank(raw.get("question")) and not image:
+            clip = question_clip(name, raw, fields)
+            if is_blank(raw.get("question")) and not image and not clip:
                 problems.append(f"{name} has no question text.")
             problems.extend(f"{name} {problem}" for problem in _objective_answer(kind, raw, fields))
             if marks is None:
@@ -239,28 +293,30 @@ def build_paper(exam, include_objective=True, include_theory=False):
     if include_theory:
         if exam.theory_questions:
             text_sections.append((THEORY_SECTION, "Theory", exam.theory_instructions or "",
-                                  exam.theory_questions))
+                                  exam.theory_questions, section_audio.get(THEORY_SECTION)))
         for index, custom in enumerate(exam.custom_sections or [], start=1):
             if isinstance(custom, dict) and custom.get("questions"):
                 text_sections.append((f"custom-{index}", custom.get("name") or f"Section {index}",
-                                      custom.get("instructions") or "", custom["questions"]))
+                                      custom.get("instructions") or "", custom["questions"], custom.get("audio")))
 
-    for key, title, instructions, raw_questions in text_sections:
-        sections.append({"key": key, "title": title, "instructions": instructions})
+    for key, title, instructions, raw_questions, raw_clip in text_sections:
+        add_section(key, title, instructions, raw_clip)
         for number, raw in enumerate(raw_questions, start=1):
             name = f"{title} question {number}"
             parts = raw.get("subQuestions") or []
             marks = _marks(raw.get("marks")) or _marks(_total_part_marks(parts))
             image = _image(raw)
-            if is_blank(raw.get("question")) and not image and not parts:
+            fields = {
+                "kind": "text", "content": raw.get("question") or "", "image_url": image,
+                "parts": parts, "table": raw.get("table") or None, "marks": marks, "bank_question_id": _bank_id(raw),
+            }
+            clip = question_clip(name, raw, fields)
+            if is_blank(raw.get("question")) and not image and not parts and not clip:
                 problems.append(f"{name} has no question text.")
             if marks is None:
                 problems.append(f"{name} needs marks greater than zero.")
             guide = raw.get("expectedPoints") or raw.get("answerGuideline") or raw.get("markingGuide") or ""
-            add(key, number, {
-                "kind": "text", "content": raw.get("question") or "", "image_url": image,
-                "parts": parts, "table": raw.get("table") or None, "marks": marks,
-                "marking_guide": guide if isinstance(guide, str) else "", "bank_question_id": _bank_id(raw),
-            })
+            fields["marking_guide"] = guide if isinstance(guide, str) else ""
+            add(key, number, fields)
 
     return sections, questions, problems

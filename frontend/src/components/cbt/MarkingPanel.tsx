@@ -77,6 +77,12 @@ const TextMarking: React.FC<{ paperId: number; questionId: number; onBack: () =>
       <div className={card}>
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Question {data.question.number} · out of {Number(data.question.marks)}</p>
         <SafeHtml html={data.question.content} className="cbt-content mt-1 text-slate-900 dark:text-slate-100" />
+        {data.question.audio?.url && (
+          <div className="mt-2">
+            <p className="text-xs text-slate-500">Sound clip{data.question.audio.title ? `: ${data.question.audio.title}` : ''}</p>
+            <audio controls preload="none" src={data.question.audio.url} className="mt-1 h-8 w-full max-w-md" />
+          </div>
+        )}
         {data.question.parts?.map((part, i) => (
           <div key={i} className="mt-1 flex gap-2 text-sm"><span className="font-semibold">({String.fromCharCode(97 + i)})</span><SafeHtml html={part.question} className="cbt-content" /></div>
         ))}

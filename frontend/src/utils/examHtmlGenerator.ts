@@ -23,6 +23,17 @@ import { Exam, PrintSettings, DEFAULT_PRINT_SETTINGS } from "../services/ExamSer
 import { normalizeForPdfGeneration } from "./examDataNormalizer";
 import { renderMathInHtml } from "./math";
 import { answerTypeOf, describeAnswer } from "./objectiveQuestions";
+import { describePlays } from "../services/SoundClipService";
+
+/**
+ * A note that a question or section has a sound clip. On paper it is played
+ * aloud or from a speaker, so the note says how many times.
+ */
+const clipNote = (clip: any): string => {
+  if (!clip?.url) return '';
+  const times = !clip.plays ? '' : ` (play it ${describePlays(clip.plays)})`;
+  return `<div class="section-instruction"><strong>Listening:</strong> ${escapeText(clip.title || 'sound clip')}${times}</div>`;
+};
 
 const escapeText = (value: unknown): string =>
   String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -618,6 +629,7 @@ function generateStudentCopy(
   <div class="section">
     <h3>SECTION A: OBJECTIVE QUESTIONS</h3>
     ${ps.show_instructions && exam.objective_instructions ? `<div class="section-instruction">${renderRichContent(exam.objective_instructions)}</div>` : ''}
+    ${clipNote(exam.section_audio?.objective)}
     <div class="questions-grid">
     ${exam.objective_questions.map((q: any, index: number) => `
     <div class="question">
@@ -627,6 +639,7 @@ function generateStudentCopy(
           <span class="question-content">${renderRichContent(q.question || q.question_text)}</span>
           ${q.image ? `<div class="question-content">${renderRichContent(q.image)}</div>` : ''}
           ${q.table ? `<div class="question-content">${renderRichContent(q.table)}</div>` : ''}
+      ${clipNote(q.audio)}
         </span>
         ${renderOptions(q, ps.show_marks, '[marks]')}
       </div>
@@ -641,12 +654,14 @@ function generateStudentCopy(
   <div class="section">
     <h3>SECTION B: THEORY QUESTIONS</h3>
     ${ps.show_instructions && exam.theory_instructions ? `<div class="section-instruction">${renderRichContent(exam.theory_instructions)}</div>` : ''}
+    ${clipNote(exam.section_audio?.theory)}
     ${exam.theory_questions.map((q: any, index: number) => `
     <div class="question">
       <strong>${index + 1}.</strong>
       <span class="question-content">${renderRichContent(q.question || q.question_text)}</span>
       ${q.image ? `<div class="question-content">${renderRichContent(q.image)}</div>` : ''}
       ${q.table ? `<div class="question-content">${renderRichContent(q.table)}</div>` : ''}
+      ${clipNote(q.audio)}
       ${q.subQuestions && q.subQuestions.length ? `
       <div class="sub-questions">
         ${q.subQuestions.map((sq: any, sqIndex: number) => `
@@ -687,6 +702,7 @@ function generateStudentCopy(
       <span class="question-content">${renderRichContent(q.task || q.question || q.question_text)}</span>
       ${q.image ? `<div class="question-content">${renderRichContent(q.image)}</div>` : ''}
       ${q.table ? `<div class="question-content">${renderRichContent(q.table)}</div>` : ''}
+      ${clipNote(q.audio)}
       ${q.materials ? `<div style="margin-left: 20px; margin-top: 4px;"><strong>Materials:</strong> ${renderRichContent(q.materials)}</div>` : ''}
       ${q.timeLimit || q.time_limit ? `<div style="margin-left: 20px;"><strong>Time Limit:</strong> ${safeString(q.timeLimit || q.time_limit)}</div>` : ''}
     </div>
@@ -699,12 +715,14 @@ function generateStudentCopy(
   <div class="section">
     <h3>SECTION ${String.fromCharCode(68 + sectionIndex)}: ${safeString(section.name).toUpperCase()}</h3>
     ${section.instructions ? `<div class="section-instruction">${renderRichContent(section.instructions)}</div>` : ''}
+    ${clipNote(section.audio)}
     ${section.questions && section.questions.length ? section.questions.map((q: any, qIndex: number) => `
     <div class="question">
       <strong>${qIndex + 1}.</strong>
       <span class="question-content">${renderRichContent(q.question || q.question_text)}</span>
       ${q.image ? `<div class="question-content">${renderRichContent(q.image)}</div>` : ''}
       ${q.table ? `<div class="question-content">${renderRichContent(q.table)}</div>` : ''}
+      ${clipNote(q.audio)}
     </div>
     `).join('') : ''}
   </div>
@@ -866,12 +884,14 @@ function generateTeacherCopy(
   <div class="section">
     <h3>SECTION A: OBJECTIVE QUESTIONS - ANSWER KEY</h3>
     ${exam.objective_instructions ? `<div class="section-instruction">${renderRichContent(exam.objective_instructions)}</div>` : ''}
+    ${clipNote(exam.section_audio?.objective)}
     ${exam.objective_questions.map((q: any, index: number) => `
     <div class="question">
       <strong>${index + 1}.</strong>
       <span class="question-content">${renderRichContent(q.question || q.question_text)}</span>
       ${q.image ? `<div class="question-content">${renderRichContent(q.image)}</div>` : ''}
       ${q.table ? `<div class="question-content">${renderRichContent(q.table)}</div>` : ''}
+      ${clipNote(q.audio)}
       ${answerTypeOf(q) === 'numeric' ? '' : `<div class="options">
         ${q.optionA || q.option_a ? `<div><span class="label">A)</span> ${renderRichContent(q.optionA || q.option_a)}</div>` : ''}
         ${q.optionB || q.option_b ? `<div><span class="label">B)</span> ${renderRichContent(q.optionB || q.option_b)}</div>` : ''}
@@ -890,12 +910,14 @@ function generateTeacherCopy(
   <div class="section">
     <h3>SECTION B: THEORY QUESTIONS - MARKING GUIDE</h3>
     ${exam.theory_instructions ? `<div class="section-instruction">${renderRichContent(exam.theory_instructions)}</div>` : ''}
+    ${clipNote(exam.section_audio?.theory)}
     ${exam.theory_questions.map((q: any, index: number) => `
     <div class="question">
       <strong>${index + 1}.</strong>
       <span class="question-content">${renderRichContent(q.question || q.question_text)}</span>
       ${q.image ? `<div class="question-content">${renderRichContent(q.image)}</div>` : ''}
       ${q.table ? `<div class="question-content">${renderRichContent(q.table)}</div>` : ''}
+      ${clipNote(q.audio)}
       ${q.expectedPoints || q.expected_points ? `<div class="expected-points"><strong>Expected Points:</strong> ${renderRichContent(q.expectedPoints || q.expected_points)}</div>` : ''}
       ${q.wordLimit || q.word_limit ? `<div class="section-instruction"><strong>Word Limit:</strong> ${safeString(q.wordLimit || q.word_limit)} words</div>` : ''}
       <div class="expected-points"><strong>Marks:</strong> ${safeString(q.marks || 1)}</div>
@@ -944,6 +966,7 @@ function generateTeacherCopy(
       <span class="question-content">${renderRichContent(q.task || q.question || q.question_text)}</span>
       ${q.image ? `<div class="question-content">${renderRichContent(q.image)}</div>` : ''}
       ${q.table ? `<div class="question-content">${renderRichContent(q.table)}</div>` : ''}
+      ${clipNote(q.audio)}
       ${q.materials ? `<div class="section-instruction"><strong>Materials:</strong> ${renderRichContent(q.materials)}</div>` : ''}
       ${q.expectedOutcome || q.expected_outcome ? `<div class="expected-points"><strong>Expected Outcome:</strong> ${renderRichContent(q.expectedOutcome || q.expected_outcome)}</div>` : ''}
       ${q.timeLimit || q.time_limit ? `<div class="section-instruction"><strong>Time Limit:</strong> ${safeString(q.timeLimit || q.time_limit)}</div>` : ''}
@@ -957,12 +980,14 @@ function generateTeacherCopy(
   <div class="section">
     <h3>SECTION ${String.fromCharCode(68 + sectionIndex)}: ${safeString(section.name).toUpperCase()} - MARKING GUIDE</h3>
     ${section.instructions ? `<div class="section-instruction">${renderRichContent(section.instructions)}</div>` : ''}
+    ${clipNote(section.audio)}
     ${section.questions && section.questions.length ? section.questions.map((q: any, qIndex: number) => `
     <div class="question">
       <strong>${qIndex + 1}.</strong>
       <span class="question-content">${renderRichContent(q.question || q.question_text)}</span>
       ${q.image ? `<div class="question-content">${renderRichContent(q.image)}</div>` : ''}
       ${q.table ? `<div class="question-content">${renderRichContent(q.table)}</div>` : ''}
+      ${clipNote(q.audio)}
       ${q.wordLimit || q.word_limit ? `<div class="section-instruction"><strong>Word Limit:</strong> ${safeString(q.wordLimit || q.word_limit)} words</div>` : ''}
       <div class="expected-points"><strong>Marks:</strong> ${safeString(q.marks || 1)}</div>
     </div>

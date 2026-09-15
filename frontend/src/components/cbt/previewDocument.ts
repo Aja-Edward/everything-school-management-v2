@@ -1,5 +1,6 @@
 import { CBTStudentPart, CBTStudentPaper, CBTStudentQuestion } from '@/services/CBTService';
 import { mathProblemsInHtml, renderMathInHtml } from '@/utils/math';
+import { SoundClip, describePlays } from '@/services/SoundClipService';
 
 /**
  * A standalone HTML page showing a CBT paper as a student gets it, for a
@@ -37,6 +38,15 @@ const renderParts = (parts: CBTStudentPart[] | undefined, depth = 0): string => 
     </li>`).join('')}</ol>`;
 };
 
+/** A sound clip with the browser's own player: a sandboxed page runs no scripts, but plays media. */
+const renderClip = (clip: SoundClip | undefined, heading: string): string => {
+  if (!clip?.url) return '';
+  const plays = clip.plays ? `students may play it ${describePlays(clip.plays)}` : 'students may play it as often as they like';
+  return `<div class="clip"><div class="clip-head">${escape(heading)}${clip.title ? `: ${escape(clip.title)}` : ''}
+    <span class="clip-plays">(${plays})</span></div>
+    <audio controls preload="none" src="${escape(clip.url)}"></audio></div>`;
+};
+
 const renderQuestion = (question: CBTStudentQuestion): string => {
   const image = question.image_url ? `<img src="${escape(question.image_url)}" alt="" />` : '';
   const options = () => `<ul class="options${question.kind === 'true_false' ? ' two' : ''}">${(question.options ?? []).map((option, i) => `
@@ -54,6 +64,7 @@ const renderQuestion = (question: CBTStudentQuestion): string => {
     <article class="question">
       <header><span class="number">Question ${question.number}</span>${marks(question.marks)}</header>
       <div class="content">${renderMathInHtml(question.content)}</div>
+      ${renderClip(question.audio, 'Listen to this question')}
       ${image}
       ${body}
     </article>`;
@@ -95,6 +106,7 @@ export const buildPreviewDocument = (paper: CBTStudentPaper): string => {
       <section>
         <h2>${escape(section.title)}</h2>
         ${section.instructions ? `<p class="instructions">${escape(section.instructions)}</p>` : ''}
+        ${renderClip(section.audio, 'Sound clip for this section')}
         ${questions.map(renderQuestion).join('')}
       </section>`;
   }).join('');
@@ -128,6 +140,10 @@ export const buildPreviewDocument = (paper: CBTStudentPaper): string => {
   .answer-box .unit { color: #334155; font-weight: 600; margin-left: 6px; }
   .option-letter.square { border-radius: 5px; }
   .options.two { grid-template-columns: 1fr 1fr; }
+  .clip { margin: 10px 0; padding: 8px 12px; border: 1px solid #c7d2fe; border-radius: 8px; background: #eef2ff; }
+  .clip-head { font-size: 13px; font-weight: 600; color: #3730a3; margin-bottom: 6px; }
+  .clip-plays { font-weight: 400; color: #475569; }
+  .clip audio { width: 100%; height: 32px; }
   .choose-all { margin: 10px 0 0; font-size: 13px; font-weight: 600; color: #4338ca; }
 </style></head>
 <body>

@@ -14,6 +14,8 @@ import QuestionSectionObjectives from './QuestionSectionObjectives';
 import QuestionSectionTheory from './QuestionSectionTheory';
 import QuestionSectionPractical from './QuestionSectionPractical';
 import QuestionSectionCustom from './QuestionSectionCustom';
+import { SoundClipField } from '@/components/shared/ExamEditor';
+import type { SoundClip } from '@/services/SoundClipService';
 import ClassroomService from '@/services/ClassroomService';
 import { loadDefaultPrintSettings, saveDefaultPrintSettings } from '@/utils/printSettingsDefaults';
 
@@ -235,6 +237,12 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
   // Section instructions
   const [objInstructions,  setObjInstructions]  = useState('Answer ALL questions. Each question carries equal marks.');
   const [theoInstructions, setTheoInstructions] = useState('Answer any FIVE questions. All questions carry equal marks.');
+  const [sectionAudio, setSectionAudio] = useState<Record<string, SoundClip>>({});
+  const setSectionClip = (section: string, clip: SoundClip | undefined) => setSectionAudio((current) => {
+    const next = { ...current };
+    if (clip) next[section] = clip; else delete next[section];
+    return next;
+  });
   const [practInstructions,setPractInstructions]= useState('Complete ALL practical tasks as instructed.');
 
   // Questions
@@ -366,6 +374,7 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
       setTheoryQs(exam.theory_questions || []);
       setPracticalQs(exam.practical_questions || []);
       setCustomSecs(exam.custom_sections || []);
+      setSectionAudio(exam.section_audio || {});
       setPrintSettings({
         ...DEFAULT_PRINT_SETTINGS,
         ...(loadDefaultPrintSettings() ?? {}),
@@ -380,7 +389,7 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
       setStartTime(''); setEndTime(''); setTotalMarks(100); setPassMarks('');
       setVenue(''); setInstructions(''); setMaterialsAllowed('');
       setStatus('draft'); setIsPractical(false); setRequiresComputer(false); setIsOnline(false);
-      setObjectiveQs([]); setTheoryQs([]); setPracticalQs([]); setCustomSecs([]);
+      setObjectiveQs([]); setTheoryQs([]); setPracticalQs([]); setCustomSecs([]); setSectionAudio({});
       setPrintSettings({ ...DEFAULT_PRINT_SETTINGS, ...(loadDefaultPrintSettings() ?? {}) });
     }
     setActiveTab('details');
@@ -450,6 +459,7 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
         objective_instructions: objInstructions,
         theory_instructions: theoInstructions,
         practical_instructions: practInstructions,
+        section_audio: sectionAudio,
         print_settings: printSettings,
       };
       onSubmit(data);
@@ -753,6 +763,7 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
                       rows={2} className="w-full border border-blue-200 rounded-lg px-3 py-2 text-sm resize-none bg-white"
                     />
                   </Field>
+                  <SoundClipField value={sectionAudio.objective} onChange={clip => setSectionClip('objective', clip)} forWhat="Section A" />
                 </div>
                 <QuestionSectionObjectives value={objectiveQs} onChange={setObjectiveQs} />
               </div>
@@ -768,6 +779,7 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
                       rows={2} className="w-full border border-green-200 rounded-lg px-3 py-2 text-sm resize-none bg-white"
                     />
                   </Field>
+                  <SoundClipField value={sectionAudio.theory} onChange={clip => setSectionClip('theory', clip)} forWhat="Section B" />
                 </div>
                 <QuestionSectionTheory value={theoryQs} onChange={setTheoryQs} />
               </div>

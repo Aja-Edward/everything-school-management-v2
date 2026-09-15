@@ -33,6 +33,10 @@ interface Props {
   /** The whole choice after a click: one key, "" for none, or every key ticked ("AC"). */
   onChoose: (selected: string) => void;
   onType: (text: string) => void;
+  /** The section's sound clip player, shown on every question in the section. */
+  sectionClip?: React.ReactNode;
+  /** The question's own sound clip player. */
+  questionClip?: React.ReactNode;
 }
 
 const marksLabel = (marks: string | number | undefined) => {
@@ -152,7 +156,7 @@ const NumberAnswer: React.FC<{
  * student's "A" may be another student's "C".
  */
 const QuestionView: React.FC<Props> = ({
-  question, total, answer, sectionTitle, sectionInstructions, fontSize, disabled, onChoose, onType,
+  question, total, answer, sectionTitle, sectionInstructions, fontSize, disabled, onChoose, onType, sectionClip, questionClip,
 }) => (
   <div style={{ fontSize }} className="text-slate-900 dark:text-slate-100">
     {sectionTitle && (
@@ -161,6 +165,7 @@ const QuestionView: React.FC<Props> = ({
         {sectionInstructions && <p className="mt-0.5 text-[0.85em] text-indigo-900 dark:text-indigo-200">{sectionInstructions}</p>}
       </div>
     )}
+    {sectionClip}
 
     <div className="mb-3 flex items-baseline justify-between gap-3 text-[0.85em] text-slate-500 dark:text-slate-400">
       <span className="font-semibold text-slate-700 dark:text-slate-200">Question {question.number} of {total}</span>
@@ -171,6 +176,7 @@ const QuestionView: React.FC<Props> = ({
     {question.image_url && (
       <img src={question.image_url} alt="" className="mt-3 max-h-80 max-w-full rounded border border-slate-200" />
     )}
+    {questionClip && <div className="mt-4">{questionClip}</div>}
 
     {isChoice(question) && (
       <ChoiceOptions question={question} selected={answer?.selected_option ?? ''} disabled={disabled} onChoose={onChoose} />
