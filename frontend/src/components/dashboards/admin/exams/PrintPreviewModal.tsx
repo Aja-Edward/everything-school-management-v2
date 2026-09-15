@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, Printer, Settings2, FileDown, ChevronDown, Check } from 'lucide-react';
 import { Exam, PrintSettings, DEFAULT_PRINT_SETTINGS, downloadExamPdf } from '@/services/ExamService';
 import { generateExamHtml } from '@/utils/examHtmlGenerator';
+import { withMathStyles } from '@/utils/mathStyles';
 import { useSettings } from '@/contexts/SettingsContext';
 import { normalizeExamDataForDisplay } from '@/utils/examDataNormalizer';
 import { loadDefaultPrintSettings, saveDefaultPrintSettings } from '@/utils/printSettingsDefaults';
@@ -46,7 +47,11 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
     if (!open || !exam) { setHtml(''); return; }
     const normalized = normalizeExamDataForDisplay(exam) ?? exam;
     const generated  = generateExamHtml(normalized as Exam, copyType, settings, printSettings);
-    setHtml(generated);
+    // Formulas need their stylesheet, with fonts embedded so the same HTML
+    // also renders in the server's PDF.
+    let current = true;
+    withMathStyles(generated).then((styled) => { if (current) setHtml(styled); });
+    return () => { current = false; };
   }, [open, exam, copyType, printSettings, settings]);
 
   // Inject HTML into iframe

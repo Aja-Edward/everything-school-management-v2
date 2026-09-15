@@ -34,6 +34,8 @@ import {
   Monitor
 } from 'lucide-react';
 import CBTPaperModal from '@/components/cbt/CBTPaperModal';
+import SafeHtml from '@/components/cbt/student/SafeHtml';
+import { renderMathInHtml } from '@/utils/math';
 
 interface TeacherExamData {
   id: number;
@@ -1012,17 +1014,17 @@ const handleDeleteExam = async (examId: number) => {
                               <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-sm font-semibold flex-shrink-0">
                                 {i + 1}
                               </span>
-                              <div dangerouslySetInnerHTML={{ __html: q.question }} />
+                              <div dangerouslySetInnerHTML={{ __html: renderMathInHtml(q.question) }} />
                             </div>
                             {q.imageUrl && (
                               <img src={q.imageUrl} alt={q.imageAlt || 'question image'} className="max-h-48 object-contain mb-3 rounded border border-slate-200 dark:border-slate-600" />
                             )}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              {q.optionA && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">A.</span> {q.optionA}</div>}
-                              {q.optionB && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">B.</span> {q.optionB}</div>}
-                              {q.optionC && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">C.</span> {q.optionC}</div>}
-                              {q.optionD && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">D.</span> {q.optionD}</div>}
-                              {q.optionE && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">E.</span> {q.optionE}</div>}
+                              {q.optionA && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">A.</span> <SafeHtml as="span" html={q.optionA} /></div>}
+                              {q.optionB && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">B.</span> <SafeHtml as="span" html={q.optionB} /></div>}
+                              {q.optionC && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">C.</span> <SafeHtml as="span" html={q.optionC} /></div>}
+                              {q.optionD && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">D.</span> <SafeHtml as="span" html={q.optionD} /></div>}
+                              {q.optionE && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">E.</span> <SafeHtml as="span" html={q.optionE} /></div>}
                             </div>
                             {q.correctAnswer && (
                               <div className="mt-2 text-xs text-green-600 dark:text-green-400 font-medium">
@@ -1053,7 +1055,7 @@ const handleDeleteExam = async (examId: number) => {
                               <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 text-sm font-semibold flex-shrink-0">
                                 {i + 1}
                               </span>
-                              <div dangerouslySetInnerHTML={{ __html: q.question }} />
+                              <div dangerouslySetInnerHTML={{ __html: renderMathInHtml(q.question) }} />
                             </div>
                             {q.imageUrl && (
                               <img src={q.imageUrl} alt={q.imageAlt || 'theory image'} className="max-h-48 object-contain mb-3 rounded border border-slate-200 dark:border-slate-600" />
@@ -1067,7 +1069,7 @@ const handleDeleteExam = async (examId: number) => {
                                   <div key={si}>
                                     <div className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 flex items-start gap-1">
                                       <span>{String.fromCharCode(97 + si)}.</span>
-                                      <div dangerouslySetInnerHTML={{ __html: sq.question }} />
+                                      <div dangerouslySetInnerHTML={{ __html: renderMathInHtml(sq.question) }} />
                                       <span className="ml-2 text-xs text-slate-500 flex-shrink-0">({sq.marks || 0} marks)</span>
                                     </div>
                                     {(sq.subSubQuestions || []).length > 0 && (
@@ -1075,7 +1077,7 @@ const handleDeleteExam = async (examId: number) => {
                                         {sq.subSubQuestions.map((ssq: any, ssi: number) => (
                                           <div key={ssi} className="text-sm text-slate-600 dark:text-slate-400 flex items-start gap-1">
                                             <span>{String.fromCharCode(105 + ssi)}.</span>
-                                            <div dangerouslySetInnerHTML={{ __html: ssq.question }} />
+                                            <div dangerouslySetInnerHTML={{ __html: renderMathInHtml(ssq.question) }} />
                                             <span className="ml-2 text-xs text-slate-500 flex-shrink-0">({ssq.marks || 0} marks)</span>
                                           </div>
                                         ))}
@@ -1109,7 +1111,7 @@ const handleDeleteExam = async (examId: number) => {
                               <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 text-sm font-semibold flex-shrink-0">
                                 {i + 1}
                               </span>
-                              <div dangerouslySetInnerHTML={{ __html: q.question || q.task || '' }} />
+                              <div dangerouslySetInnerHTML={{ __html: renderMathInHtml(q.question || q.task || '') }} />
                             </div>
                             {q.expectedOutcome && (
                               <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 italic">
@@ -1147,7 +1149,7 @@ const handleDeleteExam = async (examId: number) => {
                                 <div key={q.id || qi} className="pl-4 border-l-2 border-purple-200 dark:border-purple-800">
                                   <div className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 flex items-start gap-1">
                                     <span className="flex-shrink-0">{qi + 1}.</span>
-                                    <div dangerouslySetInnerHTML={{ __html: q.question }} />
+                                    <div dangerouslySetInnerHTML={{ __html: renderMathInHtml(q.question) }} />
                                   </div>
                                   {q.imageUrl && (
                                     <img src={q.imageUrl} alt={q.imageAlt || 'custom image'} className="max-h-40 object-contain mb-2 rounded border border-slate-200 dark:border-slate-600" />

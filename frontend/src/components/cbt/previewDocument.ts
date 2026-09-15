@@ -1,4 +1,5 @@
 import { CBTStudentPart, CBTStudentPaper, CBTStudentQuestion } from '@/services/CBTService';
+import { mathProblemsInHtml, renderMathInHtml } from '@/utils/math';
 
 /**
  * A standalone HTML page showing a CBT paper as a student gets it, for a
@@ -8,6 +9,9 @@ import { CBTStudentPart, CBTStudentPaper, CBTStudentQuestion } from '@/services/
  * is inserted as-is. It is safe only because the iframe is sandboxed with no
  * permissions, so no script in it can run. Do not render this outside such an
  * iframe. Titles and labels are plain text and are escaped.
+ *
+ * Formulas are drawn here, since nothing can run in the iframe to draw them.
+ * Add the formula stylesheet with withMathStyles (utils/mathStyles).
  */
 
 const escape = (value: unknown): string =>
@@ -28,7 +32,7 @@ const renderParts = (parts: CBTStudentPart[] | undefined, depth = 0): string => 
   const label = (i: number) => (depth === 0 ? `(${String.fromCharCode(97 + i)})` : `(${['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii'][i] ?? i + 1})`);
   return `<ol class="parts">${parts.map((part, i) => `
     <li><span class="part-label">${label(i)}</span>
-      <div class="content">${part.question ?? ''} ${marks(part.marks)}</div>
+      <div class="content">${renderMathInHtml(part.question ?? '')} ${marks(part.marks)}</div>
       ${renderParts(part.parts, depth + 1)}
     </li>`).join('')}</ol>`;
 };
@@ -38,15 +42,43 @@ const renderQuestion = (question: CBTStudentQuestion): string => {
   const body = question.kind === 'objective'
     ? `<ul class="options">${(question.options ?? []).map((option, i) => `
         <li><span class="option-letter">${String.fromCharCode(65 + i)}</span>
-          <span class="content">${option.text}</span></li>`).join('')}</ul>`
+          <span class="content">${renderMathInHtml(option.text)}</span></li>`).join('')}</ul>`
     : `${renderParts(question.parts)}<div class="answer-box">Students type their answer here.</div>`;
   return `
     <article class="question">
       <header><span class="number">Question ${question.number}</span>${marks(question.marks)}</header>
-      <div class="content">${question.content}</div>
+      <div class="content">${renderMathInHtml(question.content)}</div>
       ${image}
       ${body}
     </article>`;
+};
+
+/**
+ * One sentence per formula in the paper that can't be drawn, which students
+ * would see as red TeX. These don't stop a paper being published: the server
+ * can't read TeX, and the teacher may still want the paper as it is.
+ */
+export const formulaProblems = (paper: CBTStudentPaper): string[] => {
+  const problems: string[] = [];
+  const collect = (where: string, html: string | undefined) => {
+    for (const { source, error } of mathProblemsInHtml(html)) {
+      problems.push(`${where}: ${source} can't be shown (${error}).`);
+    }
+  };
+  const collectParts = (name: string, parts: CBTStudentPart[] | undefined) => {
+    parts?.forEach((part, i) => {
+      const partName = `${name}, part ${i + 1}`;
+      collect(partName, part.question);
+      collectParts(partName, part.parts);
+    });
+  };
+  for (const question of paper.questions) {
+    const name = `Question ${question.number}`;
+    collect(name, question.content);
+    question.options?.forEach((option, i) => collect(`${name}, option ${String.fromCharCode(65 + i)}`, option.text));
+    collectParts(name, question.parts);
+  }
+  return problems;
 };
 
 export const buildPreviewDocument = (paper: CBTStudentPaper): string => {

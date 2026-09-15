@@ -8,6 +8,7 @@
  * - Image upload via Cloudinary
  * - Image editing: resize, crop, background removal (click any image to edit)
  * - Shapes and symbols
+ * - Maths and chemistry formulas (click one to change it)
  */
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
@@ -20,9 +21,12 @@ import TableRow from '@tiptap/extension-table-row';
 import TableHeader from '@tiptap/extension-table-header';
 import TableCell from '@tiptap/extension-table-cell';
 import Underline from '@tiptap/extension-underline';
+import { NodeSelection } from '@tiptap/pm/state';
 import { uploadImageToCloudinary } from './ImageUploader';
 import ImageEditModal from './ImageEditModal';
 import ShapePanel from './ShapePanel';
+import MathDialog from './MathDialog';
+import MathNode, { MATH_NODE, type MathEditRequest } from './MathNode';
 import type { RichTextEditorProps } from './types';
 
 // Shapes are now handled by ShapePanel.tsx (SVG-based, fully configurable)
@@ -105,11 +109,12 @@ interface MenuBarProps {
   enableTables?: boolean;
   simplified?: boolean;
   onImageUploaded: (url: string) => void;
+  onFormula: () => void;
 }
 
 const MenuBar: React.FC<MenuBarProps> = ({
   editor, enableImageUpload = true, enableTables = true,
-  simplified = false, onImageUploaded,
+  simplified = false, onImageUploaded, onFormula,
 }) => {
   const [showShapePanel, setShowShapePanel] = useState(false);
   const [uploading,      setUploading]      = useState(false);
@@ -184,6 +189,14 @@ const MenuBar: React.FC<MenuBarProps> = ({
             title="Horizontal Rule">― HR</button>
         </>
       )}
+
+      {div}
+
+      <button type="button" onClick={onFormula}
+        className="px-3 py-1 rounded text-sm font-medium bg-white text-gray-700 hover:bg-gray-200 transition"
+        title="Insert a maths or chemistry formula">
+        √x Formula
+      </button>
 
       {div}
 
@@ -346,6 +359,14 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   const [toolbarPos,  setToolbarPos]      = useState<{ top: number; left: number } | null>(null);
   const [editModalSrc, setEditModalSrc]  = useState<string | null>(null);
 
+  // ── Formula dialog state ────────────────────────────────────────────────────
+  // `pos` is set when changing a formula already in the document.
+  const [formula, setFormula] = useState<{ tex: string; display: boolean; pos?: number } | null>(null);
+  // The editor's extensions are built once, so the node reaches this
+  // component's state through a ref rather than a captured callback.
+  const onFormulaClick = useRef<(request: MathEditRequest) => void>(() => {});
+  onFormulaClick.current = (request) => setFormula(request);
+
   const editor = useEditor({
     extensions: [
       // StarterKit v3 includes Link and Underline by default.
@@ -364,6 +385,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
       TableRow.configure({ HTMLAttributes: { class: 'border border-gray-300' } }),
       TableHeader.configure({ HTMLAttributes: { class: 'border border-gray-300 bg-gray-100 px-4 py-2 text-left font-semibold' } }),
       TableCell.configure({ HTMLAttributes: { class: 'border border-gray-300 px-4 py-2' } }),
+      MathNode.configure({ onEdit: (request) => onFormulaClick.current(request) }),
     ],
     content: value,
     onUpdate: ({ editor }) => onChange(editor.getHTML()),
@@ -545,6 +567,52 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
     window.addEventListener('mouseup', onMouseUp);
   }, [selectedImg, commitImageAttrs, positionResizeHandle]);
 
+  // ── Formulas ────────────────────────────────────────────────────────────────
+  const openFormulaDialog = useCallback(() => {
+    if (!editor) return;
+    const { selection, doc } = editor.state;
+    if (selection instanceof NodeSelection && selection.node.type.name === MATH_NODE) {
+      const { tex, display } = selection.node.attrs;
+      setFormula({ tex, display, pos: selection.from });
+      return;
+    }
+    // Selected text such as "x^2" becomes the formula to start from.
+    setFormula({ tex: doc.textBetween(selection.from, selection.to, ' ').trim(), display: false });
+  }, [editor]);
+
+  /** The formula node at `pos`, or null if the document changed under the dialog. */
+  const formulaAt = useCallback((pos: number) => {
+    const node = editor?.state.doc.nodeAt(pos);
+    return node?.type.name === MATH_NODE ? node : null;
+  }, [editor]);
+
+  const handleFormulaSubmit = useCallback((tex: string, display: boolean) => {
+    if (!editor || !formula) return;
+    const { pos } = formula;
+    if (pos !== undefined && formulaAt(pos)) {
+      editor.chain().focus().command(({ tr }) => {
+        tr.setNodeMarkup(pos, undefined, { tex, display });
+        return true;
+      }).run();
+    } else {
+      editor.chain().focus().insertContent({ type: MATH_NODE, attrs: { tex, display } }).run();
+    }
+    setFormula(null);
+  }, [editor, formula, formulaAt]);
+
+  const handleFormulaRemove = useCallback(() => {
+    if (!editor || formula?.pos === undefined) return;
+    const { pos } = formula;
+    const node = formulaAt(pos);
+    if (node) {
+      editor.chain().focus().command(({ tr }) => {
+        tr.delete(pos, pos + node.nodeSize);
+        return true;
+      }).run();
+    }
+    setFormula(null);
+  }, [editor, formula, formulaAt]);
+
   const editorStyle: React.CSSProperties = {
     minHeight: `${minHeight}px`,
     ...(maxHeight ? { maxHeight: `${maxHeight}px`, overflowY: 'auto' } : {}),
@@ -563,6 +631,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
             enableTables={enableTables}
             simplified={simplified}
             onImageUploaded={() => {}}
+            onFormula={openFormulaDialog}
           />
         )}
 
@@ -620,6 +689,20 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
           src={editModalSrc}
           onSave={handleEditSave}
           onClose={() => setEditModalSrc(null)}
+        />
+      )}
+
+      {formula && (
+        <MathDialog
+          initialTex={formula.tex}
+          initialDisplay={formula.display}
+          editing={formula.pos !== undefined}
+          onSubmit={handleFormulaSubmit}
+          onRemove={handleFormulaRemove}
+          onClose={() => {
+            setFormula(null);
+            editor?.commands.focus();
+          }}
         />
       )}
     </>

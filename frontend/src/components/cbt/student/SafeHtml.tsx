@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import DOMPurify from 'dompurify';
+import { renderMathInHtml } from '@/utils/math';
 
 /**
  * Teacher-written HTML from the exam editor, cleaned before it reaches a
@@ -8,6 +9,9 @@ import DOMPurify from 'dompurify';
  * - form controls, which could pose as answer boxes;
  * - links, which would take a student out of their exam (their text is
  *   kept).
+ *
+ * Formulas are drawn after cleaning, so KaTeX's markup is not put through
+ * DOMPurify and the teacher's is.
  */
 const CONFIG = {
   FORBID_TAGS: ['a', 'form', 'input', 'button', 'textarea', 'select', 'option', 'style', 'link', 'meta'],
@@ -24,7 +28,7 @@ interface Props extends React.HTMLAttributes<HTMLElement> {
 }
 
 const SafeHtml: React.FC<Props> = ({ html, as = 'div', ...rest }) => {
-  const clean = useMemo(() => sanitizeHtml(html), [html]);
+  const clean = useMemo(() => renderMathInHtml(sanitizeHtml(html)), [html]);
   return React.createElement(as, { ...rest, dangerouslySetInnerHTML: { __html: clean } });
 };
 

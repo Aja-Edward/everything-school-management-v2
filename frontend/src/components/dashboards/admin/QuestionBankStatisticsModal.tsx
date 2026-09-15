@@ -3,6 +3,7 @@ import { X, BarChart3, PieChart, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { QuestionBankStatistics, QuestionBankService } from '@/services/QuestionBankService';
+import { renderMathInHtml } from '@/utils/math';
 
 interface QuestionBankStatisticsModalProps {
   statistics: QuestionBankStatistics;
@@ -14,7 +15,7 @@ const QuestionBankStatisticsModal: React.FC<QuestionBankStatisticsModalProps> = 
   onClose,
 }) => {
   const formatQuestionPreview = (question: any) => {
-    return QuestionBankService.formatQuestionPreview(question.question, 80);
+    return renderMathInHtml(QuestionBankService.formatQuestionPreview(question.question, 80));
   };
 
   return (

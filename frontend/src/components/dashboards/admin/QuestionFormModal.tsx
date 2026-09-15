@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { QuestionBankService, QuestionBank, QuestionBankCreateData } from '@/services/QuestionBankService';
-import { RichTextEditor } from '@/components/shared/ExamEditor';
+import { MathTextInput, RichTextEditor } from '@/components/shared/ExamEditor';
 import { toast } from 'react-hot-toast';
 
 interface QuestionFormModalProps {
@@ -168,11 +168,13 @@ const QuestionFormModal: React.FC<QuestionFormModalProps> = ({
               <div className="space-y-2">
                 {formData.options?.map((option, index) => (
                   <div key={index} className="flex gap-2">
-                    <Input
+                    <MathTextInput
+                      wrapperClassName="flex-1"
                       value={option}
-                      onChange={(e) => updateOption(index, e.target.value)}
+                      onChange={(value) => updateOption(index, value)}
                       placeholder={`Option ${String.fromCharCode(65 + index)}`}
                       required
+                      className="h-9 rounded-lg border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     {formData.options!.length > 2 && (
                       <Button

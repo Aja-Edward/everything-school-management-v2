@@ -26,6 +26,7 @@ import api from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { renderMathInHtml } from '@/utils/math';
 import { Badge } from '@/components/ui/badge';
 import QuestionFormModal from './QuestionFormModal';
 import ImportToExamModal from './ImportToExamModal';
@@ -515,7 +516,7 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
                 <div
                   className="text-sm text-gray-700 mb-2"
                   dangerouslySetInnerHTML={{
-                    __html: QuestionBankService.formatQuestionPreview(question.question, 200),
+                    __html: renderMathInHtml(QuestionBankService.formatQuestionPreview(question.question, 200)),
                   }}
                 />
 

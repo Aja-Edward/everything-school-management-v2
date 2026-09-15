@@ -7,7 +7,7 @@ import { ExamService, ExamCreateData } from '@/services/ExamService';
 import { toast } from 'react-toastify';
 import { X, XCircle, Plus, Trash2, Save, Clock, Clock3, CheckCircle, AlertCircle, Upload, FileDown } from 'lucide-react';
 import { generateExamWordTemplate, generateExamCsvTemplate } from '@/utils/examTemplateGenerator';
-import { RichTextEditor } from '@/components/shared/ExamEditor';
+import { MathTextInput, RichTextEditor } from '@/components/shared/ExamEditor';
 import {
   normalizeExamDataForSave,
   normalizeExamDataForEdit
@@ -1092,10 +1092,10 @@ const submitForApproval = async () => {
                                     enableTables={true}
                                   />
                                   <div className="grid grid-cols-2 gap-3">
-                                    <input type="text" value={question.optionA} onChange={(e) => updateObjectiveQuestion(index, 'optionA', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Option A" />
-                                    <input type="text" value={question.optionB} onChange={(e) => updateObjectiveQuestion(index, 'optionB', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Option B" />
-                                    <input type="text" value={question.optionC} onChange={(e) => updateObjectiveQuestion(index, 'optionC', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Option C" />
-                                    <input type="text" value={question.optionD} onChange={(e) => updateObjectiveQuestion(index, 'optionD', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Option D" />
+                                    <MathTextInput value={question.optionA} onChange={(value) => updateObjectiveQuestion(index, 'optionA', value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Option A" />
+                                    <MathTextInput value={question.optionB} onChange={(value) => updateObjectiveQuestion(index, 'optionB', value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Option B" />
+                                    <MathTextInput value={question.optionC} onChange={(value) => updateObjectiveQuestion(index, 'optionC', value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Option C" />
+                                    <MathTextInput value={question.optionD} onChange={(value) => updateObjectiveQuestion(index, 'optionD', value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Option D" />
                                   </div>
                                   <div className="grid grid-cols-2 gap-3">
                                     <select value={question.correctAnswer} onChange={(e) => updateObjectiveQuestion(index, 'correctAnswer', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white">

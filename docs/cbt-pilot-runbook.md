@@ -70,13 +70,18 @@ computers. Make a separate throwaway exam for it, not the pilot paper.
    - results released when staff release them.
 2. **Check** lists any problems by question number. Fix them in the exam
    editor.
-3. **Preview** shows the paper as students will see it.
+3. **Preview** shows the paper as students will see it. Before this, give one
+   question a formula with the editor's **√x Formula** button, and one option
+   a formula with its own **√x** button, e.g. `\dfrac{1}{2}` and
+   `\ce{H2SO4}`. Both are drawn in the preview. A formula that can't be drawn
+   is listed above the preview. Download the exam's PDF as well: the formulas
+   print there too.
 4. **Publish**. The exam list shows a "CBT published" badge.
 
 **Student A, computer 1**
 
 5. Go to Dashboard → CBT Exams. Start the paper with the access code. Answer a
-   few questions.
+   few questions. The formulas from step 3 are drawn, not shown as code.
 6. Reload the page. The answers are still there, and so is the clock.
 7. Turn off the Wi-Fi and answer two more. The page shows answers waiting.
    Turn the Wi-Fi back on: they save within a few seconds.

@@ -3,8 +3,9 @@ import {
   AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Clock, CloudOff, Flag, Loader2, Maximize, Minus, Plus,
 } from 'lucide-react';
 import StudentCBTService, {
-  CBTAttemptDetail, CBTAttemptState, CBTClientEvent, CBTClientEventKind, CBTRequestError,
+  CBTAttemptDetail, CBTAttemptState, CBTClientEvent, CBTClientEventKind, CBTPart, CBTRequestError,
 } from '@/services/StudentCBTService';
+import { hasMath, preloadMathFonts } from '@/utils/math';
 import QuestionView, { OPTION_LETTERS } from './QuestionView';
 import { forgetStoredAnswers, useAnswerQueue } from './useAnswerQueue';
 
@@ -63,6 +64,14 @@ const ExamScreen: React.FC<Props> = ({ detail, onEnded, onReplaced }) => {
   const [submitProblem, setSubmitProblem] = useState<string | null>(null);
   const eventsRef = useRef<CBTClientEvent[]>([]);
   const endedRef = useRef(false);
+
+  useEffect(() => {
+    const partsHaveMath = (parts?: CBTPart[]): boolean =>
+      !!parts?.some((part) => hasMath(part.question) || partsHaveMath(part.parts));
+    const paperHasMath = questions.some((q) =>
+      hasMath(q.content) || q.options?.some((o) => hasMath(o.text)) || partsHaveMath(q.parts));
+    if (paperHasMath) preloadMathFonts();
+  }, [questions]);
 
   const end = useCallback((state: CBTAttemptState | null) => {
     if (endedRef.current) return;

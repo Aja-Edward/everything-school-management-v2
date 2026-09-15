@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import TeacherDashboardService from '@/services/TeacherDashboardService';
 import { ExamService, ExamCreateData } from '@/services/ExamService';
+import { MathTextInput } from '@/components/shared/ExamEditor';
 import { toast } from 'react-toastify';
 import { X, XCircle, Plus, Trash2, Save, Clock, Clock3, CheckCircle, AlertCircle, BookOpen } from 'lucide-react';
 
@@ -546,40 +547,35 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
                           </div>
 
                           <div className="space-y-3">
-                            <input
-                              type="text"
+                            <MathTextInput
                               value={question.question}
-                              onChange={(e) => updateObjectiveQuestion(index, 'question', e.target.value)}
-                              className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
+                              onChange={(value) => updateObjectiveQuestion(index, 'question', value)}
+                              className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
                               placeholder="Enter question"
                             />
 
                             <div className="grid grid-cols-2 gap-3">
-                              <input
-                                type="text"
+                              <MathTextInput
                                 value={question.optionA}
-                                onChange={(e) => updateObjectiveQuestion(index, 'optionA', e.target.value)}
+                                onChange={(value) => updateObjectiveQuestion(index, 'optionA', value)}
                                 className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
                                 placeholder="Option A"
                               />
-                              <input
-                                type="text"
+                              <MathTextInput
                                 value={question.optionB}
-                                onChange={(e) => updateObjectiveQuestion(index, 'optionB', e.target.value)}
+                                onChange={(value) => updateObjectiveQuestion(index, 'optionB', value)}
                                 className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
                                 placeholder="Option B"
                               />
-                              <input
-                                type="text"
+                              <MathTextInput
                                 value={question.optionC}
-                                onChange={(e) => updateObjectiveQuestion(index, 'optionC', e.target.value)}
+                                onChange={(value) => updateObjectiveQuestion(index, 'optionC', value)}
                                 className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
                                 placeholder="Option C"
                               />
-                              <input
-                                type="text"
+                              <MathTextInput
                                 value={question.optionD}
-                                onChange={(e) => updateObjectiveQuestion(index, 'optionD', e.target.value)}
+                                onChange={(value) => updateObjectiveQuestion(index, 'optionD', value)}
                                 className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
                                 placeholder="Option D"
                               />

@@ -18,5 +18,6 @@
  */
 
 export { default as RichTextEditor } from './RichTextEditor';
+export { default as MathTextInput } from './MathTextInput';
 export { ImageUploader, uploadImageToCloudinary } from './ImageUploader';
 export * from './types';

@@ -21,6 +21,7 @@
 
 import { Exam, PrintSettings, DEFAULT_PRINT_SETTINGS } from "../services/ExamService";
 import { normalizeForPdfGeneration } from "./examDataNormalizer";
+import { renderMathInHtml } from "./math";
 
 // ===========================
 // HELPER FUNCTIONS
@@ -126,12 +127,14 @@ function renderRichContent(content: any): string {
 
   processedContent = applyTableColumnWidths(processedContent);
 
-  // HTML content from RichTextEditor is returned as-is
+  // HTML content from RichTextEditor is returned as-is, except that formulas
+  // are drawn. Their stylesheet is added to the whole document afterwards
+  // by withMathStyles (utils/mathStyles).
   // The CSS styles in the PDF template will handle all formatting:
   // - .question-content img { ... } styles images
   // - .question-content table { ... } styles tables
   // - Other HTML tags (p, strong, em, ul, ol, etc.) are styled by base CSS
-  return processedContent;
+  return renderMathInHtml(processedContent, 'print');
 }
 
 // ===========================

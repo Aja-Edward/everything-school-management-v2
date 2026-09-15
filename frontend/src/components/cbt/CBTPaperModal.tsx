@@ -9,7 +9,8 @@ import CBTService, {
   CBTStudentPaper,
   cbtProblems,
 } from '@/services/CBTService';
-import { buildPreviewDocument } from './previewDocument';
+import { withMathStyles } from '@/utils/mathStyles';
+import { buildPreviewDocument, formulaProblems } from './previewDocument';
 import BankDrawPanel from './BankDrawPanel';
 import MarkingPanel from './MarkingPanel';
 import AnalysisPanel from './AnalysisPanel';
@@ -70,13 +71,18 @@ const STATUS_BADGE: Record<string, string> = {
   closed: 'bg-amber-100 text-amber-800 border-amber-300',
 };
 
-const Problems: React.FC<{ title: string; problems: string[] }> = ({ title, problems }) => (
-  <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 dark:border-rose-800 dark:bg-rose-900/30">
-    <div className="flex items-center gap-2 text-sm font-semibold text-rose-800 dark:text-rose-200">
+const PROBLEM_TONES = {
+  error: ['border-rose-200 bg-rose-50 dark:border-rose-800 dark:bg-rose-900/30', 'text-rose-800 dark:text-rose-200', 'text-rose-700 dark:text-rose-300'],
+  warning: ['border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/30', 'text-amber-900 dark:text-amber-200', 'text-amber-800 dark:text-amber-300'],
+};
+
+const Problems: React.FC<{ title: string; problems: string[]; tone?: keyof typeof PROBLEM_TONES }> = ({ title, problems, tone = 'error' }) => (
+  <div className={`rounded-lg border p-3 ${PROBLEM_TONES[tone][0]}`}>
+    <div className={`flex items-center gap-2 text-sm font-semibold ${PROBLEM_TONES[tone][1]}`}>
       <AlertCircle className="h-4 w-4 flex-shrink-0" />
       {title}
     </div>
-    <ul className="mt-2 list-disc space-y-1 pl-6 text-sm text-rose-700 dark:text-rose-300">
+    <ul className={`mt-2 list-disc space-y-1 pl-6 text-sm ${PROBLEM_TONES[tone][2]}`}>
       {problems.map((problem) => <li key={problem}>{problem}</li>)}
     </ul>
   </div>
@@ -92,6 +98,19 @@ const CBTPaperModal: React.FC<Props> = ({ open, exam, onClose, onChanged }) => {
   const [problems, setProblems] = useState<{ title: string; items: string[] } | null>(null);
   const [check, setCheck] = useState<CBTCheck | null>(null);
   const [preview, setPreview] = useState<CBTStudentPaper | null>(null);
+  const [previewDocument, setPreviewDocument] = useState('');
+  const previewFormulaProblems = useMemo(() => (preview ? formulaProblems(preview) : []), [preview]);
+
+  useEffect(() => {
+    setPreviewDocument('');
+    if (!preview) return;
+    let current = true;
+    withMathStyles(buildPreviewDocument(preview)).then((html) => {
+      if (current) setPreviewDocument(html);
+    });
+    return () => { current = false; };
+  }, [preview]);
+
   const [tab, setTab] = useState<Tab>('settings');
 
   const started = (paper?.attempt_count ?? 0) > 0;
@@ -406,13 +425,26 @@ const CBTPaperModal: React.FC<Props> = ({ open, exam, onClose, onChanged }) => {
               {preview.problems.length > 0 && (
                 <Problems title="This paper can't be published yet" problems={preview.problems} />
               )}
+              {previewFormulaProblems.length > 0 && (
+                <Problems
+                  tone="warning"
+                  title="Students will see these formulas as code. Fix them in the exam's questions."
+                  problems={previewFormulaProblems}
+                />
+              )}
               {/* Sandboxed with no permissions: question HTML is shown, but nothing in it can run. */}
-              <iframe
-                title="Student preview"
-                sandbox=""
-                srcDoc={buildPreviewDocument(preview)}
-                className="h-[60vh] w-full rounded-lg border border-slate-200 bg-white dark:border-slate-700"
-              />
+              {previewDocument ? (
+                <iframe
+                  title="Student preview"
+                  sandbox=""
+                  srcDoc={previewDocument}
+                  className="h-[60vh] w-full rounded-lg border border-slate-200 bg-white dark:border-slate-700"
+                />
+              ) : (
+                <div className="flex h-[60vh] items-center justify-center rounded-lg border border-slate-200 text-sm text-slate-500 dark:border-slate-700">
+                  Loading preview…
+                </div>
+              )}
             </>
           )}
         </div>

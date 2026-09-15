@@ -119,6 +119,24 @@ class PublishTest(CBTTestCase):
 
         self.assertEqual(answers, ["C", "D", "D"])
 
+    def test_formulas_are_copied_as_written(self):
+        """
+        The exam editor stores a formula as TeX between \\( and \\), and the
+        student screen draws it from that text. A question or option that is
+        only a formula still has text, and an answer given as a formula's
+        text still finds its option.
+        """
+        content = '<p><span data-math="inline">\\(x^2 = 4\\)</span></p>'
+        exam = self.make_exam(objective_questions=[{
+            "question": content, "optionA": "\\(-2\\)", "optionB": "\\(2\\)", "optionC": "\\(\\pm 2\\)",
+            "optionD": "\\[\\sqrt{4}\\]", "correctAnswer": "\\(\\pm 2\\)", "marks": 1}])
+
+        question = self.make_paper(exam).questions.get()
+
+        self.assertEqual(question.content, content)
+        self.assertEqual([o["text"] for o in question.options], ["\\(-2\\)", "\\(2\\)", "\\(\\pm 2\\)", "\\[\\sqrt{4}\\]"])
+        self.assertEqual(question.correct_option, "C")
+
     def test_a_blank_option_keeps_the_letters_after_it(self):
         exam = self.make_exam(objective_questions=[objective(1, answer="D", optionC="<p></p>")])
 

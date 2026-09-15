@@ -1,4 +1,5 @@
 import api from './api';
+import { splitMath } from '@/utils/math';
 
 // Question Bank Types
 export interface QuestionBank {
@@ -364,9 +365,21 @@ export class QuestionBankService {
    */
   static formatQuestionPreview(html: string, maxLength: number = 100): string {
     const cleanText = html.replace(/<[^>]+>/g, '');
-    return cleanText.length > maxLength
-      ? `${cleanText.substring(0, maxLength)}...`
-      : cleanText;
+    if (cleanText.length <= maxLength) return cleanText;
+    // Cut between formulas, never inside one, so no formula is left
+    // half-written. A formula at the very start is kept whole.
+    let preview = '';
+    for (const segment of splitMath(cleanText)) {
+      const piece = segment.kind === 'text' ? segment.text : segment.source;
+      if (preview.length + piece.length <= maxLength) {
+        preview += piece;
+        continue;
+      }
+      if (segment.kind === 'text') preview += piece.substring(0, maxLength - preview.length);
+      else if (!preview) preview = piece;
+      break;
+    }
+    return `${preview}...`;
   }
 
   /**
