@@ -3,8 +3,9 @@ cbt/marking.py
 
 Marking CBT attempts and sending the scores to the school's results.
 
-Objective answers are marked as soon as an attempt ends. Typed answers are
-marked by teachers, one question at a time across every student. A blank
+Objective answers (choices and numbers, see cbt/scoring.py) are marked as soon
+as an attempt ends; the attempt's objective_score is their total. Typed answers
+are marked by teachers, one question at a time across every student. A blank
 typed answer scores 0 and needs no marking. An attempt's total is only set
 once everything in it is marked.
 
@@ -27,8 +28,10 @@ from django.utils import timezone
 
 from common.education_levels import canonical_level_type
 
+from . import scoring
 from .engine import Refused
 from .models import CBTAnswer, CBTAnswerKeyChange, CBTAttempt, CBTPaper, CBTQuestion
+from .snapshot import tolerance
 
 FINISHED = (CBTAttempt.Status.SUBMITTED, CBTAttempt.Status.TIMED_OUT)
 TWO_PLACES = Decimal("0.01")
@@ -53,14 +56,12 @@ def mark_attempt(attempt):
         if question is None:
             continue
         answer = answers.get(question_id)
-        if question.kind == CBTQuestion.Kind.OBJECTIVE:
-            correct = question.award_all or bool(
-                answer and answer.selected_option and answer.selected_option == question.correct_option)
-            if correct:
-                objective += question.marks
+        if question.is_auto_marked:
+            correct, earned = scoring.score(
+                question, answer.selected_option if answer else "", answer.text_answer if answer else "")
+            objective += earned
             if answer:
-                answer.is_correct = correct
-                answer.marks_awarded = question.marks if correct else Decimal(0)
+                answer.is_correct, answer.marks_awarded = correct, earned
                 changed.append(answer)
         elif answer and answer.text_answer.strip():
             if answer.marks_awarded is None:
@@ -81,24 +82,53 @@ def _finished_attempts_with(question):
                                      question_ids__contains=[question.id])
 
 
-def correct_answer_key(question, actor, correct_option="", award_all=False, reason=""):
-    """Change a published objective question's answer, or give everyone its marks, and re-mark."""
-    if question.kind != CBTQuestion.Kind.OBJECTIVE:
+def _new_key(question, correct_option, numeric_answer, margin):
+    """The fields a corrected key sets, checked. Refuses a key the question can't have."""
+    if question.kind == CBTQuestion.Kind.NUMERIC:
+        answer = str(numeric_answer if numeric_answer is not None else "").strip()
+        if scoring.parse_number(answer) is None:
+            raise Refused("Write the answer as a number.")
+        margin = tolerance(margin)
+        if margin is None:
+            raise Refused("The margin either side of the answer must be a number, 0 or more.")
+        return {"numeric_answer": answer, "tolerance": margin}
+
+    refusal = ("Tick every option that is right." if question.kind == CBTQuestion.Kind.MULTIPLE
+               else "Choose one of the question's options.")
+    try:
+        option = scoring.read_choice(question.kind, question.option_keys, correct_option)
+    except ValueError:
+        raise Refused(refusal)
+    if not option:
+        raise Refused(refusal)
+    return {"correct_option": option}
+
+
+def correct_answer_key(question, actor, correct_option="", award_all=False, reason="",
+                       numeric_answer=None, margin=None):
+    """
+    Change a published objective question's answer, or give everyone its marks, and re-mark.
+
+    A choice question takes `correct_option`: one key, or for choose all that
+    apply every right key ("A,C"). A numeric question takes `numeric_answer`
+    and `margin`, how far either side still counts.
+    """
+    if not question.is_auto_marked:
         raise Refused("Only objective questions have an answer key.")
-    option = (correct_option or "").strip().upper()
-    if not award_all and option not in question.option_keys:
-        raise Refused("Choose one of the question's options.")
+    award_all = bool(award_all)
+    fields = {} if award_all else _new_key(question, correct_option, numeric_answer, margin)
 
     with transaction.atomic():
         question = CBTQuestion.objects.select_for_update().get(pk=question.pk)
         change = CBTAnswerKeyChange(
             tenant=question.tenant, question=question, changed_by=actor, reason=(reason or "").strip()[:500],
-            previous_option=question.correct_option, previous_award_all=question.award_all,
-            new_option=question.correct_option if award_all else option, new_award_all=bool(award_all))
-        question.award_all = bool(award_all)
-        if not award_all:
-            question.correct_option = option
-        question.save(update_fields=["award_all", "correct_option"])
+            previous_option=scoring.describe_key(question), previous_award_all=question.award_all,
+            new_award_all=award_all)
+        question.award_all = award_all
+        for name, value in fields.items():
+            setattr(question, name, value)
+        question.save(update_fields=["award_all", *fields])
+        change.new_option = scoring.describe_key(question)
 
         attempts = list(_finished_attempts_with(question).select_for_update())
         for attempt in attempts:
@@ -172,6 +202,29 @@ def _name(user):
     return getattr(user, "full_name", "") or user.get_full_name() or user.username
 
 
+def _objective_overview(q, answers, given_to):
+    """One objective question's row: its key, and how students answered it."""
+    right = sum(1 for a in answers if scoring.score(q, a["selected_option"], a["text_answer"])[0])
+    item = {
+        "id": q.id, "order": q.order, "number": q.source_number, "kind": q.kind, "content": q.content,
+        "options": q.options, "correct_option": q.correct_option, "award_all": q.award_all,
+        "partial_credit": q.partial_credit, "numeric_answer": q.numeric_answer,
+        "tolerance": scoring.plain_number(q.tolerance), "unit": q.unit, "key": scoring.describe_key(q),
+        "marks": str(q.marks), "given_to": given_to,
+        "correct": given_to if q.award_all else right,
+    }
+    if q.kind == CBTQuestion.Kind.NUMERIC:
+        texts = [a["text_answer"] for a in answers]
+        item["answered"] = sum(1 for t in texts if t.strip())
+        item["option_counts"] = {}
+        item["common_answers"] = scoring.common_numbers(q, texts)
+    else:
+        # For choose all that apply, each key a student ticked counts once.
+        item["option_counts"] = dict(Counter(key for a in answers for key in a["selected_option"]))
+        item["answered"] = sum(1 for a in answers if a["selected_option"])
+    return item
+
+
 def overview(paper):
     """Marking progress, answer-key statistics, and where results go."""
     attempts = list(CBTAttempt.objects.filter(paper=paper, status__in=FINISHED))
@@ -188,15 +241,8 @@ def overview(paper):
     objective, text = [], []
     for q in questions:
         mine = by_question.get(q.id, [])
-        if q.kind == CBTQuestion.Kind.OBJECTIVE:
-            picks = Counter(a["selected_option"] for a in mine if a["selected_option"])
-            objective.append({
-                "id": q.id, "order": q.order, "number": q.source_number, "content": q.content,
-                "options": q.options, "correct_option": q.correct_option, "award_all": q.award_all,
-                "marks": str(q.marks), "given_to": served[q.id], "answered": sum(picks.values()),
-                "correct": q.award_all and served[q.id] or picks.get(q.correct_option, 0),
-                "option_counts": dict(picks),
-            })
+        if q.is_auto_marked:
+            objective.append(_objective_overview(q, mine, served[q.id]))
         else:
             written = [a for a in mine if a["text_answer"].strip()]
             text.append({

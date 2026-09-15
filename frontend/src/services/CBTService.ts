@@ -1,4 +1,7 @@
 import api from './api';
+import type { CBTQuestionKind } from './StudentCBTService';
+
+export type { CBTQuestionKind };
 
 export type CBTPaperStatus = 'draft' | 'published' | 'closed';
 export type CBTResultRelease = 'on_submit' | 'after_close' | 'manual';
@@ -67,11 +70,12 @@ export interface CBTStudentQuestion {
   id: number;
   number: number;
   section: string;
-  kind: 'objective' | 'text';
+  kind: CBTQuestionKind;
   content: string;
   image_url: string;
   marks: string;
   options?: { key: string; text: string }[];
+  unit?: string;
   parts?: CBTStudentPart[];
   table?: unknown;
 }
@@ -117,19 +121,37 @@ export interface CBTBankDraw {
   any_grade_level: boolean;
 }
 
+export interface CBTCommonAnswer {
+  answer: string;
+  students: number;
+  correct: boolean;
+}
+
 export interface CBTObjectiveMarking {
   id: number;
   order: number;
   number: number;
+  kind: Exclude<CBTQuestionKind, 'text'>;
   content: string;
   options: { key: string; text: string }[];
+  /** The right key, or every right key in order for choose all that apply: "AC". */
   correct_option: string;
   award_all: boolean;
+  partial_credit: boolean;
+  numeric_answer: string;
+  tolerance: string;
+  unit: string;
+  /** The key as staff read it: "B", "A, C", "12.5 ± 0.1 cm". */
+  key: string;
   marks: string;
   given_to: number;
   answered: number;
+  /** Fully right. */
   correct: number;
+  /** Each key ticked counts once. Empty for numeric questions. */
   option_counts: Record<string, number>;
+  /** Numeric questions: the answers given most often. */
+  common_answers?: CBTCommonAnswer[];
 }
 
 export interface CBTTextMarking {
@@ -206,11 +228,11 @@ export interface CBTAnalysisItem {
   order: number;
   number: number;
   section: string;
-  kind: 'objective' | 'text';
+  kind: CBTQuestionKind;
   content: string;
   marks: string;
   given_to: number;
-  /** Objective: share answering correctly. Typed: average share of the marks awarded. */
+  /** The average share of the marks awarded: for a question marked right or wrong, the share right. */
   facility: number | null;
   discrimination: number | null;
   point_biserial?: number | null;
@@ -221,6 +243,10 @@ export interface CBTAnalysisItem {
   options?: { key: string; text: string }[];
   correct_option?: string;
   award_all?: boolean;
+  partial_credit?: boolean;
+  key?: string;
+  unit?: string;
+  common_answers?: CBTCommonAnswer[];
   option_counts?: Record<string, number>;
   top_group_counts?: Record<string, number>;
   bottom_group_counts?: Record<string, number>;
@@ -326,7 +352,13 @@ export const CBTService = {
     return api.post(`${PAPERS}${paperId}/marking/marks/`, { marks });
   },
 
-  correctAnswerKey(paperId: number, questionId: number, change: { correct_option?: string; award_all?: boolean; reason: string }): Promise<{ remarked_attempts: number; marking: CBTMarkingOverview }> {
+  /**
+   * Correct a published question's key and re-mark everyone. A choice question takes correct_option (for choose
+   * all that apply, every right key: "A,C"); a numeric one takes numeric_answer and tolerance.
+   */
+  correctAnswerKey(paperId: number, questionId: number, change: {
+    correct_option?: string; numeric_answer?: string; tolerance?: string; award_all?: boolean; reason: string;
+  }): Promise<{ remarked_attempts: number; marking: CBTMarkingOverview }> {
     return api.post(`${PAPERS}${paperId}/questions/${questionId}/answer-key/`, change);
   },
 

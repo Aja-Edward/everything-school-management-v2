@@ -5,6 +5,7 @@ import CBTService, {
   CBTMarkingOverview, CBTObjectiveMarking, CBTPaper, CBTPushResults, CBTQuestionToMark, CBTResultTargets, cbtProblems,
 } from '@/services/CBTService';
 import SafeHtml from './student/SafeHtml';
+import { toggleKey } from './student/QuestionView';
 
 interface Props {
   paper: CBTPaper;
@@ -121,21 +122,40 @@ const TextMarking: React.FC<{ paperId: number; questionId: number; onBack: () =>
   );
 };
 
+const KIND_LABELS: Record<CBTObjectiveMarking['kind'], string> = {
+  objective: 'Choose one',
+  true_false: 'True or false',
+  multiple: 'Choose all that apply',
+  numeric: 'Number',
+};
+
+const plain = (html: string) => html.replace(/<[^>]*>/g, '').trim();
+
 /** Correcting one objective question's answer, from its row in the overview. */
 const AnswerKeyRow: React.FC<{ paperId: number; question: CBTObjectiveMarking; onChanged: (o: CBTMarkingOverview) => void }> = ({
   paperId, question, onChanged,
 }) => {
   const [editing, setEditing] = useState(false);
+  const [awardAll, setAwardAll] = useState(question.award_all);
   const [choice, setChoice] = useState(question.correct_option);
+  const [number, setNumber] = useState(question.numeric_answer);
+  const [margin, setMargin] = useState(question.tolerance === '0' ? '' : question.tolerance);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const percent = question.given_to ? Math.round((100 * question.correct) / question.given_to) : 0;
+  const multiple = question.kind === 'multiple';
+  const optionName = (option: { key: string; text: string }) =>
+    question.kind === 'true_false' ? option.text : option.key;
 
   const apply = async () => {
     setBusy(true);
     try {
-      const result = await CBTService.correctAnswerKey(paperId, question.id,
-        choice === '*' ? { award_all: true, reason } : { correct_option: choice, reason });
+      const change = awardAll
+        ? { award_all: true, reason }
+        : question.kind === 'numeric'
+          ? { numeric_answer: number, tolerance: margin.trim() || '0', reason }
+          : { correct_option: multiple ? choice.split('').join(',') : choice, reason };
+      const result = await CBTService.correctAnswerKey(paperId, question.id, change);
       toast.success(`Re-marked ${result.remarked_attempts} attempt${result.remarked_attempts === 1 ? '' : 's'}`);
       setEditing(false);
       onChanged(result.marking);
@@ -152,13 +172,28 @@ const AnswerKeyRow: React.FC<{ paperId: number; question: CBTObjectiveMarking; o
         <span className="w-8 text-sm font-semibold text-slate-500">Q{question.number}</span>
         <div className="min-w-0 flex-1">
           <SafeHtml html={question.content} className="cbt-content line-clamp-2 text-sm text-slate-800 dark:text-slate-100" />
-          <div className="mt-1.5 flex flex-wrap gap-1.5 text-xs">
-            {question.options.map((option) => {
-              const correct = question.award_all || option.key === question.correct_option;
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+            {question.kind !== 'objective' && (
+              <span className="rounded border border-slate-300 px-1.5 py-0.5 text-slate-600 dark:border-slate-600 dark:text-slate-300">
+                {KIND_LABELS[question.kind]}{multiple && question.partial_credit ? ', part marks' : ''}
+              </span>
+            )}
+            {question.kind === 'numeric' ? (
+              <>
+                <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-semibold text-emerald-800">Answer: {question.key}</span>
+                {(question.common_answers ?? []).map((common) => (
+                  <span key={common.answer} title={`${common.students} student${common.students === 1 ? '' : 's'} answered ${common.answer}`}
+                    className={`rounded px-1.5 py-0.5 ${common.correct ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}>
+                    {common.answer} &times; {common.students}
+                  </span>
+                ))}
+              </>
+            ) : question.options.map((option) => {
+              const correct = question.award_all || question.correct_option.includes(option.key);
               return (
-                <span key={option.key} title={option.text}
+                <span key={option.key} title={plain(option.text)}
                   className={`rounded px-1.5 py-0.5 ${correct ? 'bg-emerald-100 font-semibold text-emerald-800' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}>
-                  {option.key}: {question.option_counts[option.key] ?? 0}
+                  {optionName(option)}: {question.option_counts[option.key] ?? 0}
                 </span>
               );
             })}
@@ -166,17 +201,52 @@ const AnswerKeyRow: React.FC<{ paperId: number; question: CBTObjectiveMarking; o
           </div>
         </div>
         <span className={`w-14 text-right text-sm font-semibold ${percent < 30 ? 'text-rose-700' : 'text-slate-700 dark:text-slate-200'}`}
-          title={`${question.correct} of ${question.given_to} correct`}>{percent}%</span>
+          title={`${question.correct} of ${question.given_to} fully right`}>{percent}%</span>
         <button type="button" onClick={() => setEditing((e) => !e)} className={button}>Change answer</button>
       </div>
       {editing && (
-        <div className="ml-11 mt-3 flex flex-wrap items-end gap-2 rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
-          <label className="text-sm">
-            <span className="block text-xs text-slate-500">Correct answer</span>
-            <select value={choice} onChange={(e) => setChoice(e.target.value)} className={input}>
-              {question.options.map((o) => <option key={o.key} value={o.key}>{o.key}: {o.text.replace(/<[^>]*>/g, '').slice(0, 40)}</option>)}
-              <option value="*">Give everyone the marks</option>
-            </select>
+        <div className="ml-11 mt-3 flex flex-wrap items-end gap-3 rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
+          {!awardAll && (question.kind === 'objective' || question.kind === 'true_false') && (
+            <label className="text-sm">
+              <span className="block text-xs text-slate-500">Correct answer</span>
+              <select value={choice} onChange={(e) => setChoice(e.target.value)} className={input}>
+                {question.options.map((o) => (
+                  <option key={o.key} value={o.key}>
+                    {question.kind === 'true_false' ? o.text : `${o.key}: ${plain(o.text).slice(0, 40)}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {!awardAll && multiple && (
+            <fieldset className="text-sm">
+              <legend className="text-xs text-slate-500">Correct answers</legend>
+              <div className="mt-1 flex flex-wrap gap-3">
+                {question.options.map((o) => (
+                  <label key={o.key} className="flex items-center gap-1" title={plain(o.text)}>
+                    <input type="checkbox" checked={choice.includes(o.key)}
+                      onChange={() => setChoice(toggleKey(choice, o.key))} />
+                    {o.key}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          )}
+          {!awardAll && question.kind === 'numeric' && (
+            <>
+              <label className="text-sm">
+                <span className="block text-xs text-slate-500">Correct answer{question.unit ? ` (${question.unit})` : ''}</span>
+                <input value={number} onChange={(e) => setNumber(e.target.value)} inputMode="decimal" maxLength={50} className={`${input} w-28`} />
+              </label>
+              <label className="text-sm">
+                <span className="block text-xs text-slate-500">Allowed either side</span>
+                <input value={margin} onChange={(e) => setMargin(e.target.value)} inputMode="decimal" placeholder="0" className={`${input} w-24`} />
+              </label>
+            </>
+          )}
+          <label className="flex items-center gap-1.5 self-center text-sm">
+            <input type="checkbox" checked={awardAll} onChange={(e) => setAwardAll(e.target.checked)} />
+            Give everyone the marks
           </label>
           <label className="min-w-[12rem] flex-1 text-sm">
             <span className="block text-xs text-slate-500">Reason (kept in the record)</span>
@@ -285,8 +355,9 @@ const MarkingPanel: React.FC<Props> = ({ paper, onPaperChanged }) => {
         <section className={card}>
           <h3 className="text-base font-semibold text-slate-900 dark:text-white">Objective questions</h3>
           <p className="text-sm text-slate-500">
-            Marked automatically. The counts show how many students chose each option. A question most students got wrong
-            may have the wrong answer key: correcting it re-marks everyone.
+            Marked automatically. The counts show how many students chose each option, or for a number question the
+            answers given most often. A question most students got wrong may have the wrong answer key: correcting it
+            re-marks everyone.
           </p>
           <ul className="mt-2">
             {overview.objective.map((q) => <AnswerKeyRow key={q.id} paperId={paper.id} question={q} onChanged={setOverview} />)}

@@ -1,7 +1,10 @@
 import api from './api';
 import { splitMath } from '@/utils/math';
+import { parseKeys, parseNumber } from '@/utils/objectiveQuestions';
 
 // Question Bank Types
+export type BankAnswerType = 'single' | 'multiple' | 'true_false' | 'numeric';
+
 export interface QuestionBank {
   id: number;
   created_by: number;
@@ -12,6 +15,11 @@ export interface QuestionBank {
   question_preview?: string; // For list view
   options: string[]; // For objective questions
   correct_answer: string; // For objective questions
+  /** How an objective question is answered; see utils/objectiveQuestions. */
+  answer_type?: BankAnswerType;
+  partial_credit?: boolean;
+  tolerance?: string | number;
+  unit?: string;
   expected_answer?: string; // For theory/practical
   marking_scheme?: string; // Detailed marking guide
   marks: number;
@@ -38,6 +46,10 @@ export interface QuestionBankCreateData {
   question: string;
   options?: string[];
   correct_answer?: string;
+  answer_type?: BankAnswerType;
+  partial_credit?: boolean;
+  tolerance?: string | number;
+  unit?: string;
   expected_answer?: string;
   marking_scheme?: string;
   marks: number;
@@ -57,6 +69,10 @@ export interface QuestionBankUpdateData {
   question?: string;
   options?: string[];
   correct_answer?: string;
+  answer_type?: BankAnswerType;
+  partial_credit?: boolean;
+  tolerance?: string | number;
+  unit?: string;
   expected_answer?: string;
   marking_scheme?: string;
   marks?: number;
@@ -346,11 +362,26 @@ export class QuestionBankService {
     }
 
     if (data.question_type === 'objective') {
-      if (!data.options || data.options.length < 2) {
-        errors.push('Objective questions must have at least 2 options');
-      }
-      if (!data.correct_answer || data.correct_answer.trim().length === 0) {
-        errors.push('Objective questions must have a correct answer');
+      const answer = (data.correct_answer ?? '').trim();
+      const type = data.answer_type ?? 'single';
+      if (type === 'true_false') {
+        if (!['True', 'False'].includes(answer)) errors.push('Choose True or False');
+      } else if (type === 'numeric') {
+        if (parseNumber(answer) === null) errors.push('Write the answer as a number, such as 12.5 or 3/4');
+        const margin = String(data.tolerance ?? '').trim();
+        if (margin && !/^\+?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(margin)) {
+          errors.push('The margin either side must be a number, 0 or more');
+        }
+      } else {
+        if (!data.options || data.options.length < 2) {
+          errors.push('Objective questions must have at least 2 options');
+        }
+        if (!answer) {
+          errors.push('Objective questions must have a correct answer');
+        } else if (type === 'multiple') {
+          const letters = (data.options ?? []).map((_, i) => String.fromCharCode(65 + i));
+          if (parseKeys(answer).some((key) => !letters.includes(key))) errors.push('Tick every option that is right');
+        }
       }
     }
 

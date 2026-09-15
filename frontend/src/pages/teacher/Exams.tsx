@@ -36,6 +36,7 @@ import {
 import CBTPaperModal from '@/components/cbt/CBTPaperModal';
 import SafeHtml from '@/components/cbt/student/SafeHtml';
 import { renderMathInHtml } from '@/utils/math';
+import { ANSWER_TYPES, answerTypeOf, describeAnswer } from '@/utils/objectiveQuestions';
 
 interface TeacherExamData {
   id: number;
@@ -1019,16 +1020,22 @@ const handleDeleteExam = async (examId: number) => {
                             {q.imageUrl && (
                               <img src={q.imageUrl} alt={q.imageAlt || 'question image'} className="max-h-48 object-contain mb-3 rounded border border-slate-200 dark:border-slate-600" />
                             )}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {answerTypeOf(q) !== 'numeric' && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                               {q.optionA && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">A.</span> <SafeHtml as="span" html={q.optionA} /></div>}
                               {q.optionB && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">B.</span> <SafeHtml as="span" html={q.optionB} /></div>}
                               {q.optionC && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">C.</span> <SafeHtml as="span" html={q.optionC} /></div>}
                               {q.optionD && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">D.</span> <SafeHtml as="span" html={q.optionD} /></div>}
                               {q.optionE && <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded text-sm"><span className="font-semibold text-slate-600 dark:text-slate-400">E.</span> <SafeHtml as="span" html={q.optionE} /></div>}
-                            </div>
-                            {q.correctAnswer && (
+                            </div>}
+                            {answerTypeOf(q) !== 'single' && (
+                              <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                {ANSWER_TYPES.find((type) => type.value === answerTypeOf(q))?.label}
+                                {answerTypeOf(q) === 'multiple' && q.partialCredit ? ', part marks given' : ''}
+                              </div>
+                            )}
+                            {describeAnswer(q) && (
                               <div className="mt-2 text-xs text-green-600 dark:text-green-400 font-medium">
-                                Correct: {q.correctAnswer}
+                                Correct: {describeAnswer(q)}
                               </div>
                             )}
                             <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-200 dark:border-slate-600">

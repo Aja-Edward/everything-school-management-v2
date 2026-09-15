@@ -113,6 +113,7 @@ def _as_exam_question(question, number):
         for letter, text in zip(LETTERS, question.options or []):
             fields[f"option{letter}"] = text
         fields["correctAnswer"] = question.correct_answer
+        fields.update(question.answer_type_fields())
     else:
         fields["expectedPoints"] = question.expected_points or question.answer_guideline
     return fields

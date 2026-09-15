@@ -55,6 +55,11 @@ export interface ObjectiveQuestion {
   optionD: string;
   correctAnswer: string;
   marks: number;
+  /** How it is answered; see utils/objectiveQuestions. Missing for choose one. */
+  questionType?: string;
+  partialCredit?: boolean;
+  tolerance?: string | number;
+  unit?: string;
   imageUrl?: string; // Deprecated - use embedded images in question HTML
   imageAlt?: string; // Deprecated
 }

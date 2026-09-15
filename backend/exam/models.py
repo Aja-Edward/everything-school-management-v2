@@ -728,6 +728,13 @@ QUESTION_TYPE_CHOICES = [
     ("practical", "Practical"),
 ]
 
+ANSWER_TYPE_CHOICES = [
+    ("single", "Choose one"),
+    ("multiple", "Choose all that apply"),
+    ("true_false", "True or false"),
+    ("numeric", "Number"),
+]
+
 
 class QuestionBank(TenantMixin, models.Model):
     """
@@ -758,6 +765,14 @@ class QuestionBank(TenantMixin, models.Model):
         help_text="List of options for objective questions"
     )
     correct_answer = models.CharField(max_length=255, blank=True)
+    # How an objective question is answered; see cbt/scoring.py. correct_answer
+    # holds a letter, letters ("A,C") for multiple, or the number for numeric.
+    answer_type = models.CharField(max_length=20, choices=ANSWER_TYPE_CHOICES, default="single")
+    partial_credit = models.BooleanField(
+        default=False, help_text="For choose all that apply: marks for part of the right choices")
+    tolerance = models.DecimalField(
+        max_digits=20, decimal_places=8, default=0, help_text="How far either side of a numeric answer still counts")
+    unit = models.CharField(max_length=30, blank=True, help_text="Shown beside a numeric answer box, e.g. cm")
 
     # For theory/practical questions
     answer_guideline = models.TextField(blank=True, help_text="Expected answer or marking guide")
@@ -810,6 +825,21 @@ class QuestionBank(TenantMixin, models.Model):
 
     def __str__(self):
         return f"{self.question_type.title()}: {self.question[:50]}... ({self.subject.name})"
+
+    def answer_type_fields(self):
+        """
+        The exam editor's fields for how this objective question is answered,
+        added to the question when it goes into an exam: {} for choose one.
+        """
+        if self.question_type != "objective" or self.answer_type == "single":
+            return {}
+        fields = {"questionType": self.answer_type}
+        if self.answer_type == "multiple":
+            fields["partialCredit"] = self.partial_credit
+        elif self.answer_type == "numeric":
+            fields["tolerance"] = format(self.tolerance.normalize(), "f")
+            fields["unit"] = self.unit
+        return fields
 
     def increment_usage(self):
         """Increment usage counter and update last used time"""

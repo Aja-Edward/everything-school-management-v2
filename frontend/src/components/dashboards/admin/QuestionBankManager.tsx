@@ -27,6 +27,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { renderMathInHtml } from '@/utils/math';
+import { ANSWER_TYPES } from '@/utils/objectiveQuestions';
 import { Badge } from '@/components/ui/badge';
 import QuestionFormModal from './QuestionFormModal';
 import ImportToExamModal from './ImportToExamModal';
@@ -503,6 +504,9 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-lg">{questionIcon}</span>
                   <Badge variant="outline">{question.question_type_display}</Badge>
+                  {question.question_type === 'objective' && question.answer_type && question.answer_type !== 'single' && (
+                    <Badge variant="outline">{ANSWER_TYPES.find((t) => t.value === question.answer_type)?.label}</Badge>
+                  )}
                   <Badge className={difficultyColor}>{question.difficulty_display}</Badge>
                   <Badge className={usageBadge.color}>{usageBadge.text}</Badge>
                   {question.is_shared && (

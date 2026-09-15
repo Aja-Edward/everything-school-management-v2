@@ -22,6 +22,10 @@
 import { Exam, PrintSettings, DEFAULT_PRINT_SETTINGS } from "../services/ExamService";
 import { normalizeForPdfGeneration } from "./examDataNormalizer";
 import { renderMathInHtml } from "./math";
+import { answerTypeOf, describeAnswer } from "./objectiveQuestions";
+
+const escapeText = (value: unknown): string =>
+  String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 // ===========================
 // HELPER FUNCTIONS
@@ -234,9 +238,23 @@ function buildPrintCss(ps: PrintSettings): string {
 }
 
 /**
- * Render MCQ options respecting the option_layout setting.
+ * Render MCQ options respecting the option_layout setting. A numeric question
+ * gets a line to write the number on instead, and a choose-all-that-apply
+ * question says so.
  */
 function renderOptions(q: any, showMarks: boolean, marksLabel: string): string {
+  const type = answerTypeOf(q);
+  const marksTag = showMarks && q.marks
+    ? `<span style="color:#555;font-size:0.85em;margin-left:0.5em;">[${q.marks}]</span>`
+    : '';
+
+  if (type === 'numeric') {
+    return `<div class="options-wrap">
+    <span class="option-item">Answer: ______________${q.unit ? `&nbsp;${escapeText(q.unit)}` : ''}</span>
+    ${marksTag}
+  </div>`;
+  }
+
   const opts = [
     { label: 'A', val: q.optionA || q.option_a },
     { label: 'B', val: q.optionB || q.option_b },
@@ -244,11 +262,8 @@ function renderOptions(q: any, showMarks: boolean, marksLabel: string): string {
     { label: 'D', val: q.optionD || q.option_d },
   ].filter(o => o.val);
 
-  const marksTag = showMarks && q.marks
-    ? `<span style="color:#555;font-size:0.85em;margin-left:0.5em;">[${q.marks}]</span>`
-    : '';
-
   return `<div class="options-wrap">
+    ${type === 'multiple' ? '<span class="option-item"><em>(Choose all that apply)</em></span>' : ''}
     ${opts.map(o => `<span class="option-item"><strong>${o.label})</strong>&nbsp;${renderRichContent(o.val)}</span>`).join('')}
     ${marksTag}
   </div>`;
@@ -857,13 +872,14 @@ function generateTeacherCopy(
       <span class="question-content">${renderRichContent(q.question || q.question_text)}</span>
       ${q.image ? `<div class="question-content">${renderRichContent(q.image)}</div>` : ''}
       ${q.table ? `<div class="question-content">${renderRichContent(q.table)}</div>` : ''}
-      <div class="options">
+      ${answerTypeOf(q) === 'numeric' ? '' : `<div class="options">
         ${q.optionA || q.option_a ? `<div><span class="label">A)</span> ${renderRichContent(q.optionA || q.option_a)}</div>` : ''}
         ${q.optionB || q.option_b ? `<div><span class="label">B)</span> ${renderRichContent(q.optionB || q.option_b)}</div>` : ''}
         ${q.optionC || q.option_c ? `<div><span class="label">C)</span> ${renderRichContent(q.optionC || q.option_c)}</div>` : ''}
         ${q.optionD || q.option_d ? `<div><span class="label">D)</span> ${renderRichContent(q.optionD || q.option_d)}</div>` : ''}
-      </div>
-      <div class="answer"><strong>Correct Answer:</strong> ${safeString(q.correctAnswer || q.correct_answer)}</div>
+      </div>`}
+      <div class="answer"><strong>${answerTypeOf(q) === 'multiple' ? 'Correct Answers' : 'Correct Answer'}:</strong> ${escapeText(describeAnswer(q))}${
+        answerTypeOf(q) === 'multiple' && q.partialCredit ? ' (part marks given)' : ''}</div>
       <div class="expected-points"><strong>Marks:</strong> ${safeString(q.marks || 1)}</div>
     </div>
     `).join('')}

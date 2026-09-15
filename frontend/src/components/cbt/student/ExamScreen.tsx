@@ -3,10 +3,10 @@ import {
   AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Clock, CloudOff, Flag, Loader2, Maximize, Minus, Plus,
 } from 'lucide-react';
 import StudentCBTService, {
-  CBTAttemptDetail, CBTAttemptState, CBTClientEvent, CBTClientEventKind, CBTPart, CBTRequestError,
+  CBTAttemptDetail, CBTAttemptState, CBTClientEvent, CBTClientEventKind, CBTPart, CBTQuestion, CBTRequestError,
 } from '@/services/StudentCBTService';
 import { hasMath, preloadMathFonts } from '@/utils/math';
-import QuestionView, { OPTION_LETTERS } from './QuestionView';
+import QuestionView, { OPTION_LETTERS, isChoice, toggleKey } from './QuestionView';
 import { forgetStoredAnswers, useAnswerQueue } from './useAnswerQueue';
 
 interface Props {
@@ -92,13 +92,13 @@ const ExamScreen: React.FC<Props> = ({ detail, onEnded, onReplaced }) => {
   const secondsLeft = Math.max(0, Math.ceil((deadline - now) / 1000));
 
   const sectionsByKey = useMemo(() => Object.fromEntries(paper.sections.map((s) => [s.key, s])), [paper.sections]);
-  const isAnswered = (questionId: number, kind: string) => {
-    const a = queue.answers[questionId];
-    return !!a && (kind === 'objective' ? !!a.selected_option : !!a.text_answer.trim());
+  const isAnswered = (q: CBTQuestion) => {
+    const a = queue.answers[q.id];
+    return !!a && (isChoice(q) ? !!a.selected_option : !!a.text_answer.trim());
   };
-  const answeredCount = questions.filter((q) => isAnswered(q.id, q.kind)).length;
+  const answeredCount = questions.filter(isAnswered).length;
   const flagged = questions.filter((q) => queue.answers[q.id]?.flagged);
-  const unanswered = questions.filter((q) => !isAnswered(q.id, q.kind));
+  const unanswered = questions.filter((q) => !isAnswered(q));
 
   const report = useCallback((kind: CBTClientEventKind, detailData?: Record<string, unknown>) => {
     if (eventsRef.current.length < 200) {
@@ -312,8 +312,8 @@ const ExamScreen: React.FC<Props> = ({ detail, onEnded, onReplaced }) => {
   const showSection = !previous || previous.section !== question.section;
   const section = sectionsByKey[question.section];
 
-  const choose = useCallback((key: string) => {
-    queue.update(question.id, { selected_option: key });
+  const choose = useCallback((selected: string) => {
+    queue.update(question.id, { selected_option: selected });
   }, [queue, question.id]);
 
   // Keyboard: letters choose, arrows or N/P move, F flags.
@@ -327,13 +327,14 @@ const ExamScreen: React.FC<Props> = ({ detail, onEnded, onReplaced }) => {
       if (key === 'ARROWLEFT' || key === 'P') { event.preventDefault(); void goTo(current - 1); return; }
       if (key === 'F') { queue.update(question.id, { flagged: !answer?.flagged }); return; }
       const index = OPTION_LETTERS.indexOf(key);
-      if (question.kind === 'objective' && key.length === 1 && index >= 0 && question.options?.[index]) {
-        choose(question.options[index].key);
+      if (isChoice(question) && key.length === 1 && index >= 0 && question.options?.[index]) {
+        const option = question.options[index].key;
+        choose(question.kind === 'multiple' ? toggleKey(answer?.selected_option ?? '', option) : option);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [answer?.flagged, choose, current, finishing, goTo, queue, question, reviewing]);
+  }, [answer?.flagged, answer?.selected_option, choose, current, finishing, goTo, queue, question, reviewing]);
 
   const changeFont = (step: number) => {
     const next = Math.min(Math.max(fontStep + step, 0), FONT_SIZES.length - 1);
@@ -351,7 +352,7 @@ const ExamScreen: React.FC<Props> = ({ detail, onEnded, onReplaced }) => {
 
   const gridButton = (index: number) => {
     const q = questions[index];
-    const done = isAnswered(q.id, q.kind);
+    const done = isAnswered(q);
     const isFlagged = !!queue.answers[q.id]?.flagged;
     const locked = !allowBack && index < furthest;
     return (

@@ -3,16 +3,20 @@ cbt/analysis.py
 
 How a paper's questions performed once students have sat it.
 
-For each objective question:
-- facility: the share of the students given the question who got it right;
-- discrimination: how much more often the top 27% of the class got it right
+For each objective question, whatever its kind (see cbt/scoring.py):
+- facility: the average share of its marks the students given it earned. For
+  a question marked right or wrong, that is the share who got it right;
+- discrimination: how much more of its marks the top 27% of the class earned
   than the bottom 27%, ranked by score on the whole paper. Near zero or below
   means the question doesn't tell stronger students from weaker ones, which
-  usually points to an ambiguous question or a wrong key. The point-biserial
-  correlation between getting it right and paper score is given as well;
-- how many chose each option, overall and in the top and bottom groups. A
-  wrong option that draws more of the top group than the bottom deserves a
-  look;
+  usually points to an ambiguous question or a wrong key. For a question
+  marked right or wrong, the point-biserial correlation between getting it
+  right and paper score is given as well;
+- for a choice question, how many chose each option, overall and in the top
+  and bottom groups. A wrong option that draws more of the top group than the
+  bottom deserves a look. For choose all that apply, each option a student
+  ticked counts;
+- for a numeric question, the answers given most often;
 - how many left it blank, and the median seconds it was on screen.
 
 Discrimination and reliability mean little with a handful of students, so
@@ -22,7 +26,8 @@ For the paper:
 - a score summary and distribution;
 - KR-20 reliability for the objective questions, when every student was given
   the same ones. With random draws, students answered different sets and
-  KR-20 doesn't apply.
+  KR-20 doesn't apply. It counts a question as right only when fully right, so
+  part marks on a choose-all-that-apply question count as wrong.
 
 A question drawn from the question bank also gets a suggested difficulty from
 its facility, once MIN_RESPONSES_FOR_DIFFICULTY students have answered it.
@@ -39,6 +44,7 @@ from statistics import mean, median, pstdev, pvariance
 from exam.models import DifficultyLevel
 
 from .access import is_admin
+from . import scoring
 from .models import CBTAnswer, CBTAttempt, CBTQuestion
 
 FINISHED = (CBTAttempt.Status.SUBMITTED, CBTAttempt.Status.TIMED_OUT)
@@ -108,7 +114,7 @@ def analyse(paper):
     items = []
     for question in questions:
         takers = [a for a in attempts if question.id in served[a.id]]
-        if question.kind == CBTQuestion.Kind.OBJECTIVE:
+        if question.is_auto_marked:
             items.append(_objective_item(question, takers, answers, score, upper, lower))
         else:
             items.append(_text_item(question, takers, answers, score, upper, lower))
@@ -124,37 +130,46 @@ def analyse(paper):
 
 def _objective_item(question, takers, answers, score, upper, lower):
     overall, top, bottom = Counter(), Counter(), Counter()
-    correct_flags, omitted = [], 0
+    marked, typed, omitted = [], [], 0
     for attempt in takers:
         answer = answers.get((attempt.id, question.id))
         chosen = answer.selected_option if answer else ""
-        correct = question.award_all or (bool(chosen) and chosen == question.correct_option)
-        correct_flags.append((attempt, correct))
+        text = answer.text_answer if answer else ""
+        right, earned = scoring.score(question, chosen, text)
+        marked.append((attempt, right, float(earned / question.marks) if question.marks else 0.0))
+        if question.kind == CBTQuestion.Kind.NUMERIC:
+            if not text.strip():
+                omitted += 1
+            typed.append(text)
+            continue
         if not chosen:
             omitted += 1
             continue
-        overall[chosen] += 1
-        if attempt.id in upper:
-            top[chosen] += 1
-        if attempt.id in lower:
-            bottom[chosen] += 1
+        for key in chosen:
+            overall[key] += 1
+            if attempt.id in upper:
+                top[key] += 1
+            if attempt.id in lower:
+                bottom[key] += 1
 
-    right = sum(1 for _, c in correct_flags if c)
-    facility = _share(right, len(takers))
+    right = sum(1 for _, r, _ in marked if r)
+    facility = _share(sum(share for _, _, share in marked), len(takers))
 
     discrimination = None
-    top_takers = [c for a, c in correct_flags if a.id in upper]
-    bottom_takers = [c for a, c in correct_flags if a.id in lower]
-    if top_takers and bottom_takers:
-        discrimination = round(sum(top_takers) / len(top_takers) - sum(bottom_takers) / len(bottom_takers), 3)
+    top_shares = [share for a, _, share in marked if a.id in upper]
+    bottom_shares = [share for a, _, share in marked if a.id in lower]
+    if top_shares and bottom_shares:
+        discrimination = round(mean(top_shares) - mean(bottom_shares), 3)
 
+    # Only for a question marked right or wrong, where facility is the share right.
     point_biserial = None
-    if len(takers) >= MIN_STUDENTS and facility not in (None, 0, 1):
-        scores = [score[a.id] for a, _ in correct_flags]
+    part_marks = question.kind == CBTQuestion.Kind.MULTIPLE and question.partial_credit
+    if not part_marks and len(takers) >= MIN_STUDENTS and facility not in (None, 0, 1):
+        scores = [score[a.id] for a, _, _ in marked]
         spread = pstdev(scores)
         if spread:
-            mean_right = mean(score[a.id] for a, c in correct_flags if c)
-            mean_wrong = mean(score[a.id] for a, c in correct_flags if not c)
+            mean_right = mean(score[a.id] for a, r, _ in marked if r)
+            mean_wrong = mean(score[a.id] for a, r, _ in marked if not r)
             point_biserial = round((mean_right - mean_wrong) / spread * sqrt(facility * (1 - facility)), 3)
 
     flags = []
@@ -168,19 +183,20 @@ def _objective_item(question, takers, answers, score, upper, lower):
             flags.append({"code": "negative_discrimination"})
         elif discrimination < 0.2:
             flags.append({"code": "weak_discrimination"})
-    if not question.award_all and upper:
+    if question.is_choice and not question.award_all and upper:
         for key in question.option_keys:
-            if key == question.correct_option:
+            if key in question.correct_option:
                 continue
             if top[key] >= 2 and top[key] > bottom[key]:
                 flags.append({"code": "distractor_draws_strong", "option": key})
             elif overall[key] == 0 and len(takers) >= MIN_STUDENTS:
                 flags.append({"code": "unused_option", "option": key})
 
-    return {
+    item = {
         "id": question.id, "order": question.order, "number": question.source_number, "section": question.section,
         "kind": question.kind, "content": question.content, "marks": str(question.marks),
         "options": question.options, "correct_option": question.correct_option, "award_all": question.award_all,
+        "partial_credit": question.partial_credit, "key": scoring.describe_key(question), "unit": question.unit,
         "given_to": len(takers), "correct": right, "omitted": omitted,
         "facility": facility, "discrimination": discrimination, "point_biserial": point_biserial,
         "option_counts": dict(overall), "top_group_counts": dict(top), "bottom_group_counts": dict(bottom),
@@ -188,6 +204,9 @@ def _objective_item(question, takers, answers, score, upper, lower):
         "flags": flags,
         "bank": _bank(question, facility, len(takers)),
     }
+    if question.kind == CBTQuestion.Kind.NUMERIC:
+        item["common_answers"] = scoring.common_numbers(question, typed)
+    return item
 
 
 def _text_item(question, takers, answers, score, upper, lower):
@@ -243,7 +262,7 @@ def _summary(attempts, score, answers, questions, served):
         "kr20_note": "",
     }
 
-    objective_ids = {q.id for q in questions if q.kind == CBTQuestion.Kind.OBJECTIVE}
+    objective_ids = {q.id for q in questions if q.is_auto_marked}
     sets = {frozenset(served[a.id] & objective_ids) for a in attempts}
     if len(attempts) < MIN_STUDENTS:
         summary["kr20_note"] = f"Needs at least {MIN_STUDENTS} students."
@@ -259,9 +278,8 @@ def _summary(attempts, score, answers, questions, served):
             for attempt in attempts:
                 for qid in items:
                     answer = answers.get((attempt.id, qid))
-                    q = by_id[qid]
-                    right[(attempt.id, qid)] = int(q.award_all or bool(
-                        answer and answer.selected_option and answer.selected_option == q.correct_option))
+                    right[(attempt.id, qid)] = int(scoring.score(
+                        by_id[qid], answer.selected_option if answer else "", answer.text_answer if answer else "")[0])
             totals = [sum(right[(a.id, qid)] for qid in items) for a in attempts]
             variance = pvariance(totals)
             if variance:

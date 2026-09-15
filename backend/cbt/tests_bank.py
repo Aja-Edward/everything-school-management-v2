@@ -89,6 +89,48 @@ class BankDrawTest(AuthoringTest):
         self.assertEqual(paper.questions.filter(section="objective").count(), 5)
         self.assertEqual(list(paper.questions.filter(order__gt=3).values_list("correct_option", flat=True)), ["C", "C"])
 
+    def test_drawn_questions_keep_how_they_are_answered(self):
+        self.bank_question(answer_type="true_false", options=["True", "False"], correct_answer="False")
+        self.bank_question(answer_type="multiple", correct_answer="A,C", partial_credit=True)
+        self.bank_question(answer_type="numeric", options=[], correct_answer="9.8", tolerance="0.1", unit="m/s²")
+
+        self.assertEqual(self.draw(count=3).status_code, status.HTTP_200_OK)
+
+        self.exam.refresh_from_db()
+        added = {q.get("questionType"): q for q in self.exam.objective_questions[3:]}
+        self.assertEqual((added["true_false"]["optionA"], added["true_false"]["correctAnswer"]), ("True", "False"))
+        self.assertEqual((added["multiple"]["correctAnswer"], added["multiple"]["partialCredit"]), ("A,C", True))
+        self.assertEqual({k: added["numeric"][k] for k in ("correctAnswer", "tolerance", "unit")},
+                         {"correctAnswer": "9.8", "tolerance": "0.1", "unit": "m/s²"})
+
+        self.set_exam_status("approved")
+        self.assertEqual(self.call("post", f"{self.url}publish/").status_code, status.HTTP_200_OK)
+        kinds = dict(CBTPaper.objects.get(pk=self.paper.pk).questions.filter(order__gt=3)
+                     .values_list("kind", "correct_option"))
+        self.assertEqual(kinds, {"true_false": "B", "multiple": "AC", "numeric": ""})
+
+    def test_the_bank_checks_an_answer_against_its_answer_type(self):
+        url = "/api/exams/question-bank/"
+        base = {"question_type": "objective", "question": "<p>Q</p>", "marks": 1, "subject": self.exam.subject_id,
+                "grade_level": self.exam.grade_level_id, "difficulty": DifficultyLevel.objects.get(
+                    tenant=self.school, code="easy").id, "options": ["one", "two", "three"]}
+
+        created = self.call("post", url, {**base, "answer_type": "true_false", "options": [], "correct_answer": "True"})
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.data)
+        self.assertEqual(QuestionBank.objects.get(question="<p>Q</p>").options, ["True", "False"])
+
+        for fields, field in [
+            ({"answer_type": "true_false", "correct_answer": "Maybe"}, "correct_answer"),
+            ({"answer_type": "multiple", "correct_answer": "A,D"}, "correct_answer"),
+            ({"answer_type": "multiple", "correct_answer": ""}, "correct_answer"),
+            ({"answer_type": "numeric", "correct_answer": "ten"}, "correct_answer"),
+            ({"answer_type": "numeric", "correct_answer": "10", "tolerance": "-1"}, "tolerance"),
+        ]:
+            with self.subTest(fields=fields):
+                response = self.call("post", url, {**base, **fields})
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertIn(field, response.data)
+
     def test_only_the_chosen_topics_and_difficulties_are_drawn(self):
         self.bank_question()
         hard = self.bank_question(topic="Algebra", difficulty="hard")

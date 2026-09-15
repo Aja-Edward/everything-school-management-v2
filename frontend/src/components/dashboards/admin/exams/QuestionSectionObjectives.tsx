@@ -1,6 +1,6 @@
 // components/QuestionSectionObjectives.tsx
 import React from "react";
-import { RichTextEditor } from "@/components/shared/ExamEditor";
+import { ObjectiveAnswerFields, RichTextEditor } from "@/components/shared/ExamEditor";
 import { ObjectiveQuestion } from "@/types/types";
 
 
@@ -23,11 +23,13 @@ const emptyQuestion = (): ObjectiveQuestion => ({
 
 const QuestionSectionObjectives: React.FC<Props> = ({ value, onChange }) => {
   const addQuestion = () => onChange([...value, emptyQuestion()]);
-  const updateQuestion = (index: number, field: keyof ObjectiveQuestion, val: ObjectiveQuestion[keyof ObjectiveQuestion]) => {
+  const replaceQuestion = (index: number, question: ObjectiveQuestion) => {
     const updated = [...value];
-    updated[index] = { ...updated[index], [field]: val } as ObjectiveQuestion;
+    updated[index] = question;
     onChange(updated);
   };
+  const updateQuestion = (index: number, field: keyof ObjectiveQuestion, val: ObjectiveQuestion[keyof ObjectiveQuestion]) =>
+    replaceQuestion(index, { ...value[index], [field]: val } as ObjectiveQuestion);
   const removeQuestion = (index: number) => {
     const updated = [...value];
     updated.splice(index, 1);
@@ -46,40 +48,20 @@ const QuestionSectionObjectives: React.FC<Props> = ({ value, onChange }) => {
             placeholder="Enter question text..."
           />
 
-          <label>Option A *</label>
-          <RichTextEditor
-            value={q.optionA}
-            onChange={val => updateQuestion(i, "optionA", val)}
-            placeholder="Enter option A..."
-          />
-
-          <label>Option B *</label>
-          <RichTextEditor
-            value={q.optionB}
-            onChange={val => updateQuestion(i, "optionB", val)}
-            placeholder="Enter option B..."
-          />
-
-          <label>Option C *</label>
-          <RichTextEditor
-            value={q.optionC}
-            onChange={val => updateQuestion(i, "optionC", val)}
-            placeholder="Enter option C..."
-          />
-
-          <label>Option D *</label>
-          <RichTextEditor
-            value={q.optionD}
-            onChange={val => updateQuestion(i, "optionD", val)}
-            placeholder="Enter option D..."
-          />
-
-          <label>Correct Answer *</label>
-          <input
-            type="text"
-            placeholder="A, B, C, or D"
-            value={q.correctAnswer}
-            onChange={e => updateQuestion(i, "correctAnswer", e.target.value)}
+          <ObjectiveAnswerFields
+            question={q}
+            onChange={question => replaceQuestion(i, question)}
+            optionsClassName="space-y-3"
+            renderOption={letter => (
+              <div>
+                <label>Option {letter}</label>
+                <RichTextEditor
+                  value={q[`option${letter}`] ?? ""}
+                  onChange={val => updateQuestion(i, `option${letter}`, val)}
+                  placeholder={`Enter option ${letter}...`}
+                />
+              </div>
+            )}
           />
 
           <label>Marks *</label>

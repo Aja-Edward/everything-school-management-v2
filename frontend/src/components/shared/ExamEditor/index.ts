@@ -19,5 +19,6 @@
 
 export { default as RichTextEditor } from './RichTextEditor';
 export { default as MathTextInput } from './MathTextInput';
+export { default as ObjectiveAnswerFields } from './ObjectiveAnswerFields';
 export { ImageUploader, uploadImageToCloudinary } from './ImageUploader';
 export * from './types';

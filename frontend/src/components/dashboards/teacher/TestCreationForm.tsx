@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import TeacherDashboardService from '@/services/TeacherDashboardService';
 import { ExamService, ExamCreateData } from '@/services/ExamService';
-import { MathTextInput } from '@/components/shared/ExamEditor';
+import { MathTextInput, ObjectiveAnswerFields } from '@/components/shared/ExamEditor';
 import { toast } from 'react-toastify';
 import { X, XCircle, Plus, Trash2, Save, Clock, Clock3, CheckCircle, AlertCircle, BookOpen } from 'lucide-react';
 
@@ -157,6 +157,10 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
     setObjectiveQuestions(prev => prev.map((q, i) => 
       i === index ? { ...q, [field]: value } : q
     ));
+  };
+
+  const replaceObjectiveQuestion = (index: number, question: any) => {
+    setObjectiveQuestions(prev => prev.map((q, i) => (i === index ? question : q)));
   };
 
   const removeObjectiveQuestion = (index: number) => {
@@ -554,46 +558,20 @@ const TestCreationForm: React.FC<TestCreationFormProps> = ({
                               placeholder="Enter question"
                             />
 
-                            <div className="grid grid-cols-2 gap-3">
-                              <MathTextInput
-                                value={question.optionA}
-                                onChange={(value) => updateObjectiveQuestion(index, 'optionA', value)}
-                                className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
-                                placeholder="Option A"
-                              />
-                              <MathTextInput
-                                value={question.optionB}
-                                onChange={(value) => updateObjectiveQuestion(index, 'optionB', value)}
-                                className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
-                                placeholder="Option B"
-                              />
-                              <MathTextInput
-                                value={question.optionC}
-                                onChange={(value) => updateObjectiveQuestion(index, 'optionC', value)}
-                                className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
-                                placeholder="Option C"
-                              />
-                              <MathTextInput
-                                value={question.optionD}
-                                onChange={(value) => updateObjectiveQuestion(index, 'optionD', value)}
-                                className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
-                                placeholder="Option D"
-                              />
-                            </div>
+                            <ObjectiveAnswerFields
+                              question={question}
+                              onChange={(next) => replaceObjectiveQuestion(index, next)}
+                              renderOption={(letter) => (
+                                <MathTextInput
+                                  value={question[`option${letter}`] ?? ''}
+                                  onChange={(value) => updateObjectiveQuestion(index, `option${letter}`, value)}
+                                  className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
+                                  placeholder={`Option ${letter}`}
+                                />
+                              )}
+                            />
 
                             <div className="grid grid-cols-2 gap-3">
-                              <select
-                                value={question.correctAnswer}
-                                onChange={(e) => updateObjectiveQuestion(index, 'correctAnswer', e.target.value)}
-                                className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
-                              >
-                                <option value="">Select correct answer</option>
-                                <option value="A">A</option>
-                                <option value="B">B</option>
-                                <option value="C">C</option>
-                                <option value="D">D</option>
-                              </select>
-
                               <input
                                 type="number"
                                 value={question.marks}

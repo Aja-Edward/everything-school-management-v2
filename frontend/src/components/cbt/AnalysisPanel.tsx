@@ -15,6 +15,14 @@ const FLAG_LABEL: Record<CBTAnalysisFlagCode, (option?: string) => string> = {
 
 const DIFFICULTY_LABEL: Record<string, string> = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
 
+const KIND_LABEL: Record<CBTAnalysisItem['kind'], string> = {
+  objective: 'Objective',
+  true_false: 'True or false',
+  multiple: 'Choose all',
+  numeric: 'Number',
+  text: 'Typed',
+};
+
 const percent = (share: number | null | undefined) => (share === null || share === undefined ? '–' : `${Math.round(share * 100)}%`);
 const seconds = (s: number | null) => (s === null ? '–' : s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`);
 
@@ -120,11 +128,43 @@ const FacilityMeter: React.FC<{ value: number | null }> = ({ value }) => (
   </div>
 );
 
+/** The answers a numeric question got most often. A popular wrong answer can mean a wrong key. */
+const CommonAnswers: React.FC<{ item: CBTAnalysisItem }> = ({ item }) => (
+  <table className="w-full text-sm">
+    <thead>
+      <tr className="text-left text-xs text-slate-500">
+        <th className="py-1 font-medium">Answer given{item.unit ? ` (${item.unit})` : ''}</th>
+        <th className="py-1 text-right font-medium">Students</th>
+      </tr>
+    </thead>
+    <tbody className="tabular-nums text-slate-800 dark:text-slate-200">
+      <tr className="border-t border-slate-100 dark:border-slate-700">
+        <td className="py-1.5 text-slate-600 dark:text-slate-300" colSpan={2}>Correct answer: <strong>{item.key}</strong></td>
+      </tr>
+      {(item.common_answers ?? []).map((common) => (
+        <tr key={common.answer} className="border-t border-slate-100 dark:border-slate-700">
+          <td className="py-1.5">
+            <span className="flex items-center gap-2">
+              {common.answer}
+              {common.correct && <span className="flex items-center gap-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400"><Check className="h-3.5 w-3.5" /> Counts as right</span>}
+            </span>
+          </td>
+          <td className="py-1.5 text-right">{common.students}</td>
+        </tr>
+      ))}
+      <tr className="border-t border-slate-100 text-slate-500 dark:border-slate-700">
+        <td className="py-1.5">Left blank</td>
+        <td className="py-1.5 text-right">{item.omitted ?? 0}</td>
+      </tr>
+    </tbody>
+  </table>
+);
+
 const OptionBreakdown: React.FC<{ item: CBTAnalysisItem }> = ({ item }) => (
   <table className="w-full text-sm">
     <thead>
       <tr className="text-left text-xs text-slate-500">
-        <th className="py-1 font-medium">Option</th>
+        <th className="py-1 font-medium">Option{item.kind === 'multiple' ? ' (each tick counts)' : ''}</th>
         <th className="py-1 text-right font-medium">Everyone</th>
         <th className="py-1 text-right font-medium">Top 27%</th>
         <th className="py-1 text-right font-medium">Bottom 27%</th>
@@ -132,7 +172,7 @@ const OptionBreakdown: React.FC<{ item: CBTAnalysisItem }> = ({ item }) => (
     </thead>
     <tbody className="tabular-nums text-slate-800 dark:text-slate-200">
       {item.options?.map((option) => {
-        const correct = item.award_all || option.key === item.correct_option;
+        const correct = item.award_all || !!item.correct_option?.includes(option.key);
         return (
           <tr key={option.key} className="border-t border-slate-100 dark:border-slate-700">
             <td className="py-1.5">
@@ -235,7 +275,7 @@ const AnalysisPanel: React.FC<{ paperId: number }> = ({ paperId }) => {
             <thead className="border-y border-slate-200 bg-slate-50 text-left text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/60">
               <tr>
                 <th className="px-4 py-2 font-medium">Question</th>
-                <th className="px-2 py-2 font-medium" title="Objective: share answering correctly. Typed: average share of marks awarded.">Got it right</th>
+                <th className="px-2 py-2 font-medium" title="The average share of the question's marks students earned: for a question marked right or wrong, the share who got it right.">Got it right</th>
                 <th className="px-2 py-2 text-right font-medium" title="Top 27% minus bottom 27%. 0.3 or more is good; below 0 needs a look.">Separates</th>
                 <th className="px-2 py-2 text-right font-medium">Time</th>
                 <th className="px-2 py-2 font-medium">Worth a look</th>
@@ -250,13 +290,13 @@ const AnalysisPanel: React.FC<{ paperId: number }> = ({ paperId }) => {
                   <React.Fragment key={item.id}>
                     <tr className="border-b border-slate-100 align-top dark:border-slate-800">
                       <td className="px-4 py-2.5">
-                        <button type="button" onClick={() => setOpen(expanded ? null : item.id)} disabled={item.kind !== 'objective'}
+                        <button type="button" onClick={() => setOpen(expanded ? null : item.id)} disabled={item.kind === 'text'}
                           className="flex w-full items-start gap-1.5 text-left disabled:cursor-default">
-                          {item.kind === 'objective'
+                          {item.kind !== 'text'
                             ? (expanded ? <ChevronDown className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" /> : <ChevronRight className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" />)
                             : <span className="w-4" />}
                           <span className="min-w-0">
-                            <span className="text-xs font-semibold text-slate-500">{item.kind === 'objective' ? 'Objective' : 'Typed'} {item.number}</span>
+                            <span className="text-xs font-semibold text-slate-500">{KIND_LABEL[item.kind]} {item.number}{item.partial_credit ? ', part marks' : ''}</span>
                             <SafeHtml html={item.content} className="cbt-content line-clamp-2 text-slate-800 dark:text-slate-100" />
                           </span>
                         </button>
@@ -292,7 +332,7 @@ const AnalysisPanel: React.FC<{ paperId: number }> = ({ paperId }) => {
                     </tr>
                     {expanded && (
                       <tr className="border-b border-slate-100 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-800/40">
-                        <td colSpan={6} className="px-10 py-3"><OptionBreakdown item={item} /></td>
+                        <td colSpan={6} className="px-10 py-3">{item.kind === 'numeric' ? <CommonAnswers item={item} /> : <OptionBreakdown item={item} />}</td>
                       </tr>
                     )}
                   </React.Fragment>
@@ -314,7 +354,7 @@ const AnalysisPanel: React.FC<{ paperId: number }> = ({ paperId }) => {
           </div>
         )}
         <p className="border-t border-slate-200 p-4 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
-          <strong>Got it right</strong>: for a typed question, the average share of its marks awarded.{' '}
+          <strong>Got it right</strong>: for a typed question, or one giving part marks, the average share of its marks awarded.{' '}
           <strong>Separates</strong>: how much more often the top 27% of students got it right than the bottom 27%. Around 0.3 or
           more is good; near 0 or below usually means the question is ambiguous or its answer key is wrong.{' '}
           <strong>Time</strong>: the median time students had it on screen.

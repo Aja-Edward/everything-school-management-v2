@@ -2243,6 +2243,11 @@ export interface ObjectiveQuestion {
   optionD: string;
   correctAnswer: string;
   marks: number;
+  /** How it is answered; see utils/objectiveQuestions. Missing for choose one. */
+  questionType?: string;
+  partialCredit?: boolean;
+  tolerance?: string | number;
+  unit?: string;
 }
 
 export interface SubSubQuestion {

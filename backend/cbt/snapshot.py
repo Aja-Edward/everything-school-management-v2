@@ -9,13 +9,33 @@ QuestionBankViewSet.import_to_exam saves the bank's `options` list instead.
 Both record the correct answer as a letter, but a hand-edited or imported
 answer is sometimes the option's text, or a lowercase letter.
 
+An objective question's `questionType` says how it is answered (see
+cbt/scoring.py). Missing, it is a choose-one question, as every question was
+before types existed:
+- "true_false": answered True or False. Its answer is "A"/"B" or the word;
+- "multiple": choose all that apply. Its answer lists letters, "A,C", and
+  `partialCredit` gives marks for part of the right choices;
+- "numeric": its answer is a number, with an optional `tolerance` either side
+  and a `unit` shown to students.
+
 Practical questions are never put on a CBT paper: they are done in person.
 """
 
 import re
 from decimal import Decimal, InvalidOperation
 
+from .scoring import MULTIPLE, NUMERIC, OBJECTIVE, TRUE_FALSE, parse_keys, parse_number
+
 LETTERS = "ABCDEFGHIJ"
+TRUE_FALSE_OPTIONS = [{"key": "A", "text": "True"}, {"key": "B", "text": "False"}]
+MAX_UNIT_LENGTH = 30
+
+_QUESTION_TYPES = {
+    "": OBJECTIVE, "single": OBJECTIVE, "objective": OBJECTIVE,
+    "true_false": TRUE_FALSE, "truefalse": TRUE_FALSE, "true-false": TRUE_FALSE,
+    "multiple": MULTIPLE, "multi_select": MULTIPLE, "multiselect": MULTIPLE,
+    "numeric": NUMERIC, "number": NUMERIC,
+}
 
 OBJECTIVE_SECTION = "objective"
 THEORY_SECTION = "theory"
@@ -60,9 +80,35 @@ def objective_options(raw):
     return [{"key": key, "text": _text(value)} for key, value in pairs if not is_blank(value)]
 
 
+def question_type(raw):
+    """The kind of an objective question, or None for a type this doesn't know."""
+    return _QUESTION_TYPES.get(str(raw.get("questionType") or "").strip().lower())
+
+
+def _answer(raw):
+    return _text(raw.get("correctAnswer", raw.get("correct_answer")))
+
+
+def true_false_answer(raw):
+    """"A" for True, "B" for False, or "" if the answer is neither."""
+    answer = _answer(raw).strip(" .").lower()
+    return {"a": "A", "true": "A", "t": "A", "b": "B", "false": "B", "f": "B"}.get(answer, "")
+
+
+def tolerance(value):
+    """How far either side of a numeric answer still counts: a Decimal of 0 or more, or None if unreadable."""
+    if value in (None, ""):
+        return Decimal(0)
+    try:
+        margin = Decimal(str(value).strip())
+    except (InvalidOperation, ValueError):
+        return None
+    return margin if margin.is_finite() and 0 <= margin < Decimal("1e11") else None
+
+
 def correct_option(raw, options):
     """The key of the correct option, or "" if the answer matches none."""
-    answer = _text(raw.get("correctAnswer", raw.get("correct_answer")))
+    answer = _answer(raw)
     if not answer:
         return ""
     keys = {option["key"] for option in options}
@@ -108,6 +154,53 @@ def _image(raw):
     return _text(raw.get("imageUrl") or raw.get("image") or raw.get("image_url"))
 
 
+def _objective_answer(kind, raw, fields):
+    """
+    Fill in how the question is answered and marked. Returns what is wrong with
+    it, each phrased to follow the question's name.
+    """
+    if kind is None:
+        return ["has a question type this paper doesn't know."]
+
+    if kind == TRUE_FALSE:
+        fields["options"] = TRUE_FALSE_OPTIONS
+        fields["correct_option"] = true_false_answer(raw)
+        return [] if fields["correct_option"] else ["has no correct answer: choose True or False."]
+
+    if kind == NUMERIC:
+        answer, margin = _answer(raw), tolerance(raw.get("tolerance"))
+        fields["numeric_answer"] = answer
+        fields["tolerance"] = margin or Decimal(0)
+        fields["unit"] = _text(raw.get("unit"))[:MAX_UNIT_LENGTH]
+        problems = []
+        if not answer:
+            problems.append("has no correct answer.")
+        elif parse_number(answer) is None:
+            problems.append(f"has an answer that isn't a number: {answer}.")
+        if margin is None:
+            problems.append("needs its margin either side of the answer to be a number, 0 or more.")
+        return problems
+
+    options = objective_options(raw)
+    fields["options"] = options
+    if len(options) < 2:
+        return ["needs at least two options."]
+
+    if kind == MULTIPLE:
+        # parse_keys reads a list of letters as well as "A,C".
+        keys = parse_keys(raw.get("correctAnswer", raw.get("correct_answer")))
+        fields["partial_credit"] = bool(raw.get("partialCredit"))
+        if not keys:
+            return ["has no correct answers: tick every option that is right."]
+        if any(key not in {option["key"] for option in options} for key in keys):
+            return ["has a correct answer that is not one of its options."]
+        fields["correct_option"] = "".join(keys)
+        return []
+
+    fields["correct_option"] = correct_option(raw, options)
+    return [] if fields["correct_option"] else ["has no correct answer, or its answer is not one of its options."]
+
+
 def build_paper(exam, include_objective=True, include_theory=False):
     """
     Read `exam` into (sections, questions, problems).
@@ -128,22 +221,19 @@ def build_paper(exam, include_objective=True, include_theory=False):
                          "instructions": exam.objective_instructions or ""})
         for number, raw in enumerate(exam.objective_questions, start=1):
             name = f"Objective question {number}"
-            options = objective_options(raw)
-            answer = correct_option(raw, options)
+            kind = question_type(raw)
             marks = _marks(raw.get("marks", 1))
             image = _image(raw)
+            fields = {
+                "kind": kind or OBJECTIVE, "content": raw.get("question") or "", "image_url": image,
+                "marks": marks, "bank_question_id": _bank_id(raw),
+            }
             if is_blank(raw.get("question")) and not image:
                 problems.append(f"{name} has no question text.")
-            if len(options) < 2:
-                problems.append(f"{name} needs at least two options.")
-            elif not answer:
-                problems.append(f"{name} has no correct answer, or its answer is not one of its options.")
+            problems.extend(f"{name} {problem}" for problem in _objective_answer(kind, raw, fields))
             if marks is None:
                 problems.append(f"{name} needs marks greater than zero.")
-            add(OBJECTIVE_SECTION, number, {
-                "kind": "objective", "content": raw.get("question") or "", "image_url": image,
-                "options": options, "correct_option": answer, "marks": marks, "bank_question_id": _bank_id(raw),
-            })
+            add(OBJECTIVE_SECTION, number, fields)
 
     text_sections = []
     if include_theory:

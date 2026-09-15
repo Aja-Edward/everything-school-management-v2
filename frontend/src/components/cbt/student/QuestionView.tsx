@@ -1,8 +1,26 @@
 import React from 'react';
-import { CBTAnswer, CBTPart, CBTQuestion } from '@/services/StudentCBTService';
+import { AlertTriangle, Check } from 'lucide-react';
+import { CBTAnswer, CBTPart, CBTQuestion, CHOICE_KINDS } from '@/services/StudentCBTService';
+import { parseNumber } from '@/utils/objectiveQuestions';
 import SafeHtml from './SafeHtml';
 
 export const OPTION_LETTERS = 'ABCDEFGHIJ';
+
+/** A choose-all-that-apply answer with `key` ticked or unticked: every key ticked, in order. */
+export const toggleKey = (selected: string, key: string) => {
+  const keys = new Set(selected.split('').filter(Boolean));
+  if (keys.has(key)) keys.delete(key);
+  else keys.add(key);
+  return [...keys].sort().join('');
+};
+
+export const isChoice = (question: CBTQuestion) => CHOICE_KINDS.includes(question.kind);
+
+const HINTS: Record<string, string> = {
+  objective: 'Click an option again to clear it. Keyboard: press the letter to choose.',
+  true_false: 'Choose True or False. Click it again to clear it. Keyboard: press A or B.',
+  multiple: 'Tick every option that is right. Click an option again to untick it. Keyboard: press a letter to tick or untick it.',
+};
 
 interface Props {
   question: CBTQuestion;
@@ -12,7 +30,8 @@ interface Props {
   sectionInstructions?: string;
   fontSize: string;
   disabled?: boolean;
-  onChoose: (optionKey: string) => void;
+  /** The whole choice after a click: one key, "" for none, or every key ticked ("AC"). */
+  onChoose: (selected: string) => void;
   onType: (text: string) => void;
 }
 
@@ -37,6 +56,93 @@ const Parts: React.FC<{ parts?: CBTPart[]; depth?: number }> = ({ parts, depth =
         </li>
       ))}
     </ol>
+  );
+};
+
+const ChoiceOptions: React.FC<{
+  question: CBTQuestion; selected: string; disabled?: boolean; onChoose: (selected: string) => void;
+}> = ({ question, selected, disabled, onChoose }) => {
+  const multiple = question.kind === 'multiple';
+  return (
+    <div className="mt-5">
+      {multiple && (
+        <p className="mb-2.5 text-[0.85em] font-semibold text-indigo-700 dark:text-indigo-300">Choose all that apply.</p>
+      )}
+      <div
+        className={question.kind === 'true_false' ? 'grid grid-cols-1 gap-2.5 sm:grid-cols-2' : 'space-y-2.5'}
+        role={multiple ? 'group' : 'radiogroup'}
+        aria-label={`Options for question ${question.number}`}
+      >
+        {(question.options ?? []).map((option, index) => {
+          const chosen = multiple ? selected.includes(option.key) : selected === option.key;
+          return (
+            <button
+              key={option.key}
+              type="button"
+              role={multiple ? 'checkbox' : 'radio'}
+              aria-checked={chosen}
+              disabled={disabled}
+              onClick={() => onChoose(multiple ? toggleKey(selected, option.key) : chosen ? '' : option.key)}
+              className={`flex w-full items-start gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                chosen
+                  ? 'border-indigo-600 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-900/40'
+                  : 'border-slate-200 bg-white hover:border-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-500'
+              }`}
+            >
+              <span className={`flex h-8 w-8 flex-shrink-0 items-center justify-center border-2 text-[0.85em] font-bold ${
+                multiple ? 'rounded-md' : 'rounded-full'
+              } ${chosen ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-400 text-slate-600 dark:text-slate-300'}`}>
+                {OPTION_LETTERS[index]}
+              </span>
+              <SafeHtml html={option.text} className="cbt-content min-w-0 flex-1 pt-1" />
+              {multiple && chosen && (
+                <Check className="mt-1.5 h-5 w-5 flex-shrink-0 text-indigo-600 dark:text-indigo-300" aria-hidden="true" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+      <p className="pt-2.5 text-[0.75em] text-slate-500 dark:text-slate-400">{HINTS[question.kind]}</p>
+    </div>
+  );
+};
+
+const NumberAnswer: React.FC<{
+  question: CBTQuestion; text: string; disabled?: boolean; onType: (text: string) => void;
+}> = ({ question, text, disabled, onType }) => {
+  const unreadable = text.trim() !== '' && parseNumber(text, question.unit ?? '') === null;
+  const id = `answer-${question.id}`;
+  return (
+    <div className="mt-5">
+      <label htmlFor={id} className="block text-[0.85em] font-medium text-slate-700 dark:text-slate-300">Your answer</label>
+      <div className="mt-1 flex items-center gap-2">
+        <input
+          id={id}
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          spellCheck={false}
+          value={text}
+          disabled={disabled}
+          onChange={(e) => onType(e.target.value)}
+          maxLength={50}
+          aria-describedby={`${id}-help`}
+          aria-invalid={unreadable}
+          className={`w-full max-w-xs rounded-xl border-2 bg-white px-4 py-3 text-[1.1em] focus:outline-none dark:bg-slate-800 ${
+            unreadable ? 'border-amber-500 focus:border-amber-600' : 'border-slate-200 focus:border-indigo-500 dark:border-slate-700'
+          }`}
+        />
+        {question.unit && <span className="text-[1em] font-medium text-slate-700 dark:text-slate-200">{question.unit}</span>}
+      </div>
+      <p id={`${id}-help`} className="mt-2 text-[0.75em] text-slate-500 dark:text-slate-400">
+        Type a number. You can write decimals (12.5), fractions (3/4 or 1 1/2) and commas (1,200).
+      </p>
+      {unreadable && (
+        <p className="mt-1 flex items-center gap-1.5 text-[0.8em] font-medium text-amber-700 dark:text-amber-300" role="status">
+          <AlertTriangle className="h-4 w-4" aria-hidden="true" /> This can't be read as a number yet, so it would be marked wrong.
+        </p>
+      )}
+    </div>
   );
 };
 
@@ -66,38 +172,15 @@ const QuestionView: React.FC<Props> = ({
       <img src={question.image_url} alt="" className="mt-3 max-h-80 max-w-full rounded border border-slate-200" />
     )}
 
-    {question.kind === 'objective' ? (
-      <div className="mt-5 space-y-2.5" role="radiogroup" aria-label={`Options for question ${question.number}`}>
-        {(question.options ?? []).map((option, index) => {
-          const selected = answer?.selected_option === option.key;
-          return (
-            <button
-              key={option.key}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              disabled={disabled}
-              onClick={() => onChoose(selected ? '' : option.key)}
-              className={`flex w-full items-start gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                selected
-                  ? 'border-indigo-600 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-900/40'
-                  : 'border-slate-200 bg-white hover:border-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-500'
-              }`}
-            >
-              <span className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border-2 text-[0.85em] font-bold ${
-                selected ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-400 text-slate-600 dark:text-slate-300'
-              }`}>
-                {OPTION_LETTERS[index]}
-              </span>
-              <SafeHtml html={option.text} className="cbt-content min-w-0 flex-1 pt-1" />
-            </button>
-          );
-        })}
-        <p className="pt-1 text-[0.75em] text-slate-500 dark:text-slate-400">
-          Click an option again to clear it. Keyboard: press the letter to choose.
-        </p>
-      </div>
-    ) : (
+    {isChoice(question) && (
+      <ChoiceOptions question={question} selected={answer?.selected_option ?? ''} disabled={disabled} onChoose={onChoose} />
+    )}
+
+    {question.kind === 'numeric' && (
+      <NumberAnswer question={question} text={answer?.text_answer ?? ''} disabled={disabled} onType={onType} />
+    )}
+
+    {question.kind === 'text' && (
       <div className="mt-4">
         <Parts parts={question.parts} />
         <label htmlFor={`answer-${question.id}`} className="mt-5 block text-[0.85em] font-medium text-slate-700 dark:text-slate-300">

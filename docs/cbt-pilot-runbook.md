@@ -76,12 +76,21 @@ computers. Make a separate throwaway exam for it, not the pilot paper.
    `\ce{H2SO4}`. Both are drawn in the preview. A formula that can't be drawn
    is listed above the preview. Download the exam's PDF as well: the formulas
    print there too.
+
+   Give the objective section one question of each answer type as well:
+   choose one, choose all that apply (with part marks on), true or false,
+   and a number with a margin and a unit, e.g. 9.8 with 0.1 either side, in
+   m/s². The preview shows ticks for choose all that apply and a number box
+   with its unit.
 4. **Publish**. The exam list shows a "CBT published" badge.
 
 **Student A, computer 1**
 
 5. Go to Dashboard → CBT Exams. Start the paper with the access code. Answer a
    few questions. The formulas from step 3 are drawn, not shown as code.
+   Tick two options on the choose-all question, and type the number as a
+   fraction or with its unit, e.g. 49/5 or 9.8 m/s². Type "9.8." and check
+   the warning that it can't be read as a number.
 6. Reload the page. The answers are still there, and so is the clock.
 7. Turn off the Wi-Fi and answer two more. The page shows answers waiting.
    Turn the Wi-Fi back on: they save within a few seconds.
@@ -116,7 +125,10 @@ computers. Make a separate throwaway exam for it, not the pilot paper.
 **Marking and results**
 
 15. In the paper's **Marking** tab, give marks to the typed answers. Students
-    are marked complete once every typed answer has a mark.
+    are marked complete once every typed answer has a mark. The number
+    question's row lists the answers students gave; 49/5 and 9.8 count as one.
+    Use **Change answer** on it to widen the margin, and check that the
+    scores are re-marked.
 16. **Analysis** shows the paper. With two students it holds back
     discrimination and reliability; that is expected.
 17. **Results**:

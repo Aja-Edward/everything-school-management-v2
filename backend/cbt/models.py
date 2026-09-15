@@ -30,6 +30,7 @@ from exam.models import Exam, ExamRegistration, QuestionBank
 from students.models import Student
 from tenants.models import TenantMixin
 
+from . import scoring
 from .snapshot import OBJECTIVE_SECTION, build_paper
 
 
@@ -146,7 +147,7 @@ class CBTPaper(TenantMixin, models.Model):
         problems = self._missing_settings() + self._setting_problems() + problems
         if not questions:
             problems.append("The exam has no questions to put on the paper.")
-        objective_count = sum(1 for q in questions if q["kind"] == CBTQuestion.Kind.OBJECTIVE)
+        objective_count = sum(1 for q in questions if q["section"] == OBJECTIVE_SECTION)
         if self.objective_questions_per_attempt and self.objective_questions_per_attempt > objective_count:
             problems.append(
                 f"Each student is to get {self.objective_questions_per_attempt} objective questions, "
@@ -215,18 +216,23 @@ class CBTPaper(TenantMixin, models.Model):
 
         option_order = {}
         for question in served:
-            if question.kind == CBTQuestion.Kind.OBJECTIVE:
+            if question.is_choice:
                 keys = question.option_keys
-                if self.shuffle_options:
+                # True stays before False.
+                if self.shuffle_options and question.kind != CBTQuestion.Kind.TRUE_FALSE:
                     rng.shuffle(keys)
                 option_order[str(question.id)] = keys
         return served, option_order
 
 
 class CBTQuestion(TenantMixin, models.Model):
+    # See cbt/scoring.py for how each kind is answered and marked.
     class Kind(models.TextChoices):
-        OBJECTIVE = "objective", "Objective (choose one option)"
-        TEXT = "text", "Typed answer (marked by a teacher)"
+        OBJECTIVE = scoring.OBJECTIVE, "Objective (choose one option)"
+        TRUE_FALSE = scoring.TRUE_FALSE, "True or false"
+        MULTIPLE = scoring.MULTIPLE, "Choose all that apply"
+        NUMERIC = scoring.NUMERIC, "Numeric answer"
+        TEXT = scoring.TEXT, "Typed answer (marked by a teacher)"
 
     paper = models.ForeignKey(CBTPaper, on_delete=models.CASCADE, related_name="questions")
     kind = models.CharField(max_length=20, choices=Kind.choices)
@@ -237,7 +243,14 @@ class CBTQuestion(TenantMixin, models.Model):
     content = models.TextField(blank=True, help_text="HTML from the exam editor")
     image_url = models.TextField(blank=True)
     options = models.JSONField(default=list, blank=True, help_text='[{"key": "A", "text": "..."}]')
-    correct_option = models.CharField(max_length=5, blank=True)
+    correct_option = models.CharField(
+        max_length=10, blank=True, help_text='The correct key, or every correct key in order for "choose all that apply": "AC"')
+    partial_credit = models.BooleanField(
+        default=False, help_text="For choose all that apply: marks for part of the right choices, less wrong ones")
+    numeric_answer = models.CharField(max_length=50, blank=True, help_text="For a numeric question, as the teacher wrote it")
+    tolerance = models.DecimalField(
+        max_digits=20, decimal_places=8, default=0, help_text="How far either side of the numeric answer still counts")
+    unit = models.CharField(max_length=30, blank=True, help_text="Shown beside a numeric answer box, e.g. cm")
     award_all = models.BooleanField(
         default=False, help_text="Every student gets this question's marks, for a question found to be faulty")
     marking_guide = models.TextField(blank=True, help_text="For teachers marking typed answers; never sent to students")
@@ -256,7 +269,10 @@ class CBTQuestion(TenantMixin, models.Model):
         constraints = [
             models.UniqueConstraint(fields=["paper", "order"], name="uq_cbt_question_order"),
             models.CheckConstraint(
-                condition=Q(kind="text") | ~Q(correct_option=""), name="chk_cbt_objective_has_answer"),
+                condition=Q(kind=scoring.TEXT)
+                | (Q(kind=scoring.NUMERIC) & ~Q(numeric_answer=""))
+                | (Q(kind__in=sorted(scoring.CHOICE_KINDS)) & ~Q(correct_option="")),
+                name="chk_cbt_question_has_answer"),
         ]
 
     def __str__(self):
@@ -265,6 +281,14 @@ class CBTQuestion(TenantMixin, models.Model):
     @property
     def option_keys(self):
         return [option["key"] for option in self.options]
+
+    @property
+    def is_choice(self):
+        return self.kind in scoring.CHOICE_KINDS
+
+    @property
+    def is_auto_marked(self):
+        return self.kind in scoring.AUTO_MARKED_KINDS
 
 
 class CBTAttempt(TenantMixin, models.Model):
@@ -384,8 +408,9 @@ class CBTAnswer(TenantMixin, models.Model):
     attempt = models.ForeignKey(CBTAttempt, on_delete=models.CASCADE, related_name="answers")
     # PROTECT: a paper's questions are only replaced before anyone has answered them.
     question = models.ForeignKey(CBTQuestion, on_delete=models.PROTECT, related_name="answers")
-    selected_option = models.CharField(max_length=5, blank=True)
-    text_answer = models.TextField(blank=True)
+    selected_option = models.CharField(
+        max_length=10, blank=True, help_text='The key chosen, or every key chosen in order for "choose all that apply": "AC"')
+    text_answer = models.TextField(blank=True, help_text="A typed answer, or a number as the student wrote it")
     flagged = models.BooleanField(default=False, help_text="Marked by the student to come back to")
     answered_at = models.DateTimeField(null=True, blank=True)
 
@@ -409,10 +434,12 @@ class CBTAnswer(TenantMixin, models.Model):
         question = self.question
         if question.id not in self.attempt.question_ids:
             raise ValidationError("That question is not on this student's paper.")
-        if question.kind == CBTQuestion.Kind.OBJECTIVE:
+        if question.is_choice:
             if self.text_answer:
-                raise ValidationError("Objective questions are answered by choosing an option.")
-            if self.selected_option and self.selected_option not in question.option_keys:
+                raise ValidationError("This question is answered by choosing an option, not by typing.")
+            try:
+                scoring.read_choice(question.kind, question.option_keys, self.selected_option)
+            except ValueError:
                 raise ValidationError("That option is not one of this question's options.")
         elif self.selected_option:
             raise ValidationError("This question is answered by typing, not by choosing an option.")
@@ -422,9 +449,10 @@ class CBTAnswerKeyChange(TenantMixin, models.Model):
     """A correction to a published question's answer, which re-marks everyone who had it."""
 
     question = models.ForeignKey(CBTQuestion, on_delete=models.CASCADE, related_name="key_changes")
-    previous_option = models.CharField(max_length=5, blank=True)
+    # The key as staff read it (scoring.describe_key): "B", "A, C", "12.5 ± 0.1 cm".
+    previous_option = models.CharField(max_length=100, blank=True)
     previous_award_all = models.BooleanField(default=False)
-    new_option = models.CharField(max_length=5, blank=True)
+    new_option = models.CharField(max_length=100, blank=True)
     new_award_all = models.BooleanField(default=False)
     reason = models.CharField(max_length=500, blank=True)
     remarked_attempts = models.PositiveIntegerField(default=0)

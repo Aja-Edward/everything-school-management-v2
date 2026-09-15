@@ -7,7 +7,7 @@ import { ExamService, ExamCreateData } from '@/services/ExamService';
 import { toast } from 'react-toastify';
 import { X, XCircle, Plus, Trash2, Save, Clock, Clock3, CheckCircle, AlertCircle, Upload, FileDown } from 'lucide-react';
 import { generateExamWordTemplate, generateExamCsvTemplate } from '@/utils/examTemplateGenerator';
-import { MathTextInput, RichTextEditor } from '@/components/shared/ExamEditor';
+import { MathTextInput, ObjectiveAnswerFields, RichTextEditor } from '@/components/shared/ExamEditor';
 import {
   normalizeExamDataForSave,
   normalizeExamDataForEdit
@@ -273,6 +273,10 @@ const handleInputChange = (field: keyof ExamCreateData, value: any) => {
     i === index ? { ...q, [field]: field === 'marks' ? Number(value) : value } : q
   ));
 };
+
+  const replaceObjectiveQuestion = (index: number, question: any) => {
+    setObjectiveQuestions(prev => prev.map((q, i) => (i === index ? question : q)));
+  };
 
   const removeObjectiveQuestion = (index: number) => {
     setObjectiveQuestions(prev => prev.filter((_, i) => i !== index));
@@ -1091,20 +1095,14 @@ const submitForApproval = async () => {
                                     enableImageUpload={true}
                                     enableTables={true}
                                   />
+                                  <ObjectiveAnswerFields
+                                    question={question}
+                                    onChange={(next) => replaceObjectiveQuestion(index, next)}
+                                    renderOption={(letter) => (
+                                      <MathTextInput value={question[`option${letter}`] ?? ''} onChange={(value) => updateObjectiveQuestion(index, `option${letter}`, value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder={`Option ${letter}`} />
+                                    )}
+                                  />
                                   <div className="grid grid-cols-2 gap-3">
-                                    <MathTextInput value={question.optionA} onChange={(value) => updateObjectiveQuestion(index, 'optionA', value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Option A" />
-                                    <MathTextInput value={question.optionB} onChange={(value) => updateObjectiveQuestion(index, 'optionB', value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Option B" />
-                                    <MathTextInput value={question.optionC} onChange={(value) => updateObjectiveQuestion(index, 'optionC', value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Option C" />
-                                    <MathTextInput value={question.optionD} onChange={(value) => updateObjectiveQuestion(index, 'optionD', value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Option D" />
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-3">
-                                    <select value={question.correctAnswer} onChange={(e) => updateObjectiveQuestion(index, 'correctAnswer', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white">
-                                      <option value="">Select correct answer</option>
-                                      <option value="A">A</option>
-                                      <option value="B">B</option>
-                                      <option value="C">C</option>
-                                      <option value="D">D</option>
-                                    </select>
                                     <input type="number" value={question.marks} onChange={(e) => updateObjectiveQuestion(index, 'marks', e.target.value)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" placeholder="Marks" min="1" />
                                   </div>
                                 </div>

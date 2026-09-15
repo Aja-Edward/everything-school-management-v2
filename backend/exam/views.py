@@ -1931,6 +1931,7 @@ class QuestionBankViewSet(
                 if question.question_type == "objective":
                     question_data["options"] = question.options
                     question_data["correctAnswer"] = question.correct_answer
+                    question_data.update(question.answer_type_fields())
                     if section_type == "objective":
                         if not exam.objective_questions:
                             exam.objective_questions = []

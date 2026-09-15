@@ -18,7 +18,8 @@ Marking and results (see cbt/marking.py):
     /api/cbt/papers/<id>/marking/                         GET: progress and answer-key statistics
     /api/cbt/papers/<id>/marking/questions/<question>/    GET: every written answer to one typed question
     /api/cbt/papers/<id>/marking/marks/                   POST: {"marks": [{"attempt", "question", "marks"}]}
-    /api/cbt/papers/<id>/questions/<question>/answer-key/ POST: {"correct_option" | "award_all", "reason"}
+    /api/cbt/papers/<id>/questions/<question>/answer-key/ POST: {"correct_option" | "numeric_answer" and
+                                                          "tolerance" | "award_all", "reason"}
     /api/cbt/papers/<id>/results/targets/                 GET: exam sessions and score columns to send to
     /api/cbt/papers/<id>/results/push/                    POST: write scores into the school's results
     /api/cbt/papers/<id>/results/release/                 POST: let students see their scores
@@ -48,6 +49,7 @@ from .access import manageable_exams, publish_refusal, question_edit_refusal
 from .engine import Refused
 from .models import CBTPaper, CBTQuestion
 from .serializers import CBTPaperSerializer
+from .snapshot import OBJECTIVE_SECTION
 from .student_payload import paper_for_student
 
 
@@ -67,7 +69,7 @@ class CBTPaperViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         exams = manageable_exams(self.request.user, getattr(self.request, "tenant", None))
         return super().get_queryset().filter(exam__in=exams).annotate(
-            objective_count=Count("questions", filter=Q(questions__kind="objective"), distinct=True),
+            objective_count=Count("questions", filter=Q(questions__section=OBJECTIVE_SECTION), distinct=True),
             text_count=Count("questions", filter=Q(questions__kind="text"), distinct=True),
             attempt_count=Count("attempts", distinct=True),
         )
@@ -103,7 +105,7 @@ class CBTPaperViewSet(TenantFilterMixin, viewsets.ModelViewSet):
             "ready": not problems,
             "problems": problems,
             "sections": sections,
-            "objective_count": sum(1 for q in questions if q["kind"] == CBTQuestion.Kind.OBJECTIVE),
+            "objective_count": sum(1 for q in questions if q["section"] == OBJECTIVE_SECTION),
             "text_count": sum(1 for q in questions if q["kind"] == CBTQuestion.Kind.TEXT),
         })
 
@@ -228,6 +230,7 @@ class CBTPaperViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         data = request.data
         change = marking.correct_answer_key(
             self._question(paper, question_id), request.user, correct_option=data.get("correct_option", ""),
+            numeric_answer=data.get("numeric_answer"), margin=data.get("tolerance"),
             award_all=bool(data.get("award_all")), reason=data.get("reason", ""))
         return Response({"remarked_attempts": change.remarked_attempts, "marking": marking.overview(paper)})
 

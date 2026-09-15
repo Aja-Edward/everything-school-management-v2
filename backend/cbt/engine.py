@@ -31,6 +31,7 @@ from django.utils.dateparse import parse_datetime
 from exam.models import ExamRegistration
 from students.models import Student
 
+from . import scoring
 from .models import CBTAnswer, CBTAttempt, CBTEvent, CBTPaper, CBTQuestion
 from .student_payload import paper_for_student
 
@@ -309,6 +310,8 @@ def save_answers(attempt, answers, now=None):
     """
     Save a batch of answers. Each item is the whole current answer to one
     question: {"question_id", "selected_option", "text_answer", "flagged"}.
+    A choose-all-that-apply answer sends every key chosen: "AC". A number is
+    sent as text, however the student typed it, and read when it is marked.
     One bad item refuses the whole batch.
     """
     now = now or timezone.now()
@@ -329,17 +332,22 @@ def save_answers(attempt, answers, now=None):
                 question = questions[int(item.get("question_id"))]
             except (AttributeError, KeyError, TypeError, ValueError):
                 raise Refused("That question is not on your paper.")
-            selected = str(item.get("selected_option") or "").strip().upper()
+            raw_choice = item.get("selected_option") or ""
             text = item.get("text_answer") or ""
             if not isinstance(text, str) or len(text) > MAX_TEXT_ANSWER:
                 raise Refused(f"Answers can be at most {MAX_TEXT_ANSWER:,} characters.")
-            if question.kind == CBTQuestion.Kind.OBJECTIVE:
+            selected = ""
+            if question.is_choice:
                 if text:
-                    raise Refused("Objective questions are answered by choosing an option.")
-                if selected and selected not in question.option_keys:
-                    raise Refused("That option is not one of the question's options.")
-            elif selected:
+                    raise Refused("This question is answered by choosing an option, not by typing.")
+                try:
+                    selected = scoring.read_choice(question.kind, question.option_keys, raw_choice)
+                except ValueError as error:
+                    raise Refused(str(error))
+            elif raw_choice:
                 raise Refused("This question is answered by typing.")
+            elif question.kind == CBTQuestion.Kind.NUMERIC and len(text) > scoring.MAX_NUMBER_LENGTH:
+                raise Refused(f"A number can be at most {scoring.MAX_NUMBER_LENGTH} characters.")
 
             position = positions[question.id]
             if not attempt.paper.allow_backtracking and position < attempt.furthest_position:

@@ -52,15 +52,28 @@ export interface CBTPart {
   parts?: CBTPart[];
 }
 
+/**
+ * How a question is answered:
+ * - objective: choose one option;
+ * - true_false: choose True or False, the question's two options;
+ * - multiple: tick every option that applies. The answer's selected_option is every key ticked, in order: "AC";
+ * - numeric: type a number, into text_answer, with `unit` shown beside the box;
+ * - text: type an answer, marked by a teacher.
+ */
+export type CBTQuestionKind = 'objective' | 'true_false' | 'multiple' | 'numeric' | 'text';
+
+export const CHOICE_KINDS: CBTQuestionKind[] = ['objective', 'true_false', 'multiple'];
+
 export interface CBTQuestion {
   id: number;
   number: number;
   section: string;
-  kind: 'objective' | 'text';
+  kind: CBTQuestionKind;
   content: string;
   image_url: string;
   marks: string;
   options?: { key: string; text: string }[];
+  unit?: string;
   parts?: CBTPart[];
   table?: unknown;
 }

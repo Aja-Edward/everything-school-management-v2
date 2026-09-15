@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { QuestionBankService, QuestionBank, QuestionBankCreateData } from '@/services/QuestionBankService';
+import { BankAnswerType, QuestionBankService, QuestionBank, QuestionBankCreateData } from '@/services/QuestionBankService';
+import { ANSWER_TYPES, parseKeys } from '@/utils/objectiveQuestions';
 import { MathTextInput, RichTextEditor } from '@/components/shared/ExamEditor';
 import { toast } from 'react-hot-toast';
 
@@ -28,6 +29,10 @@ const QuestionFormModal: React.FC<QuestionFormModalProps> = ({
     question: '',
     options: ['', '', '', ''],
     correct_answer: '',
+    answer_type: 'single',
+    partial_credit: false,
+    tolerance: '',
+    unit: '',
     expected_answer: '',
     marking_scheme: '',
     marks: 1,
@@ -41,6 +46,7 @@ const QuestionFormModal: React.FC<QuestionFormModalProps> = ({
   });
 
   const [tagInput, setTagInput] = useState('');
+  const answerType = formData.answer_type ?? 'single';
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -50,6 +56,10 @@ const QuestionFormModal: React.FC<QuestionFormModalProps> = ({
         question: question.question,
         options: question.options || ['', '', '', ''],
         correct_answer: question.correct_answer || '',
+        answer_type: question.answer_type || 'single',
+        partial_credit: !!question.partial_credit,
+        tolerance: Number(question.tolerance) ? String(Number(question.tolerance)) : '',
+        unit: question.unit || '',
         expected_answer: question.expected_answer || '',
         marking_scheme: question.marking_scheme || '',
         marks: question.marks,
@@ -74,13 +84,16 @@ const QuestionFormModal: React.FC<QuestionFormModalProps> = ({
       return;
     }
 
+    // The server wants a number for the margin; blank means exact.
+    const payload = { ...formData, tolerance: String(formData.tolerance ?? '').trim() || 0 };
+
     setLoading(true);
     try {
       if (isEditing) {
-        await QuestionBankService.updateQuestion(question.id, formData);
+        await QuestionBankService.updateQuestion(question.id, payload);
         toast.success('Question updated successfully');
       } else {
-        await QuestionBankService.createQuestion(formData);
+        await QuestionBankService.createQuestion(payload);
         toast.success('Question created successfully');
       }
       onSuccess();
@@ -105,6 +118,20 @@ const QuestionFormModal: React.FC<QuestionFormModalProps> = ({
   const removeOption = (index: number) => {
     const newOptions = formData.options!.filter((_, i) => i !== index);
     setFormData({ ...formData, options: newOptions });
+  };
+
+  /** Change how the question is answered, keeping what still makes sense. */
+  const setAnswerType = (type: BankAnswerType) => {
+    const from = formData.answer_type ?? 'single';
+    if (type === from) return;
+    let options = formData.options ?? [];
+    if (type === 'true_false') options = ['True', 'False'];
+    else if (from === 'true_false') options = ['', '', '', ''];
+    const keepAnswer = from === 'single' && type === 'multiple';
+    setFormData({
+      ...formData, answer_type: type, options, correct_answer: keepAnswer ? formData.correct_answer : '',
+      partial_credit: false, tolerance: '', unit: '',
+    });
   };
 
   const addTag = () => {
@@ -161,55 +188,174 @@ const QuestionFormModal: React.FC<QuestionFormModalProps> = ({
             />
           </div>
 
-          {/* Options (for objective questions) */}
+          {/* How an objective question is answered, its options and its answer */}
           {formData.question_type === 'objective' && (
-            <div>
-              <label className="block text-sm font-medium mb-2">Options *</label>
-              <div className="space-y-2">
-                {formData.options?.map((option, index) => (
-                  <div key={index} className="flex gap-2">
-                    <MathTextInput
-                      wrapperClassName="flex-1"
-                      value={option}
-                      onChange={(value) => updateOption(index, value)}
-                      placeholder={`Option ${String.fromCharCode(65 + index)}`}
-                      required
-                      className="h-9 rounded-lg border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    {formData.options!.length > 2 && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => removeOption(index)}
-                      >
-                        Remove
-                      </Button>
-                    )}
-                  </div>
-                ))}
-                <Button type="button" variant="outline" size="sm" onClick={addOption}>
-                  Add Option
-                </Button>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Answer type</label>
+                <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Answer type">
+                  {ANSWER_TYPES.map((type) => (
+                    <button
+                      key={type.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={answerType === type.value}
+                      onClick={() => setAnswerType(type.value)}
+                      className={`rounded-full border px-3 py-1 text-sm ${answerType === type.value ? 'border-blue-600 bg-blue-600 text-white' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'}`}
+                    >
+                      {type.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-xs text-gray-500">{ANSWER_TYPES.find((type) => type.value === answerType)?.hint}</p>
               </div>
 
-              <div className="mt-4">
-                <label className="block text-sm font-medium mb-2">Correct Answer *</label>
-                <select
-                  value={formData.correct_answer}
-                  onChange={(e) => setFormData({ ...formData, correct_answer: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg"
-                  required
-                >
-                  <option value="">Select correct answer</option>
-                  {formData.options?.map((option, index) => (
-                    <option key={index} value={String.fromCharCode(65 + index)}>
-                      {String.fromCharCode(65 + index)} - {option.substring(0, 50)}
-                      {option.length > 50 ? '...' : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {(answerType === 'single' || answerType === 'multiple') && (
+                <div>
+                  <label className="block text-sm font-medium mb-2">Options *</label>
+                  <div className="space-y-2">
+                    {formData.options?.map((option, index) => (
+                      <div key={index} className="flex gap-2">
+                        <MathTextInput
+                          wrapperClassName="flex-1"
+                          value={option}
+                          onChange={(value) => updateOption(index, value)}
+                          placeholder={`Option ${String.fromCharCode(65 + index)}`}
+                          required
+                          className="h-9 rounded-lg border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        {formData.options!.length > 2 && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => removeOption(index)}
+                          >
+                            Remove
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                    <Button type="button" variant="outline" size="sm" onClick={addOption}>
+                      Add Option
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {answerType === 'single' && (
+                <div>
+                  <label className="block text-sm font-medium mb-2">Correct Answer *</label>
+                  <select
+                    value={formData.correct_answer}
+                    onChange={(e) => setFormData({ ...formData, correct_answer: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg"
+                    required
+                  >
+                    <option value="">Select correct answer</option>
+                    {formData.options?.map((option, index) => (
+                      <option key={index} value={String.fromCharCode(65 + index)}>
+                        {String.fromCharCode(65 + index)} - {option.substring(0, 50)}
+                        {option.length > 50 ? '...' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {answerType === 'multiple' && (
+                <fieldset>
+                  <legend className="block text-sm font-medium mb-2">Correct answers: tick every one that is right *</legend>
+                  <div className="flex flex-wrap gap-x-4 gap-y-2">
+                    {formData.options?.map((option, index) => {
+                      const letter = String.fromCharCode(65 + index);
+                      const keys = parseKeys(formData.correct_answer);
+                      const ticked = keys.includes(letter);
+                      return (
+                        <label key={letter} className="flex items-center gap-1.5 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={ticked}
+                            onChange={() => setFormData({
+                              ...formData,
+                              correct_answer: (ticked ? keys.filter((k) => k !== letter) : [...keys, letter]).sort().join(','),
+                            })}
+                          />
+                          {letter}{option ? ` - ${option.substring(0, 30)}` : ''}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <label className="mt-3 flex items-start gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={!!formData.partial_credit}
+                      onChange={(e) => setFormData({ ...formData, partial_credit: e.target.checked })}
+                    />
+                    <span>
+                      Give part marks
+                      <span className="block text-xs text-gray-500">
+                        A share of the marks for each right option ticked, less one for each wrong one.
+                      </span>
+                    </span>
+                  </label>
+                </fieldset>
+              )}
+
+              {answerType === 'true_false' && (
+                <fieldset>
+                  <legend className="block text-sm font-medium mb-2">Correct Answer *</legend>
+                  <div className="flex gap-3">
+                    {['True', 'False'].map((value) => (
+                      <label key={value} className="flex items-center gap-2 rounded-lg border px-4 py-2 text-sm">
+                        <input
+                          type="radio"
+                          checked={formData.correct_answer === value}
+                          onChange={() => setFormData({ ...formData, correct_answer: value })}
+                        />
+                        {value}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              )}
+
+              {answerType === 'numeric' && (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <label className="block text-sm">
+                    <span className="block font-medium mb-1">Correct answer *</span>
+                    <input
+                      value={formData.correct_answer ?? ''}
+                      onChange={(e) => setFormData({ ...formData, correct_answer: e.target.value })}
+                      inputMode="decimal"
+                      maxLength={50}
+                      placeholder="e.g. 12.5 or 3/4"
+                      className="w-full px-3 py-2 border rounded-lg"
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="block font-medium mb-1">Allowed either side</span>
+                    <input
+                      value={String(formData.tolerance ?? '')}
+                      onChange={(e) => setFormData({ ...formData, tolerance: e.target.value })}
+                      inputMode="decimal"
+                      placeholder="0 (exact)"
+                      className="w-full px-3 py-2 border rounded-lg"
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="block font-medium mb-1">Unit (optional)</span>
+                    <input
+                      value={formData.unit ?? ''}
+                      onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                      maxLength={30}
+                      placeholder="e.g. cm"
+                      className="w-full px-3 py-2 border rounded-lg"
+                    />
+                  </label>
+                </div>
+              )}
             </div>
           )}
 

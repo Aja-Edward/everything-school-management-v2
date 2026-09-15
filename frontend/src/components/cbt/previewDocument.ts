@@ -39,11 +39,17 @@ const renderParts = (parts: CBTStudentPart[] | undefined, depth = 0): string => 
 
 const renderQuestion = (question: CBTStudentQuestion): string => {
   const image = question.image_url ? `<img src="${escape(question.image_url)}" alt="" />` : '';
-  const body = question.kind === 'objective'
-    ? `<ul class="options">${(question.options ?? []).map((option, i) => `
-        <li><span class="option-letter">${String.fromCharCode(65 + i)}</span>
-          <span class="content">${renderMathInHtml(option.text)}</span></li>`).join('')}</ul>`
-    : `${renderParts(question.parts)}<div class="answer-box">Students type their answer here.</div>`;
+  const options = () => `<ul class="options${question.kind === 'true_false' ? ' two' : ''}">${(question.options ?? []).map((option, i) => `
+        <li><span class="option-letter${question.kind === 'multiple' ? ' square' : ''}">${String.fromCharCode(65 + i)}</span>
+          <span class="content">${renderMathInHtml(option.text)}</span></li>`).join('')}</ul>`;
+  const body = {
+    objective: options,
+    true_false: options,
+    multiple: () => `<p class="choose-all">Choose all that apply.</p>${options()}`,
+    numeric: () => `<div class="answer-box number">Students type a number here${
+      question.unit ? ` <span class="unit">${escape(question.unit)}</span>` : ''}</div>`,
+    text: () => `${renderParts(question.parts)}<div class="answer-box">Students type their answer here.</div>`,
+  }[question.kind]();
   return `
     <article class="question">
       <header><span class="number">Question ${question.number}</span>${marks(question.marks)}</header>
@@ -118,6 +124,11 @@ export const buildPreviewDocument = (paper: CBTStudentPaper): string => {
   .parts .content p { margin: 0; display: inline; }
   .part-label { font-weight: 600; }
   .answer-box { margin-top: 10px; border: 1px dashed #94a3b8; border-radius: 8px; padding: 18px; color: #94a3b8; font-size: 13px; }
+  .answer-box.number { display: inline-block; min-width: 220px; padding: 10px 14px; }
+  .answer-box .unit { color: #334155; font-weight: 600; margin-left: 6px; }
+  .option-letter.square { border-radius: 5px; }
+  .options.two { grid-template-columns: 1fr 1fr; }
+  .choose-all { margin: 10px 0 0; font-size: 13px; font-weight: 600; color: #4338ca; }
 </style></head>
 <body>
   <div class="paper-head">

@@ -11,6 +11,8 @@ dict. Question JSON picks up extra keys from wherever it came from: a
 question-bank import adds `expectedPoints`, which is the marking guide.
 """
 
+from .scoring import CHOICE_KINDS, NUMERIC
+
 PART_KEYS = ("id", "question", "marks", "table")
 
 
@@ -35,10 +37,13 @@ def question_for_student(question, number, option_order=None):
         "image_url": question.image_url,
         "marks": str(question.marks),
     }
-    if question.kind == "objective":
+    if question.kind in CHOICE_KINDS:
         text_by_key = {option["key"]: option["text"] for option in question.options}
         keys = option_order or list(text_by_key)
         payload["options"] = [{"key": key, "text": text_by_key[key]} for key in keys if key in text_by_key]
+    elif question.kind == NUMERIC:
+        # The unit only: the answer and its tolerance stay on the server.
+        payload["unit"] = question.unit
     else:
         payload["parts"] = [part for part in map(_part, question.parts or []) if part]
         payload["table"] = question.table

@@ -839,6 +839,7 @@ class QuestionBankListSerializer(serializers.ModelSerializer):
             "id",
             "question_type",
             "question_type_display",
+            "answer_type",
             "question_preview",
             "subject_name",
             "grade_level_name",
@@ -882,6 +883,10 @@ class QuestionBankDetailSerializer(serializers.ModelSerializer):
             "question",
             "options",
             "correct_answer",
+            "answer_type",
+            "partial_credit",
+            "tolerance",
+            "unit",
             "answer_guideline",
             "expected_points",
             "marks",
@@ -919,6 +924,10 @@ class QuestionBankCreateUpdateSerializer(SchoolScopedRelationsMixin, serializers
             "question",
             "options",
             "correct_answer",
+            "answer_type",
+            "partial_credit",
+            "tolerance",
+            "unit",
             "answer_guideline",
             "expected_points",
             "marks",
@@ -937,15 +946,46 @@ class QuestionBankCreateUpdateSerializer(SchoolScopedRelationsMixin, serializers
         errors = {}
         question_type = data.get("question_type")
         if question_type == "objective":
-            if not data.get("options"):
-                errors["options"] = "Objective questions must have options."
-            if not data.get("correct_answer"):
-                errors["correct_answer"] = (
-                    "Objective questions must have a correct answer."
-                )
+            errors.update(self._objective_answer_errors(data))
         if errors:
             raise serializers.ValidationError(errors)
         return data
+
+    @staticmethod
+    def _objective_answer_errors(data):
+        """
+        Check an objective question's answer for its answer type (see
+        cbt/scoring.py). True-or-false questions always get the options True
+        and False, and numeric ones none.
+        """
+        from cbt.scoring import parse_keys, parse_number
+
+        errors = {}
+        answer_type = data.get("answer_type", "single")
+        answer = str(data.get("correct_answer") or "").strip()
+        options = data.get("options") or []
+
+        if answer_type == "true_false":
+            data["options"] = ["True", "False"]
+            if answer.lower() not in ("a", "b", "true", "false", "t", "f"):
+                errors["correct_answer"] = "Choose True or False."
+        elif answer_type == "numeric":
+            data["options"] = []
+            if parse_number(answer) is None:
+                errors["correct_answer"] = "Write the answer as a number."
+            if data.get("tolerance") is not None and data["tolerance"] < 0:
+                errors["tolerance"] = "The margin either side of the answer must be 0 or more."
+        else:
+            if not options:
+                errors["options"] = "Objective questions must have options."
+            if not answer:
+                errors["correct_answer"] = "Objective questions must have a correct answer."
+            elif answer_type == "multiple":
+                keys = parse_keys(answer)
+                letters = "ABCDEFGHIJ"[: len(options)]
+                if not keys or any(key not in letters for key in keys):
+                    errors["correct_answer"] = "Tick every option that is right."
+        return errors
 
 
 # ==============================================================================
