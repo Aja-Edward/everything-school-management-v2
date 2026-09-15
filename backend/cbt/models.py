@@ -26,7 +26,7 @@ from django.db import models, transaction
 from django.db.models import Max, Q
 from django.utils import timezone
 
-from exam.models import Exam, ExamRegistration
+from exam.models import Exam, ExamRegistration, QuestionBank
 from students.models import Student
 from tenants.models import TenantMixin
 
@@ -170,6 +170,13 @@ class CBTPaper(TenantMixin, models.Model):
             if problems:
                 raise ValidationError(problems)
 
+            # Keep only links to bank questions that exist in this school.
+            linked = {f.get("bank_question_id") for f in questions} - {None}
+            known = set(QuestionBank.objects.filter(tenant=self.tenant, id__in=linked).values_list("id", flat=True))
+            for fields in questions:
+                if fields.get("bank_question_id") not in known:
+                    fields["bank_question_id"] = None
+
             self.questions.all().delete()
             CBTQuestion.objects.bulk_create(
                 CBTQuestion(tenant=self.tenant, paper=self, **fields) for fields in questions)
@@ -234,6 +241,9 @@ class CBTQuestion(TenantMixin, models.Model):
     award_all = models.BooleanField(
         default=False, help_text="Every student gets this question's marks, for a question found to be faulty")
     marking_guide = models.TextField(blank=True, help_text="For teachers marking typed answers; never sent to students")
+    bank_question = models.ForeignKey(
+        "exam.QuestionBank", on_delete=models.SET_NULL, null=True, blank=True, related_name="cbt_questions",
+        help_text="The question-bank question this came from, when it was drawn from the bank")
     parts = models.JSONField(default=list, blank=True, help_text="Sub-questions, as written on the exam")
     table = models.JSONField(null=True, blank=True)
     marks = models.DecimalField(
@@ -293,6 +303,9 @@ class CBTAttempt(TenantMixin, models.Model):
         max_length=64, blank=True, help_text="SHA-256 of the token the device sitting the attempt holds")
     furthest_position = models.PositiveIntegerField(
         default=0, help_text="Furthest question the student has reached, counting from 0")
+    time_on_questions = models.JSONField(
+        default=dict, blank=True,
+        help_text='Seconds the student\'s screen showed each question, as the exam page reports it: {"<question id>": seconds}')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

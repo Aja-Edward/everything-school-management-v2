@@ -23,6 +23,11 @@ Marking and results (see cbt/marking.py):
     /api/cbt/papers/<id>/results/push/                    POST: write scores into the school's results
     /api/cbt/papers/<id>/results/release/                 POST: let students see their scores
     /api/cbt/papers/<id>/results/withhold/                POST: hide them again
+
+Analysis (see cbt/analysis.py):
+
+    /api/cbt/papers/<id>/analysis/                        GET: how each question performed
+    /api/cbt/papers/<id>/analysis/apply-difficulty/       POST: {"questions": [ids]} rate bank questions from results
 """
 
 from decimal import Decimal
@@ -38,7 +43,7 @@ from rest_framework.response import Response
 from exam.permissions import IsTeacherOrAdmin
 from tenants.mixins import TenantFilterMixin
 
-from . import bank, marking
+from . import analysis, bank, marking
 from .access import manageable_exams, publish_refusal, question_edit_refusal
 from .engine import Refused
 from .models import CBTPaper, CBTQuestion
@@ -247,3 +252,14 @@ class CBTPaperViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         paper.results_released_at = None
         paper.save(update_fields=["results_released_at", "updated_at"])
         return Response(self._fresh(paper))
+
+    @action(detail=True, methods=["get"], url_path="analysis")
+    def question_analysis(self, request, pk=None):
+        return Response(analysis.analyse(self.get_object()))
+
+    @action(detail=True, methods=["post"], url_path="analysis/apply-difficulty")
+    def apply_difficulty(self, request, pk=None):
+        ids = request.data.get("questions")
+        if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids) or not ids:
+            raise Refused("Choose the questions to update.")
+        return Response(analysis.apply_bank_difficulty(self.get_object(), ids, request.user, request.tenant))

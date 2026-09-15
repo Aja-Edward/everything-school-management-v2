@@ -12,6 +12,7 @@ import CBTService, {
 import { buildPreviewDocument } from './previewDocument';
 import BankDrawPanel from './BankDrawPanel';
 import MarkingPanel from './MarkingPanel';
+import AnalysisPanel from './AnalysisPanel';
 
 interface Props {
   open: boolean;
@@ -21,14 +22,18 @@ interface Props {
   onChanged?: (examId: number, paper: CBTPaper | null) => void;
 }
 
-type Tab = 'settings' | 'bank' | 'preview' | 'marking';
+type Tab = 'settings' | 'bank' | 'preview' | 'marking' | 'analysis';
 
 const TAB_LABELS: Record<Tab, string> = {
   settings: 'Settings',
   bank: 'Question bank',
   preview: 'Preview as student',
   marking: 'Marking & results',
+  analysis: 'Analysis',
 };
+
+/** Tabs about what students did, which a draft has nothing to show for. */
+const AFTER_PUBLISHING: Tab[] = ['marking', 'analysis'];
 
 const QUESTION_SETTINGS: (keyof CBTPaperSettings)[] = [
   'include_objective', 'include_theory', 'objective_questions_per_attempt',
@@ -223,7 +228,7 @@ const CBTPaperModal: React.FC<Props> = ({ open, exam, onClose, onChanged }) => {
 
         {paper && (
           <div className="flex gap-1 border-b border-slate-200 px-5 dark:border-slate-700">
-            {(Object.keys(TAB_LABELS) as Tab[]).filter((name) => name !== 'marking' || paper.status !== 'draft').map((name) => (
+            {(Object.keys(TAB_LABELS) as Tab[]).filter((name) => !AFTER_PUBLISHING.includes(name) || paper.status !== 'draft').map((name) => (
               <button
                 key={name}
                 onClick={() => (name === 'preview' && !preview ? loadPreview() : setTab(name))}
@@ -369,6 +374,8 @@ const CBTPaperModal: React.FC<Props> = ({ open, exam, onClose, onChanged }) => {
           {!loading && paper && tab === 'marking' && (
             <MarkingPanel paper={paper} onPaperChanged={showPaper} />
           )}
+
+          {!loading && paper && tab === 'analysis' && <AnalysisPanel paperId={paper.id} />}
 
           {!loading && paper && tab === 'bank' && (
             <BankDrawPanel

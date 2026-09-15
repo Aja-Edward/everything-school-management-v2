@@ -96,6 +96,14 @@ def _total_part_marks(parts):
     return total
 
 
+def _bank_id(raw):
+    """The question-bank id cbt.bank writes onto questions it draws, if there is one."""
+    try:
+        return int(raw.get("bankQuestionId"))
+    except (TypeError, ValueError):
+        return None
+
+
 def _image(raw):
     return _text(raw.get("imageUrl") or raw.get("image") or raw.get("image_url"))
 
@@ -134,7 +142,7 @@ def build_paper(exam, include_objective=True, include_theory=False):
                 problems.append(f"{name} needs marks greater than zero.")
             add(OBJECTIVE_SECTION, number, {
                 "kind": "objective", "content": raw.get("question") or "", "image_url": image,
-                "options": options, "correct_option": answer, "marks": marks,
+                "options": options, "correct_option": answer, "marks": marks, "bank_question_id": _bank_id(raw),
             })
 
     text_sections = []
@@ -162,7 +170,7 @@ def build_paper(exam, include_objective=True, include_theory=False):
             add(key, number, {
                 "kind": "text", "content": raw.get("question") or "", "image_url": image,
                 "parts": parts, "table": raw.get("table") or None, "marks": marks,
-                "marking_guide": guide if isinstance(guide, str) else "",
+                "marking_guide": guide if isinstance(guide, str) else "", "bank_question_id": _bank_id(raw),
             })
 
     return sections, questions, problems

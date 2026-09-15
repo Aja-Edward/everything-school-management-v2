@@ -180,8 +180,9 @@ export const StudentCBTService = {
     return request('POST', `/cbt/attempts/${attemptId}/answers/`, { answers }, sessionTokens.get(attemptId));
   },
 
-  heartbeat(attemptId: number, position: number): Promise<CBTAttemptState> {
-    return request('POST', `/cbt/attempts/${attemptId}/heartbeat/`, { position }, sessionTokens.get(attemptId));
+  /** `timeSpent`: whole seconds each question was on screen since the last check-in, by question id. */
+  heartbeat(attemptId: number, position: number, timeSpent: Record<string, number> = {}): Promise<CBTAttemptState> {
+    return request('POST', `/cbt/attempts/${attemptId}/heartbeat/`, { position, time_spent: timeSpent }, sessionTokens.get(attemptId));
   },
 
   events(attemptId: number, events: CBTClientEvent[]): Promise<{ recorded: number }> {

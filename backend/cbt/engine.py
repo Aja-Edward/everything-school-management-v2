@@ -38,6 +38,8 @@ GRACE = timedelta(seconds=30)
 MAX_TEXT_ANSWER = 20_000
 MAX_ANSWERS_PER_SAVE = 200
 MAX_EVENTS_PER_REQUEST = 50
+# The exam page checks in every 30 seconds; this leaves room for a late or retried check-in.
+MAX_SECONDS_PER_HEARTBEAT = 90
 
 # The events a student's browser may report. The rest are recorded by the server.
 CLIENT_EVENT_KINDS = frozenset({
@@ -357,8 +359,16 @@ def save_answers(attempt, answers, now=None):
     return attempt, len(rows)
 
 
-def heartbeat(attempt, position=None, now=None):
-    """The exam page checking in: keeps last_seen current and records how far the student has moved."""
+def heartbeat(attempt, position=None, now=None, time_spent=None):
+    """
+    The exam page checking in: keeps last_seen current, records how far the
+    student has moved, and adds the seconds each question has been on screen
+    since the last check-in ({"<question id>": seconds}).
+
+    Time is the browser's word for it, so it is capped. The page checks in
+    every 30 seconds; a report covering more than MAX_SECONDS_PER_HEARTBEAT
+    is cut down to that, and so is any one question.
+    """
     now = now or timezone.now()
     attempt = finalize_if_expired(attempt, now)
     with transaction.atomic():
@@ -369,6 +379,20 @@ def heartbeat(attempt, position=None, now=None):
                 and position > attempt.furthest_position:
             attempt.furthest_position = position
             fields.append("furthest_position")
+        if isinstance(time_spent, dict) and time_spent:
+            served = {str(qid) for qid in attempt.question_ids}
+            budget = MAX_SECONDS_PER_HEARTBEAT
+            totals = dict(attempt.time_on_questions or {})
+            for key, seconds in time_spent.items():
+                if str(key) not in served or not isinstance(seconds, (int, float)) or seconds <= 0:
+                    continue
+                add = int(min(seconds, budget))
+                totals[str(key)] = totals.get(str(key), 0) + add
+                budget -= add
+                if budget <= 0:
+                    break
+            attempt.time_on_questions = totals
+            fields.append("time_on_questions")
         attempt.save(update_fields=fields)
     return attempt
 

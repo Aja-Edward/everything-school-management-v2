@@ -119,19 +119,54 @@ const ExamScreen: React.FC<Props> = ({ detail, onEnded, onReplaced }) => {
     else if (e?.code === 'session_replaced') onReplaced();
   }, [end, onReplaced]);
 
+  // Seconds each question has been on screen since the last check-in, for the question analysis.
+  // Time while the page is hidden (another tab, minimised) isn't counted.
+  const timeRef = useRef<Record<string, number>>({});
+  const shownRef = useRef<{ id: number; since: number } | null>(null);
+
+  const noteTime = useCallback((count = !document.hidden) => {
+    const shown = shownRef.current;
+    if (!shown) return;
+    if (count) {
+      const key = String(shown.id);
+      timeRef.current[key] = (timeRef.current[key] ?? 0) + (Date.now() - shown.since) / 1000;
+    }
+    shown.since = Date.now();
+  }, []);
+
+  /** The whole seconds counted so far, taken out of the tally to send. */
+  const takeTime = useCallback(() => {
+    noteTime();
+    const whole: Record<string, number> = {};
+    for (const [key, seconds] of Object.entries(timeRef.current)) {
+      const s = Math.floor(seconds);
+      if (s > 0) {
+        whole[key] = s;
+        timeRef.current[key] = seconds - s;
+      }
+    }
+    return whole;
+  }, [noteTime]);
+
+  const giveBackTime = useCallback((time: Record<string, number>) => {
+    for (const [key, seconds] of Object.entries(time)) timeRef.current[key] = (timeRef.current[key] ?? 0) + seconds;
+  }, []);
+
   /**
    * Check in with the server. `position` is only reported once nothing is left to save
    * (`saved`): when going back isn't allowed, the server refuses answers to questions
    * before the reported position, and an answer still in the queue would be lost.
    */
   const heartbeat = useCallback(async (position: number, saved: boolean) => {
+    const time = takeTime();
     try {
-      acceptState(await StudentCBTService.heartbeat(attemptId, saved ? position : attempt.furthest_position));
+      acceptState(await StudentCBTService.heartbeat(attemptId, saved ? position : attempt.furthest_position, time));
     } catch (error) {
+      giveBackTime(time);
       handleError(error);
     }
     void sendEvents();
-  }, [acceptState, attempt.furthest_position, attemptId, handleError, sendEvents]);
+  }, [acceptState, attempt.furthest_position, attemptId, giveBackTime, handleError, sendEvents, takeTime]);
 
   const pendingRef = useRef(queue.pendingCount);
   pendingRef.current = queue.pendingCount;
@@ -202,6 +237,8 @@ const ExamScreen: React.FC<Props> = ({ detail, onEnded, onReplaced }) => {
       return;
     }
     await sendEvents();
+    // The last few seconds on screen; the server's furthest position is sent back unchanged.
+    await StudentCBTService.heartbeat(attemptId, attempt.furthest_position, takeTime()).catch(() => undefined);
     try {
       const state = await StudentCBTService.submit(attemptId);
       queue.stop();
@@ -218,7 +255,7 @@ const ExamScreen: React.FC<Props> = ({ detail, onEnded, onReplaced }) => {
       setFinishing(null);
       setSubmitProblem(e.message || 'Could not submit. Please try again.');
     }
-  }, [attemptId, end, onReplaced, queue, sendEvents]);
+  }, [attempt.furthest_position, attemptId, end, onReplaced, queue, sendEvents, takeTime]);
 
   const finishRef = useRef(finish);
   finishRef.current = finish;
@@ -246,6 +283,21 @@ const ExamScreen: React.FC<Props> = ({ detail, onEnded, onReplaced }) => {
   }, [allowBack, finishing, furthest, heartbeat, queue, total]);
 
   const question = questions[current];
+
+  // Start timing the question now on screen, crediting the one before it.
+  useEffect(() => {
+    noteTime();
+    shownRef.current = { id: question.id, since: Date.now() };
+  }, [noteTime, question.id]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.hidden) noteTime(true);
+      else if (shownRef.current) shownRef.current.since = Date.now();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [noteTime]);
   const answer = queue.answers[question.id];
   const previous = questions[current - 1];
   const showSection = !previous || previous.section !== question.section;

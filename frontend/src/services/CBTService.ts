@@ -197,6 +197,56 @@ export interface CBTPushResults {
   skipped: { student: string; reason: string }[];
 }
 
+export type CBTAnalysisFlagCode =
+  | 'very_hard' | 'very_easy' | 'negative_discrimination' | 'weak_discrimination'
+  | 'distractor_draws_strong' | 'unused_option';
+
+export interface CBTAnalysisItem {
+  id: number;
+  order: number;
+  number: number;
+  section: string;
+  kind: 'objective' | 'text';
+  content: string;
+  marks: string;
+  given_to: number;
+  /** Objective: share answering correctly. Typed: average share of the marks awarded. */
+  facility: number | null;
+  discrimination: number | null;
+  point_biserial?: number | null;
+  correct?: number;
+  omitted?: number;
+  blank?: number;
+  unmarked?: number;
+  options?: { key: string; text: string }[];
+  correct_option?: string;
+  award_all?: boolean;
+  option_counts?: Record<string, number>;
+  top_group_counts?: Record<string, number>;
+  bottom_group_counts?: Record<string, number>;
+  median_seconds: number | null;
+  flags: { code: CBTAnalysisFlagCode; option?: string }[];
+  bank: null | { id: number; difficulty: string; suggested_difficulty: string | null };
+}
+
+export interface CBTAnalysis {
+  students: number;
+  enough_students: boolean;
+  min_students: number;
+  summary: {
+    fully_marked: number;
+    mean: number | null;
+    median: number | null;
+    spread: number | null;
+    highest: number | null;
+    lowest: number | null;
+    distribution: { from: number; to: number; students: number }[];
+    kr20: number | null;
+    kr20_note: string;
+  };
+  questions: CBTAnalysisItem[];
+}
+
 /** The sentences the API returns when it refuses a paper, or the error's own message. */
 export const cbtProblems = (error: any): string[] => {
   const data = error?.response?.data;
@@ -294,6 +344,17 @@ export const CBTService = {
 
   withholdResults(paperId: number): Promise<CBTPaper> {
     return api.post(`${PAPERS}${paperId}/results/withhold/`);
+  },
+
+  analysis(paperId: number): Promise<CBTAnalysis> {
+    return api.get(`${PAPERS}${paperId}/analysis/`);
+  },
+
+  applyBankDifficulty(paperId: number, questionIds: number[]): Promise<{
+    updated: { question: number; bank_question: number; difficulty: string }[];
+    skipped: { question: number; reason: string }[];
+  }> {
+    return api.post(`${PAPERS}${paperId}/analysis/apply-difficulty/`, { questions: questionIds });
   },
 };
 

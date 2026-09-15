@@ -7,7 +7,7 @@ The student side of CBT.
     POST /api/cbt/my/exams/<paper>/start/    {"access_code"}: start, resume, or move to this device
     GET  /api/cbt/attempts/<id>/             state, plus the paper and my answers while in progress
     POST /api/cbt/attempts/<id>/answers/     {"answers": [...]}: save a batch
-    POST /api/cbt/attempts/<id>/heartbeat/   {"position"}: check in and get the clock
+    POST /api/cbt/attempts/<id>/heartbeat/   {"position", "time_spent"}: check in and get the clock
     POST /api/cbt/attempts/<id>/events/      {"events": [...]}: what the browser noticed
     POST /api/cbt/attempts/<id>/submit/      end the attempt
 
@@ -101,7 +101,8 @@ class AttemptViewSet(StudentCBTMixin, viewsets.ViewSet):
 
     @action(detail=True, methods=["post"])
     def heartbeat(self, request, pk=None):
-        attempt = engine.heartbeat(self._attempt(pk), request.data.get("position"))
+        attempt = engine.heartbeat(self._attempt(pk), request.data.get("position"),
+                                   time_spent=request.data.get("time_spent"))
         return Response(engine.attempt_state(attempt, timezone.now()))
 
     @method_decorator(ratelimit(key="user", rate="60/m", method="POST", block=True))

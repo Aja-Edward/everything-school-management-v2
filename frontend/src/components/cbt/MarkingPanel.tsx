@@ -264,7 +264,7 @@ const MarkingPanel: React.FC<Props> = ({ paper, onPaperChanged }) => {
 
       {overview.text.length > 0 && (
         <section className={card}>
-          <h3 className="font-semibold text-slate-900 dark:text-white">Typed answers</h3>
+          <h3 className="text-base font-semibold text-slate-900 dark:text-white">Typed answers</h3>
           <p className="text-sm text-slate-500">Marked by teachers, one question at a time. A blank answer scores 0 and needs no marking.</p>
           <ul className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
             {overview.text.map((q) => (
@@ -283,7 +283,7 @@ const MarkingPanel: React.FC<Props> = ({ paper, onPaperChanged }) => {
 
       {overview.objective.length > 0 && (
         <section className={card}>
-          <h3 className="font-semibold text-slate-900 dark:text-white">Objective questions</h3>
+          <h3 className="text-base font-semibold text-slate-900 dark:text-white">Objective questions</h3>
           <p className="text-sm text-slate-500">
             Marked automatically. The counts show how many students chose each option. A question most students got wrong
             may have the wrong answer key: correcting it re-marks everyone.
@@ -295,7 +295,7 @@ const MarkingPanel: React.FC<Props> = ({ paper, onPaperChanged }) => {
       )}
 
       <section className={card}>
-        <h3 className="font-semibold text-slate-900 dark:text-white">Send scores to results</h3>
+        <h3 className="text-base font-semibold text-slate-900 dark:text-white">Send scores to results</h3>
         {targets && !targets.supported ? (
           <p className="text-sm text-slate-500">This exam's class level isn't set up for results.</p>
         ) : (
@@ -350,7 +350,7 @@ const MarkingPanel: React.FC<Props> = ({ paper, onPaperChanged }) => {
       </section>
 
       <section className={card}>
-        <h3 className="font-semibold text-slate-900 dark:text-white">Students seeing their scores</h3>
+        <h3 className="text-base font-semibold text-slate-900 dark:text-white">Students seeing their scores</h3>
         {paper.result_release === 'manual' ? (
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <p className="text-sm text-slate-600 dark:text-slate-300">
