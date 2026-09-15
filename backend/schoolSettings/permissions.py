@@ -4,6 +4,15 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 
+def _has_whole_school(user):
+    """
+    Platform staff, or a school's own top admin. Either may use every module
+    and section; the top admin only ever reaches their own school, because a
+    request for another school authenticates as nobody.
+    """
+    return bool(getattr(user, "is_platform_staff", False) or getattr(user, "is_school_superadmin", False))
+
+
 class HasStudentsPermissionOrReadOnly(permissions.BasePermission):
     """
     Custom permission to check if user has students module access.
@@ -107,11 +116,9 @@ class ModulePermissionBase(permissions.BasePermission):
 
     def user_has_permission(self, user, module, permission_type):
         # Platform admins have full access
-        # is_platform_staff requires tenant_id is None, so a schools own
-        # admin (role='superadmin' but tenant-scoped) only gets the
-        # tenant-scoped permission checks below, not automatic full access.
-        is_platform_admin = user.is_platform_staff
-        if is_platform_admin:
+        # Platform admins have every module, and a school's own top admin in
+        # their own school (see CustomUser.is_school_superadmin).
+        if _has_whole_school(user):
             return True
 
         # ── Teacher bypass ────────────────────────────────────────────────────
@@ -403,12 +410,9 @@ class SectionPermissionBase(permissions.BasePermission):
         if not request.user.is_active:
             return False
 
-        # Platform admins have access to all sections
-        # is_platform_staff requires tenant_id is None, so a schools own
-        # admin (role='superadmin' but tenant-scoped) does not get this bypass.
-        is_platform_admin = getattr(request.user, "is_platform_staff", False)
-
-        if is_platform_admin:
+        # Platform admins have access to all sections, and a school's own top
+        # admin to all of their own school's (see CustomUser.is_school_superadmin).
+        if _has_whole_school(request.user):
             return True
 
         # Get user's section access from role assignments
@@ -470,12 +474,9 @@ class SubSectionPermissionBase(permissions.BasePermission):
         if not request.user.is_active:
             return False
 
-        # Platform admins have access to all sections
-        # is_platform_staff requires tenant_id is None, so a schools own
-        # admin (role='superadmin' but tenant-scoped) does not get this bypass.
-        is_platform_admin = getattr(request.user, "is_platform_staff", False)
-
-        if is_platform_admin:
+        # Platform admins have access to all sections, and a school's own top
+        # admin to all of their own school's (see CustomUser.is_school_superadmin).
+        if _has_whole_school(request.user):
             return True
 
         # Get user's section access from role assignments
@@ -744,12 +745,9 @@ class IsSectionAdmin(permissions.BasePermission):
         if not request.user or not request.user.is_authenticated:
             return False
 
-        # Platform admins have full access
-        # is_platform_staff requires tenant_id is None, so a schools own
-        # admin (role='superadmin' but tenant-scoped) does not get this bypass.
-        is_platform_admin = getattr(request.user, "is_platform_staff", False)
-
-        if is_platform_admin:
+        # Platform admins have full access, and a school's own top admin in
+        # their own school (see CustomUser.is_school_superadmin).
+        if _has_whole_school(request.user):
             return True
 
         # Check if user has any admin role
@@ -795,12 +793,9 @@ def get_user_sections(user):
     Get all sections a user has access to
     Returns: dict with keys 'primary', 'secondary', 'nursery', 'allowed_grade_levels'
     """
-    # Platform admins have access to all sections
-    # is_platform_staff requires tenant_id is None, so a schools own admin
-    # (role='superadmin' but tenant-scoped) does not get this bypass.
-    is_platform_admin = getattr(user, "is_platform_staff", False)
-
-    if is_platform_admin:
+    # Platform admins have access to all sections, and a school's own top
+    # admin to all of their own school's (see CustomUser.is_school_superadmin).
+    if _has_whole_school(user):
         return {
             "primary": True,
             "secondary": True,
@@ -867,12 +862,9 @@ def get_user_permissions(user):
     Get all module permissions for a user
     Returns: dict mapping module names to list of permission types
     """
-    # Platform admins have all permissions
-    # is_platform_staff requires tenant_id is None, so a schools own admin
-    # (role='superadmin' but tenant-scoped) does not get this bypass.
-    is_platform_admin = getattr(user, "is_platform_staff", False)
-
-    if is_platform_admin:
+    # Platform admins have all permissions, and a school's own top admin in
+    # their own school (see CustomUser.is_school_superadmin).
+    if _has_whole_school(user):
         return {"all": ["read", "write", "delete"]}
 
     from schoolSettings.models import UserRole

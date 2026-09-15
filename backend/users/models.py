@@ -298,6 +298,20 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         return self.role in ("superadmin", "platform_admin") and self.tenant_id is None
 
     @property
+    def is_school_superadmin(self):
+        """
+        A school's own top admin, the account school registration makes
+        (role='superadmin' with a tenant). They may use every module and
+        section of their own school without a role assigned in settings.
+
+        Only their own school: authentication turns a user into an anonymous
+        visitor for any request made for another school
+        (tenants.membership.restrict_to_request_tenant), before any
+        permission is checked. Section and other admins still need roles.
+        """
+        return self.role == "superadmin" and self.tenant_id is not None
+
+    @property
     def is_platform_user(self):
         """
         Broader than is_platform_staff: also true for a marketer account

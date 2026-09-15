@@ -433,6 +433,25 @@ class UserDetailsSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'email', 'is_active')
 
 
+def authenticate_identifier(request, identifier, password):
+    """
+    The user signing in with a username or an email, or None.
+
+    The email is turned into its account's username first. Django's
+    ModelBackend only matches usernames, and a school admin's username is
+    generated (superadmin_...), so authenticating with the email itself fails.
+    An email shared by accounts at several schools names none of them.
+    """
+    try:
+        user = User.objects.get(username=identifier)
+    except User.DoesNotExist:
+        try:
+            user = User.objects.get(email=identifier)
+        except (User.DoesNotExist, User.MultipleObjectsReturned):
+            return None
+    return authenticate(request, username=user.username, password=password)
+
+
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     """Normal login after account is verified - based on your original code"""
 
@@ -446,7 +465,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         if not username or not password:
             raise serializers.ValidationError("Username and password are required.")
 
-        user = authenticate(self.context.get('request'), username=username, password=password)
+        user = authenticate_identifier(self.context.get("request"), username, password)
         if not user:
             raise serializers.ValidationError("Invalid username or password.")
         if not user.is_active:
@@ -496,17 +515,7 @@ class SimpleLoginSerializer(serializers.Serializer):
     )
 
     def authenticate_user(self, identifier, password):
-        request = self.context["request"]
-        # Single lookup: username or email, resolved once
-        try:
-            user = User.objects.get(username=identifier)
-        except User.DoesNotExist:
-            try:
-                user = User.objects.get(email=identifier)
-            except (User.DoesNotExist, User.MultipleObjectsReturned):
-                return None
-        # One authenticate() call — EmailBackend now handles tenant scoping
-        return authenticate(request, username=user.username, password=password)
+        return authenticate_identifier(self.context["request"], identifier, password)
 
     def validate(self, attrs):
         identifier = attrs.get("email")  # Can be email or username

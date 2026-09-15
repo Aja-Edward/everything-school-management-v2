@@ -35,7 +35,7 @@ from django.views import View
 from django.utils.decorators import method_decorator
 from django_ratelimit.decorators import ratelimit
 from django_ratelimit.exceptions import Ratelimited
-from rest_framework.exceptions import Throttled
+from rest_framework.exceptions import Throttled, ValidationError
 import os
 from rest_framework import status, generics, permissions
 from rest_framework.decorators import api_view, permission_classes
@@ -228,8 +228,10 @@ class CustomTokenObtainPairView(TokenObtainPairView):
                         f"✅ Stored tenant {user.tenant.id} in session for user {user.email}"
                     )
 
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except ValidationError as error:
+            # {"non_field_errors": ["Invalid username or password."]}, as
+            # docs/mobile-attendance-api.md tells the app to expect.
+            return Response(error.detail, status=status.HTTP_400_BAD_REQUEST)
 
         # Extract tokens from validated data to set as cookies
         access = serializer.validated_data.get("access")
