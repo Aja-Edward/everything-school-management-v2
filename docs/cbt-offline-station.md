@@ -7,7 +7,9 @@ is slow or down. Answers are marked back on the school system (the cloud) once
 the results are brought back.
 
 Use it for a lab with unreliable internet. Where the internet is good, students
-sit papers on the school system directly and none of this is needed.
+sit papers on the school system directly and none of this is needed:
+[cbt-how-it-works.md](cbt-how-it-works.md) covers that, and everything here
+assumes it.
 
 ## How it works
 

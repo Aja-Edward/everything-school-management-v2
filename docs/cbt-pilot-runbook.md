@@ -6,6 +6,9 @@ while it is cheap. This covers deploying, a dress rehearsal the day before, the
 exam itself, what to do afterwards, and how much load the system has been
 checked against.
 
+For what each of teachers, students and admins does, in the order they do it,
+see [cbt-how-it-works.md](cbt-how-it-works.md).
+
 If the lab's internet can't be relied on, run the pilot on an exam station on
 the school's own network instead: see [cbt-offline-station.md](cbt-offline-station.md).
 
