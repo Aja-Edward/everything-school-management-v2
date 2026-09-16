@@ -482,20 +482,16 @@ class TeacherSerializer(serializers.ModelSerializer):
 
         user = None
         try:
-            from datetime import datetime
+            from utils import generate_unique_username
 
-            current_date = datetime.now()
-            month = current_date.strftime("%b").upper()
-            year = str(current_date.year)[-2:]
-
-            employee_id = validated_data.get("employee_id", "EMP001")
-            username = f"TCH/GTS/{month}/{year}/{employee_id}"
-
-            counter = 1
-            original_username = username
-            while User.objects.filter(username=username).exists():
-                username = f"{original_username}_{counter}"
-                counter += 1
+            # The school's own code, from the school this teacher is being
+            # created for. This read "TCH/GTS/..." for every school, whichever
+            # one was adding the teacher.
+            username = generate_unique_username(
+                "teacher",
+                employee_id=validated_data.get("employee_id", "EMP001"),
+                tenant=validated_data.get("tenant"),
+            )
 
             if User.objects.filter(email=email).exists():
                 raise serializers.ValidationError(

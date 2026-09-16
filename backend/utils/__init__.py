@@ -182,13 +182,23 @@ def _resolve_school_code(tenant=None) -> str:
 
 
 def _code_from_tenant(tenant) -> str:
-    """Extract school_code from a tenant object. Returns '' if not found."""
+    """
+    A school's own code, from its settings. A school whose settings row hasn't
+    been made yet falls back to initials of its name, the same rule
+    TenantSettings.save() uses — never to another school's code, which is
+    where the lookup below would otherwise go next.
+    """
     try:
-        if hasattr(tenant, "settings") and tenant.settings:
-            return tenant.settings.school_code or ""
+        if hasattr(tenant, "settings") and tenant.settings and tenant.settings.school_code:
+            return tenant.settings.school_code
     except Exception:
         pass
-    return ""
+
+    name = (getattr(tenant, "name", "") or "").strip()
+    if not name:
+        return ""
+    words = name.upper().split()
+    return "".join(word[0] for word in words[:3]) if len(words) >= 2 else name[:3].upper()
 
 
 def get_default_school_code():
