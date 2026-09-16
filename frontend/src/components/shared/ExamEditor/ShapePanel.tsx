@@ -19,8 +19,6 @@ import { X } from 'lucide-react';
 
 type ShapeDef = { label: string; path: (fill: string, stroke: string, sw: number) => string };
 
-const C = 50;  // centre of 100×100 viewBox
-
 function poly(points: [number, number][], fill: string, stroke: string, sw: number) {
   const d = points.map(([x, y]) => `${x},${y}`).join(' ');
   return `<polygon points="${d}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round"/>`;
@@ -150,8 +148,10 @@ const ShapePanel: React.FC<ShapePanelProps> = ({ onInsert, onClose }) => {
     <div className="w-5 h-5 rounded border border-gray-300 flex-shrink-0" style={{ background: color }} />
   );
 
+  // Anchored to the right: its button sits at the end of the toolbar, so a
+  // panel hung from the left runs off the side of the screen.
   return (
-    <div className="absolute top-full left-0 mt-1 z-30 bg-white border border-gray-200 rounded-xl shadow-2xl w-[520px] max-h-[80vh] overflow-hidden flex flex-col"
+    <div className="absolute top-full right-0 mt-1 z-30 bg-white border border-gray-200 rounded-xl shadow-2xl w-[520px] max-w-[92vw] max-h-[80vh] overflow-hidden flex flex-col"
       onMouseDown={e => e.preventDefault()}>
 
       {/* Header */}

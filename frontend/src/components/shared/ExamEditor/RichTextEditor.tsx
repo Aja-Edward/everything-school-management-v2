@@ -301,33 +301,36 @@ const MenuBar: React.FC<MenuBarProps> = ({
         onClick={() => { const url = prompt('Enter URL:'); if (url) editor.chain().focus().setLink({ href: url }).run(); }}
         className={btn(editor.isActive('link'))} title="Insert Link">🔗 Link</button>
 
+      {/* Shape Designer. Shown in the simplified toolbar too: objective
+          questions are written there, and they are the ones that ask a
+          student to look at a triangle, a circle or an arrow. */}
+      <div className="relative">
+        <button type="button"
+          onClick={() => setShowShapePanel(p => !p)}
+          className={`px-3 py-1 rounded text-sm font-medium transition ${
+            showShapePanel ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-200'
+          }`}
+          title="Open Shape Designer — 30+ shapes with full colour and size control">
+          ◆ Shapes
+        </button>
+        {showShapePanel && (
+          <ShapePanel
+            onClose={() => setShowShapePanel(false)}
+            onInsert={(dataUrl, label, size) => {
+              editor.chain().focus().setImage({
+                src: dataUrl,
+                alt: label,
+                // Start at the configured size; user can drag-resize via the toolbar
+                width: String(size),
+              }).run();
+              setShowShapePanel(false);
+            }}
+          />
+        )}
+      </div>
+
       {!simplified && (
         <>
-          {/* Shape Designer */}
-          <div className="relative">
-            <button type="button"
-              onClick={() => setShowShapePanel(p => !p)}
-              className={`px-3 py-1 rounded text-sm font-medium transition ${
-                showShapePanel ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-200'
-              }`}
-              title="Open Shape Designer — 30+ shapes with full colour and size control">
-              ◆ Shapes
-            </button>
-            {showShapePanel && (
-              <ShapePanel
-                onClose={() => setShowShapePanel(false)}
-                onInsert={(dataUrl, label, size) => {
-                  editor.chain().focus().setImage({
-                    src: dataUrl,
-                    alt: label,
-                    // Start at the configured size; user can drag-resize via the toolbar
-                    width: String(size),
-                  }).run();
-                  setShowShapePanel(false);
-                }}
-              />
-            )}
-          </div>
           {div}
           <button type="button"
             onClick={() => editor.chain().focus().clearNodes().unsetAllMarks().run()}
