@@ -396,7 +396,13 @@ class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             )
 
         try:
-            teacher = serializer.save()
+            # perform_create, not serializer.save(): it puts the school on the
+            # teacher and their account, and refuses when the request doesn't
+            # say which school. Saving straight from here left both without
+            # one, and a teacher with no school is refused every page of it
+            # and is missing from the school's own teacher list.
+            self.perform_create(serializer)
+            teacher = serializer.instance
             logger.info(f"[TeacherViewSet] Teacher created successfully: {teacher.id}")
 
             response_data = {
@@ -445,6 +451,9 @@ class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
 
             return Response(response_data, status=status.HTTP_201_CREATED)
 
+        except ValidationError:
+            # A refusal, not a breakage: DRF answers 400 with its own detail.
+            raise
         except Exception as e:
             logger.error(
                 f"[TeacherViewSet] Error creating teacher: {str(e)}", exc_info=True
