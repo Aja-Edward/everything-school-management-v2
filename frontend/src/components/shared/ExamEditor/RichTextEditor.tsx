@@ -11,7 +11,7 @@
  * - Maths and chemistry formulas (click one to change it)
  */
 
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
@@ -25,6 +25,7 @@ import { NodeSelection } from '@tiptap/pm/state';
 import { uploadImageToCloudinary } from './ImageUploader';
 import ImageEditModal from './ImageEditModal';
 import ShapePanel from './ShapePanel';
+import ShapeCanvas, { CANVAS_WIDTH, type DrawingItem, readDrawing } from './ShapeCanvas';
 import MathDialog from './MathDialog';
 import MathNode, { MATH_NODE, type MathEditRequest } from './MathNode';
 import type { RichTextEditorProps } from './types';
@@ -38,6 +39,8 @@ interface ImageFloatToolbarProps {
   onResize: (pct: number) => void;
   onEdit: () => void;
   onDelete: () => void;
+  /** Only for a drawing made on the board, which can be opened and changed again. */
+  onEditDrawing?: () => void;
 }
 
 const SIZE_OPTIONS = [
@@ -48,7 +51,7 @@ const SIZE_OPTIONS = [
 ];
 
 const ImageFloatToolbar: React.FC<ImageFloatToolbarProps> = ({
-  position, onResize, onEdit, onDelete,
+  position, onResize, onEdit, onDelete, onEditDrawing,
 }) => (
   <div
     style={{
@@ -76,6 +79,18 @@ const ImageFloatToolbar: React.FC<ImageFloatToolbarProps> = ({
     ))}
 
     <div className="w-px h-4 bg-gray-600 mx-1" />
+
+    {/* Drawings reopen on the board they were made on. */}
+    {onEditDrawing && (
+      <button
+        type="button"
+        onClick={onEditDrawing}
+        title="Change this drawing"
+        className="flex items-center gap-1 px-2 py-0.5 rounded hover:bg-blue-600 transition-colors"
+      >
+        ✎ Edit drawing
+      </button>
+    )}
 
     {/* Edit (crop / bg removal) */}
     <button
@@ -110,11 +125,12 @@ interface MenuBarProps {
   simplified?: boolean;
   onImageUploaded: (url: string) => void;
   onFormula: () => void;
+  onDraw: () => void;
 }
 
 const MenuBar: React.FC<MenuBarProps> = ({
   editor, enableImageUpload = true, enableTables = true,
-  simplified = false, onImageUploaded, onFormula,
+  simplified = false, onImageUploaded, onFormula, onDraw,
 }) => {
   const [showShapePanel, setShowShapePanel] = useState(false);
   const [uploading,      setUploading]      = useState(false);
@@ -329,6 +345,13 @@ const MenuBar: React.FC<MenuBarProps> = ({
         )}
       </div>
 
+      {/* Drawing board: several shapes arranged and labelled, inserted as one picture. */}
+      <button type="button" onClick={onDraw}
+        className="px-3 py-1 rounded text-sm font-medium bg-white text-gray-700 hover:bg-gray-200 transition"
+        title="Draw a diagram — shapes, arrows and labels on one sheet">
+        ✏️ Draw
+      </button>
+
       {!simplified && (
         <>
           {div}
@@ -361,6 +384,11 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   const [selectedImg, setSelectedImg]     = useState<HTMLImageElement | null>(null);
   const [toolbarPos,  setToolbarPos]      = useState<{ top: number; left: number } | null>(null);
   const [editModalSrc, setEditModalSrc]  = useState<string | null>(null);
+
+  // ── Drawing board state ─────────────────────────────────────────────────────
+  // `editing` is the image being changed, so its drawing replaces it rather
+  // than being added a second time.
+  const [drawing, setDrawing] = useState<{ items: DrawingItem[] | null; editing: HTMLImageElement | null } | null>(null);
 
   // ── Formula dialog state ────────────────────────────────────────────────────
   // `pos` is set when changing a formula already in the document.
@@ -486,6 +514,23 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
     setSelectedImg(null);
     setToolbarPos(null);
   }, [selectedImg, editor, findImagePos]);
+
+  // ── Drawings ────────────────────────────────────────────────────────────────
+  /** The drawing behind the selected image, if that image is one of ours. */
+  const selectedDrawing = useMemo(
+    () => (selectedImg ? readDrawing(selectedImg.getAttribute('src')) : null),
+    [selectedImg],
+  );
+
+  const handleDrawingSave = useCallback((dataUrl: string) => {
+    if (!editor) return;
+    const editing = drawing?.editing;
+    if (editing) commitImageAttrs(editing, { src: dataUrl });
+    else {
+      editor.chain().focus().setImage({ src: dataUrl, alt: 'Drawing', width: CANVAS_WIDTH } as any).run();
+    }
+    setDrawing(null);
+  }, [editor, drawing, commitImageAttrs]);
 
   // ── Apply edit result (new src) ─────────────────────────────────────────────
   const handleEditSave = useCallback((newSrc: string) => {
@@ -635,6 +680,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
             simplified={simplified}
             onImageUploaded={() => {}}
             onFormula={openFormulaDialog}
+            onDraw={() => setDrawing({ items: null, editing: null })}
           />
         )}
 
@@ -645,6 +691,9 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
             onResize={handleResize}
             onEdit={handleEditOpen}
             onDelete={handleDeleteImage}
+            onEditDrawing={selectedDrawing
+              ? () => setDrawing({ items: selectedDrawing, editing: selectedImg })
+              : undefined}
           />
         )}
 
@@ -692,6 +741,14 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
           src={editModalSrc}
           onSave={handleEditSave}
           onClose={() => setEditModalSrc(null)}
+        />
+      )}
+
+      {drawing && (
+        <ShapeCanvas
+          initialItems={drawing.items}
+          onInsert={handleDrawingSave}
+          onClose={() => setDrawing(null)}
         />
       )}
 
