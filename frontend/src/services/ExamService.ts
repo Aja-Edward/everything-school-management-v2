@@ -635,22 +635,39 @@ export class ExamService {
   /**
    * Get exam types for dropdown (static fallback labels — use fetchExamTypes() for PKs)
    */
+  /**
+   * The exam types every school is set up with (backend
+   * seed_exam_defaults.py). The values are codes, which the exam list accepts
+   * in place of an id. "assignment" was missing, and Oral's code is "oral",
+   * not "oral_exam", so neither could ever match an exam.
+   */
   static getExamTypes() {
     return [
       { value: 'quiz', label: 'Quiz' },
       { value: 'test', label: 'Class Test' },
+      { value: 'assignment', label: 'Assignment' },
       { value: 'mid_term', label: 'Mid-Term Examination' },
       { value: 'final_exam', label: 'Final Examination' },
-      { value: 'practical', label: 'Practical Examination' },
-      { value: 'oral_exam', label: 'Oral Examination' },
+      { value: 'practical', label: 'Practical' },
+      { value: 'oral', label: 'Oral' },
     ];
   }
 
   /**
    * Get exam statuses for dropdown
    */
+  /**
+   * Every status an exam can be in (backend seed_exam_defaults.py). The four
+   * an exam passes through before it is ever scheduled — draft, pending
+   * approval, approved, rejected — were missing, so a teacher's exam waiting
+   * for approval could not be filtered for at all.
+   */
   static getExamStatuses() {
     return [
+      { value: 'draft', label: 'Draft' },
+      { value: 'pending_approval', label: 'Pending Approval' },
+      { value: 'approved', label: 'Approved' },
+      { value: 'rejected', label: 'Rejected' },
       { value: 'scheduled', label: 'Scheduled' },
       { value: 'in_progress', label: 'In Progress' },
       { value: 'completed', label: 'Completed' },

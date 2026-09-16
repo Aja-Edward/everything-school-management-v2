@@ -2,12 +2,7 @@ import django_filters
 from django import forms
 from django.utils import timezone
 
-from .models import (
-    Exam,
-    ExamType,  # UPDATED: FK model replaces EXAM_TYPE_CHOICES
-    ExamStatus,  # UPDATED: FK model replaces EXAM_STATUS_CHOICES
-    DifficultyLevel,  # UPDATED: FK model replaces DIFFICULTY_CHOICES
-)
+from .models import Exam
 from academics.models import TermType  # UPDATED: FK model replaces Term.TERM_CHOICES
 from classroom.models import Stream
 
@@ -57,13 +52,8 @@ class ExamFilter(django_filters.FilterSet):
     # UPDATED: FK-based filters replace ChoiceFilters
     # ------------------------------------------------------------------
 
-    # Filter by ExamType FK object (dropdown of all ExamType records)
-    exam_type = django_filters.ModelChoiceFilter(
-        queryset=ExamType.objects.all(),
-        empty_label="All Types",
-        widget=forms.Select(attrs={"class": "form-control"}),
-        label="Exam Type",
-    )
+    # Filter by ExamType, given as its id or its code ("quiz").
+    exam_type = django_filters.CharFilter(method="filter_exam_type", label="Exam Type")
 
     # Filter by ExamType code string — lets API callers pass ?exam_type_code=quiz
     exam_type_code = django_filters.CharFilter(
@@ -72,13 +62,8 @@ class ExamFilter(django_filters.FilterSet):
         label="Exam Type Code",
     )
 
-    # Filter by ExamStatus FK object
-    status = django_filters.ModelChoiceFilter(
-        queryset=ExamStatus.objects.all(),
-        empty_label="All Statuses",
-        widget=forms.Select(attrs={"class": "form-control"}),
-        label="Status",
-    )
+    # Filter by ExamStatus, given as its id or its code ("pending_approval").
+    status = django_filters.CharFilter(method="filter_status", label="Status")
 
     # Filter by ExamStatus code string — lets API callers pass ?status_code=scheduled
     status_code = django_filters.CharFilter(
@@ -87,13 +72,9 @@ class ExamFilter(django_filters.FilterSet):
         label="Status Code",
     )
 
-    # Filter by DifficultyLevel FK object
-    difficulty_level = django_filters.ModelChoiceFilter(
-        queryset=DifficultyLevel.objects.all(),
-        empty_label="All Difficulties",
-        widget=forms.Select(attrs={"class": "form-control"}),
-        label="Difficulty",
-    )
+    # Filter by DifficultyLevel, given as its id or its code ("hard").
+    difficulty_level = django_filters.CharFilter(
+        method="filter_difficulty_level", label="Difficulty")
 
     # Filter by DifficultyLevel code string — lets API callers pass ?difficulty_code=hard
     difficulty_code = django_filters.CharFilter(
@@ -218,6 +199,34 @@ class ExamFilter(django_filters.FilterSet):
         ),
         label="Max Duration (minutes)",
     )
+
+    # ------------------------------------------------------------------
+    # Id or code
+    #
+    # These three name a row that every school has its own copy of. The
+    # screens ask for them by code ("quiz"), because a code means the same
+    # thing at every school while an id doesn't, and other callers have always
+    # sent ids. Both are answered. Asking for one that doesn't exist finds no
+    # exams, rather than refusing the whole request — a filter nobody can
+    # satisfy shouldn't take the exam list down with it.
+    # ------------------------------------------------------------------
+
+    def _by_id_or_code(self, queryset, field, value):
+        value = (value or "").strip()
+        if not value:
+            return queryset
+        if value.isdigit():
+            return queryset.filter(**{f"{field}_id": int(value)})
+        return queryset.filter(**{f"{field}__code__iexact": value})
+
+    def filter_exam_type(self, queryset, name, value):
+        return self._by_id_or_code(queryset, "exam_type", value)
+
+    def filter_status(self, queryset, name, value):
+        return self._by_id_or_code(queryset, "status", value)
+
+    def filter_difficulty_level(self, queryset, name, value):
+        return self._by_id_or_code(queryset, "difficulty_level", value)
 
     class Meta:
         model = Exam

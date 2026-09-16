@@ -117,6 +117,52 @@ class ExamApiTestCase(APITestCase):
             url, data or {}, format="json", HTTP_X_TENANT_SLUG=(school or self.school).slug)
 
 
+class FilteringTheExamListTest(ExamApiTestCase):
+    """
+    The screens filter by code ("quiz"), because a code means the same thing
+    at every school while an id doesn't; other callers send ids. Both work,
+    and a filter nobody can satisfy empties the list instead of refusing the
+    whole request — sending a code to a filter that took only ids answered
+    400 "Select a valid choice", so the exam list showed an error and no
+    exams at all.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.login("admin")
+        self.quiz = self.make_exam(self.school)
+        self.quiz.title = "Pre-Nursery quiz"
+        self.quiz.exam_type = ExamType.objects.get(tenant=self.school, code="quiz")
+        self.quiz.status = ExamStatus.objects.get(tenant=self.school, code="pending_approval")
+        self.quiz.save()
+
+    def titles(self, query):
+        response = self.get(f"{EXAMS}?{query}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        results = response.data.get("results", response.data)
+        return sorted(exam["title"] for exam in results)
+
+    def test_a_type_or_status_can_be_named_by_its_code(self):
+        self.assertEqual(self.titles("exam_type=quiz"), ["Pre-Nursery quiz"])
+        self.assertEqual(self.titles("status=pending_approval"), ["Pre-Nursery quiz"])
+        self.assertEqual(self.titles("exam_type=quiz&status=pending_approval"), ["Pre-Nursery quiz"])
+
+    def test_an_id_still_works(self):
+        quiz_type = ExamType.objects.get(tenant=self.school, code="quiz")
+        pending = ExamStatus.objects.get(tenant=self.school, code="pending_approval")
+
+        self.assertEqual(self.titles(f"exam_type={quiz_type.id}"), ["Pre-Nursery quiz"])
+        self.assertEqual(self.titles(f"status={pending.id}"), ["Pre-Nursery quiz"])
+
+    def test_a_type_nobody_has_finds_nothing_rather_than_refusing(self):
+        self.assertEqual(self.titles("exam_type=no_such_type"), [])
+        self.assertEqual(self.titles("status=no_such_status"), [])
+        self.assertEqual(self.titles("difficulty_level=no_such_level"), [])
+
+    def test_the_whole_list_comes_back_with_no_filter(self):
+        self.assertEqual(self.titles(""), ["First Term Mathematics", "Pre-Nursery quiz"])
+
+
 class ExamsAreForStaffTest(ExamApiTestCase):
     def test_students_and_parents_are_refused_every_exam_endpoint(self):
         reads = [
