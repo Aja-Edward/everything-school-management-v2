@@ -94,8 +94,6 @@ router.register(r"schedules", ClassScheduleViewSet, basename="classschedule")
 # URL PATTERNS
 # ============================================================================
 urlpatterns = [
-    # Include all router URLs
-    path("", include(router.urls)),
     # ========================================================================
     # SYSTEM HEALTH & MONITORING ENDPOINTS
     # ========================================================================
@@ -422,6 +420,13 @@ urlpatterns = [
         ClassScheduleViewSet.as_view({"get": "weekly_schedule"}),
         name="weekly-schedule",
     ),
+    # The router goes last. Its detail route, subjects/<pk>/, matches any
+    # single segment, so with the router first every named path above was read
+    # as an id: /subjects/for-grade/ asked for the subject called "for-grade"
+    # and answered 404 Not found, which is what emptied the subject list when
+    # setting an exam. The named paths are the more specific ones, so they are
+    # matched first.
+    path("", include(router.urls)),
 ]
 
 # ============================================================================

@@ -219,16 +219,25 @@ class SubjectSerializer(serializers.ModelSerializer):
     def get_education_level_details(self, obj):
         """
         Derive education level details from grade_levels M2M FK chain.
-        grade_level.education_level is still a CharField on classroom.GradeLevel.
         Falls back to old education_levels JSONField if grade_levels is empty.
+
+        GradeLevel.education_level is a foreign key now, not the string this
+        once read. Gathering the levels gave a set of EducationLevel rows, so
+        sorting them raised TypeError and every subject with a grade level
+        linked to it broke the whole response — which is what emptied the
+        subject list when setting an exam. The codes below are strings again,
+        upper-cased to match the old field's spelling.
         """
         grade_levels = (
             list(obj.grade_levels.all().select_related())
             if hasattr(obj, "grade_levels")
             else []
         )
-        # Collect level_type values from FK chain
-        level_types = {gl.education_level for gl in grade_levels if gl.education_level}
+        level_types = {
+            str(getattr(gl.education_level, "code", gl.education_level)).upper()
+            for gl in grade_levels
+            if gl.education_level
+        }
 
         # Fall back to old JSONField if transition is incomplete
         if not level_types:
@@ -678,17 +687,23 @@ class SubjectEducationLevelSerializer(serializers.ModelSerializer):
         ]
 
     def _get_level_types(self, obj):
-        """Derive level_type set from grade_levels FK chain, fall back to JSONField."""
+        """
+        The education levels a subject is taught at, as codes.
+
+        GradeLevel.education_level is a foreign key, so this has to take the
+        code off it: a set of EducationLevel rows can't be sorted, and none of
+        the "NURSERY" in level_types checks below would ever match.
+        """
         try:
             level_types = {
-                gl.education_level
+                str(getattr(gl.education_level, "code", gl.education_level)).upper()
                 for gl in obj.grade_levels.all()
                 if gl.education_level
             }
         except Exception:
             level_types = set()
         if not level_types:
-            level_types = set(getattr(obj, "education_levels", []) or [])
+            level_types = {str(level).upper() for level in getattr(obj, "education_levels", []) or []}
         return level_types
 
     def get_applicable_education_levels(self, obj):

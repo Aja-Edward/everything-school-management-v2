@@ -306,3 +306,55 @@ class EducationLevelsDisplayTest(SubjectLevelTestCase):
         data = SubjectListSerializer(self.subject).data
 
         self.assertEqual(data["education_levels_display"], "Primary")
+
+
+class SubjectsForAGradeLevelTest(SubjectLevelTestCase):
+    """
+    The subjects offered at one grade level, which is the list the exam form
+    asks for when staff pick a grade.
+
+    The same mistake as above, one field along: the levels a subject spans
+    were gathered as EducationLevel rows and then sorted. Sorting model rows
+    raises, so the whole response failed and staff saw an empty subject
+    dropdown with no exam savable behind it. Subjects with no grade levels
+    fell back to the old JSON list of strings and were fine, which is why this
+    only bit schools whose subjects were properly set up.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.admin = User.objects.create_user(
+            username="levels_admin", email="levels_admin@example.com", password="x", role="superadmin",
+            first_name="Head", last_name="Admin", is_active=True, is_staff=True, tenant=self.tenant)
+        self.client.force_authenticate(user=self.admin)
+
+    def for_grade(self, grade):
+        return self.client.get(
+            f"/api/classrooms/subjects/for-grade/?grade_id={grade.id}",
+            HTTP_X_TENANT_SLUG=self.tenant.slug)
+
+    def test_a_subject_is_offered_at_the_grade_levels_it_is_linked_to(self):
+        response = self.for_grade(self.primary_grades[0])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        rows = response.data.get("results", response.data) if isinstance(response.data, dict) else response.data
+        self.assertIn("Mathematics", [row["name"] for row in rows])
+
+    def test_the_levels_it_spans_come_back_as_codes(self):
+        response = self.for_grade(self.primary_grades[0])
+
+        rows = response.data.get("results", response.data) if isinstance(response.data, dict) else response.data
+        details = rows[0]["education_level_details"]
+        self.assertEqual([level["code"] for level in details["applicable_levels"]], ["PRIMARY"])
+        self.assertTrue(details["level_compatibility"]["primary"])
+        self.assertFalse(details["level_compatibility"]["nursery"])
+
+    def test_a_subject_spanning_two_levels_reports_both(self):
+        self.subject.grade_levels.add(*self.junior_grades)
+
+        response = self.for_grade(self.junior_grades[0])
+
+        rows = response.data.get("results", response.data) if isinstance(response.data, dict) else response.data
+        details = next(row for row in rows if row["name"] == "Mathematics")["education_level_details"]
+        self.assertEqual([level["code"] for level in details["applicable_levels"]], ["JSS", "PRIMARY"])
+        self.assertTrue(details["level_compatibility"]["primary"])
