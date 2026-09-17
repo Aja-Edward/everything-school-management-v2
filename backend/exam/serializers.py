@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.utils import timezone
-from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.exceptions import ObjectDoesNotExist, ValidationError as DjangoValidationError
 
 from .models import (
     Exam,
@@ -22,6 +22,31 @@ from classroom.models import GradeLevel, Section, Stream
 from subject.models import Subject
 from teacher.models import Teacher
 from students.models import Student
+
+
+class CodeOrIdRelatedField(serializers.PrimaryKeyRelatedField):
+    """
+    A related row named by its id, by its code ("quiz", "approved"), or as the
+    object the read serializer sent out.
+
+    The screens work in codes, because a code means the same thing at every
+    school while an id doesn't, and they hand back whatever they were given —
+    which for an exam being edited is the nested {"id", "code", "name"} the
+    read serializer wrote. Only ids were accepted, so saving an edited exam
+    failed on its status with nothing shown to say why. The queryset is the
+    school's own (SchoolScopedRelationsMixin), so a code only ever finds that
+    school's row.
+    """
+
+    def to_internal_value(self, data):
+        if isinstance(data, dict):
+            data = data.get("id") or data.get("code")
+        if isinstance(data, str) and not data.strip().isdigit():
+            try:
+                return self.get_queryset().get(code__iexact=data.strip())
+            except (AttributeError, ObjectDoesNotExist):
+                self.fail("does_not_exist", pk_value=data)
+        return super().to_internal_value(data)
 
 
 class SchoolScopedRelationsMixin:
@@ -445,10 +470,10 @@ class ExamCreateUpdateSerializer(SchoolScopedRelationsMixin, serializers.ModelSe
         queryset=Teacher.objects.all(), many=True, required=False
     )
 
-    # FK fields — accept IDs on write
-    exam_type = serializers.PrimaryKeyRelatedField(queryset=ExamType.objects.all())
-    status = serializers.PrimaryKeyRelatedField(queryset=ExamStatus.objects.all())
-    difficulty_level = serializers.PrimaryKeyRelatedField(
+    # FK fields — an id, a code, or the object the read serializer sent out
+    exam_type = CodeOrIdRelatedField(queryset=ExamType.objects.all())
+    status = CodeOrIdRelatedField(queryset=ExamStatus.objects.all())
+    difficulty_level = CodeOrIdRelatedField(
         queryset=DifficultyLevel.objects.all(), required=False, allow_null=True
     )
 

@@ -43,6 +43,7 @@ const ExamsPage: React.FC<ExamsPageProps> = ({
   const [exams, setExams] = useState<Exam[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [_submitting, setSubmitting] = useState(false);
 
   // Modal and selected objects
@@ -127,6 +128,7 @@ const ExamsPage: React.FC<ExamsPageProps> = ({
   const handleCreateExam = useCallback(
     async (examData: ExamCreateData) => {
       setSubmitting(true);
+      setSaveError(null);
       try {
         let savedExam: Exam;
         
@@ -159,7 +161,10 @@ const ExamsPage: React.FC<ExamsPageProps> = ({
         setEditingExam(null);
       } catch (err) {
         console.error("❌ Save exam error:", err);
-        setError(err instanceof Error ? err.message : "Failed to save exam");
+        const message = err instanceof Error ? err.message : "Failed to save exam";
+        setError(message);
+        // The form stays open over the page, so the reason has to go on it.
+        setSaveError(message);
       } finally {
         setSubmitting(false);
       }
@@ -797,9 +802,11 @@ const handleEditExam = useCallback((exam: Exam) => {
       <ExamFormModal
         open={showExamModal}
         exam={editingExam}
+        saveError={saveError}
         onClose={() => {
           setShowExamModal(false);
           setEditingExam(null);
+          setSaveError(null);
         }}
         onSubmit={handleCreateExam}
       />

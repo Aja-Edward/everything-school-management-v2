@@ -26,6 +26,9 @@ interface ExamFormModalProps {
   exam?: Exam | null;
   onClose: () => void;
   onSubmit: (data: ExamCreateData) => void;
+  /** Why the last save didn't go through. Shown by the Save button: the page
+      behind this form is covered, so an error left there is never seen. */
+  saveError?: string | null;
 }
 
 type Tab = 'details' | 'mcq' | 'theory' | 'practical' | 'custom' | 'print';
@@ -208,7 +211,7 @@ const Field: React.FC<{
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSubmit }) => {
+const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSubmit, saveError }) => {
   const isEdit = !!exam?.id;
 
   // ── Basic form state ───────────────────────────────────────────────────────
@@ -363,7 +366,14 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
       setVenue(exam.venue || '');
       setInstructions(exam.instructions || '');
       setMaterialsAllowed(exam.materials_allowed || '');
-      setStatus(exam.status || 'draft');
+      // Status arrives as the nested {id, code, name} the read serializer
+      // writes. Kept whole, it filled the box with an object: nothing showed
+      // as selected and saving sent the object back.
+      setStatus(
+        typeof exam.status === 'string'
+          ? exam.status
+          : (exam.status as any)?.code ?? (exam.status as any)?.id ?? 'draft',
+      );
       setIsPractical(exam.is_practical || false);
       setRequiresComputer(exam.requires_computer || false);
       setIsOnline(exam.is_online || false);
@@ -630,10 +640,11 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
                     value={status} onChange={e => setStatus(e.target.value)}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                   >
-                    <option value="draft">Draft</option>
-                    <option value="scheduled">Scheduled</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="completed">Completed</option>
+                    {/* Every status a school has, not the four that were listed
+                        here: an exam waiting for approval showed as blank. */}
+                    {ExamService.getExamStatuses().map(option => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
                   </select>
                 </Field>
 
@@ -859,6 +870,12 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
                   Next <ChevronRight size={14} />
                 </button>
               ) : null}
+
+              {saveError && (
+                <p className="flex items-center gap-1.5 text-sm text-red-600 mr-2">
+                  <AlertCircle size={14} /> {saveError}
+                </p>
+              )}
 
               <button
                 type="submit"

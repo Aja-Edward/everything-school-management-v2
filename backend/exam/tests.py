@@ -180,6 +180,64 @@ class FilteringTheExamListTest(ExamApiTestCase):
         self.assertEqual(self.titles("is_online=false"), ["First Term Mathematics"])
 
 
+class SavingAnEditedExamTest(ExamApiTestCase):
+    """
+    The exam form reads an exam, changes a field and sends the lot back. Its
+    type, status and difficulty come back as the nested objects the read
+    serializer wrote, and its Status box works in codes. Only ids were
+    accepted, so Save Changes answered 400 and nothing was saved — and the
+    page showed the reason behind the open form, where nobody saw it.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.login("admin")
+
+    def patch(self, data):
+        return self.client.patch(f"{EXAMS}{self.exam.id}/", data, format="json",
+                                 HTTP_X_TENANT_SLUG=self.school.slug)
+
+    def test_the_status_can_come_back_as_the_object_it_was_read_as(self):
+        approved = ExamStatus.objects.get(tenant=self.school, code="approved")
+
+        response = self.patch({"status": {"id": approved.id, "code": "approved", "name": "Approved"}})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.exam.refresh_from_db()
+        self.assertEqual(self.exam.status, approved)
+
+    def test_a_code_names_a_status_or_a_type(self):
+        response = self.patch({"status": "approved", "exam_type": "quiz"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.exam.refresh_from_db()
+        self.assertEqual((self.exam.status.code, self.exam.exam_type.code), ("approved", "quiz"))
+
+    def test_an_id_still_works(self):
+        quiz = ExamType.objects.get(tenant=self.school, code="quiz")
+
+        response = self.patch({"exam_type": quiz.id})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.exam.refresh_from_db()
+        self.assertEqual(self.exam.exam_type, quiz)
+
+    def test_another_schools_status_is_refused(self):
+        theirs = ExamStatus.objects.get(tenant=self.other, code="approved")
+
+        response = self.patch({"status": theirs.id})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.exam.refresh_from_db()
+        self.assertEqual(self.exam.status.tenant, self.school)
+
+    def test_a_status_nobody_has_is_refused_by_name(self):
+        response = self.patch({"status": "no_such_status"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("status", response.data)
+
+
 class ExamsAreForStaffTest(ExamApiTestCase):
     def test_students_and_parents_are_refused_every_exam_endpoint(self):
         reads = [
