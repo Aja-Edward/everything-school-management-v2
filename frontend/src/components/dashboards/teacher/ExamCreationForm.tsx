@@ -578,7 +578,7 @@ const handleInputChange = (field: keyof ExamCreateData, value: any) => {
     // Populate form data with imported exam data
     setFormData(prev => {
       const newTotalMarks = examData.total_marks || prev.total_marks;
-      const newPassMarks = prev.pass_marks > newTotalMarks
+      const newPassMarks = (prev.pass_marks ?? 0) > newTotalMarks
         ? Math.round(newTotalMarks * 0.5)
         : prev.pass_marks;
       return {
@@ -928,7 +928,7 @@ const submitForApproval = async () => {
                     Difficulty Level
                   </label>
                   <select
-                    value={formData.difficulty_level}
+                    value={formData.difficulty_level ?? ''}
                     onChange={(e) => handleInputChange('difficulty_level', parseInt(e.target.value))}
                     className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white"
                   >

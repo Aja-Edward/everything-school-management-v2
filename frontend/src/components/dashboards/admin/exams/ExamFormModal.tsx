@@ -425,6 +425,7 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
     if (!title.trim())    e.title      = 'Title is required';
     if (!subject)         e.subject    = 'Subject is required';
     if (!gradeLevel)      e.gradeLevel = 'Grade level is required';
+    if (!examType)        e.examType   = 'Exam type is required';
     if (!examDate)        e.examDate   = 'Exam date is required';
     if (!startTime)       e.startTime  = 'Start time is required';
     if (!endTime)         e.endTime    = 'End time is required';
@@ -449,7 +450,9 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
         subject,
         grade_level: gradeLevel,
         exam_type: examType,
-        difficulty_level: difficulty,
+        // 0 is the "Select difficulty…" option, not a difficulty. Sent as it
+        // stood, the save was refused: invalid pk "0".
+        difficulty_level: difficulty || null,
         exam_date: examDate,
         start_time: startTime,
         end_time: endTime,
@@ -604,16 +607,17 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
                   )}
                 </Field>
 
-                <Field label="Exam Type">
+                <Field label="Exam Type" required>
                   <select
                     value={examType} onChange={e => setExamType(Number(e.target.value))}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    className={`w-full border rounded-lg px-3 py-2 text-sm ${errors.examType ? 'border-red-400' : 'border-gray-300'}`}
                   >
                     <option value={0}>Select exam type…</option>
                     {examTypeOptions.map(t => (
                       <option key={t.id} value={t.id}>{t.name}</option>
                     ))}
                   </select>
+                  {errors.examType && <p className="text-xs text-red-600 mt-1">{errors.examType}</p>}
                 </Field>
 
                 <Field label="Difficulty Level">

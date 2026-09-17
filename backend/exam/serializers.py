@@ -41,6 +41,11 @@ class CodeOrIdRelatedField(serializers.PrimaryKeyRelatedField):
     def to_internal_value(self, data):
         if isinstance(data, dict):
             data = data.get("id") or data.get("code")
+        # A dropdown's "Select one…" sits at 0, which is no row at all. On a
+        # field that may be empty that means none was chosen; the save was
+        # refused with invalid pk "0".
+        if self.allow_null and data in (0, "0", ""):
+            return None
         if isinstance(data, str) and not data.strip().isdigit():
             try:
                 return self.get_queryset().get(code__iexact=data.strip())

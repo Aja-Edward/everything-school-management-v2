@@ -231,6 +231,28 @@ class SavingAnEditedExamTest(ExamApiTestCase):
         self.exam.refresh_from_db()
         self.assertEqual(self.exam.status.tenant, self.school)
 
+    def test_no_difficulty_chosen_is_saved_as_none(self):
+        """The Difficulty box sits at 0 until one is picked, which is no row."""
+        for empty in (0, "0", None):
+            with self.subTest(sent=empty):
+                response = self.patch({"difficulty_level": empty})
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+                self.exam.refresh_from_db()
+                self.assertIsNone(self.exam.difficulty_level)
+
+    def test_a_difficulty_can_still_be_set_by_code_or_id(self):
+        hard = DifficultyLevel.objects.get(tenant=self.school, code="hard")
+
+        by_code = self.patch({"difficulty_level": "hard"})
+        self.exam.refresh_from_db()
+        self.assertEqual((by_code.status_code, self.exam.difficulty_level), (status.HTTP_200_OK, hard))
+
+        self.patch({"difficulty_level": None})
+        by_id = self.patch({"difficulty_level": hard.id})
+        self.exam.refresh_from_db()
+        self.assertEqual((by_id.status_code, self.exam.difficulty_level), (status.HTTP_200_OK, hard))
+
     def test_a_status_nobody_has_is_refused_by_name(self):
         response = self.patch({"status": "no_such_status"})
 

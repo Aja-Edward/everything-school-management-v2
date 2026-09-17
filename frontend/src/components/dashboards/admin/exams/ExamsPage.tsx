@@ -157,6 +157,9 @@ const ExamsPage: React.FC<ExamsPageProps> = ({
           console.log("✅ Exam created successfully!");
         }
 
+        // A save that worked clears whatever the last failed one left on the
+        // page, so a stale red banner doesn't outlive the problem.
+        setError(null);
         setShowExamModal(false);
         setEditingExam(null);
       } catch (err) {

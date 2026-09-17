@@ -108,13 +108,14 @@ export interface ExamCreateData {
   teacher?: number;
   exam_schedule?: number;
   exam_type: string | number;       // accepts PK (number) or legacy string code
-  difficulty_level: string | number; // accepts PK (number) or legacy string code
+  difficulty_level: string | number | null; // a PK, a code, or null for none
   exam_date: string;
   start_time: string;
   end_time: string;
   duration_minutes?: number;
   total_marks: number;
-  pass_marks: number;
+  /** Optional: the form leaves it out when no pass mark is set. */
+  pass_marks?: number;
   venue?: string;
   max_students?: number;
   instructions?: string;
@@ -148,7 +149,7 @@ export interface ExamUpdateData {
   teacher?: number;
   exam_schedule?: number;
   exam_type?: string | number;
-  difficulty_level?: string | number;
+  difficulty_level?: string | number | null;
   exam_date?: string;
   start_time?: string;
   end_time?: string;
