@@ -162,6 +162,23 @@ class FilteringTheExamListTest(ExamApiTestCase):
     def test_the_whole_list_comes_back_with_no_filter(self):
         self.assertEqual(self.titles(""), ["First Term Mathematics", "Pre-Nursery quiz"])
 
+    def test_an_exam_set_online_is_in_the_list_like_any_other(self):
+        """
+        Asking for no filter asked, through an unticked checkbox, for exams
+        that are not online and need no computer. Every exam set as either was
+        missing from the list, with nothing on screen to explain it.
+        """
+        Exam.objects.filter(pk=self.quiz.pk).update(is_online=True, requires_computer=True)
+
+        self.assertEqual(self.titles(""), ["First Term Mathematics", "Pre-Nursery quiz"])
+        self.assertEqual(self.titles("exam_type=quiz"), ["Pre-Nursery quiz"])
+
+    def test_online_can_still_be_asked_for_on_purpose(self):
+        Exam.objects.filter(pk=self.quiz.pk).update(is_online=True)
+
+        self.assertEqual(self.titles("is_online=true"), ["Pre-Nursery quiz"])
+        self.assertEqual(self.titles("is_online=false"), ["First Term Mathematics"])
+
 
 class ExamsAreForStaffTest(ExamApiTestCase):
     def test_students_and_parents_are_refused_every_exam_endpoint(self):

@@ -122,20 +122,18 @@ class ExamFilter(django_filters.FilterSet):
     )
 
     # ------------------------------------------------------------------
-    # Boolean filters — unchanged
+    # Boolean filters
+    #
+    # No checkbox widget. A checkbox that isn't ticked reads as False rather
+    # than as "not asked", so an exam list with no filters at all quietly
+    # asked for exams that are not online and need no computer — and every
+    # exam set as online, or needing a computer, was missing from the list.
+    # Left plain, an absent parameter filters nothing, and ?is_online=true
+    # (or false) still does.
     # ------------------------------------------------------------------
-    is_practical = django_filters.BooleanFilter(
-        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        label="Practical Exam",
-    )
-    requires_computer = django_filters.BooleanFilter(
-        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        label="Requires Computer",
-    )
-    is_online = django_filters.BooleanFilter(
-        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        label="Online Exam",
-    )
+    is_practical = django_filters.BooleanFilter(label="Practical Exam")
+    requires_computer = django_filters.BooleanFilter(label="Requires Computer")
+    is_online = django_filters.BooleanFilter(label="Online Exam")
 
     # ------------------------------------------------------------------
     # Venue filter — unchanged
