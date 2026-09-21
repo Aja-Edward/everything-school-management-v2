@@ -15,6 +15,9 @@ import string
 import calendar
 import secrets
 
+from tenants.membership import user_school_id
+from tenants.models import Tenant
+
 User = get_user_model()
 
 # ============== REGISTRATION SERIALIZERS ==============
@@ -471,6 +474,10 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         if not user.is_active:
             raise serializers.ValidationError("User account is not active.")
 
+        # Teacher creation and the bulk uploads set the school on the profile
+        # only, so user.tenant alone told most teachers they had none.
+        school = Tenant.objects.filter(id=user_school_id(user)).first()
+
         refresh = self.get_token(user)
         data = {
             "refresh": str(refresh),
@@ -488,8 +495,8 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 # Added for API/mobile clients - a browser session gets this
                 # from /api/auth/status/ instead, but a Bearer-token client
                 # has no other way to learn its own tenant context.
-                "tenant_id": str(user.tenant_id) if user.tenant_id else None,
-                "tenant_slug": user.tenant.slug if user.tenant_id else None,
+                "tenant_id": str(school.id) if school else None,
+                "tenant_slug": school.slug if school else None,
             },
         }
         return data

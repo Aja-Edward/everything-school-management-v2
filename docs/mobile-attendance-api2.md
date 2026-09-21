@@ -28,6 +28,8 @@ Authorization: Bearer <access>
 X-Tenant-Slug: <user.tenant_slug>
 ```
 
+`X-Tenant-Slug` is the school's **slug** from the login response (e.g. `gods-treasure-schools`), not the short school code seen in usernames (the `GTS` in `STU/GTS/...`). Don't ask the user to type it. If the header is missing, or names no school, the backend uses the signed-in user's own school. A slug naming a different school gets **403**.
+
 The access token lasts 60 minutes. Swap the refresh token for a new pair at `POST /api/auth/token/refresh/` with `{"refresh": "..."}`, and keep the new `refresh`: the old one stops working once used.
 
 **Who can use these endpoints.** The school's own top admin (the account made when the school registered) can use all of them. Teachers can take attendance, record scans and look chips up, but enrolling, revoking or reassigning a chip needs students write access, which teachers don't have. Other admins, such as a primary or secondary section admin, need a role with attendance access (and students write access, for chips), given in the web app under Settings → Roles & Permissions. Without the access, a call gets **403** "You do not have permission to perform this action."

@@ -69,12 +69,18 @@ def restrict_to_request_tenant(request, user_auth):
     cannot sign the same credentials in, and DRF answers protected endpoints
     with 403 rather than a 401 the frontend would try to refresh its way out
     of.
+
+    A request that names no school the middleware could find is for the
+    user's own; see _default_to_users_school.
     """
     if user_auth is None:
         return None
 
     user = user_auth[0]
     tenant = getattr(request, "tenant", None)
+    if tenant is None:
+        _default_to_users_school(request, user)
+        return user_auth
     if user_belongs_to_tenant(user, tenant):
         return user_auth
 
@@ -83,3 +89,33 @@ def restrict_to_request_tenant(request, user_auth):
         user.pk, user_school_id(user), tenant.slug, request.path,
     )
     return (AnonymousUser(), None)
+
+
+def _default_to_users_school(request, user):
+    """
+    Set request.tenant to the signed-in user's own school.
+
+    TenantMiddleware falls back to the signed-in user's school, but it runs
+    before DRF has read the token, so for a JWT it never could. The attendance
+    mobile app sending no X-Tenant-Slug, or the school's short code (as in its
+    usernames) rather than its slug, got 403 "Tenant context required" on
+    every call. The token already says whose school it is, and a user's own
+    school is the only one membership lets them into anyway.
+
+    Platform staff keep working across schools, and the public paths the
+    middleware leaves without a school stay without one.
+    """
+    if not user.is_authenticated or getattr(user, "is_platform_staff", False):
+        return
+
+    from .middleware import is_public_path
+    from .models import Tenant
+
+    school_id = user_school_id(user)
+    if school_id is None or is_public_path(request.path):
+        return
+
+    school = Tenant.objects.filter(id=school_id, is_active=True).first()
+    if school is not None:
+        # On the Django request, which DRF's Request reads through.
+        getattr(request, "_request", request).tenant = school

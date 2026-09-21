@@ -83,9 +83,9 @@ All three are `AllowAny` — no auth header needed to call them (that would be c
 - Wrong username/password → `400`, `{"non_field_errors": ["Invalid username or password."]}`.
 - Rate limited → `429`, `{"detail": "Too many requests. Please wait before trying again."}`.
 
-## 4. Tenant context — required on every request
+## 4. Tenant context — send it on every request
 
-This backend is multi-tenant: every school is a separate tenant, and every attendance record belongs to exactly one. There is no subdomain for a mobile client to signal which school it's operating for, so you must send it explicitly:
+This backend is multi-tenant: every school is a separate tenant, and every attendance record belongs to exactly one. There is no subdomain for a mobile client to signal which school it's operating for, so send it explicitly:
 
 ```
 X-Tenant-Slug: godstreasureschools
@@ -93,7 +93,7 @@ X-Tenant-Slug: godstreasureschools
 
 (An alternative `X-Tenant-ID: <uuid>` header also works, if you'd rather key off the ID from the login response's `tenant_id`.)
 
-Without this header, tenant-scoped endpoints either 403 or return an empty result set — not an error you'd necessarily notice. The teacher's own account is tied to exactly one tenant already (`tenant_slug` in the login response above); just echo that value back on every call and you're covered for as long as that teacher is logged in.
+The teacher's own account is tied to exactly one tenant already (`tenant_slug` in the login response above); just echo that value back on every call and you're covered for as long as that teacher is logged in. It is the school's slug, not the short school code seen in usernames (the `GTS` in `STU/GTS/...`), so don't ask the user to type it. If the header is missing, or names no school, the backend uses the signed-in user's own school; a slug naming a different school gets 403.
 
 ## 5. Attendance endpoints
 

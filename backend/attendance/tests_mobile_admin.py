@@ -11,7 +11,8 @@ from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from tenants.models import Tenant
+from teacher.models import Teacher
+from tenants.models import Tenant, TenantSettings
 from users.models import CustomUser
 
 HOST = "everything-school-management-v2.onrender.com"
@@ -79,6 +80,46 @@ class SchoolAdminOnMobileTest(TestCase):
             self.assertNotIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN),
                              (response.request["PATH_INFO"], response.data))
         self.assertEqual(scan.data.get("code"), "uid_not_enrolled")
+
+    def call_with_header(self, method, path, token, header, data=None, client=None):
+        extra = {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+        if header is not None:
+            extra["HTTP_X_TENANT_SLUG"] = header
+        return getattr(client or self.client, method)(path, data, format="json", **extra)
+
+    def test_the_app_need_not_name_the_school(self):
+        # The token already says whose it is. With no school header, or one
+        # holding the school's short code (as in its usernames) rather than its
+        # slug, every call answered 403 "Tenant context required".
+        TenantSettings.objects.create(tenant=self.school, school_code="MOB")
+        token = self.token_for("head@mobile-school.example.com")
+
+        # The login also sets auth cookies, which an app may or may not keep.
+        for cookies, client in (("kept", self.client), ("dropped", APIClient(HTTP_HOST=HOST))):
+            for header in (None, "", "MOB", "no-such-school"):
+                with self.subTest(cookies=cookies, header=header):
+                    roster = self.call_with_header("get", "/api/attendance/tags/roster/", token, header,
+                                                   client=client)
+                    scan = self.call_with_header("post", "/api/attendance/scans/", token, header, client=client,
+                                                 data={"uid": "04a2241b", "direction": "in"})
+
+                    self.assertEqual(roster.status_code, status.HTTP_200_OK, roster.data)
+                    self.assertEqual(scan.data.get("code"), "uid_not_enrolled", scan.data)
+
+    def test_a_teacher_whose_school_is_only_on_their_profile_gets_it_at_login(self):
+        # Teacher creation sets the school on the profile, not the user.
+        teacher = self.make_user("gate_teacher", "gate@mobile-school.example.com", "teacher", None)
+        Teacher.objects.create(tenant=self.school, user=teacher)
+
+        login = self.log_in("gate_teacher")
+
+        self.assertEqual(login.status_code, status.HTTP_200_OK, login.data)
+        self.assertEqual(login.data["user"]["tenant_slug"], "mobile-school")
+        self.assertEqual(login.data["user"]["tenant_id"], str(self.school.id))
+
+        scan = self.call_with_header("post", "/api/attendance/scans/", login.data["access"], None,
+                                     data={"uid": "04a2241b", "direction": "in"})
+        self.assertEqual(scan.data.get("code"), "uid_not_enrolled", scan.data)
 
     def test_the_admin_gets_nothing_by_naming_another_school(self):
         rival = self.make_school("rival-school")
