@@ -5,10 +5,14 @@ One platform account sends every school's texts, and each school pays the
 platform per message (tenants.SentSms). Configured in settings:
 
 - TERMII_API_KEY and TERMII_BASE_URL, from the Termii dashboard.
-- TERMII_SENDER_ID, a sender ID approved on that account. Termii refuses a
-  text that names none.
+- TERMII_SENDER_ID, a sender ID the account may use (its own once approved,
+  or Termii's shared N-Alert). Termii refuses a text that names none, except
+  through the Number API.
 - TERMII_CHANNEL: "generic" reaches numbers that are not on DND; "dnd"
-  reaches every number, once the sender ID is approved for the DND route.
+  reaches every number, once the sender ID is whitelisted for the DND route;
+  "number" sends from Termii's own auto-generated numbers through the Number
+  API, with no sender ID. Termii allows that only for service alerts and
+  notifications, on an account holding at least 2,000 units.
 """
 import logging
 import re
@@ -33,9 +37,17 @@ def normalize_number(raw):
     return digits
 
 
+NUMBER_CHANNEL = "number"
+
+
+def _channel():
+    return (settings.TERMII_CHANNEL or "generic").strip().lower()
+
+
 def is_configured():
-    return bool(
-        (settings.TERMII_API_KEY or "").strip() and (settings.TERMII_SENDER_ID or "").strip())
+    if not (settings.TERMII_API_KEY or "").strip():
+        return False
+    return _channel() == NUMBER_CHANNEL or bool((settings.TERMII_SENDER_ID or "").strip())
 
 
 def send_sms(to_number, message):
@@ -50,15 +62,22 @@ def send_sms(to_number, message):
     if len(number) < 10:
         return False, f"Not a phone number: {to_number!r}", None
 
-    payload = {
-        "api_key": settings.TERMII_API_KEY.strip(),
-        "to": number,
-        "from": settings.TERMII_SENDER_ID.strip(),
-        "sms": message,
-        "type": "plain",
-        "channel": (settings.TERMII_CHANNEL or "generic").strip(),
-    }
-    url = f"{settings.TERMII_BASE_URL.rstrip('/')}/api/sms/send"
+    base_url = settings.TERMII_BASE_URL.rstrip('/')
+    channel = _channel()
+    if channel == NUMBER_CHANNEL:
+        # Sent from Termii's own numbers: no sender ID, type or channel.
+        url = f"{base_url}/api/sms/number/send"
+        payload = {"api_key": settings.TERMII_API_KEY.strip(), "to": number, "sms": message}
+    else:
+        url = f"{base_url}/api/sms/send"
+        payload = {
+            "api_key": settings.TERMII_API_KEY.strip(),
+            "to": number,
+            "from": settings.TERMII_SENDER_ID.strip(),
+            "sms": message,
+            "type": "plain",
+            "channel": channel,
+        }
 
     try:
         response = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
@@ -72,7 +91,7 @@ def send_sms(to_number, message):
 
     message_id = body.get("message_id") if isinstance(body, dict) else None
     if response.status_code == 200 and message_id:
-        logger.info("SMS to %s sent through Termii: %s", number, message_id)
+        logger.info("SMS to %s sent through Termii (%s): %s", number, channel, message_id)
         return True, body.get("message") or "Sent", str(message_id)
 
     detail = (body.get("message") if isinstance(body, dict) else "") or response.text[:300]

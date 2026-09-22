@@ -758,7 +758,8 @@ BREVO_API_KEY = os.getenv("BREVO_API_KEY", "your-brevo-api-key-here")
 # One platform account sends every school's texts; schools pay per message.
 # The key and base URL are on the Termii dashboard. TERMII_CHANNEL "generic"
 # reaches numbers that are not on DND; switch it to "dnd" once the sender ID
-# is approved for the DND route, and every number is reached.
+# is whitelisted for the DND route, and every number is reached; "number"
+# sends from Termii's own numbers (Number API) and needs no sender ID.
 
 TERMII_API_KEY = os.getenv("TERMII_API_KEY", "")
 TERMII_BASE_URL = os.getenv("TERMII_BASE_URL", "https://v3.api.termii.com")

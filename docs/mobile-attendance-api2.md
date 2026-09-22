@@ -331,5 +331,9 @@ A late arrival is *not* treated as an anomaly. It is already on the register and
 
 SMS goes out through **Termii**, from the platform's own account, and each school pays ₦10 per SMS on its next invoice. A school gets SMS only once it switches on the **SMS Notifications** add-on under Settings → Services; until then SMS rows are `skipped` and parents still get in-app and email alerts.
 
-Termii's `generic` route does not reach numbers on DND, and over 30 million Nigerian numbers are on it. Once the sender ID is approved for the DND route, set `TERMII_CHANNEL=dnd` and every number is reached; no code changes.
+Which Termii route carries the texts is the `TERMII_CHANNEL` setting, with no code changes:
+
+- `generic` sends from `TERMII_SENDER_ID` (the school's own once approved, or Termii's shared `N-Alert`). It does not reach numbers on DND, and over 30 million Nigerian numbers are on it; MTN does not deliver it between 8 PM and 8 AM.
+- `dnd` reaches every number, once the sender ID is whitelisted for the DND route.
+- `number` sends from Termii's own auto-generated numbers through its Number API, with no sender ID. Termii allows it only for service alerts and notifications, on an account holding at least 2,000 units.
 

@@ -78,6 +78,32 @@ class SendSmsTest(SimpleTestCase):
         post.assert_not_called()
 
 
+@override_settings(**{**CONFIGURED, "TERMII_CHANNEL": "number", "TERMII_SENDER_ID": ""})
+class NumberApiTest(SimpleTestCase):
+    """Termii's own numbers: no sender ID, a different endpoint."""
+
+    def test_a_text_goes_through_the_number_api_without_a_sender_id(self):
+        with patch("utils.termii.requests.post", return_value=termii_response(
+                200, {"code": "ok", "message_id": "9122821270554876574",
+                      "message": "Successfully Sent", "balance": 2500})) as post:
+            ok, _, message_id = termii.send_sms("08031234567", "Ada arrived at 07:45.")
+
+        self.assertTrue(ok)
+        self.assertEqual(message_id, "9122821270554876574")
+        url, = post.call_args.args
+        self.assertEqual(url, "https://termii.example/api/sms/number/send")
+        self.assertEqual(post.call_args.kwargs["json"], {
+            "api_key": "termii-key", "to": "2348031234567", "sms": "Ada arrived at 07:45.",
+        })
+
+    def test_it_counts_as_set_up_without_a_sender_id(self):
+        self.assertTrue(termii.is_configured())
+
+    @override_settings(TERMII_API_KEY="")
+    def test_it_still_needs_the_api_key(self):
+        self.assertFalse(termii.is_configured())
+
+
 @override_settings(TERMII_API_KEY="", TERMII_SENDER_ID="")
 class UnconfiguredTest(SimpleTestCase):
     def test_nothing_is_sent_without_a_key_and_a_sender_id(self):
