@@ -5,7 +5,9 @@ missing from their school's own teacher list, so this is the thing to get
 right at the moment the account is made.
 """
 
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -86,3 +88,91 @@ class CreateTeacherTest(TestCase):
         if listed.status_code == status.HTTP_200_OK:
             results = listed.data["results"] if isinstance(listed.data, dict) else listed.data
             self.assertEqual(results, [])
+
+
+class PagedListsShowEveryoneOnceTest(TestCase):
+    """
+    A paginated list with no order repeats and skips rows.
+
+    Reported by a school: one teacher appeared on page 1 and again on page 2,
+    and another never appeared at all although she could still sign in.
+    Deleting the "duplicate" deleted her only record.
+    """
+
+    client_class = APIClient
+    PAGE_SIZE = 20
+
+    def setUp(self):
+        self.school = Tenant.objects.create(
+            name="Kebi Academy", slug="kebi-academy", status="active", is_active=True,
+            owner_email="owner@kebi-academy.example.com")
+        self.admin = CustomUser.objects.create_user(
+            username="kebi_admin", email="head@kebi-academy.example.com", password=None,
+            role="superadmin", is_active=True, is_staff=True, tenant=self.school)
+        self.client.force_authenticate(user=self.admin)
+
+    def make_user(self, username, role, first, last):
+        return CustomUser.objects.create_user(
+            username=username, email=f"{username}@kebi-academy.example.com", password=None,
+            role=role, first_name=first, last_name=last, is_active=True, tenant=self.school)
+
+    def every_id(self, url, table):
+        """
+        Every id the paginated list hands out, page by page, with repeats kept.
+
+        The query that fetches each page is checked for an ORDER BY: without
+        one the database may order the rows differently per page, and with a
+        handful of test rows it usually doesn't, so comparing the pages alone
+        would pass whether or not the bug is there.
+        """
+        ids, page = [], 1
+        while True:
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.get(url, {"page": page}, HTTP_X_TENANT_SLUG=self.school.slug)
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+
+            # The query that fetches the page: a LIMIT (the last page's is
+            # short, "LIMIT 5 OFFSET 20") over the listed table. Not the row
+            # count, and not a `get()` elsewhere in the view, which Django
+            # writes as LIMIT 21.
+            paged = [q["sql"] for q in queries.captured_queries
+                     if f'FROM "{table}"' in q["sql"] and " LIMIT " in q["sql"]
+                     and "COUNT(*)" not in q["sql"] and " LIMIT 21" not in q["sql"]]
+            self.assertTrue(paged, f"no paginated query against {table}")
+            for sql in paged:
+                self.assertIn("ORDER BY", sql, "a page was fetched in no particular order")
+
+            ids += [row["id"] for row in response.data["results"]]
+            if not response.data.get("next"):
+                return ids, response.data["count"]
+            page += 1
+
+    def test_every_teacher_shows_exactly_once_across_the_pages(self):
+        # More than one page, and namesakes, which is where ties get shuffled.
+        made = [
+            Teacher.objects.create(
+                tenant=self.school, employee_id=f"EMP-{n:03d}",
+                user=self.make_user(f"teacher{n}", "teacher", "Mercy", "Iko"))
+            for n in range(self.PAGE_SIZE + 5)
+        ]
+
+        ids, count = self.every_id(TEACHERS, "teacher_teacher")
+
+        self.assertEqual(count, len(made))
+        self.assertEqual(len(ids), len(set(ids)), "a teacher was listed on two pages")
+        self.assertEqual(set(ids), {teacher.id for teacher in made}, "a teacher was never listed")
+
+    def test_every_parent_shows_exactly_once_across_the_pages(self):
+        from parent.models import ParentProfile
+
+        made = [
+            ParentProfile.objects.create(
+                tenant=self.school, user=self.make_user(f"parent{n}", "parent", "Mercy", "Iko"))
+            for n in range(self.PAGE_SIZE + 5)
+        ]
+
+        ids, count = self.every_id("/api/parents/", "parent_parentprofile")
+
+        self.assertEqual(count, len(made))
+        self.assertEqual(len(ids), len(set(ids)), "a parent was listed on two pages")
+        self.assertEqual(set(ids), {parent.id for parent in made}, "a parent was never listed")

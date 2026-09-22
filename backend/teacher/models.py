@@ -55,6 +55,11 @@ class Teacher(TenantMixin, models.Model):
 
     class Meta:
         unique_together = ["tenant", "employee_id"]
+        # The teacher list is paginated, and a paginated query with no order
+        # is free to return rows in a different order for each page: the same
+        # teacher then shows on two pages while another never shows at all,
+        # though she can still sign in. `id` breaks ties between namesakes.
+        ordering = ["user__first_name", "user__last_name", "id"]
 
     def __str__(self):
         return f"{self.user.full_name} ({self.employee_id})"

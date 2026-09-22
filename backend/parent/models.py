@@ -95,6 +95,9 @@ class ParentProfile(TenantMixin, models.Model):
         verbose_name = "Parent Profile"
         verbose_name_plural = "Parent Profiles"
         unique_together = [("tenant", "user")]
+        # Paginated like the teacher list, and unordered pages repeat and skip
+        # rows; `id` breaks ties between parents with the same name.
+        ordering = ["user__first_name", "user__last_name", "id"]
 
     def clean(self):
         from django.core.exceptions import ValidationError
