@@ -6,9 +6,9 @@
  */
 
 import React, { useState } from 'react';
-import { Plus, Filter, Download, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react';
+import { Plus, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InvoiceList } from '@/components/billing/InvoiceList';
 import { useBilling, useBillingSummary } from '@/hooks/useBilling';
 import { formatCurrency } from '@/services/BillingService';
@@ -114,43 +114,21 @@ export const Billing: React.FC = () => {
             </CardContent>
           </Card>
 
-          {/* Current Term Total */}
+          {/* Total Invoiced */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Current Term</CardTitle>
+              <CardTitle className="text-sm font-medium">Total Invoiced</CardTitle>
               <TrendingUp className="h-4 w-4 text-blue-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{formatCurrency(summary.current_term_total)}</div>
+              <div className="text-2xl font-bold">{formatCurrency(summary.total_invoiced)}</div>
               <p className="text-xs text-gray-600 mt-1">
-                This term's billing
+                {summary.total_invoices} invoice{summary.total_invoices !== 1 ? 's' : ''}, {summary.pending_count} awaiting payment
               </p>
             </CardContent>
           </Card>
         </div>
       ) : null}
-
-      {/* Active Features */}
-      {summary && summary.active_features.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Active Features</CardTitle>
-            <CardDescription>Features currently activated for your school</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {summary.active_features.map((feature, index) => (
-                <div
-                  key={index}
-                  className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium"
-                >
-                  ✓ {feature}
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Filters */}
       <Card>

@@ -51,9 +51,10 @@ class TenantServiceAdmin(admin.ModelAdmin):
 
 @admin.register(ServicePricing)
 class ServicePricingAdmin(admin.ModelAdmin):
-    list_display = ['service', 'price_per_student', 'is_base_service', 'is_active']
+    list_display = ['service', 'price_per_student', 'price_per_student_per_session',
+                    'is_base_service', 'is_active']
     list_filter = ['is_base_service', 'is_active']
-    list_editable = ['price_per_student', 'is_active']
+    list_editable = ['price_per_student', 'price_per_student_per_session', 'is_active']
 
 
 class TenantInvoiceLineItemInline(admin.TabularInline):

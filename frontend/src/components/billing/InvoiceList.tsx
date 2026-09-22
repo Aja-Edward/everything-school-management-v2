@@ -6,12 +6,11 @@
  */
 
 import React, { useState } from 'react';
-import { Eye, Download, Send, CreditCard, AlertCircle, CheckCircle, Clock } from 'lucide-react';
+import { Eye, CreditCard, AlertCircle, CheckCircle, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { formatCurrency, getInvoiceStatusColor, isInvoiceOverdue } from '@/services/BillingService';
-import { downloadInvoicePDF } from '@/services/BillingService';
+import { formatCurrency, invoicePeriodLabel, isInvoiceOverdue } from '@/services/BillingService';
 import { PaymentModal } from './PaymentModal';
 import type { Invoice } from '@/types/types';
 import { useNavigate } from 'react-router-dom';
@@ -36,7 +35,7 @@ interface InvoiceListProps {
 const getStatusBadgeVariant = (status: string): "default" | "secondary" | "destructive" | "outline" => {
   const variants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
     draft: 'secondary',
-    sent: 'outline',
+    pending: 'outline',
     paid: 'default',
     partially_paid: 'outline',
     overdue: 'destructive',
@@ -48,7 +47,7 @@ const getStatusBadgeVariant = (status: string): "default" | "secondary" | "destr
 const getStatusIcon = (status: string) => {
   const icons: Record<string, React.ReactNode> = {
     draft: <Clock className="h-3 w-3" />,
-    sent: <Send className="h-3 w-3" />,
+    pending: <Clock className="h-3 w-3" />,
     paid: <CheckCircle className="h-3 w-3" />,
     partially_paid: <AlertCircle className="h-3 w-3" />,
     overdue: <AlertCircle className="h-3 w-3" />,
@@ -75,28 +74,6 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
   const navigate = useNavigate();
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
-
-  const handleDownloadPDF = async (invoice: Invoice, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setDownloadingId(invoice.id as string);
-
-    try {
-      const blob = await downloadInvoicePDF(invoice.id as string);
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${invoice.invoice_number}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Failed to download PDF:', error);
-    } finally {
-      setDownloadingId(null);
-    }
-  };
 
   const handlePayNow = (invoice: Invoice, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -167,19 +144,21 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
 
                   <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm text-gray-600">
                     <div>
-                      <span className="text-gray-500">Generated:</span>{' '}
-                      {new Date(invoice.created_at!).toLocaleDateString()}
-                    </div>
-                    <div>
-                      <span className="text-gray-500">Due:</span>{' '}
-                      {new Date(invoice.due_date).toLocaleDateString()}
+                      <span className="text-gray-500">For:</span> {invoicePeriodLabel(invoice)}
                     </div>
                     <div>
                       <span className="text-gray-500">Students:</span> {invoice.student_count}
                     </div>
                     <div>
-                      <span className="text-gray-500">Items:</span> {invoice.items.length}
+                      <span className="text-gray-500">Issued:</span>{' '}
+                      {new Date(invoice.issue_date).toLocaleDateString()}
                     </div>
+                    {invoice.due_date && (
+                      <div>
+                        <span className="text-gray-500">Due:</span>{' '}
+                        {new Date(invoice.due_date).toLocaleDateString()}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -187,9 +166,9 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
                 <div className="flex flex-col md:items-end gap-4">
                   <div className="text-right">
                     <div className="text-2xl font-bold text-gray-900">
-                      {formatCurrency(invoice.total)}
+                      {formatCurrency(invoice.total_amount)}
                     </div>
-                    {invoice.amount_paid > 0 && (
+                    {Number(invoice.amount_paid) > 0 && (
                       <div className="text-sm text-gray-600">
                         Paid: {formatCurrency(invoice.amount_paid)}
                       </div>
@@ -198,17 +177,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
 
                   {showActions && (
                     <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={(e) => handleDownloadPDF(invoice, e)}
-                        disabled={downloadingId === invoice.id}
-                      >
-                        <Download className="h-4 w-4 mr-1" />
-                        PDF
-                      </Button>
-
-                      {invoice.status !== 'paid' && invoice.status !== 'cancelled' && (
+                      {invoice.status !== 'paid' && invoice.status !== 'cancelled' && Number(invoice.balance_due) > 0 && (
                         <Button
                           size="sm"
                           onClick={(e) => handlePayNow(invoice, e)}

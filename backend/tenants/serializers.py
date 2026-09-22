@@ -303,11 +303,15 @@ class ServicePricingSerializer(serializers.ModelSerializer):
     """Serializer for ServicePricing model."""
     service_display = serializers.CharField(
         source='get_service_display', read_only=True)
+    # The price actually charged per session, whether set or derived.
+    price_per_student_per_session = serializers.DecimalField(
+        source='session_price', max_digits=10, decimal_places=2, read_only=True)
 
     class Meta:
         model = ServicePricing
         fields = [
             'id', 'service', 'service_display', 'price_per_student',
+            'price_per_student_per_session',
             'is_base_service', 'description', 'is_active'
         ]
 
@@ -352,6 +356,40 @@ class TenantPaymentSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'reference',
                             'confirmed_by', 'confirmed_at', 'created_at']
+
+
+class PendingPaymentSerializer(serializers.ModelSerializer):
+    """
+    A bank transfer awaiting a platform admin, shaped for the Pending
+    Payments page: the school and invoice it is for, alongside what the
+    school reported when recording it. Expects invoice__tenant selected and
+    invoice__line_items prefetched.
+    """
+    school_name = serializers.CharField(source='invoice.tenant.name', read_only=True)
+    tenant_id = serializers.UUIDField(source='invoice.tenant_id', read_only=True)
+    invoice_number = serializers.CharField(source='invoice.invoice_number', read_only=True)
+    student_count = serializers.IntegerField(source='invoice.student_count', read_only=True)
+    due_date = serializers.DateField(source='invoice.due_date', read_only=True)
+    payment_reference = serializers.CharField(source='reference', read_only=True)
+    submitted_at = serializers.DateTimeField(source='created_at', read_only=True)
+    features = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TenantPayment
+        fields = [
+            'id', 'school_name', 'tenant_id', 'invoice', 'invoice_number',
+            'student_count', 'due_date', 'amount', 'payment_reference',
+            'bank_name', 'account_name', 'payment_proof', 'submitted_at',
+            'features',
+        ]
+        read_only_fields = fields
+
+    def get_features(self, obj):
+        # .all() rather than .filter() so the prefetch is used.
+        return [
+            item.description for item in obj.invoice.line_items.all()
+            if item.item_type == 'service'
+        ]
 
 
 class TenantInvoiceSerializer(serializers.ModelSerializer):

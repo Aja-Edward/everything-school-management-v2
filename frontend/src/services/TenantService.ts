@@ -175,11 +175,31 @@ export interface TenantServiceType {
   service: string;
   name: string;
   description?: string;
+  /** Per student, for one term. */
   price_per_student: number;
+  /** Per student, for a whole session. */
+  price_per_student_per_session: number;
   is_default: boolean;
   is_enabled: boolean;
+  /**
+   * Billed on top of the Basic package. Every other service is included in
+   * it and carries no price of its own; the 'basic' row carries the package
+   * price.
+   */
+  is_add_on: boolean;
   category: 'core' | 'attendance' | 'assessment' | 'communication' | 'finance' | 'scheduling' | 'other';
 }
+
+/** A service as the services list returns it for the current school. */
+export type AvailableService = TenantServiceType;
+
+/** How a service's price reads on the services pages. */
+export const servicePriceLabel = (service: TenantServiceType): string => {
+  if (!service.is_add_on && service.service !== 'basic') return 'In Basic package';
+  if (Number(service.price_per_student) === 0) return 'Free';
+  return `₦${Number(service.price_per_student).toLocaleString()}/student/term · ` +
+    `₦${Number(service.price_per_student_per_session).toLocaleString()}/student/session`;
+};
 
 export interface ServicePricing {
   id: number;
@@ -187,6 +207,7 @@ export interface ServicePricing {
   service_display?: string;
   description?: string;
   price_per_student: number;
+  price_per_student_per_session: number;
   billing_cycle: 'monthly' | 'quarterly' | 'annually';
   is_active: boolean;
   created_at: string;

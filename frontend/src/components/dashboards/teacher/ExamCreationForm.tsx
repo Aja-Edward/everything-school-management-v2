@@ -24,6 +24,16 @@ interface ExamCreationFormProps {
   prefill?: Partial<ExamCreateData>;
 }
 
+/** Minutes from one "HH:MM" to another on the same day, or null if that isn't a span. */
+export const minutesBetween = (startTime?: string, endTime?: string): number | null => {
+  if (!startTime || !endTime) return null;
+  const [startHour, startMinute] = startTime.split(':').map(Number);
+  const [endHour, endMinute] = endTime.split(':').map(Number);
+  if ([startHour, startMinute, endHour, endMinute].some((part) => !Number.isFinite(part))) return null;
+  const minutes = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+  return minutes > 0 ? minutes : null;
+};
+
 const ExamCreationForm: React.FC<ExamCreationFormProps> = ({
   isOpen,
   onClose,
@@ -259,7 +269,17 @@ const handleInputChange = (field: keyof ExamCreateData, value: any) => {
   const numericFields: (keyof ExamCreateData)[] = ['total_marks', 'pass_marks', 'duration_minutes'];
   const parsedValue = numericFields.includes(field) ? Number(value) : value;
 
-  setFormData(prev => ({ ...prev, [field]: parsedValue }));
+  setFormData(prev => {
+    const next = { ...prev, [field]: parsedValue };
+    // Setting either end of the sitting sets how long it runs for. A teacher
+    // can still type a different duration afterwards; it stands until the
+    // times move again.
+    if (field === 'start_time' || field === 'end_time') {
+      const minutes = minutesBetween(next.start_time, next.end_time);
+      if (minutes !== null) next.duration_minutes = minutes;
+    }
+    return next;
+  });
 }
   const addObjectiveQuestion = () => {
     const newQuestion = {

@@ -52,6 +52,13 @@ const toLocalInput = (iso: string | null): string => {
 
 const fromLocalInput = (value: string): string | null => (value ? new Date(value).toISOString() : null);
 
+/** How long the window is, in whole minutes, or null when it isn't a window yet. */
+export const windowMinutes = (opensAt: string | null, closesAt: string | null): number | null => {
+  if (!opensAt || !closesAt) return null;
+  const minutes = Math.round((new Date(closesAt).getTime() - new Date(opensAt).getTime()) / 60000);
+  return Number.isFinite(minutes) && minutes > 0 ? minutes : null;
+};
+
 const settingsOf = (paper: CBTPaper): CBTPaperSettings => ({
   opens_at: paper.opens_at,
   closes_at: paper.closes_at,
@@ -156,6 +163,21 @@ const CBTPaperModal: React.FC<Props> = ({ open, exam, onClose, onChanged }) => {
 
   const setField = <K extends keyof CBTPaperSettings>(name: K, value: CBTPaperSettings[K]) => {
     setForm((current) => ({ ...current, [name]: value }));
+    setCheck(null);
+  };
+
+  /**
+   * Moving either end of the window sets how long each student gets, because
+   * that is nearly always the whole window. Staff can still type a shorter
+   * one afterwards — for a class sitting in shifts — and it stands until the
+   * window moves again.
+   */
+  const setWindow = (name: 'opens_at' | 'closes_at', value: string | null) => {
+    setForm((current) => {
+      const next = { ...current, [name]: value };
+      const minutes = windowMinutes(next.opens_at ?? null, next.closes_at ?? null);
+      return minutes === null ? next : { ...next, duration_minutes: minutes };
+    });
     setCheck(null);
   };
 
@@ -307,13 +329,13 @@ const CBTPaperModal: React.FC<Props> = ({ open, exam, onClose, onChanged }) => {
                   <label className={labelClass} htmlFor="cbt-opens">Opens</label>
                   <input id="cbt-opens" type="datetime-local" className={inputClass} disabled={busy}
                     value={toLocalInput(form.opens_at ?? null)}
-                    onChange={(e) => setField('opens_at', fromLocalInput(e.target.value))} />
+                    onChange={(e) => setWindow('opens_at', fromLocalInput(e.target.value))} />
                 </div>
                 <div>
                   <label className={labelClass} htmlFor="cbt-closes">Closes</label>
                   <input id="cbt-closes" type="datetime-local" className={inputClass} disabled={busy}
                     value={toLocalInput(form.closes_at ?? null)}
-                    onChange={(e) => setField('closes_at', fromLocalInput(e.target.value))} />
+                    onChange={(e) => setWindow('closes_at', fromLocalInput(e.target.value))} />
                 </div>
                 <div>
                   <label className={labelClass} htmlFor="cbt-duration">Minutes per student</label>
@@ -323,6 +345,8 @@ const CBTPaperModal: React.FC<Props> = ({ open, exam, onClose, onChanged }) => {
                 </div>
               </section>
               <p className="-mt-2 text-xs text-slate-500 dark:text-slate-400">
+                Minutes per student is filled in from the window whenever you set it. Change it if each student
+                is to get less than the whole window — a class sitting in two shifts, say.
                 No one can start after closing time. Anyone still writing stops then, plus any extra time on
                 their exam registration.
               </p>

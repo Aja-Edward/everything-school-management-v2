@@ -8,11 +8,12 @@
 import api, { API_BASE_URL, getTenantSlug } from './api';
 import type {
   Invoice,
-  CreateInvoiceRequest,
-  InvoiceGenerationResponse,
+  InvoiceQuote,
+  BillingPeriod,
   FeatureAccess,
   FeatureActivationRequest,
   BillingSummary,
+  PlatformBillingSummary,
   PendingPayment,
   PaymentConfirmationRequest,
   FeaturePricing,
@@ -30,35 +31,54 @@ import type {
 // there is no billing app and no billing/ prefix in config/urls.py, and they
 // return 404 in production. They are left pointing at the intended shape
 // rather than silently repointed, because none has a drop-in equivalent.
+// No page calls them.
 //
 // Closest existing endpoints, for whoever finishes these:
-//   bank-transfer-notify   -> POST /api/tenants/payments/record-manual/
-//   confirm-bank-transfer  -> POST /api/tenants/payments/{id}/confirm/  (superuser)
-//   invoices/generate      -> no equivalent; invoices are created server-side
+//   confirm-bank-transfer  -> POST /api/tenants/payments/{id}/confirm/  (platform admin)
+//   invoices/{id}/pdf      -> no equivalent
 //   invoices/{id}/send     -> no equivalent
-//   invoices/{id}/cancel   -> no equivalent
 //   feature-access         -> no equivalent
 //   activate-features      -> closest is ServiceManagementViewSet.toggle
 // ============================================================================
 
 /**
- * Generate a new invoice for a school
+ * What an invoice for the school's current term or session would come to.
+ * A platform admin passes the school's tenant id; a school leaves it out.
  */
-export const generateInvoice = async (
-  data: CreateInvoiceRequest
-): Promise<InvoiceGenerationResponse> => {
-  return await api.post('/billing/invoices/generate/', data);
+export const getInvoiceQuote = async (
+  billingPeriod: BillingPeriod,
+  tenantId?: string
+): Promise<InvoiceQuote> => {
+  return await api.get('/api/tenants/invoices/quote/', {
+    billing_period: billingPeriod,
+    tenant: tenantId,
+  });
 };
 
 /**
- * Get list of invoices with optional filtering
+ * Raise the invoice for the school's current term or session. If an unpaid
+ * one already exists for that period it is brought up to date instead.
+ * A platform admin passes the school's tenant id; a school leaves it out.
+ */
+export const generateInvoice = async (
+  billingPeriod: BillingPeriod,
+  tenantId?: string
+): Promise<Invoice> => {
+  return await api.post('/api/tenants/invoices/generate/', {
+    billing_period: billingPeriod,
+    ...(tenantId ? { tenant: tenantId } : {}),
+  });
+};
+
+/**
+ * Get list of invoices with optional filtering. A school sees its own; a
+ * platform admin sees every school's and can narrow by `tenant` or `search`.
  */
 export const getInvoices = async (filters?: {
   status?: string;
-  academic_session_id?: string;
-  term_id?: string;
-  from_date?: string;
-  to_date?: string;
+  billing_period?: BillingPeriod;
+  tenant?: string;
+  search?: string;
   page?: number;
   page_size?: number;
 }): Promise<{ results: Invoice[]; count: number; next: string | null; previous: string | null }> => {
@@ -112,13 +132,43 @@ export const sendInvoice = async (
 };
 
 /**
- * Cancel an invoice
+ * Cancel an invoice nothing has been paid towards (Platform admin only)
  */
 export const cancelInvoice = async (
   invoiceId: string,
   reason?: string
 ): Promise<Invoice> => {
-  return await api.put(`/billing/invoices/${invoiceId}/cancel/`, { reason });
+  return await api.post(`/api/tenants/invoices/${invoiceId}/cancel/`, { reason });
+};
+
+/**
+ * Take an amount off an invoice, with the reason shown on it (Platform admin only)
+ */
+export const applyInvoiceDiscount = async (
+  invoiceId: string,
+  amount: string,
+  reason: string
+): Promise<Invoice> => {
+  return await api.post(`/api/tenants/invoices/${invoiceId}/discount/`, { amount, reason });
+};
+
+/**
+ * Record money received outside the app - cash, cheque, an unreported
+ * transfer - as a confirmed payment (Platform admin only)
+ */
+export const recordInvoicePayment = async (
+  invoiceId: string,
+  amount: string,
+  notes: string
+): Promise<Invoice> => {
+  return await api.post(`/api/tenants/invoices/${invoiceId}/record-payment/`, { amount, notes });
+};
+
+/**
+ * Billed, collected and outstanding across every school (Platform admin only)
+ */
+export const getPlatformBillingSummary = async (): Promise<PlatformBillingSummary> => {
+  return await api.get('/api/tenants/invoices/platform-summary/');
 };
 
 // ============================================================================
@@ -133,7 +183,7 @@ export const initializePayment = async (invoiceId: string): Promise<{
   access_code: string;
   reference: string;
 }> => {
-  return await api.post('/api/tenants/payments/initialize-paystack/', { invoice_id: invoiceId });
+  return await api.post('/api/tenants/payments/initialize_paystack/', { invoice_id: invoiceId });
 };
 
 /**
@@ -151,16 +201,17 @@ export const verifyPayment = async (reference: string): Promise<{
     paid_at: string;
   };
 }> => {
-  return await api.post('/api/tenants/payments/verify-paystack/', { reference });
+  return await api.post('/api/tenants/payments/verify_paystack/', { reference });
 };
 
 /**
- * Notify about bank transfer
+ * Report a bank transfer. It is recorded against the invoice as pending until
+ * a platform admin confirms it from Pending Payments.
  */
 export const notifyBankTransfer = async (
   data: BankTransferNotification
-): Promise<{ success: boolean; message: string }> => {
-  return await api.post('/billing/bank-transfer-notify/', data);
+): Promise<{ message: string }> => {
+  return await api.post('/api/tenants/payments/record_manual/', data);
 };
 
 /**
@@ -225,27 +276,26 @@ export const getBillingSummary = async (
 // ============================================================================
 
 /**
- * Get pending payment verifications (Platform admin only)
+ * Get bank transfers from every school awaiting verification (Platform admin only)
  */
 export const getPendingPayments = async (filters?: {
   page?: number;
   page_size?: number;
-  from_date?: string;
-  to_date?: string;
 }): Promise<{ results: PendingPayment[]; count: number; next: string | null; previous: string | null }> => {
-  return await api.getList('/platform-admin/pending-payments/', filters);
+  return await api.getList('/api/tenants/payments/pending-verification/', filters);
 };
 
 /**
- * Activate payment after verification (Platform admin only)
+ * Confirm a verified bank transfer (Platform admin only). The invoice records
+ * the payment, and a school still pending activation is activated once it is
+ * paid in full.
  */
 export const activatePayment = async (
   paymentId: string,
   adminNotes?: string
-): Promise<{ success: boolean; message: string }> => {
-  return await api.post('/platform-admin/activate-payment/', {
-    payment_id: paymentId,
-    admin_notes: adminNotes,
+): Promise<{ message: string }> => {
+  return await api.post(`/api/tenants/payments/${paymentId}/confirm/`, {
+    notes: adminNotes,
   });
 };
 
@@ -256,7 +306,7 @@ export const rejectPayment = async (
   paymentId: string,
   reason: string
 ): Promise<{ success: boolean; message: string }> => {
-  return await api.post(`/tenants/payments/${paymentId}/reject/`, {
+  return await api.post(`/api/tenants/payments/${paymentId}/reject/`, {
     reason,
   });
 };
@@ -313,13 +363,14 @@ export const calculateInvoiceTotal = (
 };
 
 /**
- * Format currency for Nigerian Naira
+ * Format currency for Nigerian Naira. Accepts the decimal strings the API
+ * sends for money as well as numbers.
  */
-export const formatCurrency = (amount: number): string => {
+export const formatCurrency = (amount: number | string): string => {
   return new Intl.NumberFormat('en-NG', {
     style: 'currency',
     currency: 'NGN',
-  }).format(amount);
+  }).format(Number(amount));
 };
 
 /**
@@ -328,7 +379,7 @@ export const formatCurrency = (amount: number): string => {
 export const getInvoiceStatusColor = (status: string): string => {
   const statusColors: Record<string, string> = {
     draft: 'gray',
-    sent: 'blue',
+    pending: 'blue',
     paid: 'green',
     partially_paid: 'yellow',
     overdue: 'red',
@@ -341,7 +392,7 @@ export const getInvoiceStatusColor = (status: string): string => {
  * Check if invoice is overdue
  */
 export const isInvoiceOverdue = (invoice: Invoice): boolean => {
-  if (invoice.status === 'paid' || invoice.status === 'cancelled') {
+  if (invoice.status === 'paid' || invoice.status === 'cancelled' || !invoice.due_date) {
     return false;
   }
   const dueDate = new Date(invoice.due_date);
@@ -350,11 +401,23 @@ export const isInvoiceOverdue = (invoice: Invoice): boolean => {
 };
 
 /**
+ * The term or session an invoice is for, e.g. "Third Term, 2025/2026".
+ */
+export const invoicePeriodLabel = (
+  invoice: Pick<Invoice, 'term_name' | 'academic_session_name'>
+): string => {
+  return invoice.term_name
+    ? `${invoice.term_name}, ${invoice.academic_session_name}`
+    : `${invoice.academic_session_name} session`;
+};
+
+/**
  * Get payment method display name
  */
 export const getPaymentMethodName = (method: string): string => {
   const methodNames: Record<string, string> = {
     paystack: 'Paystack (Card Payment)',
+    manual: 'Bank Transfer',
     bank_transfer: 'Bank Transfer',
   };
   return methodNames[method] || method;
@@ -362,6 +425,7 @@ export const getPaymentMethodName = (method: string): string => {
 
 export default {
   // Invoice Management
+  getInvoiceQuote,
   generateInvoice,
   getInvoices,
   getInvoice,
@@ -382,6 +446,9 @@ export default {
   getBillingSummary,
 
   // Platform Admin
+  getPlatformBillingSummary,
+  applyInvoiceDiscount,
+  recordInvoicePayment,
   getPendingPayments,
   activatePayment,
   rejectPayment,
@@ -394,5 +461,6 @@ export default {
   formatCurrency,
   getInvoiceStatusColor,
   isInvoiceOverdue,
+  invoicePeriodLabel,
   getPaymentMethodName,
 };

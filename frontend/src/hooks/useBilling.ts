@@ -10,15 +10,11 @@ import {
   getInvoices,
   getInvoice,
   getBillingSummary,
-  generateInvoice,
-  cancelInvoice,
-  sendInvoice,
 } from '@/services/BillingService';
 import type {
   Invoice,
   BillingSummary,
-  CreateInvoiceRequest,
-  InvoiceGenerationResponse,
+  BillingPeriod,
 } from '@/types/types';
 
 // ============================================================================
@@ -33,9 +29,6 @@ interface UseBillingReturn {
   hasMore: boolean;
   refetch: () => Promise<void>;
   loadMore: () => Promise<void>;
-  createInvoice: (data: CreateInvoiceRequest) => Promise<InvoiceGenerationResponse>;
-  cancelInvoiceById: (invoiceId: string, reason?: string) => Promise<void>;
-  sendInvoiceById: (invoiceId: string, emailData?: any) => Promise<void>;
 }
 
 interface UseBillingSummaryReturn {
@@ -66,17 +59,17 @@ interface UseInvoiceReturn {
  *   loading,
  *   error,
  *   loadMore,
- *   createInvoice,
  * } = useBilling({ status: 'pending' });
  * ```
  */
 export const useBilling = (filters?: {
   status?: string;
-  academic_session_id?: string;
-  term_id?: string;
-  from_date?: string;
-  to_date?: string;
+  billing_period?: BillingPeriod;
 }): UseBillingReturn => {
+  // Callers pass a fresh object each render; depending on the values rather
+  // than the object keeps the fetch from re-running on every render.
+  const status = filters?.status;
+  const billingPeriod = filters?.billing_period;
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<Error | null>(null);
@@ -92,7 +85,8 @@ export const useBilling = (filters?: {
 
     try {
       const response = await getInvoices({
-        ...filters,
+        status,
+        billing_period: billingPeriod,
         page: currentPage,
         page_size: PAGE_SIZE,
       });
@@ -112,7 +106,7 @@ export const useBilling = (filters?: {
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [status, billingPeriod]);
 
   const refetch = useCallback(async () => {
     setPage(1);
@@ -126,22 +120,6 @@ export const useBilling = (filters?: {
     await fetchInvoices(nextPage, true);
   }, [hasMore, loading, page, fetchInvoices]);
 
-  const createInvoice = useCallback(async (data: CreateInvoiceRequest): Promise<InvoiceGenerationResponse> => {
-    const result = await generateInvoice(data);
-    await refetch();  // Refresh list after creating
-    return result;
-  }, [refetch]);
-
-  const cancelInvoiceById = useCallback(async (invoiceId: string, reason?: string): Promise<void> => {
-    await cancelInvoice(invoiceId, reason);
-    await refetch();  // Refresh list after cancelling
-  }, [refetch]);
-
-  const sendInvoiceById = useCallback(async (invoiceId: string, emailData?: any): Promise<void> => {
-    await sendInvoice(invoiceId, emailData);
-    await refetch();  // Refresh list after sending
-  }, [refetch]);
-
   useEffect(() => {
     fetchInvoices(1, false);
   }, [fetchInvoices]);
@@ -154,9 +132,6 @@ export const useBilling = (filters?: {
     hasMore,
     refetch,
     loadMore,
-    createInvoice,
-    cancelInvoiceById,
-    sendInvoiceById,
   };
 };
 

@@ -9,6 +9,13 @@ from django.utils.text import slugify
 from django.core.validators import RegexValidator, MinValueValidator
 from cloudinary.models import CloudinaryField
 
+# A session is billed as its three terms.
+TERMS_PER_SESSION = 3
+
+# Every service other than an add-on is in the Basic package, one price per
+# student per term whichever of them a school uses.
+BASIC_PRICE_PER_STUDENT = Decimal('800.00')
+
 
 class TenantMixin(models.Model):
     """
@@ -219,12 +226,14 @@ class TenantService(models.Model):
         # Attendance & Tracking
         ('attendance', 'Attendance System'),
         ('arrival_notification', 'Arrival Notification System'),
+        ('gate_tracker', 'Gate Tracker'),
 
         # Exam & Assessment Tools
         ('exam_proofreading', 'Exam Proofreading Assistant'),
         ('ai_question_generator', 'AI Question Generator'),
         ('question_bank', 'Question Bank'),
         ('exam_builder', 'Exam Builder'),
+        ('cbt', 'Computer-Based Testing (CBT)'),
 
         # Communication
         ('sms_notifications', 'SMS Notifications'),
@@ -239,11 +248,15 @@ class TenantService(models.Model):
     # Default services (included in base price, cannot be removed)
     DEFAULT_SERVICES = ['exams', 'results']
 
+    # Billed on top of the Basic package, at their own ServicePricing prices.
+    # Every other service is included in BASIC_PRICE_PER_STUDENT.
+    ADD_ON_SERVICES = ['cbt', 'gate_tracker']
+
     # Service categories for grouping in UI
     SERVICE_CATEGORIES = {
         'core': ['exams', 'results'],
-        'attendance': ['attendance', 'arrival_notification'],
-        'assessment': ['exam_proofreading', 'ai_question_generator', 'question_bank', 'exam_builder'],
+        'attendance': ['attendance', 'arrival_notification', 'gate_tracker'],
+        'assessment': ['exam_proofreading', 'ai_question_generator', 'question_bank', 'exam_builder', 'cbt'],
         'communication': ['sms_notifications'],
         'finance': ['fees'],
         'scheduling': ['timetable'],
@@ -300,7 +313,16 @@ class ServicePricing(models.Model):
         max_digits=10,
         decimal_places=2,
         validators=[MinValueValidator(Decimal('0.00'))],
-        help_text="Price per student in Naira"
+        help_text="Price per student for one term, in Naira"
+    )
+    price_per_student_per_session = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal('0.00'))],
+        help_text="Price per student for a whole session, in Naira. "
+                  "Blank means three times the term price."
     )
     is_base_service = models.BooleanField(default=False)
     description = models.TextField(blank=True)
@@ -315,6 +337,13 @@ class ServicePricing(models.Model):
 
     def __str__(self):
         return f"{self.get_service_display()} - ₦{self.price_per_student}/student"
+
+    @property
+    def session_price(self):
+        """Per-student price for a whole session, falling back to three terms."""
+        if self.price_per_student_per_session is not None:
+            return self.price_per_student_per_session
+        return self.price_per_student * TERMS_PER_SESSION
 
 
 class TenantInvoice(models.Model):
@@ -360,7 +389,8 @@ class TenantInvoice(models.Model):
 
     # Pricing
     base_price_per_student = models.DecimalField(
-        max_digits=10, decimal_places=2, default=Decimal('700.00')
+        max_digits=10, decimal_places=2, default=BASIC_PRICE_PER_STUDENT,
+        help_text="Basic package price per student for one term, in Naira"
     )
     student_count = models.PositiveIntegerField(default=0)
 
@@ -424,8 +454,13 @@ class TenantInvoice(models.Model):
         ).count() + 1
         return f"{prefix}-{date_part}-{count:04d}"
 
+    @property
+    def terms_billed(self):
+        return TERMS_PER_SESSION if self.billing_period == 'session' else 1
+
     def recalculate(self):
-        self.base_amount = self.base_price_per_student * self.student_count
+        self.base_amount = (
+            self.base_price_per_student * self.student_count * self.terms_billed)
         self.services_amount = sum(
             item.amount for item in self.line_items.filter(item_type='service')
         ) if self.pk else Decimal('0.00')

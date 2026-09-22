@@ -27,6 +27,7 @@ import {
   BookOpen,
   CreditCard,
   Monitor,
+  Wallet,
 } from 'lucide-react';
 // import StudentResultChecker from './StudentResultChecker';
 import TokenGenerator from '@/pages/admin/TokenGenerator';
@@ -177,6 +178,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
     if (canViewSettings()) {
       items.push({ name: 'Settings', icon: Settings, path: '/admin/classroom-management/settings' });
+    }
+
+    // The school's own invoices and payments to the platform. Platform
+    // accounts have no school to bill - their billing is on the platform
+    // dashboard - so a tenant is required, not just the superadmin role.
+    if (isSuperAdmin() && user?.tenant_id) {
+      items.push({ name: 'Billing', icon: Wallet, path: '/admin/billing' });
     }
 
     return items;

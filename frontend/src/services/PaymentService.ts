@@ -43,7 +43,7 @@ export const initializePayment = async (
   invoiceId: string,
   callbackUrl?: string,
 ): Promise<PaystackInit> => {
-  return await api.post('/api/tenants/payments/initialize-paystack/', {
+  return await api.post('/api/tenants/payments/initialize_paystack/', {
     invoice_id: invoiceId,
     ...(callbackUrl ? { callback_url: callbackUrl } : {}),
   });
@@ -57,7 +57,7 @@ export const initializePayment = async (
  * settles the balance — not the redirect itself.
  */
 export const verifyPayment = async (reference: string): Promise<PaymentVerification> => {
-  return await api.post('/api/tenants/payments/verify-paystack/', { reference });
+  return await api.post('/api/tenants/payments/verify_paystack/', { reference });
 };
 
 /** Default return path for the hosted checkout. */

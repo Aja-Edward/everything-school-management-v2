@@ -13,7 +13,7 @@ import {
   Sparkles,
   Info
 } from 'lucide-react';
-import { tenantService, AvailableService } from '@/services/TenantService';
+import { tenantService, AvailableService, servicePriceLabel } from '@/services/TenantService';
 import { toast } from 'react-toastify';
 
 interface ServicesTabProps {
@@ -73,7 +73,9 @@ const ServicesTab: React.FC<ServicesTabProps> = () => {
     }
   };
 
-  const enabledCount = services.filter(s => s.is_enabled).length;
+  // The 'basic' row is the package price, not a service to count.
+  const countedServices = services.filter(s => s.service !== 'basic');
+  const enabledCount = countedServices.filter(s => s.is_enabled).length;
   const totalCost = services
     .filter(s => s.is_enabled)
     .reduce((sum, s) => sum + Number(s.price_per_student), 0);
@@ -160,7 +162,7 @@ const ServicesTab: React.FC<ServicesTabProps> = () => {
         </div>
         <div className="mt-4 pt-4 border-t border-white/20 flex items-center justify-between">
           <span className="text-sm text-blue-100">
-            {enabledCount} of {services.length} services enabled
+            {enabledCount} of {countedServices.length} services enabled
           </span>
           <button
             onClick={fetchServices}
@@ -237,9 +239,7 @@ const ServicesTab: React.FC<ServicesTabProps> = () => {
                         ? 'text-blue-600 dark:text-blue-400'
                         : 'text-slate-500'
                     }`}>
-                      {Number(service.price_per_student) === 0
-                        ? 'Free'
-                        : `₦${Number(service.price_per_student).toLocaleString()}/student/term`}
+                      {servicePriceLabel(service)}
                     </p>
                   </div>
 

@@ -66,10 +66,9 @@ export const BankTransferInfo: React.FC<BankTransferInfoProps> = ({
 
     try {
       await notifyBankTransfer({
-        invoice_id: invoice.id as string,
-        payment_reference: paymentReference,
-        amount: invoice.total,
-        transfer_date: new Date().toISOString(),
+        invoice_id: invoice.id,
+        amount: invoice.balance_due,
+        notes: `Transfer narration: ${paymentReference}`,
       });
 
       setNotificationSent(true);
@@ -90,7 +89,7 @@ export const BankTransferInfo: React.FC<BankTransferInfoProps> = ({
           Pay via Bank Transfer
         </CardTitle>
         <CardDescription>
-          Transfer {formatCurrency(invoice.total)} to the account below
+          Transfer {formatCurrency(invoice.balance_due)} to the account below
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -98,7 +97,7 @@ export const BankTransferInfo: React.FC<BankTransferInfoProps> = ({
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="text-sm text-blue-700 mb-1">Amount to Transfer</div>
           <div className="text-3xl font-bold text-blue-900">
-            {formatCurrency(invoice.total)}
+            {formatCurrency(invoice.balance_due)}
           </div>
         </div>
 

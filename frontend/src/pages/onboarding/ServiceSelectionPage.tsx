@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { tenantService, AvailableService, Tenant } from '@/services/TenantService';
+import { tenantService, AvailableService, Tenant, servicePriceLabel } from '@/services/TenantService';
 import {
   ArrowLeft,
   ArrowRight,
@@ -170,7 +170,8 @@ const ServiceSelectionPage: React.FC = () => {
     });
   };
 
-  const enabledCount = services.filter(s => s.is_enabled).length;
+  // The 'basic' row is the package price, not a service to count.
+  const enabledCount = services.filter(s => s.is_enabled && s.service !== 'basic').length;
   const totalCost = services
     .filter(s => s.is_enabled)
     .reduce((sum, s) => sum + Number(s.price_per_student), 0);
@@ -395,16 +396,14 @@ const ServiceSelectionPage: React.FC = () => {
                       {/* Price */}
                       <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
                         <span className="text-xs text-gray-500">
-                          {service.is_default ? 'Included' : 'Add-on'}
+                          {service.service === 'basic' ? 'Package' : service.is_add_on ? 'Add-on' : 'Included'}
                         </span>
                         <span className={`text-xs font-medium ${
                           service.is_enabled
                             ? 'text-blue-600 dark:text-blue-400'
                             : 'text-gray-500'
                         }`}>
-                          {Number(service.price_per_student) === 0
-                            ? 'Free'
-                            : `₦${Number(service.price_per_student).toLocaleString()}/student`}
+                          {servicePriceLabel(service)}
                         </span>
                       </div>
                     </div>

@@ -101,7 +101,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                         <p>✓ Multiple cards accepted</p>
                       </div>
                     </div>
-                    <Button className="w-full" variant="default">
+                    <Button className="w-full" variant="primary">
                       Pay with Card
                     </Button>
                   </div>

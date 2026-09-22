@@ -1,5 +1,6 @@
 # tenants/views.py
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 
 from rest_framework import viewsets, status, permissions, serializers
 from rest_framework.decorators import action
@@ -9,6 +10,7 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
 from django.db.models import Sum, Q
@@ -26,7 +28,11 @@ import urllib.error
 
 import cloudinary.uploader
 
+from utils.pagination import StandardResultsPagination
+
+from . import billing
 from .models import (
+    BASIC_PRICE_PER_STUDENT, TERMS_PER_SESSION,
     Tenant, TenantService, ServicePricing, TenantSettings,
     TenantInvoice, TenantInvoiceLineItem, TenantPayment, TenantInvitation,
     TenantSetupToken, PlatformContent
@@ -42,6 +48,7 @@ from .serializers import (
     TenantInvoiceSerializer,
     TenantInvoiceLineItemSerializer,
     TenantPaymentSerializer,
+    PendingPaymentSerializer,
     TenantInvitationSerializer,
     SchoolRegistrationSerializer,
     ServiceToggleSerializer,
@@ -612,7 +619,12 @@ class ServiceManagementViewSet(viewsets.ViewSet):
         return [IsAuthenticated()]
 
     def list(self, request):
-        """Get available services and their status for current tenant."""
+        """
+        Every service and whether the school has it on, led by a 'basic' row
+        for the Basic package. 'basic' is not a TenantService - it is how
+        the package price reaches the page. Services in the package carry no
+        price of their own; add-ons are priced individually.
+        """
         logger.info(
             f"ServiceManagementViewSet.list called by user: {request.user}, tenant: {getattr(request, 'tenant', None)}")
         tenant = getattr(request, 'tenant', None)
@@ -629,18 +641,32 @@ class ServiceManagementViewSet(viewsets.ViewSet):
         pricing = {
             p.service: p for p in ServicePricing.objects.filter(is_active=True)}
 
-        services = []
+        services = [{
+            'service': 'basic',
+            'name': 'Basic Package',
+            'description': 'Every service except add-ons, whichever of them you use.',
+            'price_per_student': float(BASIC_PRICE_PER_STUDENT),
+            'price_per_student_per_session': float(BASIC_PRICE_PER_STUDENT * TERMS_PER_SESSION),
+            'is_default': True,
+            'is_enabled': True,
+            'is_add_on': False,
+            'category': 'core',
+        }]
         for service_code, service_name in TenantService.SERVICE_CHOICES:
             service_pricing = pricing.get(service_code)
             is_default = service_code in TenantService.DEFAULT_SERVICES
+            is_add_on = service_code in TenantService.ADD_ON_SERVICES
+            priced = is_add_on and service_pricing is not None
 
             services.append({
                 'service': service_code,
                 'name': service_name,
                 'description': service_pricing.description if service_pricing else '',
-                'price_per_student': float(service_pricing.price_per_student) if service_pricing else 0,
+                'price_per_student': float(service_pricing.price_per_student) if priced else 0,
+                'price_per_student_per_session': float(service_pricing.session_price) if priced else 0,
                 'is_default': is_default,
                 'is_enabled': service_code in enabled_services,
+                'is_add_on': is_add_on,
                 'category': self._get_service_category(service_code),
             })
 
@@ -648,20 +674,10 @@ class ServiceManagementViewSet(viewsets.ViewSet):
 
     def _get_service_category(self, service_code):
         """Get the category for a service."""
-        categories = {
-            'exams': 'core',
-            'results': 'core',
-            'attendance': 'attendance',
-            'arrival_notification': 'attendance',
-            'exam_proofreading': 'assessment',
-            'ai_question_generator': 'assessment',
-            'question_bank': 'assessment',
-            'exam_builder': 'assessment',
-            'sms_notifications': 'communication',
-            'fees': 'finance',
-            'timetable': 'scheduling',
-        }
-        return categories.get(service_code, 'other')
+        for category, codes in TenantService.SERVICE_CATEGORIES.items():
+            if service_code in codes:
+                return category
+        return 'other'
 
     @action(detail=False, methods=['post'])
     def toggle(self, request):
@@ -705,14 +721,11 @@ class ServiceManagementViewSet(viewsets.ViewSet):
         })
 
     def _recalculate_current_invoice(self, tenant):
-        """Recalculate the current pending/draft invoice."""
-        current_invoice = TenantInvoice.objects.filter(
-            tenant=tenant,
-            status__in=['draft', 'pending']
-        ).first()
-
-        if current_invoice:
-            current_invoice.recalculate_totals()
+        """Reprice unpaid invoices, so a switched add-on shows up on them."""
+        for invoice in TenantInvoice.objects.filter(
+                tenant=tenant, status__in=['draft', 'pending']):
+            if not billing.is_settled_or_settling(invoice):
+                billing.refresh_invoice(invoice)
 
 
 class ServicePricingViewSet(viewsets.ReadOnlyModelViewSet):
@@ -1348,23 +1361,31 @@ class TenantSettingsViewSet(viewsets.ModelViewSet):
 
 # ============ Invoice Management ============
 
-class TenantInvoiceViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing tenant invoices."""
+class TenantInvoiceViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    A school's invoices. Read-only over the API: amounts and status change
+    only through generate, payments, and the platform admin - a writable
+    serializer let any signed-in user set amount_paid on their own invoice.
+    """
     serializer_class = TenantInvoiceSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['status', 'billing_period']
-    search_fields = ['invoice_number']
+    filterset_fields = ['status', 'billing_period', 'tenant']
+    search_fields = ['invoice_number', 'tenant__name']
     ordering_fields = ['issue_date', 'due_date', 'total_amount']
-    ordering = ['-issue_date']
+    ordering = ['-issue_date', '-created_at']
 
     def get_queryset(self):
+        invoices = TenantInvoice.objects.select_related(
+            'tenant', 'academic_session', 'term__term_type',
+        ).prefetch_related('line_items', 'payments')
         tenant = getattr(self.request, 'tenant', None)
         if tenant:
-            return TenantInvoice.objects.filter(tenant=tenant)
-        # Platform admins can see all
-        if self.request.user.is_superuser:
-            return TenantInvoice.objects.all()
+            return invoices.filter(tenant=tenant)
+        # Platform admins see every school's
+        if self.request.user.is_platform_staff:
+            return invoices
         return TenantInvoice.objects.none()
 
     @action(detail=False, methods=['get'])
@@ -1382,6 +1403,182 @@ class TenantInvoiceViewSet(viewsets.ModelViewSet):
         if not invoice:
             return Response({'message': 'No active invoice'}, status=404)
 
+        return Response(TenantInvoiceSerializer(invoice).data)
+
+    def _billing_period(self, data):
+        billing_period = data.get('billing_period', 'term')
+        if billing_period not in dict(TenantInvoice.BILLING_PERIOD_CHOICES):
+            return None
+        return billing_period
+
+    def _billed_tenant(self, request, data):
+        """The school to bill: the request's own, or one a platform admin names."""
+        tenant_id = data.get('tenant')
+        if tenant_id and request.user.is_platform_staff:
+            try:
+                return Tenant.objects.filter(id=tenant_id).first()
+            except (ValueError, DjangoValidationError):
+                return None
+        return getattr(request, 'tenant', None)
+
+    @action(detail=False, methods=['get'],
+            permission_classes=[IsAuthenticated, IsTenantOwner | IsPlatformAdmin])
+    def quote(self, request):
+        """What an invoice for the current term or session would come to."""
+        tenant = self._billed_tenant(request, request.query_params)
+        if not tenant:
+            return Response({'error': 'No tenant context'}, status=400)
+        billing_period = self._billing_period(request.query_params)
+        if billing_period is None:
+            return Response({'error': "billing_period must be 'term' or 'session'"}, status=400)
+
+        try:
+            q = billing.quote(tenant, billing_period)
+        except billing.BillingError as e:
+            return Response({'error': str(e)}, status=400)
+
+        return Response({
+            'billing_period': q.billing_period,
+            'academic_session': q.academic_session.id,
+            'academic_session_name': q.academic_session.name,
+            'term': q.term.id if q.term else None,
+            'term_name': q.term.get_name_display() if q.term else None,
+            'student_count': q.student_count,
+            'lines': [
+                {
+                    'item_type': line.item_type,
+                    'service': line.service,
+                    'description': line.description,
+                    'quantity': line.quantity,
+                    'unit_price': str(line.unit_price),
+                    'amount': str(line.amount),
+                }
+                for line in q.lines
+            ],
+            'total': str(q.total),
+        })
+
+    @action(detail=False, methods=['post'],
+            permission_classes=[IsAuthenticated, IsTenantOwner | IsPlatformAdmin])
+    def generate(self, request):
+        """
+        Raise the invoice for the current term or session, or bring the
+        unpaid one already raised up to date. A platform admin names the
+        school with `tenant`.
+        """
+        tenant = self._billed_tenant(request, request.data)
+        if not tenant:
+            return Response({'error': 'No tenant context'}, status=400)
+        billing_period = self._billing_period(request.data)
+        if billing_period is None:
+            return Response({'error': "billing_period must be 'term' or 'session'"}, status=400)
+
+        try:
+            invoice, created = billing.invoice_for_period(tenant, billing_period)
+        except billing.BillingError as e:
+            return Response({'error': str(e)}, status=400)
+
+        return Response(
+            TenantInvoiceSerializer(invoice).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='platform-summary',
+            permission_classes=[IsAuthenticated, IsPlatformAdmin])
+    def platform_summary(self, request):
+        """What the platform has billed, collected, and is still owed."""
+        invoices = TenantInvoice.objects.exclude(status='cancelled')
+        unpaid = invoices.filter(balance_due__gt=0)
+        overdue = unpaid.filter(due_date__lt=timezone.localdate())
+        totals = invoices.aggregate(invoiced=Sum('total_amount'), paid=Sum('amount_paid'))
+        outstanding = unpaid.aggregate(total=Sum('balance_due'))['total']
+        overdue_total = overdue.aggregate(total=Sum('balance_due'))['total']
+
+        collected = {'paystack': 0.0, 'manual': 0.0}
+        for row in (TenantPayment.objects.filter(status='confirmed')
+                    .values('payment_method').annotate(total=Sum('amount'))):
+            collected[row['payment_method']] = float(row['total'] or 0)
+
+        return Response({
+            'total_invoiced': float(totals['invoiced'] or 0),
+            'total_collected': float(totals['paid'] or 0),
+            'collected_by_paystack': collected['paystack'],
+            'collected_by_transfer': collected['manual'],
+            'total_outstanding': float(outstanding or 0),
+            'unpaid_count': unpaid.count(),
+            'schools_owing': unpaid.values('tenant').distinct().count(),
+            'overdue_total': float(overdue_total or 0),
+            'overdue_count': overdue.count(),
+            'transfers_awaiting_confirmation': TenantPayment.objects.filter(
+                payment_method='manual', status='pending').count(),
+        })
+
+    def _money(self, value):
+        try:
+            amount = Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+        return amount if amount.is_finite() else None
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsPlatformAdmin])
+    def discount(self, request, pk=None):
+        """Take an amount off an invoice, with the reason recorded on it."""
+        invoice = self.get_object()
+        if invoice.status in ('paid', 'cancelled'):
+            return Response({'error': f'A {invoice.status} invoice cannot be discounted'}, status=400)
+
+        amount = self._money(request.data.get('amount'))
+        if amount is None or amount < 0 or amount > invoice.subtotal:
+            return Response(
+                {'error': 'Discount must be between 0 and the invoice subtotal'}, status=400)
+
+        invoice.discount_amount = amount
+        invoice.discount_reason = (request.data.get('reason') or '').strip()[:255]
+        invoice.save()
+        return Response(TenantInvoiceSerializer(invoice).data)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsPlatformAdmin])
+    def cancel(self, request, pk=None):
+        """Cancel an invoice nobody has paid anything towards."""
+        invoice = self.get_object()
+        if invoice.status == 'cancelled':
+            return Response({'error': 'Invoice is already cancelled'}, status=400)
+        if billing.is_settled_or_settling(invoice):
+            return Response(
+                {'error': 'An invoice with payments against it cannot be cancelled'}, status=400)
+
+        reason = (request.data.get('reason') or '').strip()
+        invoice.status = 'cancelled'
+        if reason:
+            invoice.admin_notes = f"{invoice.admin_notes}\nCancelled: {reason}".strip()
+        invoice.save()
+        return Response(TenantInvoiceSerializer(invoice).data)
+
+    @action(detail=True, methods=['post'], url_path='record-payment',
+            permission_classes=[IsAuthenticated, IsPlatformAdmin])
+    def record_payment(self, request, pk=None):
+        """
+        Record money the platform received outside the app - cash, cheque, a
+        transfer the school never reported - as a confirmed payment.
+        """
+        invoice = self.get_object()
+        if invoice.status == 'cancelled':
+            return Response({'error': 'Cannot record a payment on a cancelled invoice'}, status=400)
+
+        amount = self._money(request.data.get('amount'))
+        if amount is None or amount <= 0 or amount > invoice.balance_due:
+            return Response(
+                {'error': 'Amount must be more than 0 and no more than the balance due'}, status=400)
+
+        with transaction.atomic():
+            TenantPayment.objects.create(
+                invoice=invoice, amount=amount, payment_method='manual',
+                status='confirmed', confirmed_by=request.user,
+                confirmed_at=timezone.now(),
+                confirmation_notes=(request.data.get('notes') or '').strip(),
+            )
+            invoice.record_payment(amount)
+
+        invoice.refresh_from_db()
         return Response(TenantInvoiceSerializer(invoice).data)
 
     @action(detail=True, methods=['post'])
@@ -1429,8 +1626,12 @@ class TenantInvoiceViewSet(viewsets.ModelViewSet):
 
 # ============ Payment Management ============
 
-class TenantPaymentViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing tenant payments."""
+class TenantPaymentViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    A school's payments. Read-only over the API: they are created and settled
+    only through the actions below, since a writable serializer let a school
+    post a payment as already confirmed.
+    """
     serializer_class = TenantPaymentSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -1442,7 +1643,7 @@ class TenantPaymentViewSet(viewsets.ModelViewSet):
         tenant = getattr(self.request, 'tenant', None)
         if tenant:
             return TenantPayment.objects.filter(invoice__tenant=tenant)
-        if self.request.user.is_superuser:
+        if self.request.user.is_platform_staff:
             return TenantPayment.objects.all()
         return TenantPayment.objects.none()
 
@@ -1621,10 +1822,33 @@ class TenantPaymentViewSet(viewsets.ModelViewSet):
             logger.error(f"Paystack verification error: {str(e)}")
             return Response({'error': 'Verification error'}, status=500)
 
+    @action(detail=False, methods=['get'], url_path='pending-verification')
+    def pending_verification(self, request):
+        """
+        Bank transfers from every school awaiting a platform admin, oldest
+        first - the queue behind confirm and reject, so it takes the same
+        check. Paystack payments are left out: they also sit at 'pending'
+        from checkout until verify_paystack, but settle themselves.
+        """
+        if not request.user.is_platform_staff:
+            return Response({'error': 'Permission denied'}, status=403)
+
+        payments = (
+            TenantPayment.objects
+            .filter(payment_method='manual', status='pending')
+            .select_related('invoice__tenant')
+            .prefetch_related('invoice__line_items')
+            .order_by('created_at')
+        )
+        paginator = StandardResultsPagination()
+        page = paginator.paginate_queryset(payments, request, view=self)
+        return paginator.get_paginated_response(
+            PendingPaymentSerializer(page, many=True).data)
+
     @action(detail=True, methods=['post'])
     def confirm(self, request, pk=None):
         """Confirm a manual payment (admin only)."""
-        if not request.user.is_superuser:
+        if not request.user.is_platform_staff:
             return Response({'error': 'Permission denied'}, status=403)
 
         payment = self.get_object()
@@ -1650,7 +1874,7 @@ class TenantPaymentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
         """Reject a manual payment (admin only)."""
-        if not request.user.is_superuser:
+        if not request.user.is_platform_staff:
             return Response({'error': 'Permission denied'}, status=403)
 
         payment = self.get_object()

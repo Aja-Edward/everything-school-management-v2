@@ -26,6 +26,10 @@ interface PaymentDetailModalProps {
   isProcessing: boolean;
 }
 
+/** The account and bank the school says the transfer came from. */
+const paidFrom = (payment: PendingPayment): string =>
+  [payment.account_name, payment.bank_name].filter(Boolean).join(', ') || 'Not given';
+
 // ============================================================================
 // PAYMENT DETAIL MODAL
 // ============================================================================
@@ -85,7 +89,7 @@ const PaymentDetailModal: React.FC<PaymentDetailModalProps> = ({
               <div className="flex justify-between items-center">
                 <span className="text-gray-700">Amount</span>
                 <span className="text-2xl font-bold text-blue-900">
-                  {formatCurrency(payment.amount)}
+                  {formatCurrency(Number(payment.amount))}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-4 text-sm pt-2 border-t border-blue-200">
@@ -94,12 +98,20 @@ const PaymentDetailModal: React.FC<PaymentDetailModalProps> = ({
                   <div className="font-mono font-medium">{payment.payment_reference}</div>
                 </div>
                 <div>
-                  <div className="text-gray-600">Transfer Date</div>
-                  <div className="font-medium">
-                    {new Date(payment.transfer_date).toLocaleDateString()}
-                  </div>
+                  <div className="text-gray-600">Paid From</div>
+                  <div className="font-medium">{paidFrom(payment)}</div>
                 </div>
               </div>
+              {payment.payment_proof && (
+                <a
+                  href={payment.payment_proof}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block text-sm font-medium text-blue-700 underline"
+                >
+                  View proof of payment
+                </a>
+              )}
             </div>
           </div>
 
@@ -126,7 +138,7 @@ const PaymentDetailModal: React.FC<PaymentDetailModalProps> = ({
                   <div className="text-gray-500">Due Date</div>
                   <div className="font-medium">
                     <Calendar className="inline h-3 w-3 mr-1" />
-                    {new Date(payment.due_date).toLocaleDateString()}
+                    {payment.due_date ? new Date(payment.due_date).toLocaleDateString() : 'Not set'}
                   </div>
                 </div>
                 <div>
@@ -139,17 +151,19 @@ const PaymentDetailModal: React.FC<PaymentDetailModalProps> = ({
             </div>
           </div>
 
-          {/* Features to Activate */}
-          <div>
-            <h3 className="font-semibold text-gray-900 mb-3">Features to Activate</h3>
-            <div className="flex flex-wrap gap-2">
-              {payment.features.map((feature, index) => (
-                <Badge key={index} variant="outline" className="text-sm">
-                  {feature}
-                </Badge>
-              ))}
+          {/* Services billed on the invoice */}
+          {payment.features.length > 0 && (
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-3">Services on This Invoice</h3>
+              <div className="flex flex-wrap gap-2">
+                {payment.features.map((feature, index) => (
+                  <Badge key={index} variant="outline" className="text-sm">
+                    {feature}
+                  </Badge>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Admin Notes */}
           <div>
@@ -177,7 +191,7 @@ const PaymentDetailModal: React.FC<PaymentDetailModalProps> = ({
               Cancel
             </Button>
             <Button
-              variant="destructive"
+              variant="danger"
               className="flex-1"
               onClick={() => onReject(payment.id, adminNotes)}
               disabled={isProcessing}
@@ -199,7 +213,7 @@ const PaymentDetailModal: React.FC<PaymentDetailModalProps> = ({
               ) : (
                 <CheckCircle className="h-4 w-4 mr-2" />
               )}
-              Approve & Activate
+              Approve
             </Button>
           </div>
         </CardContent>
@@ -236,7 +250,7 @@ export const PendingPayments: React.FC = () => {
     try {
       const result = await getPendingPayments({
         page: pageNum,
-        limit: 20,
+        page_size: 20,
       });
 
       if (pageNum === 1) {
@@ -272,7 +286,7 @@ export const PendingPayments: React.FC = () => {
       await activatePayment(paymentId, notes);
       setActionMessage({
         type: 'success',
-        text: 'Payment approved and features activated successfully!',
+        text: 'Payment approved and recorded on the invoice.',
       });
       setIsModalOpen(false);
       setSelectedPayment(null);
@@ -429,15 +443,15 @@ export const PendingPayments: React.FC = () => {
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                           <div>
                             <div className="text-gray-500">Amount</div>
-                            <div className="font-semibold">{formatCurrency(payment.amount)}</div>
+                            <div className="font-semibold">{formatCurrency(Number(payment.amount))}</div>
                           </div>
                           <div>
                             <div className="text-gray-500">Reference</div>
                             <div className="font-mono text-xs">{payment.payment_reference}</div>
                           </div>
                           <div>
-                            <div className="text-gray-500">Transfer Date</div>
-                            <div>{new Date(payment.transfer_date).toLocaleDateString()}</div>
+                            <div className="text-gray-500">Paid From</div>
+                            <div>{paidFrom(payment)}</div>
                           </div>
                           <div>
                             <div className="text-gray-500">Submitted</div>

@@ -1,53 +1,31 @@
 /**
  * ============================================================================
  * GenerateInvoice.tsx
- * Page for generating new invoices for feature activation
+ * Page for raising the school's invoice for the current term or session
  * ============================================================================
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, Calendar, Users, FileText, Loader2, CheckCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ArrowLeft, Calendar, Users, Loader2, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { generateInvoice, getPricing, formatCurrency, getEnrolledStudentCount } from '@/services/BillingService';
-import type { FeaturePricing, CreateInvoiceRequest, InvoiceGenerationResponse } from '@/types/types';
+import { generateInvoice, getInvoiceQuote, formatCurrency, invoicePeriodLabel } from '@/services/BillingService';
+import type { BillingPeriod, InvoiceQuote } from '@/types/types';
 import { useNavigate } from 'react-router-dom';
 
 // ============================================================================
-// TYPES
+// HELPERS
 // ============================================================================
 
-interface SelectedFeature {
-  feature_id: string;
-  feature_name: string;
-  price_per_student: number;
-  selected: boolean;
-}
+/** The backend's own explanation, e.g. that no current term is set. */
+const errorMessage = (err: unknown, fallback: string): string => {
+  const e = err as { response?: { data?: { error?: string } }; message?: string };
+  return e?.response?.data?.error || e?.message || fallback;
+};
 
-interface InvoiceFormData {
-  academic_session_id: string;
-  term_id: string;
-  student_count: number;
-  due_date: string;
-  notes: string;
-  selected_features: string[];
-}
-
-// ============================================================================
-// MOCK DATA (Replace with API calls in production)
-// ============================================================================
-
-const ACADEMIC_SESSIONS = [
-  { id: '1', name: '2024/2025', is_current: false },
-  { id: '2', name: '2025/2026', is_current: true },
-  { id: '3', name: '2026/2027', is_current: false },
-];
-
-const TERMS = [
-  { id: '1', name: 'First Term', session_id: '2' },
-  { id: '2', name: 'Second Term', session_id: '2' },
-  { id: '3', name: 'Third Term', session_id: '2' },
+const PERIOD_OPTIONS: { value: BillingPeriod; title: string; description: string }[] = [
+  { value: 'term', title: 'This term', description: 'Pay for the current term only' },
+  { value: 'session', title: 'Whole session', description: 'Pay for all three terms at once' },
 ];
 
 // ============================================================================
@@ -55,243 +33,63 @@ const TERMS = [
 // ============================================================================
 
 /**
- * GenerateInvoice page for creating billing invoices
+ * GenerateInvoice page: pick term or session, review the amount, raise it.
  */
 export const GenerateInvoice: React.FC = () => {
   const navigate = useNavigate();
 
-  // Form state
-  const [formData, setFormData] = useState<InvoiceFormData>({
-    academic_session_id: ACADEMIC_SESSIONS.find(s => s.is_current)?.id || '',
-    term_id: '',
-    student_count: 0,
-    due_date: '',
-    notes: '',
-    selected_features: [],
-  });
+  const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('term');
+  const [quote, setQuote] = useState<InvoiceQuote | null>(null);
+  const [loadingQuote, setLoadingQuote] = useState(true);
+  const [quoteError, setQuoteError] = useState('');
 
-  // Features state
-  const [features, setFeatures] = useState<SelectedFeature[]>([]);
-  const [loadingFeatures, setLoadingFeatures] = useState(true);
-
-  // Generation state
   const [isGenerating, setIsGenerating] = useState(false);
-  const [generationError, setGenerationError] = useState<string>('');
-  const [generationSuccess, setGenerationSuccess] = useState(false);
-  const [generatedInvoice, setGeneratedInvoice] = useState<InvoiceGenerationResponse | null>(null);
+  const [generationError, setGenerationError] = useState('');
 
-  // Student count state
-  const [loadingStudentCount, setLoadingStudentCount] = useState(false);
-
-  // Load feature pricing on mount
   useEffect(() => {
-    const loadPricing = async () => {
-      setLoadingFeatures(true);
+    let cancelled = false;
+
+    const loadQuote = async () => {
+      setLoadingQuote(true);
+      setQuoteError('');
       try {
-        const pricing = await getPricing();
-        const mappedFeatures: SelectedFeature[] = pricing.map((p: FeaturePricing) => ({
-          feature_id: p.feature_id,
-          feature_name: p.feature_name,
-          price_per_student: p.price_per_student,
-          selected: false,
-        }));
-        setFeatures(mappedFeatures);
-      } catch (error) {
-        console.error('Failed to load pricing:', error);
-        // Fallback to default features
-        setFeatures([
-          { feature_id: 'exams', feature_name: 'Exams & Results', price_per_student: 700, selected: false },
-          { feature_id: 'attendance', feature_name: 'Attendance Tracking', price_per_student: 200, selected: false },
-          { feature_id: 'messaging', feature_name: 'Messaging System', price_per_student: 150, selected: false },
-        ]);
+        const result = await getInvoiceQuote(billingPeriod);
+        if (!cancelled) setQuote(result);
+      } catch (err) {
+        if (!cancelled) {
+          setQuote(null);
+          setQuoteError(errorMessage(err, 'Failed to work out the invoice amount'));
+        }
       } finally {
-        setLoadingFeatures(false);
+        if (!cancelled) setLoadingQuote(false);
       }
     };
 
-    loadPricing();
-  }, []);
-
-  // Load student count when session/term changes
-  useEffect(() => {
-    const loadStudentCount = async () => {
-      if (!formData.academic_session_id || !formData.term_id) {
-        return;
-      }
-
-      setLoadingStudentCount(true);
-      try {
-        const count = await getEnrolledStudentCount(formData.academic_session_id, formData.term_id);
-        setFormData(prev => ({ ...prev, student_count: count }));
-      } catch (error) {
-        console.error('Failed to load student count:', error);
-        setFormData(prev => ({ ...prev, student_count: 0 }));
-      } finally {
-        setLoadingStudentCount(false);
-      }
+    loadQuote();
+    return () => {
+      cancelled = true;
     };
-
-    loadStudentCount();
-  }, [formData.academic_session_id, formData.term_id]);
-
-  // Set default due date (30 days from today)
-  useEffect(() => {
-    const defaultDueDate = new Date();
-    defaultDueDate.setDate(defaultDueDate.getDate() + 30);
-    setFormData(prev => ({
-      ...prev,
-      due_date: defaultDueDate.toISOString().split('T')[0],
-    }));
-  }, []);
-
-  // Calculate invoice totals
-  const invoiceTotals = useMemo(() => {
-    const selectedFeaturesList = features.filter(f => f.selected);
-    const subtotal = selectedFeaturesList.reduce(
-      (sum, f) => sum + (f.price_per_student * formData.student_count),
-      0
-    );
-    const tax = 0; // No tax for now
-    const total = subtotal + tax;
-
-    return {
-      subtotal,
-      tax,
-      total,
-      selectedCount: selectedFeaturesList.length,
-    };
-  }, [features, formData.student_count]);
-
-  // Handlers
-  const handleFeatureToggle = (featureId: string) => {
-    setFeatures(prev =>
-      prev.map(f =>
-        f.feature_id === featureId ? { ...f, selected: !f.selected } : f
-      )
-    );
-  };
+  }, [billingPeriod]);
 
   const handleGenerate = async () => {
-    // Validation
-    if (!formData.academic_session_id) {
-      setGenerationError('Please select an academic session');
-      return;
-    }
-
-    if (!formData.term_id) {
-      setGenerationError('Please select a term');
-      return;
-    }
-
-    if (formData.student_count === 0) {
-      setGenerationError('No enrolled students found for the selected session and term');
-      return;
-    }
-
-    const selectedFeatures = features.filter(f => f.selected);
-    if (selectedFeatures.length === 0) {
-      setGenerationError('Please select at least one feature to activate');
-      return;
-    }
-
-    if (!formData.due_date) {
-      setGenerationError('Please set a due date');
-      return;
-    }
-
     setIsGenerating(true);
     setGenerationError('');
-
     try {
-      // Prepare invoice data
-      const invoiceData: CreateInvoiceRequest = {
-        academic_session_id: formData.academic_session_id,
-        term_id: formData.term_id,
-        feature_ids: selectedFeatures.map(f => f.feature_id),
-        due_date: formData.due_date,
-        notes: formData.notes || undefined,
-      };
-
-      // Generate invoice
-      const result = await generateInvoice(invoiceData);
-
-      setGeneratedInvoice(result);
-      setGenerationSuccess(true);
-
-      // Navigate to invoice detail after a short delay
-      setTimeout(() => {
-        navigate(`/admin/billing/invoices/${result.invoice.id}`);
-      }, 2000);
-    } catch (error) {
-      const err = error as Error;
-      setGenerationError(err.message || 'Failed to generate invoice');
-    } finally {
+      const invoice = await generateInvoice(billingPeriod);
+      navigate(`/admin/billing/invoices/${invoice.id}`);
+    } catch (err) {
+      setGenerationError(errorMessage(err, 'Failed to generate invoice'));
       setIsGenerating(false);
     }
   };
 
-  const handleBack = () => {
-    navigate('/admin/billing');
-  };
-
-  // Get available terms for selected session
-  const availableTerms = useMemo(() => {
-    return TERMS.filter(t => t.session_id === formData.academic_session_id);
-  }, [formData.academic_session_id]);
-
-  // Success state
-  if (generationSuccess && generatedInvoice) {
-    return (
-      <div className="container mx-auto p-6 max-w-2xl">
-        <Card className="border-green-200 bg-green-50">
-          <CardContent className="pt-6">
-            <div className="text-center space-y-4">
-              <div className="flex justify-center">
-                <div className="bg-green-100 p-4 rounded-full">
-                  <CheckCircle className="h-16 w-16 text-green-600" />
-                </div>
-              </div>
-              <div>
-                <h2 className="text-2xl font-bold text-green-900">Invoice Generated Successfully!</h2>
-                <p className="text-green-700 mt-2">
-                  Invoice {generatedInvoice.invoice.invoice_number} has been created.
-                </p>
-              </div>
-              <div className="bg-white rounded-lg p-4 space-y-2 text-left">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Invoice Number:</span>
-                  <span className="font-semibold">{generatedInvoice.invoice.invoice_number}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Total Amount:</span>
-                  <span className="font-semibold text-lg">{formatCurrency(generatedInvoice.invoice.total)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Students:</span>
-                  <span className="font-semibold">{generatedInvoice.invoice.student_count}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Due Date:</span>
-                  <span className="font-semibold">
-                    {new Date(generatedInvoice.invoice.due_date).toLocaleDateString()}
-                  </span>
-                </div>
-              </div>
-              <p className="text-sm text-green-700">
-                Redirecting to invoice details...
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  const canGenerate = !!quote && quote.student_count > 0 && !isGenerating;
 
   return (
-    <div className="container mx-auto p-6 space-y-6 max-w-5xl">
+    <div className="container mx-auto p-6 max-w-3xl space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="sm" onClick={handleBack}>
+        <Button variant="ghost" size="sm" onClick={() => navigate('/admin/billing')}>
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Billing
         </Button>
@@ -300,263 +98,119 @@ export const GenerateInvoice: React.FC = () => {
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Generate Invoice</h1>
         <p className="text-gray-600 mt-1">
-          Create a new invoice for feature activation
+          You are billed per active student. The Basic package covers every service except
+          add-ons such as CBT and Gate Tracker, which are charged on top when switched on.
         </p>
       </div>
 
-      {/* Error Alert */}
-      {generationError && (
-        <Card className="border-red-200 bg-red-50">
-          <CardContent className="pt-6">
-            <p className="text-red-800">{generationError}</p>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Main Form - Left Column (2/3) */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Session & Term Selection */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Academic Period</CardTitle>
-              <CardDescription>Select the session and term for this invoice</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Academic Session */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Academic Session
-                </label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  value={formData.academic_session_id}
-                  onChange={(e) => setFormData(prev => ({
-                    ...prev,
-                    academic_session_id: e.target.value,
-                    term_id: '', // Reset term when session changes
-                  }))}
-                >
-                  <option value="">Select Session</option>
-                  {ACADEMIC_SESSIONS.map(session => (
-                    <option key={session.id} value={session.id}>
-                      {session.name} {session.is_current && '(Current)'}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Term */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Term
-                </label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  value={formData.term_id}
-                  onChange={(e) => setFormData(prev => ({ ...prev, term_id: e.target.value }))}
-                  disabled={!formData.academic_session_id}
-                >
-                  <option value="">Select Term</option>
-                  {availableTerms.map(term => (
-                    <option key={term.id} value={term.id}>
-                      {term.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Student Count Display */}
-              {formData.term_id && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Users className="h-5 w-5 text-blue-600" />
-                      <span className="text-sm font-medium text-blue-900">Enrolled Students</span>
-                    </div>
-                    {loadingStudentCount ? (
-                      <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-                    ) : (
-                      <span className="text-2xl font-bold text-blue-900">{formData.student_count}</span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Feature Selection */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Features to Activate</CardTitle>
-              <CardDescription>Select the features to include in this invoice</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loadingFeatures ? (
-                <div className="flex justify-center py-8">
-                  <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="hidden md:grid grid-cols-12 gap-4 text-sm font-semibold text-gray-700 pb-2 border-b">
-                    <div className="col-span-5">Feature</div>
-                    <div className="col-span-3 text-right">Per Student</div>
-                    <div className="col-span-2 text-right">Students</div>
-                    <div className="col-span-2 text-right">Amount</div>
-                  </div>
-
-                  {features.map(feature => {
-                    const featureTotal = feature.price_per_student * formData.student_count;
-
-                    return (
-                      <div
-                        key={feature.feature_id}
-                        className={`grid grid-cols-1 md:grid-cols-12 gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                          feature.selected
-                            ? 'border-blue-500 bg-blue-50'
-                            : 'border-gray-200 hover:border-gray-300'
-                        }`}
-                        onClick={() => handleFeatureToggle(feature.feature_id)}
-                      >
-                        <div className="md:col-span-5 flex items-center gap-3">
-                          <input
-                            type="checkbox"
-                            checked={feature.selected}
-                            onChange={() => handleFeatureToggle(feature.feature_id)}
-                            className="h-5 w-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                          <span className="font-medium text-gray-900">{feature.feature_name}</span>
-                        </div>
-                        <div className="md:col-span-3 md:text-right">
-                          <span className="text-gray-600 md:hidden font-medium">Per Student: </span>
-                          <span className="text-gray-900">{formatCurrency(feature.price_per_student)}</span>
-                        </div>
-                        <div className="md:col-span-2 md:text-right">
-                          <span className="text-gray-600 md:hidden font-medium">Students: </span>
-                          <span className="text-gray-700">{formData.student_count}</span>
-                        </div>
-                        <div className="md:col-span-2 md:text-right">
-                          <span className="text-gray-600 md:hidden font-medium">Amount: </span>
-                          <span className="font-semibold text-gray-900">{formatCurrency(featureTotal)}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Additional Details */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Additional Details</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Due Date */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <Calendar className="inline h-4 w-4 mr-1" />
-                  Due Date
-                </label>
-                <Input
-                  type="date"
-                  value={formData.due_date}
-                  onChange={(e) => setFormData(prev => ({ ...prev, due_date: e.target.value }))}
-                  min={new Date().toISOString().split('T')[0]}
-                />
-              </div>
-
-              {/* Notes */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <FileText className="inline h-4 w-4 mr-1" />
-                  Notes (Optional)
-                </label>
-                <textarea
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  rows={3}
-                  placeholder="Add any notes or special instructions..."
-                  value={formData.notes}
-                  onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Summary - Right Column (1/3) */}
-        <div className="lg:col-span-1">
-          <Card className="sticky top-6">
-            <CardHeader>
-              <CardTitle>Invoice Summary</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Selected Features Count */}
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Selected Features:</span>
-                <span className="font-semibold">{invoiceTotals.selectedCount}</span>
-              </div>
-
-              {/* Student Count */}
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Students:</span>
-                <span className="font-semibold">{formData.student_count}</span>
-              </div>
-
-              <div className="border-t pt-4 space-y-3">
-                {/* Subtotal */}
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Subtotal:</span>
-                  <span className="font-medium">{formatCurrency(invoiceTotals.subtotal)}</span>
-                </div>
-
-                {/* Tax */}
-                {invoiceTotals.tax > 0 && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Tax:</span>
-                    <span className="font-medium">{formatCurrency(invoiceTotals.tax)}</span>
-                  </div>
-                )}
-
-                {/* Total */}
-                <div className="flex justify-between items-center pt-3 border-t">
-                  <span className="text-lg font-semibold text-gray-900">Total:</span>
-                  <span className="text-2xl font-bold text-blue-600">
-                    {formatCurrency(invoiceTotals.total)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Generate Button */}
-              <Button
-                onClick={handleGenerate}
-                disabled={isGenerating || invoiceTotals.selectedCount === 0 || formData.student_count === 0}
-                className="w-full"
-                size="lg"
+      {/* Billing period */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="h-5 w-5" />
+            How would you like to pay?
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {PERIOD_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setBillingPeriod(option.value)}
+                disabled={isGenerating}
+                className={`text-left p-4 rounded-lg border-2 transition-colors ${
+                  billingPeriod === option.value
+                    ? 'border-blue-600 bg-blue-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
               >
-                {isGenerating ? (
-                  <>
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <FileText className="mr-2 h-5 w-5" />
-                    Generate Invoice
-                  </>
-                )}
-              </Button>
+                <div className="font-semibold text-gray-900">{option.title}</div>
+                <div className="text-sm text-gray-600 mt-1">{option.description}</div>
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
-              {/* Helper Text */}
-              <p className="text-xs text-gray-500 text-center">
-                Invoice will be generated and can be paid immediately
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      {/* Quote */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Invoice Amount</CardTitle>
+          {quote && (
+            <CardDescription>
+              For {invoicePeriodLabel(quote)} ·{' '}
+              <Users className="inline h-3 w-3 mr-1" />
+              {quote.student_count} active student{quote.student_count !== 1 ? 's' : ''}
+            </CardDescription>
+          )}
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {loadingQuote ? (
+            <div className="flex items-center gap-2 text-gray-600">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Working out the amount...
+            </div>
+          ) : quoteError ? (
+            <div className="flex items-start gap-2 text-red-700">
+              <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+              <span>{quoteError}</span>
+            </div>
+          ) : quote ? (
+            <>
+              <div className="space-y-2">
+                {quote.lines.map((line) => (
+                  <div
+                    key={line.description}
+                    className="flex justify-between gap-4 p-3 bg-gray-50 rounded-lg text-sm"
+                  >
+                    <div>
+                      <div className="font-medium text-gray-900">{line.description}</div>
+                      <div className="text-gray-500">
+                        {line.quantity} × {formatCurrency(line.unit_price)}
+                        {billingPeriod === 'session' ? ' per session' : ' per term'}
+                      </div>
+                    </div>
+                    <div className="font-semibold text-gray-900">{formatCurrency(line.amount)}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex justify-between items-center pt-3 border-t">
+                <span className="font-semibold text-gray-900">Total</span>
+                <span className="text-2xl font-bold text-gray-900">{formatCurrency(quote.total)}</span>
+              </div>
+
+              {quote.student_count === 0 && (
+                <p className="text-sm text-orange-700">
+                  There are no active students to bill for yet.
+                </p>
+              )}
+            </>
+          ) : null}
+
+          {generationError && (
+            <div className="flex items-start gap-2 text-red-700">
+              <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+              <span>{generationError}</span>
+            </div>
+          )}
+
+          <Button onClick={handleGenerate} disabled={!canGenerate} className="w-full" size="lg">
+            {isGenerating ? (
+              <>
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              'Generate Invoice'
+            )}
+          </Button>
+          <p className="text-xs text-gray-500 text-center">
+            If an unpaid invoice for this period already exists, it is updated to these figures instead.
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 };

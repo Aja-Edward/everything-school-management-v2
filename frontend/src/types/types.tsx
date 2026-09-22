@@ -3265,7 +3265,10 @@ export interface ParentProfile extends BaseEntity {
 /**
  * Invoice status tracking
  */
-export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'partially_paid' | 'overdue' | 'cancelled';
+export type InvoiceStatus = 'draft' | 'pending' | 'partially_paid' | 'paid' | 'overdue' | 'cancelled';
+
+/** A school pays per term, or for a whole session (three terms) at once. */
+export type BillingPeriod = 'term' | 'session';
 
 /**
  * Payment method options
@@ -3284,83 +3287,68 @@ export interface FeaturePricing extends BaseEntity {
 }
 
 /**
- * Student snapshot for invoice audit trail
+ * One line of an invoice (TenantInvoiceLineItemSerializer): the Basic
+ * package, or an add-on, charged per student. Money arrives as decimal strings.
  */
-export interface StudentSnapshot {
-  student_id: string;
-  name: string;
-  class: string;
-  enrolled_at: string;
+export interface InvoiceLineItem {
+  id: number;
+  item_type: 'base' | 'service' | 'adjustment';
+  service: string | null;
+  description: string;
+  quantity: number;
+  unit_price: string;
+  amount: string;
+  created_at: string;
 }
 
 /**
- * Invoice line item
+ * An invoice from the platform to a school (TenantInvoiceSerializer).
+ * Money arrives as decimal strings.
  */
-export interface InvoiceItem {
+export interface Invoice {
   id: string;
-  feature_id: string;
-  feature_name: string;
-  quantity: number;       // Student count
-  unit_price: number;     // Price per student
-  total: number;
-}
-
-/**
- * Complete invoice data structure
- */
-export interface Invoice extends BaseEntity {
-  tenant_id: string;
-  invoice_number: string;  // INV-2026-001
-
-  // Period
-  academic_session_id: string;
-  academic_session?: AcademicSession;
-  term_id: string;
-  term?: Term;
-
-  // Line Items
-  items: InvoiceItem[];
-  subtotal: number;
-  tax: number;  // Future use
-  total: number;
-
-  // Student Count (snapshot)
+  invoice_number: string;
+  tenant: string;
+  school_name: string;
+  billing_period: BillingPeriod;
+  academic_session: number;
+  academic_session_name: string;
+  term: number | null;
+  term_name: string | null;
+  base_price_per_student: string;
   student_count: number;
-  student_snapshot: StudentSnapshot[];  // For audit
-
-  // Status
+  base_amount: string;
+  services_amount: string;
+  subtotal: string;
+  discount_amount: string;
+  discount_reason: string;
+  total_amount: string;
+  amount_paid: string;
+  balance_due: string;
   status: InvoiceStatus;
-  due_date: string;
-
-  // Payment
-  amount_paid: number;
-  payment_method?: PaymentMethod;
-  payment_reference?: string;
-  paid_at?: string;
-
-  // Metadata
-  notes?: string;
-  created_by: string;
+  issue_date: string;
+  due_date: string | null;
+  paid_at: string | null;
+  notes: string;
+  line_items: InvoiceLineItem[];
+  payments: VerifiedTenantPayment[];
+  created_at: string;
+  updated_at: string;
 }
 
 /**
- * Invoice creation request payload
+ * What an invoice for the current term or session would come to
+ * (GET /api/tenants/invoices/quote/).
  */
-export interface CreateInvoiceRequest {
-  academic_session_id: string;
-  term_id: string;
-  feature_ids: string[];
-  due_date: string;
-  notes?: string;
-}
-
-/**
- * Invoice generation response
- */
-export interface InvoiceGenerationResponse {
-  invoice: Invoice;
-  pdf_url?: string;
-  message: string;
+export interface InvoiceQuote {
+  billing_period: BillingPeriod;
+  academic_session: number;
+  academic_session_name: string;
+  term: number | null;
+  term_name: string | null;
+  student_count: number;
+  lines: Pick<InvoiceLineItem, 'item_type' | 'service' | 'description' | 'quantity' | 'unit_price' | 'amount'>[];
+  total: string;
 }
 
 /**
@@ -3373,7 +3361,7 @@ export interface PaystackInit {
 }
 
 /**
- * Response from POST /api/tenants/payments/verify-paystack/.
+ * Response from POST /api/tenants/payments/verify_paystack/.
  *
  * Mirrors what the view actually returns: a message plus the updated payment.
  * It previously declared a `success: boolean` that the backend has never sent,
@@ -3406,13 +3394,15 @@ export interface VerifiedTenantPayment {
 }
 
 /**
- * Bank transfer notification request
+ * A bank transfer the school reports, for a platform admin to confirm
+ * (POST /api/tenants/payments/record_manual/).
  */
 export interface BankTransferNotification {
   invoice_id: string;
-  payment_reference: string;
-  amount: number;
-  transfer_date: string;
+  amount: string;
+  bank_name?: string;
+  account_name?: string;
+  payment_proof?: string;
   notes?: string;
 }
 
@@ -3439,23 +3429,32 @@ export interface FeatureActivationRequest {
 }
 
 /**
- * Billing summary for dashboard
+ * The platform's billing totals across every school
+ * (GET /api/tenants/invoices/platform-summary/). Cancelled invoices excluded.
+ */
+export interface PlatformBillingSummary {
+  total_invoiced: number;
+  total_collected: number;
+  collected_by_paystack: number;
+  collected_by_transfer: number;
+  total_outstanding: number;
+  unpaid_count: number;
+  schools_owing: number;
+  overdue_total: number;
+  overdue_count: number;
+  transfers_awaiting_confirmation: number;
+}
+
+/**
+ * A school's billing totals (GET /api/tenants/invoices/summary/)
  */
 export interface BillingSummary {
-  current_term_total: number;
+  total_invoices: number;
+  total_invoiced: number;
   total_paid: number;
   total_outstanding: number;
-  active_features: string[];
-  upcoming_renewals: {
-    feature_name: string;
-    expires_at: string;
-  }[];
-  payment_history: {
-    date: string;
-    amount: number;
-    invoice_number: string;
-    method: PaymentMethod;
-  }[];
+  pending_count: number;
+  overdue_count: number;
 }
 
 /**
@@ -3464,12 +3463,18 @@ export interface BillingSummary {
 export interface PendingPayment {
   id: string;
   school_name: string;
-  invoice: Invoice;
-  notification_date: string;
+  tenant_id: string;
+  invoice: string;
+  invoice_number: string;
+  student_count: number;
+  due_date: string | null;
+  amount: string;
   payment_reference: string;
-  amount: number;
-  transfer_date: string;
-  notes?: string;
+  bank_name: string;
+  account_name: string;
+  payment_proof: string;
+  submitted_at: string;
+  features: string[];
 }
 
 /**

@@ -87,7 +87,7 @@ export const PaystackCheckout: React.FC<PaystackCheckoutProps> = ({
           <div className="flex justify-between items-center">
             <span className="text-sm text-gray-600">Amount to Pay</span>
             <span className="text-2xl font-bold text-gray-900">
-              {formatCurrency(invoice.total)}
+              {formatCurrency(invoice.balance_due)}
             </span>
           </div>
           <div className="mt-2 text-xs text-gray-500">
@@ -138,7 +138,7 @@ export const PaystackCheckout: React.FC<PaystackCheckoutProps> = ({
           ) : (
             <>
               <CreditCard className="mr-2 h-5 w-5" />
-              Pay {formatCurrency(invoice.total)}
+              Pay {formatCurrency(invoice.balance_due)}
             </>
           )}
         </Button>

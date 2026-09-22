@@ -12,6 +12,7 @@ import api from '@/services/api';
 import { UserRole } from '@/types/types';
 import PlatformContentPanel from '@/components/platform-admin/PlatformContentPanel';
 import PlatformUsersPanel from '@/components/platform-admin/PlatformUsersPanel';
+import PlatformBillingPanel from '@/components/platform-admin/PlatformBillingPanel';
 
 
 const PLATFORM_LOGO = '/images/nuventa-logo.png';
@@ -230,7 +231,7 @@ const ConfirmModal = ({ state, processing, onChange, onConfirm, onClose }: Confi
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-type DashboardTab = 'tenants' | 'content' | 'users';
+type DashboardTab = 'tenants' | 'billing' | 'content' | 'users';
 
 const SuperAdminDashboard = () => {
   const navigate = useNavigate();
@@ -482,6 +483,7 @@ const SuperAdminDashboard = () => {
             <div className="inline-flex bg-white border border-gray-200 rounded-lg p-1 gap-1">
               {([
                 { key: 'tenants', label: 'Tenants', icon: Building2 },
+                { key: 'billing', label: 'Billing', icon: CreditCard },
                 { key: 'content', label: 'Site Content', icon: FileText },
                 { key: 'users', label: 'Platform Users', icon: UserCog },
               ] as const).map(({ key, label, icon: Icon }) => (
@@ -556,6 +558,7 @@ const SuperAdminDashboard = () => {
           </div>
         )}
 
+        {activeTab === 'billing' && <PlatformBillingPanel />}
         {activeTab === 'content' && <PlatformContentPanel />}
         {activeTab === 'users' && <PlatformUsersPanel />}
 
