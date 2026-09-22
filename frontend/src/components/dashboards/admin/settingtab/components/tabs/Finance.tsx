@@ -1,341 +1,185 @@
-import React, { useState } from 'react';
-import { 
-  DollarSign, 
-  CreditCard, 
-  Receipt, 
-  Calculator, 
-  TrendingUp, 
-  AlertCircle, 
-  CheckCircle, 
-  Clock, 
-  Calendar,
-  Plus,
-  Edit3,
-  Trash2,
-  Save,
-  X
-} from 'lucide-react';
-import ToggleSwitch from '@/components/dashboards/admin/settingtab/components/ToggleSwitch';
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowRight, Loader2, Receipt, Wallet } from 'lucide-react';
 import FeeRemindersPanel from './FeeRemindersPanel';
+import { FeeStructure, FeeStructureService } from '@/services/FeeManagementService';
+import { tenantService, TenantServiceType } from '@/services/TenantService';
+import { useBillingSummary } from '@/hooks/useBilling';
 
+const naira = (amount: string | number) =>
+  `₦${Number(amount || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+
+const Card: React.FC<{
+  title: string;
+  subtitle: string;
+  icon: React.ReactNode;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}> = ({ title, subtitle, icon, action, children }) => (
+  <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 sm:p-8 shadow-sm border border-slate-200 dark:border-slate-700">
+    <div className="flex items-start justify-between gap-4 mb-6">
+      <div className="flex items-start gap-3">
+        <span className="w-9 h-9 rounded-lg bg-primary-50 dark:bg-primary-900/40 text-primary-600 dark:text-primary-300 flex items-center justify-center flex-shrink-0">
+          {icon}
+        </span>
+        <div>
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{title}</h3>
+          <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>
+        </div>
+      </div>
+      {action}
+    </div>
+    {children}
+  </div>
+);
+
+// Everything here is read from the API: what the school pays the platform
+// (tenants/services and its invoices) and the fees it charges parents. It used
+// to show invented figures - a "$5000 Monthly" tuition fee, discount rules,
+// payment methods and tax settings that saved nowhere - which did not match
+// the school's real pricing or its invoices.
 const Finance: React.FC = () => {
-  const [feeStructure] = useState([
-    {
-      id: 1,
-      name: 'Tuition Fee',
-      amount: 5000,
-      frequency: 'monthly',
-      description: 'Standard tuition fee for all students',
-      isActive: true
-    },
-    {
-      id: 2,
-      name: 'Library Fee',
-      amount: 200,
-      frequency: 'yearly',
-      description: 'Annual library membership fee',
-      isActive: true
-    }
-  ]);
+  const navigate = useNavigate();
+  const { summary, loading: summaryLoading } = useBillingSummary();
+  const [services, setServices] = useState<TenantServiceType[] | null>(null);
+  const [fees, setFees] = useState<FeeStructure[] | null>(null);
+  const [feesError, setFeesError] = useState(false);
 
-  const [discountRules] = useState([
-    {
-      id: 1,
-      name: 'Sibling Discount',
-      type: 'percentage',
-      value: 10,
-      description: '10% discount for siblings',
-      isActive: true
-    },
-    {
-      id: 2,
-      name: 'Early Payment',
-      type: 'percentage',
-      value: 5,
-      description: '5% discount for early payment',
-      isActive: true
-    }
-  ]);
+  useEffect(() => {
+    tenantService.getServices().then(setServices).catch(() => setServices([]));
+    FeeStructureService.list()
+      .then((data: any) => setFees(Array.isArray(data) ? data : data?.results ?? []))
+      .catch(() => { setFees([]); setFeesError(true); });
+  }, []);
 
-  const [reminderSettings, setReminderSettings] = useState({
-    enableReminders: true,
-    reminderDays: 7,
-    autoReminders: true,
-    emailNotifications: true,
-    smsNotifications: false
-  });
-
-  const [paymentMethods, setPaymentMethods] = useState([
-    { id: 1, name: 'Credit Card', enabled: true, processingFee: 2.5 },
-    { id: 2, name: 'Bank Transfer', enabled: true, processingFee: 0 },
-    { id: 3, name: 'Cash', enabled: true, processingFee: 0 },
-    { id: 4, name: 'Mobile Money', enabled: false, processingFee: 1.5 }
-  ]);
-
-  const [taxSettings, setTaxSettings] = useState({
-    enableTax: true,
-    taxRate: 15,
-    taxName: 'VAT',
-    taxNumber: 'TAX123456'
-  });
-
-  const updatePaymentMethod = (id: number, field: string, value: any) => {
-    setPaymentMethods(prev => prev.map(method => 
-      method.id === id ? { ...method, [field]: value } : method
-    ));
-  };
-
-  const updateReminderSettings = (field: string, value: any) => {
-    setReminderSettings(prev => ({ ...prev, [field]: value }));
-  };
-
-  const updateTaxSettings = (field: string, value: any) => {
-    setTaxSettings(prev => ({ ...prev, [field]: value }));
-  };
+  const basic = services?.find(s => s.service === 'basic');
+  const addOns = (services ?? []).filter(s => s.is_add_on && s.is_enabled && s.service !== 'basic');
+  const perMessage = addOns.filter(s => s.price_per_message != null);
+  const perStudent = Number(basic?.price_per_student ?? 0)
+    + addOns.filter(s => s.price_per_message == null)
+      .reduce((sum, s) => sum + Number(s.price_per_student), 0);
 
   return (
     <div className="space-y-8">
       <FeeRemindersPanel />
 
-      {/* Fee Structure Management */}
-      <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100">
-        <div className="flex justify-between items-center mb-6">
-          <h3 className="text-xl font-semibold text-slate-900 flex items-center gap-3">
-            <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center">
-              <DollarSign className="w-4 h-4 text-white" />
-            </div>
-            Fee Structure Management
-          </h3>
-          <button className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
-            <Plus className="w-4 h-4" />
-            Add Fee Item
+      {/* What the school pays the platform */}
+      <Card
+        title="Your Nuventa bill"
+        subtitle="What this school pays for the software, and what is outstanding."
+        icon={<Wallet className="w-4 h-4" />}
+        action={
+          <button
+            onClick={() => navigate('/admin/billing')}
+            className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+          >
+            Invoices
+            <ArrowRight className="w-3.5 h-3.5" />
           </button>
-        </div>
+        }
+      >
+        {services === null ? (
+          <div className="py-6 flex justify-center"><Loader2 className="w-5 h-5 text-primary-600 animate-spin" /></div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-3 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <div className="p-4 border-l-4 border-primary-600">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Per student, per term</p>
+                <p className="mt-1 text-xl font-semibold text-slate-900 dark:text-white">{naira(perStudent)}</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  Basic package {naira(basic?.price_per_student ?? 0)}
+                  {addOns.filter(s => s.price_per_message == null).length > 0 && ' + add-ons'}
+                </p>
+              </div>
+              <div className="p-4 border-t sm:border-t-0 sm:border-l border-slate-200 dark:border-slate-700">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Outstanding</p>
+                <p className="mt-1 text-xl font-semibold text-slate-900 dark:text-white">
+                  {summaryLoading ? '—' : naira(summary?.total_outstanding ?? 0)}
+                </p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  {summaryLoading ? 'loading…' : `${summary?.pending_count ?? 0} pending · ${summary?.overdue_count ?? 0} overdue`}
+                </p>
+              </div>
+              <div className="p-4 border-t sm:border-t-0 sm:border-l border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Paid so far</p>
+                <p className="mt-1 text-xl font-semibold text-slate-900 dark:text-white">
+                  {summaryLoading ? '—' : naira(summary?.total_paid ?? 0)}
+                </p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  {summaryLoading ? '' : `across ${summary?.total_invoices ?? 0} invoices`}
+                </p>
+              </div>
+            </div>
 
-        <div className="space-y-4">
-          {feeStructure.map(fee => (
-            <div key={fee.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
-              <div className="flex-1">
-                <h4 className="font-semibold text-slate-900">{fee.name}</h4>
-                <p className="text-sm text-slate-600">{fee.description}</p>
-                <div className="flex items-center gap-4 mt-2">
-                  <span className="text-lg font-bold text-green-600">${fee.amount}</span>
-                  <span className="text-sm text-slate-500 capitalize">{fee.frequency}</span>
-                  <span className={`px-2 py-1 text-xs rounded-full ${
-                    fee.isActive ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600'
-                  }`}>
-                    {fee.isActive ? 'Active' : 'Inactive'}
-                  </span>
+            <div className="mt-4 text-sm text-slate-600 dark:text-slate-300">
+              {addOns.length === 0 ? (
+                <p>No add-ons are switched on. Everything you use is in the Basic package.</p>
+              ) : (
+                <ul className="space-y-1">
+                  {addOns.map(s => (
+                    <li key={s.service} className="flex items-baseline justify-between gap-3">
+                      <span>{s.name}</span>
+                      <span className="text-slate-500 dark:text-slate-400">
+                        {s.price_per_message != null
+                          ? `${naira(s.price_per_message)} per message sent`
+                          : `${naira(s.price_per_student)} per student / term`}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                Change what you use under Settings → Services.
+                {perMessage.length > 0 && ' Messages are added to your next invoice as they are sent.'}
+              </p>
+            </div>
+          </>
+        )}
+      </Card>
+
+      {/* Fees the school charges parents */}
+      <Card
+        title="Fee items"
+        subtitle="What this school charges parents. Fee reminders above use these."
+        icon={<Receipt className="w-4 h-4" />}
+      >
+        {fees === null ? (
+          <div className="py-6 flex justify-center"><Loader2 className="w-5 h-5 text-primary-600 animate-spin" /></div>
+        ) : fees.length === 0 ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            {feesError
+              ? 'Fee items could not be loaded. Please try again.'
+              : 'No fee items yet. They are recorded through the fees API for now; a screen for adding them is still to come.'}
+          </p>
+        ) : (
+          <ul className="rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden">
+            {fees.map(fee => (
+              <li key={fee.id} className="flex items-center gap-4 px-4 py-3.5">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium text-slate-900 dark:text-white">{fee.name}</p>
+                    {!fee.is_active && (
+                      <span className="text-[11px] font-medium px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500">
+                        Inactive
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                    {[fee.fee_type_display || fee.fee_type, fee.student_class_name, fee.education_level_name]
+                      .filter(Boolean).join(' · ')}
+                  </p>
                 </div>
-              </div>
-              <div className="flex gap-2">
-                <button className="p-2 text-slate-600 hover:text-slate-800 transition-colors">
-                  <Edit3 className="w-4 h-4" />
-                </button>
-                <button className="p-2 text-red-600 hover:text-red-800 transition-colors">
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Discount Rules */}
-      <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100">
-        <div className="flex justify-between items-center mb-6">
-          <h3 className="text-xl font-semibold text-slate-900 flex items-center gap-3">
-            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-lg flex items-center justify-center">
-              <Calculator className="w-4 h-4 text-white" />
-            </div>
-            Discount Rules
-          </h3>
-          <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-            <Plus className="w-4 h-4" />
-            Add Discount
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          {discountRules.map(rule => (
-            <div key={rule.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
-              <div className="flex-1">
-                <h4 className="font-semibold text-slate-900">{rule.name}</h4>
-                <p className="text-sm text-slate-600">{rule.description}</p>
-                <div className="flex items-center gap-4 mt-2">
-                  <span className="text-lg font-bold text-blue-600">{rule.value}%</span>
-                  <span className="text-sm text-slate-500 capitalize">{rule.type}</span>
-                  <span className={`px-2 py-1 text-xs rounded-full ${
-                    rule.isActive ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600'
-                  }`}>
-                    {rule.isActive ? 'Active' : 'Inactive'}
-                  </span>
+                <div className="flex-shrink-0 text-right">
+                  <p className="text-sm font-medium text-slate-900 dark:text-white">{naira(fee.amount)}</p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {(fee.frequency_display || fee.frequency || '').toLowerCase()}
+                  </p>
                 </div>
-              </div>
-              <div className="flex gap-2">
-                <button className="p-2 text-slate-600 hover:text-slate-800 transition-colors">
-                  <Edit3 className="w-4 h-4" />
-                </button>
-                <button className="p-2 text-red-600 hover:text-red-800 transition-colors">
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Payment Methods */}
-      <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100">
-        <h3 className="text-xl font-semibold text-slate-900 mb-6 flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-600 rounded-lg flex items-center justify-center">
-            <CreditCard className="w-4 h-4 text-white" />
-          </div>
-          Payment Methods
-        </h3>
-
-        <div className="space-y-4">
-          {paymentMethods.map(method => (
-            <div key={method.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
-              <div className="flex-1">
-                <h4 className="font-semibold text-slate-900">{method.name}</h4>
-                <div className="flex items-center gap-4 mt-2">
-                  <span className="text-sm text-slate-600">
-                    Processing Fee: {method.processingFee}%
-                  </span>
-                  <ToggleSwitch
-                    id={`payment-${method.id}`}
-                    checked={method.enabled}
-                    onChange={(checked) => updatePaymentMethod(method.id, 'enabled', checked)}
-                    label=""
-                    description=""
-                  />
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Reminder Settings */}
-      <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100">
-        <h3 className="text-xl font-semibold text-slate-900 mb-6 flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-red-600 rounded-lg flex items-center justify-center">
-            <Clock className="w-4 h-4 text-white" />
-          </div>
-          Reminder Settings
-        </h3>
-
-        <div className="space-y-6">
-          <ToggleSwitch
-            id="enable-reminders"
-            checked={reminderSettings.enableReminders}
-            onChange={(checked) => updateReminderSettings('enableReminders', checked)}
-            label="Enable Payment Reminders"
-            description="Send automatic reminders for upcoming payments"
-          />
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Reminder Days Before Due Date
-            </label>
-            <input
-              type="number"
-              value={reminderSettings.reminderDays}
-              onChange={(e) => updateReminderSettings('reminderDays', parseInt(e.target.value))}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-              min="1"
-              max="30"
-            />
-          </div>
-
-          <ToggleSwitch
-            id="auto-reminders"
-            checked={reminderSettings.autoReminders}
-            onChange={(checked) => updateReminderSettings('autoReminders', checked)}
-            label="Automatic Reminders"
-            description="Send reminders automatically without manual intervention"
-          />
-
-          <ToggleSwitch
-            id="email-notifications"
-            checked={reminderSettings.emailNotifications}
-            onChange={(checked) => updateReminderSettings('emailNotifications', checked)}
-            label="Email Notifications"
-            description="Send payment reminders via email"
-          />
-
-          <ToggleSwitch
-            id="sms-notifications"
-            checked={reminderSettings.smsNotifications}
-            onChange={(checked) => updateReminderSettings('smsNotifications', checked)}
-            label="SMS Notifications"
-            description="Send payment reminders via SMS"
-          />
-        </div>
-      </div>
-
-      {/* Tax Settings */}
-      <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100">
-        <h3 className="text-xl font-semibold text-slate-900 mb-6 flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
-            <Receipt className="w-4 h-4 text-white" />
-          </div>
-          Tax Settings
-        </h3>
-
-        <div className="space-y-6">
-          <ToggleSwitch
-            id="enable-tax"
-            checked={taxSettings.enableTax}
-            onChange={(checked) => updateTaxSettings('enableTax', checked)}
-            label="Enable Tax"
-            description="Apply tax to all transactions"
-          />
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Tax Rate (%)
-              </label>
-              <input
-                type="number"
-                value={taxSettings.taxRate}
-                onChange={(e) => updateTaxSettings('taxRate', parseFloat(e.target.value))}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                min="0"
-                max="100"
-                step="0.1"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Tax Name
-              </label>
-              <input
-                type="text"
-                value={taxSettings.taxName}
-                onChange={(e) => updateTaxSettings('taxName', e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                placeholder="e.g., VAT, GST"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Tax Number
-            </label>
-            <input
-              type="text"
-              value={taxSettings.taxNumber}
-              onChange={(e) => updateTaxSettings('taxNumber', e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              placeholder="Tax registration number"
-            />
-          </div>
-        </div>
-      </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
     </div>
   );
 };

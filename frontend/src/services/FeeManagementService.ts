@@ -18,18 +18,20 @@ import api, { API_BASE_URL, buildHeaders } from './api';
 // TYPE DEFINITIONS
 // ============================================================================
 
+/** A fee the school charges, as /api/fee/fee-structures/ returns it. */
 export interface FeeStructure {
   id: number;
   name: string;
-  grade_level?: number;
-  stream?: number;
-  amount: number;
-  academic_session: number;
-  term?: number;
   fee_type: string;
-  description?: string;
-  due_date?: string;
-  is_mandatory: boolean;
+  fee_type_display?: string;
+  education_level: number;
+  education_level_name?: string | null;
+  student_class: number;
+  student_class_name?: string | null;
+  amount: string | number;
+  frequency: string;
+  frequency_display?: string;
+  description?: string | null;
   is_active: boolean;
 }
 
