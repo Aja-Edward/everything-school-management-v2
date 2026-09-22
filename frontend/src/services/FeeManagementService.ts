@@ -137,6 +137,15 @@ export interface StudentDiscount {
   reason?: string;
 }
 
+/** What issuing a fee to students did. */
+export interface IssueFeesResult {
+  billed: number;
+  already_had_it: number;
+  students_with_sibling_discount: number;
+  sibling_discount_total: string;
+  amount_each: string;
+}
+
 export type ReminderChannel = 'email' | 'sms';
 
 /** One message to one parent about one unpaid fee. */
@@ -257,13 +266,17 @@ export const StudentFeeService = {
     api.get(`/api/fee/student-fees/${id}/`),
 
   /**
-   * Bulk generate student fees
+   * Give a fee to students for one term: a class, a level, or the whole school
    */
   bulkGenerate: (data: {
     fee_structure_id: number;
+    academic_session_id: number;
+    term: 'FIRST' | 'SECOND' | 'THIRD';
+    due_date: string;
+    student_class_id?: number | null;
+    education_level_id?: number | null;
     student_ids?: number[];
-    grade_level_id?: number;
-  }) =>
+  }): Promise<IssueFeesResult> =>
     api.post('/api/fee/student-fees/bulk_generate/', data),
 
   /**

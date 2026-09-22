@@ -26,67 +26,10 @@ from academics.models import AcademicSession
 
 
 class FeeService:
-    @staticmethod
-    @transaction.atomic
-    def bulk_generate_fees(data):
-        """Generate fees in bulk for students"""
-        fee_structure_id = data.get("fee_structure_id")
-        student_ids = data.get("student_ids", [])
-        education_level_id = data.get("education_level_id")
-        student_class_id = data.get("student_class_id")
-
-        # Get fee structure
-        try:
-            fee_structure = FeeStructure.objects.get(id=fee_structure_id)
-        except FeeStructure.DoesNotExist:
-            raise ValueError("Fee structure not found")
-
-        # Get students to generate fees for
-        students = Student.objects.all()
-        if student_ids:
-            students = students.filter(id__in=student_ids)
-        elif education_level_id:
-            students = students.filter(education_level_id=education_level_id)
-            if student_class_id:
-                students = students.filter(student_class_id=student_class_id)
-
-        created_count = 0
-        skipped_count = 0
-        errors = []
-
-        for student in students:
-            # Check if fee already exists
-            if StudentFee.objects.filter(
-                student=student,
-                fee_structure=fee_structure,
-                academic_session=fee_structure.academic_session,
-            ).exists():
-                skipped_count += 1
-                continue
-
-            try:
-                student_fee = StudentFee.objects.create(
-                    student=student,
-                    fee_structure=fee_structure,
-                    academic_session=fee_structure.academic_session,
-                    amount_due=fee_structure.amount,
-                    due_date=fee_structure.due_date,
-                    status="PENDING",
-                )
-
-                # Apply automatic discounts if any
-                FeeService.apply_automatic_discounts(student_fee)
-
-                created_count += 1
-            except Exception as e:
-                errors.append(f"Error for student {student.id}: {str(e)}")
-
-        return {
-            "created": created_count,
-            "skipped": skipped_count,
-            "errors": errors,
-            "total_processed": created_count + skipped_count,
-        }
+    # bulk_generate_fees lived here. It read fee_structure.academic_session
+    # and .due_date, which a fee item does not have, and started from
+    # Student.objects.all(), so it could bill another school's students.
+    # Issuing fees is fee.billing.issue_fees, scoped to one school.
 
     @staticmethod
     def apply_automatic_discounts(student_fee):

@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Loader2, Receipt, Wallet } from 'lucide-react';
+import { ArrowRight, Loader2, Wallet } from 'lucide-react';
 import FeeRemindersPanel from './FeeRemindersPanel';
-import { FeeStructure, FeeStructureService } from '@/services/FeeManagementService';
+import FeeItemsPanel from './FeeItemsPanel';
 import { tenantService, TenantServiceType } from '@/services/TenantService';
 import { useBillingSummary } from '@/hooks/useBilling';
 
@@ -42,14 +42,9 @@ const Finance: React.FC = () => {
   const navigate = useNavigate();
   const { summary, loading: summaryLoading } = useBillingSummary();
   const [services, setServices] = useState<TenantServiceType[] | null>(null);
-  const [fees, setFees] = useState<FeeStructure[] | null>(null);
-  const [feesError, setFeesError] = useState(false);
 
   useEffect(() => {
     tenantService.getServices().then(setServices).catch(() => setServices([]));
-    FeeStructureService.list()
-      .then((data: any) => setFees(Array.isArray(data) ? data : data?.results ?? []))
-      .catch(() => { setFees([]); setFeesError(true); });
   }, []);
 
   const basic = services?.find(s => s.service === 'basic');
@@ -137,49 +132,7 @@ const Finance: React.FC = () => {
         )}
       </Card>
 
-      {/* Fees the school charges parents */}
-      <Card
-        title="Fee items"
-        subtitle="What this school charges parents. Fee reminders above use these."
-        icon={<Receipt className="w-4 h-4" />}
-      >
-        {fees === null ? (
-          <div className="py-6 flex justify-center"><Loader2 className="w-5 h-5 text-primary-600 animate-spin" /></div>
-        ) : fees.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            {feesError
-              ? 'Fee items could not be loaded. Please try again.'
-              : 'No fee items yet. They are recorded through the fees API for now; a screen for adding them is still to come.'}
-          </p>
-        ) : (
-          <ul className="rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden">
-            {fees.map(fee => (
-              <li key={fee.id} className="flex items-center gap-4 px-4 py-3.5">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-medium text-slate-900 dark:text-white">{fee.name}</p>
-                    {!fee.is_active && (
-                      <span className="text-[11px] font-medium px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500">
-                        Inactive
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                    {[fee.fee_type_display || fee.fee_type, fee.student_class_name, fee.education_level_name]
-                      .filter(Boolean).join(' · ')}
-                  </p>
-                </div>
-                <div className="flex-shrink-0 text-right">
-                  <p className="text-sm font-medium text-slate-900 dark:text-white">{naira(fee.amount)}</p>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    {(fee.frequency_display || fee.frequency || '').toLowerCase()}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+      <FeeItemsPanel />
     </div>
   );
 };

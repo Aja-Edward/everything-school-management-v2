@@ -899,61 +899,25 @@ class PaymentReminderSerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 
 class BulkFeeGenerationSerializer(serializers.Serializer):
-    """Serializer for bulk fee generation"""
+    """
+    Issuing one fee item to students for a term (fee.billing).
 
+    Ids are checked against the school in the view, so nothing here can reach
+    another school's students, classes or sessions.
+    """
+
+    fee_structure_id = serializers.IntegerField()
     academic_session_id = serializers.IntegerField()
+    term = serializers.ChoiceField(choices=[
+        ("FIRST", "First Term"), ("SECOND", "Second Term"), ("THIRD", "Third Term"),
+    ])
+    due_date = serializers.DateField()
 
-    # education_level: FK id to EducationLevel (replaces old ChoiceField from constants)
-    education_level_id = serializers.PrimaryKeyRelatedField(
-        queryset=EducationLevel.objects.all(),
-        required=False,
-        allow_null=True,
-        help_text="Filter by EducationLevel FK id",
-    )
-    # student_class: FK id to StudentClass (replaces old ChoiceField from constants)
-    student_class_id = serializers.PrimaryKeyRelatedField(
-        queryset=StudentClass.objects.all(),
-        required=False,
-        allow_null=True,
-        help_text="Filter by StudentClass FK id",
-    )
-
-    term = serializers.ChoiceField(
-        choices=[
-            ("FIRST", "First Term"),
-            ("SECOND", "Second Term"),
-            ("THIRD", "Third Term"),
-        ],
-        required=False,
-    )
-    fee_structure_ids = serializers.ListField(
-        child=serializers.IntegerField(),
-        required=False,
-        help_text=(
-            "List of fee structure IDs to generate. "
-            "If empty, all applicable fees will be generated."
-        ),
-    )
-
-    def validate_academic_session_id(self, value):
-        try:
-            AcademicSession.objects.get(id=value)
-            return value
-        except AcademicSession.DoesNotExist:
-            raise serializers.ValidationError("Academic session not found.")
-
-    def validate(self, data):
-        """If student_class provided, ensure it belongs to the given education_level."""
-        education_level = data.get("education_level_id")
-        student_class = data.get("student_class_id")
-        if education_level and student_class:
-            if student_class.education_level_id != education_level.id:
-                raise serializers.ValidationError(
-                    {
-                        "student_class_id": "This class does not belong to the selected education level."
-                    }
-                )
-        return data
+    # Who to bill. Nothing here means every active student in the school.
+    student_class_id = serializers.IntegerField(required=False, allow_null=True)
+    education_level_id = serializers.IntegerField(required=False, allow_null=True)
+    student_ids = serializers.ListField(
+        child=serializers.IntegerField(), required=False, allow_empty=True)
 
 
 # ---------------------------------------------------------------------------

@@ -58,7 +58,7 @@ from .serializers import (
 from .filters import StudentFeeFilter, PaymentFilter
 from .permissions import IsAdminOrReadOnly, IsOwnerOrAdmin
 from .services.services import PaymentService, FeeService, ReportService
-from . import reminders
+from . import billing, reminders
 from schoolSettings.permissions import HasFinancePermission
 from students.models import Student
 from academics.models import EducationLevel
@@ -375,17 +375,48 @@ class StudentFeeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
                 {"error": "Discount not found"}, status=status.HTTP_404_NOT_FOUND
             )
 
-    @action(detail=False, methods=["post"])
+    @action(detail=False, methods=["post"],
+            permission_classes=[permissions.IsAuthenticated, HasFinancePermission])
     def bulk_generate(self, request):
         """
-        Bulk generate fees for students
-        UPDATED: Uses FK-based education_level_id and student_class_id
+        Issue one fee to a class, a level or the whole school for a term
+        (fee.billing), with the sibling discount applied as it goes.
         """
+        tenant = getattr(request, "tenant", None)
+        if tenant is None:
+            return Response({"error": "Name the school."}, status=status.HTTP_400_BAD_REQUEST)
+
         serializer = BulkFeeGenerationSerializer(data=request.data)
-        if serializer.is_valid():
-            result = FeeService.bulk_generate_fees(serializer.validated_data)
-            return Response(result)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        # Every id is read within this school, so none of them can reach
+        # another school's students, classes or sessions.
+        try:
+            fee_structure = FeeStructure.objects.get(
+                pk=data["fee_structure_id"], tenant=tenant)
+            academic_session = AcademicSession.objects.get(
+                pk=data["academic_session_id"], tenant=tenant)
+            student_class = (
+                StudentClass.objects.get(pk=data["student_class_id"], tenant=tenant)
+                if data.get("student_class_id") else None)
+            education_level = (
+                EducationLevel.objects.get(pk=data["education_level_id"], tenant=tenant)
+                if data.get("education_level_id") else None)
+        except (FeeStructure.DoesNotExist, AcademicSession.DoesNotExist,
+                StudentClass.DoesNotExist, EducationLevel.DoesNotExist):
+            return Response(
+                {"error": "That fee, session, class or level is not this school's."},
+                status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            summary = billing.issue_fees(
+                tenant, fee_structure, academic_session, data["term"], data["due_date"],
+                student_ids=data.get("student_ids") or None,
+                student_class=student_class, education_level=education_level)
+        except billing.BillingError as error:
+            return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(summary)
 
     @action(detail=True, methods=["post"])
     def create_payment_plan(self, request, pk=None):
