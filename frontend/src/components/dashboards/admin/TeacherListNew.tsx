@@ -133,6 +133,27 @@ const TeacherList = () => {
     }
   };
 
+  // The safe half of the delete dialog: the record and its assignments stay,
+  // and the teacher stops appearing among active staff.
+  const deactivateInstead = async () => {
+    if (!teacherToDelete) return;
+    try {
+      setDeleting(true);
+      await TeacherService.deactivateTeacher(teacherToDelete.id);
+      setTeachers((current) =>
+        (Array.isArray(current) ? current : []).map(t =>
+          t.id === teacherToDelete.id ? { ...t, is_active: false } : t));
+      setShowDeleteModal(false);
+      setTeacherToDelete(null);
+      toast.success('Teacher deactivated. Their record and classes are kept.');
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || err.response?.data?.message
+        || 'Failed to deactivate teacher');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const handleViewProfile = (teacher: Teacher) => {
     setSelectedTeacher(teacher);
     setShowProfile(true);
@@ -658,28 +679,52 @@ const TeacherList = () => {
       {/* Delete Modal */}
       {showDeleteModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full shadow-xl">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 bg-red-50 rounded-full flex items-center justify-center flex-shrink-0">
                 <Trash2 className="w-5 h-5 text-red-600" />
               </div>
               <div>
-                <h3 className="text-base font-semibold text-gray-900">Delete Teacher</h3>
-                <p className="text-sm text-gray-500">This action cannot be undone.</p>
+                <h3 className="text-base font-semibold text-gray-900">
+                  Delete {teacherToDelete?.first_name} {teacherToDelete?.last_name}?
+                </h3>
+                <p className="text-sm text-gray-500">This cannot be undone.</p>
               </div>
             </div>
 
-            <p className="text-sm text-gray-600 mb-6">
-              Are you sure you want to delete <span className="font-medium">{teacherToDelete?.first_name} {teacherToDelete?.last_name}</span>?
-            </p>
+            {/* What is actually destroyed. A school deleted a teacher believing
+                it removed a duplicate row from the list, and lost her record. */}
+            <div className="mb-4 text-sm text-gray-600 space-y-2">
+              <p>Deleting also removes, permanently:</p>
+              <ul className="list-disc pl-5 space-y-0.5">
+                <li>her class and section assignments</li>
+                <li>her lessons</li>
+                <li>her timetable entries</li>
+              </ul>
+              <p>
+                Her sign-in account is kept, so you can add her back later with the same
+                email address, but the items above would have to be set up again.
+              </p>
+              <p className="text-gray-500">
+                To stop her appearing among active staff while keeping all of it,
+                deactivate her instead.
+              </p>
+            </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <button
                 onClick={() => { setShowDeleteModal(false); setTeacherToDelete(null); }}
                 disabled={deleting}
                 className="flex-1 h-10 px-4 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors"
               >
                 Cancel
+              </button>
+              <button
+                onClick={deactivateInstead}
+                disabled={deleting}
+                className="flex-1 h-10 px-4 text-sm font-medium text-gray-800 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                Deactivate instead
               </button>
               <button
                 onClick={confirmDelete}
@@ -692,7 +737,7 @@ const TeacherList = () => {
                     Deleting...
                   </>
                 ) : (
-                  'Delete'
+                  'Delete permanently'
                 )}
               </button>
             </div>
