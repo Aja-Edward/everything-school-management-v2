@@ -176,3 +176,75 @@ class PagedListsShowEveryoneOnceTest(TestCase):
         self.assertEqual(count, len(made))
         self.assertEqual(len(ids), len(set(ids)), "a parent was listed on two pages")
         self.assertEqual(set(ids), {parent.id for parent in made}, "a parent was never listed")
+
+
+class TeacherWhoseProfileWasDeletedTest(TestCase):
+    """
+    Deleting a teacher removes her profile, not her account. Adding her again
+    used to fail with "a user with email ... already exists", which left a
+    school no way to put back a teacher deleted by mistake.
+    """
+
+    client_class = APIClient
+
+    def setUp(self):
+        self.school = Tenant.objects.create(
+            name="Kebi Academy", slug="kebi-academy", status="active", is_active=True,
+            owner_email="owner@kebi-academy.example.com")
+        self.admin = CustomUser.objects.create_user(
+            username="kebi_head", email="head@kebi-academy.example.com", password=None,
+            role="superadmin", is_active=True, is_staff=True, tenant=self.school)
+        self.client.force_authenticate(user=self.admin)
+        self.mercy = CustomUser.objects.create_user(
+            username="TCH/KEB/JAN/26/0001", email="mercyiko@example.com", password=None,
+            role="teacher", first_name="Mercy", last_name="Iko", is_active=True, tenant=self.school)
+
+    def add_teacher(self, email="mercyiko@example.com", employee_id="EMP-001", school=None):
+        return self.client.post(TEACHERS, {
+            "user_email": email, "user_first_name": "Mercy", "user_last_name": "Iko",
+            "employee_id": employee_id,
+        }, format="json", HTTP_X_TENANT_SLUG=(school or self.school).slug)
+
+    def test_her_account_is_given_the_profile_back(self):
+        response = self.add_teacher()
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        teacher = Teacher.objects.get(pk=response.data["id"])
+        self.assertEqual(teacher.user, self.mercy, "a second account was made for her")
+        self.assertEqual(teacher.tenant, self.school)
+        self.assertEqual(CustomUser.objects.filter(email="mercyiko@example.com").count(), 1)
+        # Her own password still works: nothing was reset.
+        self.assertEqual(response.data.get("user_password", ""), "")
+
+    def test_a_teacher_who_is_already_listed_is_not_added_twice(self):
+        Teacher.objects.create(tenant=self.school, user=self.mercy, employee_id="EMP-009")
+
+        response = self.add_teacher(employee_id="EMP-002")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already a teacher", str(response.data))
+        self.assertEqual(Teacher.objects.filter(user=self.mercy).count(), 1)
+
+    def test_an_account_at_another_school_is_refused(self):
+        rival = Tenant.objects.create(
+            name="Rival School", slug="rival-school", status="active", is_active=True,
+            owner_email="owner@rival-school.example.com")
+        CustomUser.objects.create_user(
+            username="rival_teacher", email="elsewhere@example.com", password=None,
+            role="teacher", is_active=True, tenant=rival)
+
+        response = self.add_teacher(email="elsewhere@example.com")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("another school", str(response.data))
+        self.assertFalse(Teacher.objects.filter(user__email="elsewhere@example.com").exists())
+
+    def test_a_parents_account_is_not_turned_into_a_teacher(self):
+        CustomUser.objects.create_user(
+            username="a_parent", email="parent@kebi-academy.example.com", password=None,
+            role="parent", is_active=True, tenant=self.school)
+
+        response = self.add_teacher(email="parent@kebi-academy.example.com")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Teacher.objects.filter(user__email="parent@kebi-academy.example.com").exists())

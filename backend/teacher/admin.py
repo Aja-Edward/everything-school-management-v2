@@ -24,7 +24,9 @@ class TeacherAdmin(admin.ModelAdmin):
     ordering = ["user__first_name", "user__last_name"]
 
     fieldsets = (
-        ("Basic Information", {"fields": ("user", "employee_id", "is_active")}),
+        # `tenant` belongs here: a teacher saved without a school is missing
+        # from every list in the app, though the account still signs in.
+        ("Basic Information", {"fields": ("tenant", "user", "employee_id", "is_active")}),
         ("Personal Details", {"fields": ("phone_number", "address", "date_of_birth")}),
         (
             "Professional Information",

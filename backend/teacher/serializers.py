@@ -493,10 +493,36 @@ class TeacherSerializer(serializers.ModelSerializer):
                 tenant=validated_data.get("tenant"),
             )
 
-            if User.objects.filter(email=email).exists():
-                raise serializers.ValidationError(
-                    f"A user with email {email} already exists"
-                )
+            # An account with this email may already be here: a teacher whose
+            # profile was deleted still has hers, and "a user with that email
+            # already exists" leaves nobody a way to put her back. Where the
+            # account plainly belongs to this school and carries no teacher
+            # profile, it is given one rather than refused.
+            existing = list(User.objects.filter(email__iexact=email)[:2])
+            if existing:
+                account = existing[0]
+                if len(existing) > 1:
+                    raise serializers.ValidationError(
+                        f"More than one account uses {email}, so this one cannot be linked."
+                    )
+                if account.tenant_id != getattr(validated_data.get("tenant"), "id", None):
+                    raise serializers.ValidationError(
+                        f"A user with email {email} already exists at another school."
+                    )
+                if Teacher.objects.filter(user=account).exists():
+                    raise serializers.ValidationError(
+                        f"{email} is already a teacher here."
+                    )
+                if account.role != "teacher":
+                    raise serializers.ValidationError(
+                        f"{email} is already used by this school's "
+                        f"{account.get_role_display() if hasattr(account, 'get_role_display') else account.role}."
+                    )
+
+                self.context["user_username"] = account.username
+                # Their own password still works; nothing is reset here.
+                self.context["user_password"] = ""
+                return self._create_teacher_for(account, validated_data, assignments, subjects)
 
             user = User.objects.create_user(
                 username=username,
@@ -639,6 +665,13 @@ class TeacherSerializer(serializers.ModelSerializer):
         if assignments is not None or subjects is not None:
             self._create_classroom_assignments(teacher, assignments, subjects)
 
+        return teacher
+
+    def _create_teacher_for(self, user, validated_data, assignments, subjects):
+        """Give an account that already exists its teacher profile."""
+        teacher = Teacher.objects.create(user=user, is_active=True, **validated_data)
+        if assignments or subjects:
+            self._create_classroom_assignments(teacher, assignments, subjects)
         return teacher
 
     def _create_classroom_assignments(self, teacher, assignments, subjects):
