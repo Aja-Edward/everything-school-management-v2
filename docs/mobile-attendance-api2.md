@@ -327,9 +327,9 @@ A late arrival is *not* treated as an anomaly. It is already on the register and
 | GET | `/api/attendance/notifications/unread-count/` | `{"unread": 3}` for a badge. |
 
 
-### 9.6 Choosing an SMS provider
+### 9.6 SMS provider
 
-The SMS channel currently uses Twilio, because that is what the project already has credentials for. For Nigerian volume that is the wrong choice: Twilio needs alphanumeric sender-ID pre-registration above 30,000 SMS/month, requiring four separate No Objection Certificates, and its Nigeria rates run to ₦395/message at the top of the range.
+SMS goes out through **Termii**, from the platform's own account, and each school pays ₦10 per SMS on its next invoice. A school gets SMS only once it switches on the **SMS Notifications** add-on under Settings → Services; until then SMS rows are `skipped` and parents still get in-app and email alerts.
 
-A local provider with a documented DND corporate route — Termii or Sendchamp — is the better answer, and matters more than price: over 30 million Nigerian numbers are on DND, so a promotional route silently fails to reach them. For a safeguarding message that is the worst failure mode there is.
+Termii's `generic` route does not reach numbers on DND, and over 30 million Nigerian numbers are on it. Once the sender ID is approved for the DND route, set `TERMII_CHANNEL=dnd` and every number is reached; no code changes.
 

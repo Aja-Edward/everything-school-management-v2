@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Check,
-  X,
   Loader2,
   RefreshCw,
   Shield,
@@ -11,15 +9,43 @@ import {
   Wallet,
   Calendar,
   Sparkles,
-  Info
+  Lock,
+  AlertCircle,
 } from 'lucide-react';
-import { tenantService, AvailableService, servicePriceLabel } from '@/services/TenantService';
+import { tenantService, AvailableService } from '@/services/TenantService';
 import { toast } from 'react-toastify';
 
 interface ServicesTabProps {
   settings?: any;
   onSettingsUpdate?: (settings: any) => void;
 }
+
+// The page takes the school's own colour from the Tailwind `primary` palette,
+// which DesignContext sets from the school's primary_color. Everything else
+// stays neutral so that one colour carries the page.
+const CATEGORIES: Record<string, { name: string; icon: React.ReactNode; order: number }> = {
+  core: { name: 'Core', icon: <Shield className="w-4 h-4" />, order: 1 },
+  assessment: { name: 'Assessment & grades', icon: <BookOpen className="w-4 h-4" />, order: 2 },
+  attendance: { name: 'Attendance & tracking', icon: <Clock className="w-4 h-4" />, order: 3 },
+  communication: { name: 'Communication', icon: <MessageSquare className="w-4 h-4" />, order: 4 },
+  finance: { name: 'Finance', icon: <Wallet className="w-4 h-4" />, order: 5 },
+  scheduling: { name: 'Scheduling', icon: <Calendar className="w-4 h-4" />, order: 6 },
+  other: { name: 'More', icon: <Sparkles className="w-4 h-4" />, order: 7 },
+};
+
+const naira = (amount: number) => `₦${Number(amount).toLocaleString()}`;
+
+/** A service's price: the main figure, and a smaller second line if it has one. */
+const priceOf = (service: AvailableService): { main: string; sub?: string } => {
+  if (!service.is_add_on) return { main: 'Included' };
+  if (service.price_per_message != null) {
+    return { main: `${naira(service.price_per_message)} per SMS`, sub: 'billed as you send' };
+  }
+  return {
+    main: `${naira(service.price_per_student)} / student / term`,
+    sub: `${naira(service.price_per_student_per_session)} for a session`,
+  };
+};
 
 const ServicesTab: React.FC<ServicesTabProps> = () => {
   const [services, setServices] = useState<AvailableService[]>([]);
@@ -47,7 +73,7 @@ const ServicesTab: React.FC<ServicesTabProps> = () => {
 
   const handleToggleService = async (service: AvailableService) => {
     if (service.is_default) {
-      toast.info(`${service.name} is a core service and cannot be disabled`);
+      toast.info(`${service.name} is always on`);
       return;
     }
 
@@ -73,47 +99,32 @@ const ServicesTab: React.FC<ServicesTabProps> = () => {
     }
   };
 
-  // The 'basic' row is the package price, not a service to count.
-  const countedServices = services.filter(s => s.service !== 'basic');
-  const enabledCount = countedServices.filter(s => s.is_enabled).length;
-  const totalCost = services
-    .filter(s => s.is_enabled)
+  // The 'basic' row carries the package price; it is shown as the plan, not
+  // as a service to switch.
+  const basic = services.find(s => s.service === 'basic');
+  const listed = services.filter(s => s.service !== 'basic');
+  const includedCount = listed.filter(s => !s.is_add_on).length;
+  const addOnsOn = listed.filter(s => s.is_add_on && s.is_enabled);
+  const perStudentPerTerm = Number(basic?.price_per_student ?? 0) + addOnsOn
+    .filter(s => s.price_per_message == null)
     .reduce((sum, s) => sum + Number(s.price_per_student), 0);
+  const perMessageOn = addOnsOn.filter(s => s.price_per_message != null);
 
-  // Group services by category
-  const groupedServices = services.reduce<Record<string, AvailableService[]>>((acc, service) => {
+  const grouped = listed.reduce<Record<string, AvailableService[]>>((acc, service) => {
     const category = service.category || 'other';
-    if (!acc[category]) {
-      acc[category] = [];
-    }
-    acc[category].push(service);
+    (acc[category] ||= []).push(service);
     return acc;
   }, {});
-
-  // Category configuration with icons and order
-  const categoryConfig: { [key: string]: { name: string; icon: React.ReactNode; order: number; color: string } } = {
-    core: { name: 'Core Services', icon: <Shield className="w-4 h-4" />, order: 1, color: 'from-blue-500 to-indigo-600' },
-    assessment: { name: 'Assessment & Grades', icon: <BookOpen className="w-4 h-4" />, order: 2, color: 'from-purple-500 to-pink-600' },
-    attendance: { name: 'Attendance & Tracking', icon: <Clock className="w-4 h-4" />, order: 3, color: 'from-green-500 to-teal-600' },
-    communication: { name: 'Communication', icon: <MessageSquare className="w-4 h-4" />, order: 4, color: 'from-orange-500 to-red-600' },
-    finance: { name: 'Finance & Billing', icon: <Wallet className="w-4 h-4" />, order: 5, color: 'from-emerald-500 to-cyan-600' },
-    scheduling: { name: 'Scheduling', icon: <Calendar className="w-4 h-4" />, order: 6, color: 'from-violet-500 to-purple-600' },
-    other: { name: 'Additional Services', icon: <Sparkles className="w-4 h-4" />, order: 7, color: 'from-gray-500 to-slate-600' },
-  };
-
-  // Sort categories by order
-  const sortedCategories = Object.entries(groupedServices).sort(([a], [b]) => {
-    const orderA = categoryConfig[a]?.order || 99;
-    const orderB = categoryConfig[b]?.order || 99;
-    return orderA - orderB;
-  });
+  const sortedCategories = Object.entries(grouped).sort(
+    ([a], [b]) => (CATEGORIES[a]?.order ?? 99) - (CATEGORIES[b]?.order ?? 99)
+  );
 
   if (isLoading) {
     return (
       <div className="p-8 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-4" />
-          <p className="text-sm text-slate-600 dark:text-slate-400">Loading services...</p>
+          <Loader2 className="w-7 h-7 text-primary-600 animate-spin mx-auto mb-3" />
+          <p className="text-sm text-slate-500 dark:text-slate-400">Loading services…</p>
         </div>
       </div>
     );
@@ -123,21 +134,17 @@ const ServicesTab: React.FC<ServicesTabProps> = () => {
     return (
       <div className="p-8 flex items-center justify-center min-h-[400px]">
         <div className="text-center max-w-sm">
-          <div className="w-16 h-16 mx-auto bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mb-4">
-            <X className="w-8 h-8 text-red-600" />
-          </div>
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
-            Failed to Load Services
+          <AlertCircle className="w-8 h-8 text-slate-400 mx-auto mb-3" />
+          <h2 className="text-base font-semibold text-slate-900 dark:text-white mb-1">
+            Services didn't load
           </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
-            {error}
-          </p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-5">{error}</p>
           <button
             onClick={fetchServices}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg transition-colors"
           >
             <RefreshCw className="w-4 h-4" />
-            Try Again
+            Try again
           </button>
         </div>
       </div>
@@ -145,150 +152,173 @@ const ServicesTab: React.FC<ServicesTabProps> = () => {
   }
 
   return (
-    <div className="p-8 space-y-8">
-      {/* Header with Summary */}
-      <div className="bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl p-6 text-white">
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div>
-            <h3 className="text-lg font-semibold mb-1">Service Management</h3>
-            <p className="text-blue-100 text-sm">
-              Enable or disable services for your school. Core services cannot be disabled.
-            </p>
-          </div>
-          <div className="text-right">
-            <p className="text-2xl font-bold">₦{totalCost.toLocaleString()}</p>
-            <p className="text-blue-100 text-sm">/student per term</p>
-          </div>
-        </div>
-        <div className="mt-4 pt-4 border-t border-white/20 flex items-center justify-between">
-          <span className="text-sm text-blue-100">
-            {enabledCount} of {countedServices.length} services enabled
-          </span>
-          <button
-            onClick={fetchServices}
-            className="text-sm text-white/80 hover:text-white flex items-center gap-1.5 transition-colors"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Refresh
-          </button>
-        </div>
-      </div>
-
-      {/* Info Note */}
-      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 flex items-start gap-3">
-        <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+    <div className="p-6 sm:p-8 space-y-8">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm text-blue-800 dark:text-blue-200">
-            <strong>Note:</strong> Services marked as "Core" are essential for basic school operations and cannot be disabled.
-            Optional services can be toggled on or off based on your school's needs.
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Services</h3>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 max-w-xl">
+            Everything in the Basic package is one price per student, whichever of it you use.
+            Add-ons are billed on top, only while they are switched on.
           </p>
         </div>
+        <button
+          onClick={fetchServices}
+          className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Refresh
+        </button>
       </div>
 
-      {/* Services by Category */}
-      {sortedCategories.map(([category, categoryServices]) => (
-        <div key={category} className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-          <div className="flex items-center gap-3 mb-6">
-            <div className={`w-10 h-10 bg-gradient-to-br ${categoryConfig[category]?.color || 'from-gray-500 to-slate-600'} rounded-xl flex items-center justify-center text-white`}>
-              {categoryConfig[category]?.icon}
-            </div>
-            <div>
-              <h4 className="text-lg font-semibold text-slate-900 dark:text-white">
-                {categoryConfig[category]?.name || category}
-              </h4>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                {categoryServices.filter(s => s.is_enabled).length} of {categoryServices.length} enabled
-              </p>
-            </div>
-            {category === 'core' && (
-              <span className="ml-auto text-xs font-medium px-3 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full">
-                Always Included
+      {/* Plan */}
+      <div className="grid grid-cols-1 md:grid-cols-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
+        <div className="p-5 border-l-4 border-primary-600">
+          <p className="text-xs font-semibold uppercase tracking-wide text-primary-700 dark:text-primary-300">
+            Basic package
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">
+            {naira(basic?.price_per_student ?? 0)}
+            <span className="ml-1 text-sm font-normal text-slate-500 dark:text-slate-400">per student / term</span>
+          </p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            {naira(basic?.price_per_student_per_session ?? 0)} for a session · {includedCount} services included
+          </p>
+        </div>
+
+        <div className="p-5 border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-700">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Add-ons switched on
+          </p>
+          {addOnsOn.length === 0 ? (
+            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">None</p>
+          ) : (
+            <ul className="mt-2 space-y-1.5">
+              {addOnsOn.map(s => (
+                <li key={s.service} className="flex items-baseline justify-between gap-3 text-sm">
+                  <span className="text-slate-700 dark:text-slate-200 truncate">{s.name}</span>
+                  <span className="flex-shrink-0 text-slate-500 dark:text-slate-400">
+                    {s.price_per_message != null
+                      ? `${naira(s.price_per_message)} / SMS`
+                      : `${naira(s.price_per_student)} / student`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="p-5 border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            You pay per student, per term
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{naira(perStudentPerTerm)}</p>
+          {perMessageOn.map(s => (
+            <p key={s.service} className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              + {naira(s.price_per_message ?? 0)} for each SMS sent
+            </p>
+          ))}
+        </div>
+      </div>
+
+      {/* Services by category */}
+      {sortedCategories.map(([category, categoryServices]) => {
+        const config = CATEGORIES[category] ?? CATEGORIES.other;
+        const onCount = categoryServices.filter(s => s.is_enabled).length;
+
+        return (
+          <section key={category} aria-labelledby={`services-${category}`}>
+            <div className="flex items-center gap-2.5 mb-3">
+              <span className="w-7 h-7 rounded-lg bg-primary-50 dark:bg-primary-900/40 text-primary-600 dark:text-primary-300 flex items-center justify-center">
+                {config.icon}
               </span>
-            )}
-          </div>
+              <h4 id={`services-${category}`} className="text-sm font-semibold text-slate-900 dark:text-white">
+                {config.name}
+              </h4>
+              <span className="text-xs text-slate-400 dark:text-slate-500">
+                {onCount} of {categoryServices.length} on
+              </span>
+            </div>
 
-          <div className="space-y-3">
-            {categoryServices.map(service => {
-              const isToggling = togglingService === service.service;
+            <ul className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden">
+              {categoryServices.map(service => {
+                const isToggling = togglingService === service.service;
+                const price = priceOf(service);
 
-              return (
-                <div
-                  key={service.service}
-                  className={`flex items-center justify-between p-4 rounded-xl border-2 transition-all ${
-                    service.is_enabled
-                      ? 'border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20'
-                      : 'border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50'
-                  }`}
-                >
-                  <div className="flex-1 min-w-0 pr-4">
-                    <div className="flex items-center gap-2">
-                      <h5 className="text-sm font-medium text-slate-900 dark:text-white">
-                        {service.name}
-                      </h5>
-                      {service.is_default && (
-                        <span className="text-[10px] font-medium px-2 py-0.5 bg-slate-800 dark:bg-slate-600 text-white rounded-full">
-                          Core
-                        </span>
+                return (
+                  <li key={service.service} className="flex items-center gap-4 px-4 py-3.5">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">{service.name}</p>
+                        {service.is_default && (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                            <Lock className="w-3 h-3" />
+                            Always on
+                          </span>
+                        )}
+                        {service.is_add_on && (
+                          <span className="text-[11px] font-medium px-1.5 py-0.5 rounded-md border border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300">
+                            Add-on
+                          </span>
+                        )}
+                      </div>
+                      {service.description && (
+                        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{service.description}</p>
+                      )}
+                      {service.is_add_on && (
+                        <p className="sm:hidden mt-1 text-xs font-medium text-slate-700 dark:text-slate-200">
+                          {price.main}{price.sub && <span className="font-normal text-slate-500 dark:text-slate-400"> · {price.sub}</span>}
+                        </p>
                       )}
                     </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-1">
-                      {service.description}
-                    </p>
-                    <p className={`text-xs font-medium mt-1.5 ${
-                      service.is_enabled
-                        ? 'text-blue-600 dark:text-blue-400'
-                        : 'text-slate-500'
-                    }`}>
-                      {servicePriceLabel(service)}
-                    </p>
-                  </div>
 
-                  {/* Toggle */}
-                  <button
-                    onClick={() => handleToggleService(service)}
-                    disabled={service.is_default || isToggling}
-                    className={`relative flex-shrink-0 w-12 h-7 rounded-full transition-colors ${
-                      service.is_enabled
-                        ? 'bg-blue-600'
-                        : 'bg-slate-300 dark:bg-slate-600'
-                    } ${service.is_default ? 'cursor-not-allowed opacity-60' : 'hover:opacity-90'}`}
-                  >
-                    <span
-                      className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow-sm transition-transform flex items-center justify-center ${
-                        service.is_enabled ? 'translate-x-5' : ''
-                      }`}
-                    >
-                      {isToggling ? (
-                        <Loader2 className="w-3 h-3 text-slate-400 animate-spin" />
-                      ) : service.is_enabled ? (
-                        <Check className="w-3 h-3 text-blue-600" />
-                      ) : (
-                        <X className="w-3 h-3 text-slate-400" />
+                    <div className="hidden sm:block w-44 flex-shrink-0 text-right">
+                      <p className={`text-xs ${
+                        service.is_add_on
+                          ? 'font-medium text-slate-700 dark:text-slate-200'
+                          : 'text-slate-400 dark:text-slate-500'
+                      }`}>
+                        {price.main}
+                      </p>
+                      {price.sub && (
+                        <p className="text-[11px] text-slate-400 dark:text-slate-500">{price.sub}</p>
                       )}
-                    </span>
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ))}
+                    </div>
 
-      {/* Bottom Summary */}
-      <div className="bg-slate-100 dark:bg-slate-800/50 rounded-xl p-4 flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-            Total per-student cost
-          </p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Billed based on enrolled students each term
-          </p>
-        </div>
-        <p className="text-2xl font-bold text-slate-900 dark:text-white">
-          ₦{totalCost.toLocaleString()}
-          <span className="text-sm font-normal text-slate-500 dark:text-slate-400">/term</span>
-        </p>
-      </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={service.is_enabled}
+                      aria-label={`${service.name}: ${service.is_enabled ? 'on' : 'off'}`}
+                      onClick={() => handleToggleService(service)}
+                      disabled={service.is_default || isToggling}
+                      className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
+                        service.is_enabled ? 'bg-primary-600' : 'bg-slate-200 dark:bg-slate-700'
+                      } ${service.is_default ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+                    >
+                      <span
+                        className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform flex items-center justify-center ${
+                          service.is_enabled ? 'translate-x-5' : ''
+                        }`}
+                      >
+                        {isToggling && <Loader2 className="w-3 h-3 text-slate-400 animate-spin" />}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+
+            {category === 'communication' && (
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                Emails to parents are free. Each SMS costs {naira(
+                  categoryServices.find(s => s.price_per_message != null)?.price_per_message ?? 0
+                )} and is added to your next invoice.
+              </p>
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 };

@@ -18,14 +18,6 @@ interface BrevoConfig {
   testMode: boolean;
 }
 
-interface TwilioConfig {
-  accountSid: string;
-  authToken: string;
-  phoneNumber: string;
-  isConfigured: boolean;
-  testMode: boolean;
-}
-
 interface ToggleSwitchProps {
   id: string;
   checked: boolean;
@@ -77,22 +69,12 @@ const CommunicationTab: React.FC = () => {
     testMode: true
   });
 
-  const [twilioConfig, setTwilioConfig] = useState<TwilioConfig>({
-    accountSid: '',
-    authToken: '',
-    phoneNumber: '',
-    isConfigured: false,
-    testMode: true
-  });
-
   const [showBrevoKey, setShowBrevoKey] = useState(false);
-  const [showTwilioToken, setShowTwilioToken] = useState(false);
   const [activeTab, setActiveTab] = useState('notifications');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [testPhoneNumber, setTestPhoneNumber] = useState('');
 
   useEffect(() => {
     loadCommunicationSettings();
@@ -129,14 +111,6 @@ const CommunicationTab: React.FC = () => {
         isConfigured: data.brevo_configured   || false,
         testMode:     data.brevo_test_mode    ?? true
       });
-
-      setTwilioConfig({
-        accountSid:   data.twilio_account_sid  || '',
-        authToken:    data.twilio_auth_token   || '',
-        phoneNumber:  data.twilio_phone_number || '',
-        isConfigured: data.twilio_configured   || false,
-        testMode:     data.twilio_test_mode    ?? true
-      });
     } catch (error) {
       console.error('Failed to load communication settings:', error);
       showError('Failed to load communication settings');
@@ -161,10 +135,6 @@ const CommunicationTab: React.FC = () => {
         brevo_sender_email:          brevoConfig.senderEmail,
         brevo_sender_name:           brevoConfig.senderName,
         brevo_test_mode:             brevoConfig.testMode,
-        twilio_account_sid:          twilioConfig.accountSid,
-        twilio_auth_token:           twilioConfig.authToken,
-        twilio_phone_number:         twilioConfig.phoneNumber,
-        twilio_test_mode:            twilioConfig.testMode
       });
 
       showSuccess('Communication settings saved successfully!');
@@ -199,31 +169,6 @@ const CommunicationTab: React.FC = () => {
     }
   };
 
-  // ==================== TEST TWILIO ====================
-  const testTwilioConnection = async () => {
-    try {
-      setLoading(true);
-      setErrorMessage(null);
-
-      const data = await api.post('/school-settings/notifications/twilio/test/', {
-        accountSid:  twilioConfig.accountSid,
-        authToken:   twilioConfig.authToken,
-        phoneNumber: twilioConfig.phoneNumber
-      });
-
-      if (data.success) {
-        setTwilioConfig(prev => ({ ...prev, isConfigured: true }));
-        showSuccess('Twilio connection successful!');
-      } else {
-        showError(data.message || 'Twilio connection failed');
-      }
-    } catch (error) {
-      showError('Twilio connection failed. Please check your credentials.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // ==================== SEND TEST EMAIL ====================
   const sendTestEmail = async () => {
     if (!brevoConfig.isConfigured) {
@@ -244,38 +189,6 @@ const CommunicationTab: React.FC = () => {
       }
     } catch (error) {
       showError('Failed to send test email');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ==================== SEND TEST SMS ====================
-  const sendTestSMS = async () => {
-    if (!twilioConfig.isConfigured) {
-      showError('Please configure and test Twilio first');
-      return;
-    }
-
-    if (!testPhoneNumber.trim()) {
-      showError('Please enter a test phone number');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setErrorMessage(null);
-
-      const data = await api.post('/school-settings/notifications/twilio/send-test/', {
-        testNumber: testPhoneNumber.trim()
-      });
-
-      if (data.success) {
-        showSuccess(data.message || 'Test SMS sent successfully!');
-      } else {
-        showError(data.message || 'Failed to send test SMS');
-      }
-    } catch (error) {
-      showError('Failed to send test SMS');
     } finally {
       setLoading(false);
     }
@@ -328,7 +241,7 @@ const CommunicationTab: React.FC = () => {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              {tab === 'notifications' ? 'Notifications' : tab === 'email' ? 'Email Setup' : 'SMS Setup'}
+              {tab === 'notifications' ? 'Notifications' : tab === 'email' ? 'Email Setup' : 'SMS'}
             </button>
           ))}
         </div>
@@ -360,14 +273,13 @@ const CommunicationTab: React.FC = () => {
                     <Phone className="w-3 h-3 text-purple-600" />
                   </div>
                   SMS Notifications
-                  {twilioConfig.isConfigured && <CheckCircle className="w-4 h-4 text-green-500" />}
                 </h4>
                 <ToggleSwitch
                   id="sms-notifications"
                   checked={settings.smsNotifications}
                   onChange={(checked) => setSettings({ ...settings, smsNotifications: checked })}
                   label="Enable SMS notifications"
-                  description="Receive urgent alerts via text message using Twilio"
+                  description="Text parents urgent alerts. Needs the SMS add-on, ₦10 per SMS."
                 />
               </div>
             </div>
@@ -525,7 +437,10 @@ const CommunicationTab: React.FC = () => {
           </div>
         )}
 
-        {/* ── SMS Setup Tab ── */}
+        {/* ── SMS Tab ── */}
+        {/* Texts go out from the platform's Termii account and are billed to
+            the school per message, so there is nothing to set up here: the
+            school only decides whether to pay for them, on the Services tab. */}
         {activeTab === 'sms' && (
           <div className="space-y-6">
             <div className="flex items-center gap-3 mb-4">
@@ -534,131 +449,19 @@ const CommunicationTab: React.FC = () => {
               </div>
               <div>
                 <h4 className="font-semibold text-slate-900">SMS Delivery</h4>
-                <p className="text-sm text-slate-600">Required — text messages need your own account</p>
-              </div>
-              {twilioConfig.isConfigured && (
-                <div className="ml-auto flex items-center gap-2 px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm">
-                  <CheckCircle className="w-4 h-4" />Connected
-                </div>
-              )}
-            </div>
-
-            {/* Unlike email, SMS has no platform fallback: every message costs
-                real money, so a school that has not set up an account has not
-                agreed to spend anything. Without this, "SMS silently does
-                nothing" is a support ticket waiting to happen. */}
-            {!twilioConfig.isConfigured && (
-              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-900">
-                <p className="font-medium mb-1">Text messages are not being sent.</p>
-                <p className="text-amber-800">
-                  Unlike email, SMS needs your own account — each message costs money, so we don't send texts on your
-                  behalf. Until this is set up, parents who chose SMS alerts will not receive them. They still get
-                  in-app and email alerts.
-                </p>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Account SID</label>
-                <input
-                  type="text"
-                  value={twilioConfig.accountSid}
-                  onChange={(e) => setTwilioConfig({ ...twilioConfig, accountSid: e.target.value })}
-                  placeholder="Enter your Twilio Account SID"
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-purple-500 focus:ring-4 focus:ring-purple-100 transition-all duration-200"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Auth Token</label>
-                <div className="relative">
-                  <input
-                    type={showTwilioToken ? 'text' : 'password'}
-                    value={twilioConfig.authToken}
-                    onChange={(e) => setTwilioConfig({ ...twilioConfig, authToken: e.target.value })}
-                    placeholder="Enter your Twilio Auth Token"
-                    className="w-full px-4 py-3 pr-12 rounded-xl border border-slate-200 focus:border-purple-500 focus:ring-4 focus:ring-purple-100 transition-all duration-200"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowTwilioToken(!showTwilioToken)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  >
-                    {showTwilioToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Twilio Phone Number</label>
-                <input
-                  type="tel"
-                  value={twilioConfig.phoneNumber}
-                  onChange={(e) => setTwilioConfig({ ...twilioConfig, phoneNumber: e.target.value })}
-                  placeholder="+1234567890"
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-purple-500 focus:ring-4 focus:ring-purple-100 transition-all duration-200"
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="twilio-test-mode"
-                  checked={twilioConfig.testMode}
-                  onChange={(e) => setTwilioConfig({ ...twilioConfig, testMode: e.target.checked })}
-                  className="rounded border-slate-300 text-purple-600 focus:ring-purple-500"
-                />
-                <label htmlFor="twilio-test-mode" className="text-sm text-slate-700">
-                  Enable test mode (SMS won't be sent to actual numbers)
-                </label>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Test Phone Number</label>
-                <input
-                  type="tel"
-                  value={testPhoneNumber}
-                  onChange={(e) => setTestPhoneNumber(e.target.value)}
-                  placeholder="+1234567890"
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-purple-500 focus:ring-4 focus:ring-purple-100 transition-all duration-200"
-                />
-                <p className="text-xs text-slate-500 mt-1">Enter the phone number to send the test SMS to</p>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={testTwilioConnection}
-                  disabled={loading || !twilioConfig.accountSid || !twilioConfig.authToken}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-                >
-                  <Settings className="w-4 h-4" />
-                  Test Connection
-                </button>
-                <button
-                  onClick={sendTestSMS}
-                  disabled={!twilioConfig.isConfigured || loading}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-                >
-                  <Phone className="w-4 h-4" />
-                  Send Test SMS
-                </button>
+                <p className="text-sm text-slate-600">No setup needed — we send texts for you</p>
               </div>
             </div>
 
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <h5 className="font-medium text-yellow-800">Important Notes</h5>
-                  <ul className="text-sm text-yellow-700 mt-2 space-y-1">
-                    <li>• SMS charges apply based on your Twilio pricing plan</li>
-                    <li>• Verify your Twilio phone number is SMS-enabled</li>
-                    <li>• Test mode prevents actual SMS delivery</li>
-                    <li>• Ensure compliance with local SMS regulations</li>
-                  </ul>
-                </div>
-              </div>
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 space-y-2">
+              <p>
+                Texts to parents go out through our SMS service. Each SMS costs <strong>₦10</strong> and is added
+                to your next invoice. Emails to parents stay free.
+              </p>
+              <p>
+                To start texting, switch on <strong>SMS Notifications</strong> under <strong>Settings → Services</strong>.
+                Until then, parents who chose SMS alerts still get them in the app and by email.
+              </p>
             </div>
           </div>
         )}

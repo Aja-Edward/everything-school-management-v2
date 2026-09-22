@@ -135,14 +135,50 @@ export interface StudentDiscount {
   reason?: string;
 }
 
+export type ReminderChannel = 'email' | 'sms';
+
+/** One message to one parent about one unpaid fee. */
 export interface PaymentReminder {
   id: number;
   student_fee: number;
-  reminder_type: 'EMAIL' | 'SMS' | 'PUSH';
-  scheduled_for: string;
-  sent_at?: string;
-  status: 'SCHEDULED' | 'SENT' | 'FAILED';
+  student_name: string;
+  fee_name: string;
+  reminder_type: 'DUE_DATE' | 'OVERDUE' | 'PAYMENT_CONFIRMATION';
+  channel: ReminderChannel;
+  recipient: string;
+  sent_date: string;
+  is_sent: boolean;
   message: string;
+  error: string;
+}
+
+/** Who a reminder would reach now, and what texting them would cost. */
+export interface ReminderPreview {
+  students_owing: number;
+  total_outstanding: string;
+  email_messages: number;
+  sms_messages: number;
+  no_email: number;
+  no_phone: number;
+  already_reminded: Partial<Record<ReminderChannel, number>>;
+  sms_enabled: boolean;
+  sms_price: string;
+  sms_cost: string;
+}
+
+export interface ReminderChannelResult {
+  sent: number;
+  failed: number;
+  queued: number;
+  no_address: number;
+  already_reminded: number;
+  cost?: string;
+}
+
+export interface ReminderSendResult {
+  students_owing: number;
+  email?: ReminderChannelResult;
+  sms?: ReminderChannelResult;
 }
 
 // ============================================================================
@@ -573,13 +609,18 @@ export const PaymentReminderService = {
     api.post('/api/fee/payment-reminders/', data),
 
   /**
-   * Send bulk reminders
+   * Who a reminder would reach now, and what the texts would cost
+   */
+  preview: (): Promise<ReminderPreview> =>
+    api.get('/api/fee/payment-reminders/preview/'),
+
+  /**
+   * Remind the parents of every student who owes (or of `student_ids`)
    */
   sendBulk: (data: {
-    student_fee_ids?: number[];
-    reminder_type: 'EMAIL' | 'SMS' | 'PUSH';
-    message: string;
-  }) =>
+    channels: ReminderChannel[];
+    student_ids?: number[];
+  }): Promise<ReminderSendResult> =>
     api.post('/api/fee/payment-reminders/send_bulk/', data),
 
   /**

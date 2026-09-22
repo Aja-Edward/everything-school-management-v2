@@ -15,7 +15,7 @@ from rest_framework.test import APITestCase
 from academics.models import AcademicSession, Term, TermType
 from students.models import Student
 from tenants import billing
-from tenants.models import Tenant, TenantInvoice, TenantPayment
+from tenants.models import SentSms, Tenant, TenantInvoice, TenantPayment, TenantService
 
 User = get_user_model()
 
@@ -129,6 +129,16 @@ class PlatformBillingTest(APITestCase):
 
         self.assertEqual(response.data["status"], "cancelled")
         self.assertNotEqual(self.invoice_for(self.alpha).id, invoice.id)
+
+    def test_cancelling_leaves_its_texts_for_the_next_invoice(self):
+        TenantService.objects.create(tenant=self.alpha, service="sms_notifications", is_enabled=True)
+        SentSms.objects.create(tenant=self.alpha, recipient="2348000000001")
+        invoice = self.invoice_for(self.alpha)
+        self.as_platform()
+
+        self.post(f"{INVOICES_URL}{invoice.id}/cancel/")
+
+        self.assertEqual(self.invoice_for(self.alpha).sent_sms.count(), 1)
 
     def test_an_invoice_with_money_against_it_cannot_be_cancelled(self):
         invoice = self.invoice_for(self.alpha)

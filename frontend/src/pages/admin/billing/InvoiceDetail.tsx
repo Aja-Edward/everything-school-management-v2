@@ -223,13 +223,16 @@ export const InvoiceDetail: React.FC = () => {
                 {/* Header */}
                 <div className="hidden md:grid grid-cols-12 gap-4 text-sm font-semibold text-gray-700 pb-2 border-b">
                   <div className="col-span-5">Description</div>
-                  <div className="col-span-2 text-right">Students</div>
-                  <div className="col-span-2 text-right">Per Student</div>
+                  <div className="col-span-2 text-right">Quantity</div>
+                  <div className="col-span-2 text-right">Unit price</div>
                   <div className="col-span-3 text-right">Amount</div>
                 </div>
 
                 {/* Items */}
-                {invoice.line_items.map((item) => (
+                {invoice.line_items.map((item) => {
+                  // SMS is billed per text sent; every other line per student.
+                  const perSms = item.service === 'sms_notifications';
+                  return (
                   <div
                     key={item.id}
                     className="grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 p-4 md:p-3 bg-gray-50 rounded-lg"
@@ -237,23 +240,28 @@ export const InvoiceDetail: React.FC = () => {
                     <div className="md:col-span-5">
                       <div className="font-medium text-gray-900">{item.description}</div>
                       <div className="text-xs text-gray-500 mt-1">
-                        {item.item_type === 'base' ? 'Every service except add-ons' : 'Add-on'}
+                        {item.item_type === 'base'
+                          ? 'Every service except add-ons'
+                          : perSms ? 'Add-on, per SMS sent' : 'Add-on'}
                       </div>
                     </div>
                     <div className="md:col-span-2 md:text-right">
-                      <span className="text-gray-600 md:hidden font-medium">Students: </span>
-                      <span className="text-gray-900">{item.quantity}</span>
+                      <span className="text-gray-600 md:hidden font-medium">Quantity: </span>
+                      <span className="text-gray-900">{item.quantity} {perSms ? 'SMS' : 'students'}</span>
                     </div>
                     <div className="md:col-span-2 md:text-right">
-                      <span className="text-gray-600 md:hidden font-medium">Per student: </span>
-                      <span className="text-gray-900">{formatCurrency(item.unit_price)}</span>
+                      <span className="text-gray-600 md:hidden font-medium">Unit price: </span>
+                      <span className="text-gray-900">
+                        {formatCurrency(item.unit_price)} {perSms ? 'each' : 'per student'}
+                      </span>
                     </div>
                     <div className="md:col-span-3 md:text-right">
                       <span className="text-gray-600 md:hidden font-medium">Amount: </span>
                       <span className="font-semibold text-gray-900">{formatCurrency(item.amount)}</span>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </CardContent>
           </Card>

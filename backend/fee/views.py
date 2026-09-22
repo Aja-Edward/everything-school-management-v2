@@ -58,6 +58,8 @@ from .serializers import (
 from .filters import StudentFeeFilter, PaymentFilter
 from .permissions import IsAdminOrReadOnly, IsOwnerOrAdmin
 from .services.services import PaymentService, FeeService, ReportService
+from . import reminders
+from schoolSettings.permissions import HasFinancePermission
 from students.models import Student
 from academics.models import EducationLevel
 from classroom.models import Class as StudentClass
@@ -998,14 +1000,20 @@ class StudentDiscountViewSet(TenantFilterMixin, viewsets.ModelViewSet):
 # PaymentReminder ViewSet
 # ==============================================================================
 class PaymentReminderViewSet(TenantFilterMixin, viewsets.ModelViewSet):
-    """ViewSet for managing payment reminders"""
+    """
+    Fee reminders to parents (fee.reminders).
+
+    Finance access only, for reading as well: every row names a child and
+    what their family owes, which IsAdminOrReadOnly showed to any signed-in
+    user of the school, parents and students included.
+    """
 
     queryset = PaymentReminder.objects.all().order_by("-created_at")
     serializer_class = PaymentReminderSerializer
-    permission_classes = [permissions.IsAuthenticated, IsAdminOrReadOnly]
+    permission_classes = [permissions.IsAuthenticated, HasFinancePermission]
     pagination_class = StandardResultsPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ["sent", "reminder_type"]
+    filterset_fields = ["is_sent", "reminder_type", "channel"]
     search_fields = [
         "student_fee__student__user__first_name",
         "student_fee__student__user__last_name",
@@ -1023,26 +1031,38 @@ class PaymentReminderViewSet(TenantFilterMixin, viewsets.ModelViewSet):
             "student_fee__fee_structure",
         )
 
+    @action(detail=False, methods=["get"])
+    def preview(self, request):
+        """Who a reminder would reach now, by which channel, and what the texts cost."""
+        if request.tenant is None:
+            return Response({"error": "Name the school."}, status=status.HTTP_400_BAD_REQUEST)
+        student_ids = request.query_params.getlist("student_ids") or None
+        return Response(reminders.preview(request.tenant, student_ids))
+
     @action(detail=False, methods=["post"])
     def send_bulk(self, request):
-        """Send bulk payment reminders"""
-        reminder_type = request.data.get("reminder_type", "EMAIL")
-        student_ids = request.data.get("student_ids", [])
-
+        """
+        Remind the parents of every student who owes, or of `student_ids`,
+        through `channels`: "email" (free), "sms" (per text) or both.
+        """
+        if request.tenant is None:
+            return Response({"error": "Name the school."}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            count = PaymentService.send_bulk_reminders(
-                student_ids=student_ids, reminder_type=reminder_type
+            summary = reminders.send_reminders(
+                request.tenant,
+                request.data.get("channels") or ["email"],
+                request.data.get("student_ids") or None,
             )
-            return Response({"message": f"{count} reminders sent successfully"})
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except reminders.ReminderError as error:
+            return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(summary)
 
     @action(detail=True, methods=["post"])
     def mark_sent(self, request, pk=None):
         """Mark reminder as sent"""
         reminder = self.get_object()
-        reminder.sent = True
-        reminder.sent_date = timezone.now()
+        reminder.is_sent = True
+        reminder.error = ""
         reminder.save()
 
         return Response({"message": "Reminder marked as sent"})

@@ -30,7 +30,7 @@ from django.test import override_settings
 from schoolSettings.models import CommunicationSettings
 from schoolSettings.models import Permission as SchoolPermission
 from schoolSettings.models import Role, UserRole
-from tenants.models import Tenant, TenantSettings
+from tenants.models import SentSms, Tenant, TenantService, TenantSettings
 
 from .gate import record_and_notify
 from .notifications import deliver
@@ -1464,22 +1464,17 @@ class AnomalyOnlyPolicyTest(NotificationFixtureMixin, TestCase):
         self.assertIn("after the start of the school day", row.body)
 
 
+@override_settings(TERMII_API_KEY="termii-key", TERMII_SENDER_ID="School")
 class NotificationDeliveryTest(NotificationFixtureMixin, TestCase):
     """Handing a queued row to a provider, and recording what came back."""
 
     def setUp(self):
         self.build()
-        # SmsChannel checks the school has Twilio set up before calling the
-        # provider at all, so these tests need it configured to reach the
-        # mocked sender. Without it the row is skipped, which is what
-        # UnconfiguredChannelIsSkippedTest covers instead.
-        CommunicationSettings.objects.create(
-            tenant=self.tenant,
-            twilio_configured=True,
-            twilio_account_sid="AC-test",
-            twilio_auth_token="test-token",
-            twilio_phone_number="+15005550006",
-        )
+        # SmsChannel sends only for a school with the SMS add-on on, so these
+        # tests switch it on to reach the mocked sender. Without it the row is
+        # skipped, which is what UnconfiguredChannelIsSkippedTest covers.
+        TenantService.objects.create(
+            tenant=self.tenant, service="sms_notifications", is_enabled=True)
         ParentAlertPreference.objects.create(
             parent=self.mother, sms_enabled=True, email_enabled=False)
         self._scan("in")
@@ -1488,31 +1483,46 @@ class NotificationDeliveryTest(NotificationFixtureMixin, TestCase):
 
     def test_a_successful_send_is_recorded_with_its_provider_id(self):
         with patch(
-            "utils.sms.send_sms_via_twilio",
-            return_value=(True, "SMS sent successfully", "SM123"),
+            "utils.termii.send_sms",
+            return_value=(True, "Successfully Sent", "T123"),
         ):
             deliver(self.row)
 
         self.row.refresh_from_db()
         self.assertEqual(self.row.status, NotificationStatus.SENT)
-        self.assertEqual(self.row.provider_message_id, "SM123")
+        self.assertEqual(self.row.provider, "termii")
+        self.assertEqual(self.row.provider_message_id, "T123")
         self.assertEqual(self.row.attempts, 1)
         self.assertIsNotNone(self.row.sent_at)
 
+    def test_a_sent_text_is_recorded_for_the_schools_invoice(self):
+        with patch(
+            "utils.termii.send_sms",
+            return_value=(True, "Successfully Sent", "T123"),
+        ):
+            deliver(self.row)
+
+        sent = SentSms.objects.get()
+        self.assertEqual(sent.tenant, self.tenant)
+        self.assertEqual(sent.provider_message_id, "T123")
+        self.assertIsNone(sent.invoice)
+
     def test_a_provider_failure_is_recorded_not_raised(self):
         with patch(
-            "utils.sms.send_sms_via_twilio",
-            return_value=(False, "Twilio is not configured for this school", None),
+            "utils.termii.send_sms",
+            return_value=(False, "Termii returned 400: Insufficient balance", None),
         ):
             deliver(self.row)
 
         self.row.refresh_from_db()
         self.assertEqual(self.row.status, NotificationStatus.FAILED)
-        self.assertIn("not configured", self.row.error)
+        self.assertIn("Insufficient balance", self.row.error)
+        # Not sent, so not billed.
+        self.assertFalse(SentSms.objects.exists())
 
     def test_a_provider_exception_is_contained(self):
         with patch(
-            "utils.sms.send_sms_via_twilio",
+            "utils.termii.send_sms",
             side_effect=RuntimeError("connection reset"),
         ):
             deliver(self.row)
@@ -1522,17 +1532,17 @@ class NotificationDeliveryTest(NotificationFixtureMixin, TestCase):
         self.assertIn("connection reset", self.row.error)
 
     def test_delivering_an_already_sent_row_does_not_send_again(self):
-        self.row.mark_sent(provider="twilio", message_id="SM1")
+        self.row.mark_sent(provider="termii", message_id="T1")
 
-        with patch("utils.sms.send_sms_via_twilio") as sender:
+        with patch("utils.termii.send_sms") as sender:
             deliver(self.row)
 
         sender.assert_not_called()
 
     def test_the_flush_task_picks_up_what_is_still_queued(self):
         with patch(
-            "utils.sms.send_sms_via_twilio",
-            return_value=(True, "ok", "SM9"),
+            "utils.termii.send_sms",
+            return_value=(True, "ok", "T9"),
         ):
             summary = flush_pending_scan_notifications()
 
@@ -1545,7 +1555,7 @@ class NotificationDeliveryTest(NotificationFixtureMixin, TestCase):
         self.row.status = NotificationStatus.FAILED
         self.row.save()
 
-        with patch("utils.sms.send_sms_via_twilio") as sender:
+        with patch("utils.termii.send_sms") as sender:
             flush_pending_scan_notifications()
 
         sender.assert_not_called()
@@ -1739,17 +1749,47 @@ class UnconfiguredChannelIsSkippedTest(NotificationFixtureMixin, TestCase):
 
         poster.assert_not_called()
 
-    def test_sms_for_a_school_without_twilio_is_skipped_not_failed(self):
-        """No platform fallback for SMS: it costs money nobody agreed to."""
+    @override_settings(TERMII_API_KEY="termii-key", TERMII_SENDER_ID="School")
+    def test_sms_for_a_school_without_the_sms_add_on_is_skipped_not_failed(self):
+        """Each text costs the school money it has not agreed to spend."""
         ParentAlertPreference.objects.create(
             parent=self.mother, sms_enabled=True)
         self._scan("in")
         row = ScanNotification.objects.get(channel=NotificationChannel.SMS)
 
-        with patch("utils.sms.send_sms_via_twilio") as sender:
+        with patch("utils.termii.send_sms") as sender:
             deliver(row)
 
         sender.assert_not_called()
+        row.refresh_from_db()
+        self.assertEqual(row.status, NotificationStatus.SKIPPED)
+
+    @override_settings(TERMII_API_KEY="", TERMII_SENDER_ID="")
+    def test_sms_is_skipped_while_the_platform_has_no_termii_account(self):
+        TenantService.objects.create(
+            tenant=self.tenant, service="sms_notifications", is_enabled=True)
+        ParentAlertPreference.objects.create(
+            parent=self.mother, sms_enabled=True)
+        self._scan("in")
+        row = ScanNotification.objects.get(channel=NotificationChannel.SMS)
+
+        with patch("utils.termii.requests.post") as poster:
+            deliver(row)
+
+        poster.assert_not_called()
+        row.refresh_from_db()
+        self.assertEqual(row.status, NotificationStatus.SKIPPED)
+
+    def test_email_for_a_school_that_switched_it_off_is_skipped(self):
+        TenantService.objects.create(
+            tenant=self.tenant, service="email_notifications", is_enabled=False)
+        self._scan("in")
+        row = ScanNotification.objects.get(channel=NotificationChannel.EMAIL)
+
+        with patch("utils.notifications.requests.post") as poster:
+            deliver(row)
+
+        poster.assert_not_called()
         row.refresh_from_db()
         self.assertEqual(row.status, NotificationStatus.SKIPPED)
 

@@ -3,12 +3,15 @@ What a school owes the platform for a term or a session.
 
 The Basic package covers every service except the add-ons, at
 BASIC_PRICE_PER_STUDENT per student per term, whichever of those services the
-school uses. Each add-on the school has switched on is billed on top at its
-ServicePricing price. A session is billed as three terms: the Basic package is
-tripled, and add-ons are charged at their session price.
+school uses. Each per-student add-on the school has switched on is billed on
+top at its ServicePricing price. A session is billed as three terms: the Basic
+package is tripled, and add-ons are charged at their session price.
 
-Students are counted when the invoice is raised, and again whenever an unpaid
-invoice is brought up to date.
+SMS is billed by the message instead: every text sent since the school's last
+invoice, at SMS_PRICE_PER_MESSAGE.
+
+Students and texts are counted when the invoice is raised, and again whenever
+an unpaid invoice is brought up to date.
 """
 
 from dataclasses import dataclass
@@ -23,8 +26,8 @@ from academics.models import AcademicSession, Term
 from students.models import Student
 
 from .models import (
-    BASIC_PRICE_PER_STUDENT, TERMS_PER_SESSION,
-    ServicePricing, TenantInvoice, TenantInvoiceLineItem, TenantService,
+    BASIC_PRICE_PER_STUDENT, SMS_PRICE_PER_MESSAGE, TERMS_PER_SESSION,
+    SentSms, ServicePricing, TenantInvoice, TenantInvoiceLineItem, TenantService,
 )
 
 PAYMENT_DUE_AFTER = timedelta(days=14)
@@ -86,7 +89,7 @@ def active_student_count(tenant):
     return Student.objects.filter(tenant=tenant, is_active=True).count()
 
 
-def price_lines(tenant, billing_period, student_count):
+def price_lines(tenant, billing_period, student_count, sms_count=0):
     per_session = billing_period == 'session'
     terms = TERMS_PER_SESSION if per_session else 1
     lines = [Line(
@@ -94,6 +97,8 @@ def price_lines(tenant, billing_period, student_count):
 
     enabled_add_ons = tenant.services.filter(
         is_enabled=True, service__in=TenantService.ADD_ON_SERVICES,
+    ).exclude(
+        service__in=TenantService.PER_MESSAGE_ADD_ONS,
     ).values_list('service', flat=True)
     add_on_prices = ServicePricing.objects.filter(
         service__in=list(enabled_add_ons), is_active=True).order_by('service')
@@ -102,7 +107,18 @@ def price_lines(tenant, billing_period, student_count):
             'service', pricing.service, pricing.get_service_display(), student_count,
             pricing.session_price if per_session else pricing.price_per_student,
         ))
+
+    # Billed whether or not SMS is still switched on: these texts were sent.
+    if sms_count:
+        lines.append(Line(
+            'service', 'sms_notifications', 'SMS messages sent', sms_count,
+            SMS_PRICE_PER_MESSAGE))
     return lines
+
+
+def unbilled_sms(tenant):
+    """Texts sent for the school that no invoice has charged for yet."""
+    return SentSms.objects.filter(tenant=tenant, invoice__isnull=True)
 
 
 def quote(tenant, billing_period):
@@ -111,7 +127,7 @@ def quote(tenant, billing_period):
     students = active_student_count(tenant)
     return Quote(
         billing_period, session, term, students,
-        price_lines(tenant, billing_period, students))
+        price_lines(tenant, billing_period, students, unbilled_sms(tenant).count()))
 
 
 def is_settled_or_settling(invoice):
@@ -124,9 +140,14 @@ def is_settled_or_settling(invoice):
 
 
 def refresh_invoice(invoice):
-    """Recount the students and reprice the lines of an invoice nobody has paid."""
+    """
+    Recount the students and reprice the lines of an invoice nobody has paid,
+    taking on any texts sent since the school was last invoiced.
+    """
+    unbilled_sms(invoice.tenant).update(invoice=invoice)
     students = active_student_count(invoice.tenant)
-    lines = price_lines(invoice.tenant, invoice.billing_period, students)
+    lines = price_lines(
+        invoice.tenant, invoice.billing_period, students, invoice.sent_sms.count())
 
     invoice.base_price_per_student = BASIC_PRICE_PER_STUDENT
     invoice.student_count = students

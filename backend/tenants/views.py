@@ -32,7 +32,7 @@ from utils.pagination import StandardResultsPagination
 
 from . import billing
 from .models import (
-    BASIC_PRICE_PER_STUDENT, TERMS_PER_SESSION,
+    BASIC_PRICE_PER_STUDENT, SMS_PRICE_PER_MESSAGE, TERMS_PER_SESSION,
     Tenant, TenantService, ServicePricing, TenantSettings,
     TenantInvoice, TenantInvoiceLineItem, TenantPayment, TenantInvitation,
     TenantSetupToken, PlatformContent
@@ -632,10 +632,7 @@ class ServiceManagementViewSet(viewsets.ViewSet):
             logger.warning(f"No tenant context for user {request.user}")
             return Response({'error': 'No tenant context'}, status=400)
 
-        enabled_services = set(
-            tenant.services.filter(is_enabled=True).values_list(
-                'service', flat=True)
-        )
+        switched = dict(tenant.services.values_list('service', 'is_enabled'))
 
         # Get pricing for all services
         pricing = {
@@ -647,6 +644,7 @@ class ServiceManagementViewSet(viewsets.ViewSet):
             'description': 'Every service except add-ons, whichever of them you use.',
             'price_per_student': float(BASIC_PRICE_PER_STUDENT),
             'price_per_student_per_session': float(BASIC_PRICE_PER_STUDENT * TERMS_PER_SESSION),
+            'price_per_message': None,
             'is_default': True,
             'is_enabled': True,
             'is_add_on': False,
@@ -656,16 +654,23 @@ class ServiceManagementViewSet(viewsets.ViewSet):
             service_pricing = pricing.get(service_code)
             is_default = service_code in TenantService.DEFAULT_SERVICES
             is_add_on = service_code in TenantService.ADD_ON_SERVICES
-            priced = is_add_on and service_pricing is not None
+            per_message = service_code in TenantService.PER_MESSAGE_ADD_ONS
+            priced = is_add_on and not per_message and service_pricing is not None
+            # As TenantService.is_on, from the rows already fetched.
+            is_enabled = switched.get(
+                service_code,
+                is_default or service_code in TenantService.ON_BY_DEFAULT)
 
             services.append({
                 'service': service_code,
                 'name': service_name,
-                'description': service_pricing.description if service_pricing else '',
+                'description': (service_pricing.description if service_pricing else '')
+                               or TenantService.SERVICE_DESCRIPTIONS.get(service_code, ''),
                 'price_per_student': float(service_pricing.price_per_student) if priced else 0,
                 'price_per_student_per_session': float(service_pricing.session_price) if priced else 0,
+                'price_per_message': float(SMS_PRICE_PER_MESSAGE) if per_message else None,
                 'is_default': is_default,
-                'is_enabled': service_code in enabled_services,
+                'is_enabled': is_enabled,
                 'is_add_on': is_add_on,
                 'category': self._get_service_category(service_code),
             })
@@ -1551,6 +1556,8 @@ class TenantInvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         if reason:
             invoice.admin_notes = f"{invoice.admin_notes}\nCancelled: {reason}".strip()
         invoice.save()
+        # The texts it charged for were still sent: the next invoice bills them.
+        invoice.sent_sms.update(invoice=None)
         return Response(TenantInvoiceSerializer(invoice).data)
 
     @action(detail=True, methods=['post'], url_path='record-payment',

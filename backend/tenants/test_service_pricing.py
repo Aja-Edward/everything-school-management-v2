@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APITestCase
 
-from tenants.models import ServicePricing, Tenant
+from tenants.models import ServicePricing, Tenant, TenantService
 
 User = get_user_model()
 
@@ -52,9 +52,35 @@ class ServicesListPricingTest(APITestCase):
         self.assertEqual(categories["exams"], "core")
         self.assertEqual(categories["arrival_notification"], "attendance")
         self.assertEqual(categories["question_bank"], "assessment")
+        self.assertEqual(categories["email_notifications"], "communication")
         self.assertEqual(categories["sms_notifications"], "communication")
         self.assertEqual(categories["fees"], "finance")
         self.assertEqual(categories["timetable"], "scheduling")
+
+    def test_sms_is_an_add_on_charged_per_message_and_off_until_switched_on(self):
+        sms = self.services()["sms_notifications"]
+
+        self.assertTrue(sms["is_add_on"])
+        self.assertEqual(sms["price_per_message"], 10)
+        self.assertEqual(sms["price_per_student"], 0)
+        self.assertFalse(sms["is_enabled"])
+
+    def test_email_notifications_are_free_in_basic_and_on_until_switched_off(self):
+        email = self.services()["email_notifications"]
+        self.assertFalse(email["is_add_on"])
+        self.assertEqual(email["price_per_student"], 0)
+        self.assertIsNone(email["price_per_message"])
+        self.assertTrue(email["is_enabled"])
+
+        TenantService.objects.create(
+            tenant=self.school, service="email_notifications", is_enabled=False)
+
+        self.assertFalse(self.services()["email_notifications"]["is_enabled"])
+
+    def test_every_service_says_what_it_does(self):
+        missing = [code for code, row in self.services().items() if not row["description"]]
+
+        self.assertEqual(missing, [])
 
 
 class SessionPriceTest(TestCase):

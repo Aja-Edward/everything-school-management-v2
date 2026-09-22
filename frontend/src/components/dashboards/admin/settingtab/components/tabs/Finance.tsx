@@ -16,6 +16,7 @@ import {
   X
 } from 'lucide-react';
 import ToggleSwitch from '@/components/dashboards/admin/settingtab/components/ToggleSwitch';
+import FeeRemindersPanel from './FeeRemindersPanel';
 
 const Finance: React.FC = () => {
   const [feeStructure] = useState([
@@ -94,6 +95,8 @@ const Finance: React.FC = () => {
 
   return (
     <div className="space-y-8">
+      <FeeRemindersPanel />
+
       {/* Fee Structure Management */}
       <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100">
         <div className="flex justify-between items-center mb-6">

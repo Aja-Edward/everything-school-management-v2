@@ -753,6 +753,19 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "edwardaja750@gmail.com")
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "your-brevo-api-key-here")
 
 # ============================================
+# SMS (Termii)
+# ============================================
+# One platform account sends every school's texts; schools pay per message.
+# The key and base URL are on the Termii dashboard. TERMII_CHANNEL "generic"
+# reaches numbers that are not on DND; switch it to "dnd" once the sender ID
+# is approved for the DND route, and every number is reached.
+
+TERMII_API_KEY = os.getenv("TERMII_API_KEY", "")
+TERMII_BASE_URL = os.getenv("TERMII_BASE_URL", "https://v3.api.termii.com")
+TERMII_SENDER_ID = os.getenv("TERMII_SENDER_ID", "")
+TERMII_CHANNEL = os.getenv("TERMII_CHANNEL", "generic")
+
+# ============================================
 # MULTI-TENANT SETTINGS
 # ============================================
 

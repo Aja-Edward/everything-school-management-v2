@@ -16,6 +16,10 @@ TERMS_PER_SESSION = 3
 # student per term whichever of them a school uses.
 BASIC_PRICE_PER_STUDENT = Decimal('800.00')
 
+# SMS is billed by the message, not by the student: a school may text every
+# parent once in a term or twenty times, and the platform pays Termii for each.
+SMS_PRICE_PER_MESSAGE = Decimal('10.00')
+
 
 class TenantMixin(models.Model):
     """
@@ -236,6 +240,7 @@ class TenantService(models.Model):
         ('cbt', 'Computer-Based Testing (CBT)'),
 
         # Communication
+        ('email_notifications', 'Email Notifications'),
         ('sms_notifications', 'SMS Notifications'),
 
         # Finance
@@ -248,18 +253,45 @@ class TenantService(models.Model):
     # Default services (included in base price, cannot be removed)
     DEFAULT_SERVICES = ['exams', 'results']
 
-    # Billed on top of the Basic package, at their own ServicePricing prices.
-    # Every other service is included in BASIC_PRICE_PER_STUDENT.
-    ADD_ON_SERVICES = ['cbt', 'gate_tracker']
+    # Billed on top of the Basic package. Every other service is included in
+    # BASIC_PRICE_PER_STUDENT.
+    ADD_ON_SERVICES = ['cbt', 'gate_tracker', 'sms_notifications']
+
+    # Add-ons billed per message sent, at SMS_PRICE_PER_MESSAGE, rather than
+    # per student at a ServicePricing price.
+    PER_MESSAGE_ADD_ONS = ['sms_notifications']
+
+    # In the Basic package and on for every school unless it switches it off,
+    # so a school that has never opened the services page still emails parents.
+    ON_BY_DEFAULT = ['email_notifications']
 
     # Service categories for grouping in UI
     SERVICE_CATEGORIES = {
         'core': ['exams', 'results'],
         'attendance': ['attendance', 'arrival_notification', 'gate_tracker'],
         'assessment': ['exam_proofreading', 'ai_question_generator', 'question_bank', 'exam_builder', 'cbt'],
-        'communication': ['sms_notifications'],
+        'communication': ['email_notifications', 'sms_notifications'],
         'finance': ['fees'],
         'scheduling': ['timetable'],
+    }
+
+    # What each service does, for the services page. A ServicePricing
+    # description, where one is set, takes precedence.
+    SERVICE_DESCRIPTIONS = {
+        'exams': 'Set, schedule and mark exams for every class.',
+        'results': 'Compile scores into results and report cards.',
+        'attendance': 'Take daily class attendance and see who is absent.',
+        'arrival_notification': "Tell parents when their child arrives at or leaves school.",
+        'gate_tracker': "Records each student's arrival and departure at the school gate by chip scan.",
+        'exam_proofreading': 'Check exam questions for mistakes before they are printed.',
+        'ai_question_generator': 'Draft exam questions from a topic or a lesson note.',
+        'question_bank': 'Keep questions to reuse across exams and terms.',
+        'exam_builder': 'Assemble exam papers from your questions.',
+        'cbt': 'Students sit exams on computers, with objective questions marked automatically.',
+        'email_notifications': 'Email parents about fees, attendance and school news, free of charge.',
+        'sms_notifications': 'Text parents about unpaid fees and other alerts. Charged per SMS sent.',
+        'fees': 'Set fees, record payments and see who still owes.',
+        'timetable': 'Build class and teacher timetables.',
     }
 
     tenant = models.ForeignKey(
@@ -278,6 +310,17 @@ class TenantService(models.Model):
     def __str__(self):
         status = "enabled" if self.is_enabled else "disabled"
         return f"{self.tenant.name} - {self.get_service_display()} ({status})"
+
+    @classmethod
+    def is_on(cls, tenant, service):
+        """
+        Whether the school uses this service: as its row says, or with no
+        row, on for the defaults and ON_BY_DEFAULT services and off otherwise.
+        """
+        row = cls.objects.filter(tenant=tenant, service=service).only('is_enabled').first()
+        if row is None:
+            return service in cls.DEFAULT_SERVICES or service in cls.ON_BY_DEFAULT
+        return row.is_enabled
 
     @property
     def is_default(self):
@@ -525,6 +568,35 @@ class TenantInvoiceLineItem(models.Model):
     def save(self, *args, **kwargs):
         self.amount = self.unit_price * self.quantity
         super().save(*args, **kwargs)
+
+
+class SentSms(models.Model):
+    """
+    One text the platform sent for a school, which the school pays for at
+    SMS_PRICE_PER_MESSAGE.
+
+    A text is billed on the first invoice raised or brought up to date after
+    it was sent: until then `invoice` is empty, and cancelling that invoice
+    empties it again so the text goes on the next one.
+    """
+
+    tenant = models.ForeignKey(
+        Tenant, on_delete=models.CASCADE, related_name='sent_sms')
+    recipient = models.CharField(max_length=20)
+    provider = models.CharField(max_length=20, default='termii')
+    provider_message_id = models.CharField(max_length=100, blank=True)
+    sent_at = models.DateTimeField(default=timezone.now)
+    invoice = models.ForeignKey(
+        TenantInvoice, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='sent_sms')
+
+    class Meta:
+        db_table = 'tenant_sent_sms'
+        ordering = ['-sent_at']
+        indexes = [models.Index(fields=['tenant', 'invoice'])]
+
+    def __str__(self):
+        return f"SMS to {self.recipient} for {self.tenant_id} at {self.sent_at:%Y-%m-%d %H:%M}"
 
 
 class TenantPayment(models.Model):

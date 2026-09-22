@@ -12,7 +12,7 @@ from rest_framework.test import APITestCase
 
 from academics.models import AcademicSession, Term, TermType
 from students.models import Student
-from tenants.models import Tenant, TenantInvoice, TenantPayment, TenantService
+from tenants.models import SentSms, Tenant, TenantInvoice, TenantPayment, TenantService
 
 User = get_user_model()
 
@@ -68,8 +68,9 @@ class SchoolBillingTest(APITestCase):
 
     def test_a_term_is_the_basic_package_for_every_active_student(self):
         self.enrol("left_school", is_active=False)
-        # Services in the Basic package add nothing, however many are on.
-        self.switch_on("attendance", "timetable", "sms_notifications")
+        # Services in the Basic package add nothing, however many are on, and
+        # the SMS add-on adds nothing until a text is sent.
+        self.switch_on("attendance", "timetable", "email_notifications", "sms_notifications")
 
         quote = self.quote("term")
 
@@ -195,3 +196,56 @@ class SchoolBillingTest(APITestCase):
         self.assertFalse(by_code["timetable"]["is_add_on"])
         self.assertTrue(by_code["cbt"]["is_add_on"])
         self.assertEqual(by_code["cbt"]["price_per_student"], 100)
+
+    # SMS is billed by the text, ₦10 each, on the next invoice after it is sent.
+
+    def send_texts(self, count):
+        for n in range(count):
+            SentSms.objects.create(tenant=self.school, recipient=f"23480000000{n:02d}")
+
+    def sms_line(self, quote):
+        lines = [line for line in quote["lines"] if line["service"] == "sms_notifications"]
+        return lines[0] if lines else None
+
+    def test_texts_sent_are_billed_at_ten_naira_each(self):
+        self.switch_on("sms_notifications")
+        self.send_texts(7)
+
+        quote = self.quote("term")
+
+        line = self.sms_line(quote)
+        self.assertEqual(line["description"], "SMS messages sent")
+        self.assertEqual(line["quantity"], 7)
+        self.assertEqual(line["unit_price"], "10.00")
+        self.assertEqual(Decimal(quote["total"]), Decimal("8070.00"))
+
+    def test_the_sms_add_on_is_never_charged_per_student(self):
+        self.switch_on("sms_notifications")
+
+        self.assertIsNone(self.sms_line(self.quote("session")))
+
+    def test_an_invoice_takes_the_texts_and_the_next_one_does_not_bill_them_again(self):
+        self.switch_on("sms_notifications")
+        self.send_texts(3)
+
+        invoice = TenantInvoice.objects.get(id=self.generate("term").data["id"])
+
+        self.assertEqual(invoice.services_amount, Decimal("30.00"))
+        self.assertEqual(invoice.total_amount, Decimal("8030.00"))
+        self.assertEqual(invoice.sent_sms.count(), 3)
+        self.assertIsNone(self.sms_line(self.quote("term")))
+
+        # Sent after the invoice was raised: on it while it is unpaid...
+        self.send_texts(2)
+        self.generate("term")
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.sent_sms.count(), 5)
+        self.assertEqual(invoice.total_amount, Decimal("8050.00"))
+
+    def test_other_schools_texts_are_not_billed_here(self):
+        other = Tenant.objects.create(
+            name="Beta College", slug="beta-college", status="active",
+            is_active=True, owner_email="beta@example.com")
+        SentSms.objects.create(tenant=other, recipient="2348000000099")
+
+        self.assertIsNone(self.sms_line(self.quote("term")))

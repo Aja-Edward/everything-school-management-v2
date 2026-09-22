@@ -294,18 +294,21 @@ class StudentFeeAdmin(admin.ModelAdmin):
     create_payment_plan.short_description = "Create payment plans for selected fees"
 
     def send_payment_reminder(self, request, queryset):
-        count = 0
-        for fee in queryset:
-            if fee.status not in ["PAID"]:
-                PaymentReminder.objects.create(
-                    student_fee=fee,
-                    reminder_type="EMAIL",
-                    message=f"Payment reminder for {fee.fee_structure.name}",
-                )
-                count += 1
-        self.message_user(request, f"Reminders created for {count} fees.")
+        """Email the parents of the selected fees' students, school by school."""
+        from .reminders import send_reminders
 
-    send_payment_reminder.short_description = "Send payment reminders"
+        students_by_school = {}
+        for fee in queryset.select_related("tenant"):
+            if fee.tenant is not None:
+                students_by_school.setdefault(fee.tenant, set()).add(fee.student_id)
+
+        sent = 0
+        for school, student_ids in students_by_school.items():
+            summary = send_reminders(school, ["email"], list(student_ids))
+            sent += summary["email"]["sent"]
+        self.message_user(request, f"{sent} reminder emails sent to parents.")
+
+    send_payment_reminder.short_description = "Email payment reminders to parents"
 
     def update_payment_status(self, request, queryset):
         updated = 0
@@ -920,20 +923,23 @@ class PaymentReminderAdmin(admin.ModelAdmin):
     list_display = (
         "student_fee",
         "reminder_type",
+        "channel",
+        "recipient",
         "sent_date",
         "is_sent",
     )
-    list_filter = ("reminder_type", "is_sent", "sent_date")
+    list_filter = ("reminder_type", "channel", "is_sent", "sent_date")
     search_fields = (
         "student_fee__student__user__first_name",
         "student_fee__student__user__last_name",
+        "recipient",
     )
     readonly_fields = ("sent_date",)
 
     fieldsets = (
-        ("Reminder Details", {"fields": ("student_fee", "reminder_type")}),
+        ("Reminder Details", {"fields": ("student_fee", "reminder_type", "channel", "recipient")}),
         ("Message", {"fields": ("message",)}),
-        ("Status", {"fields": ("is_sent", "sent_date")}),
+        ("Status", {"fields": ("is_sent", "sent_date", "error")}),
     )
 
 

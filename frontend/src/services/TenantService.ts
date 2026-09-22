@@ -179,6 +179,8 @@ export interface TenantServiceType {
   price_per_student: number;
   /** Per student, for a whole session. */
   price_per_student_per_session: number;
+  /** Set for add-ons billed per message sent (SMS) instead of per student. */
+  price_per_message: number | null;
   is_default: boolean;
   is_enabled: boolean;
   /**
@@ -196,6 +198,9 @@ export type AvailableService = TenantServiceType;
 /** How a service's price reads on the services pages. */
 export const servicePriceLabel = (service: TenantServiceType): string => {
   if (!service.is_add_on && service.service !== 'basic') return 'In Basic package';
+  if (service.price_per_message != null) {
+    return `₦${Number(service.price_per_message).toLocaleString()} per SMS sent`;
+  }
   if (Number(service.price_per_student) === 0) return 'Free';
   return `₦${Number(service.price_per_student).toLocaleString()}/student/term · ` +
     `₦${Number(service.price_per_student_per_session).toLocaleString()}/student/session`;

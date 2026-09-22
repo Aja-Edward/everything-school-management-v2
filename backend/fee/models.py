@@ -293,15 +293,29 @@ class StudentDiscount(TenantMixin, models.Model):
 # ============================================
 
 class PaymentReminder(TenantMixin, models.Model):
-    """Payment reminder model"""
+    """
+    One message telling one parent about one unpaid fee (fee.reminders).
+
+    Kept whether or not it was delivered: "did the school tell this parent,
+    and how?" needs an answer, and an undelivered row says why.
+    """
+
+    CHANNEL_CHOICES = (
+        ("email", "Email"),
+        ("sms", "SMS"),
+    )
 
     student_fee = models.ForeignKey(
         StudentFee, on_delete=models.CASCADE, related_name="reminders"
     )
     reminder_type = models.CharField(max_length=20, choices=REMINDER_TYPE_CHOICES)
+    channel = models.CharField(max_length=10, choices=CHANNEL_CHOICES, default="email")
+    recipient = models.CharField(
+        max_length=254, blank=True, help_text="The email address or phone number it went to.")
     sent_date = models.DateTimeField(auto_now_add=True)
     is_sent = models.BooleanField(default=False)
     message = models.TextField(blank=True, null=True)
+    error = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

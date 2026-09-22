@@ -19,7 +19,6 @@ from ..models import (
     PaymentAttempt,
     PaymentWebhook,
     PaymentGatewayConfig,
-    PaymentReminder,
 )
 from .paystack_service import PaystackService
 from students.models import Student
@@ -373,44 +372,6 @@ class PaymentService:
             payment_plan.save()
 
         return {"status": "success", "payment": payment.id}
-
-    @staticmethod
-    def send_bulk_reminders(student_ids, reminder_type):
-        """Send bulk payment reminders"""
-        count = 0
-
-        # Get overdue fees
-        overdue_fees = StudentFee.objects.filter(
-            status__in=["PENDING", "PARTIAL", "OVERDUE"]
-        )
-
-        if student_ids:
-            overdue_fees = overdue_fees.filter(student_id__in=student_ids)
-
-        for student_fee in overdue_fees:
-            # Create reminder record
-            reminder = PaymentReminder.objects.create(
-                student_fee=student_fee,
-                reminder_type=reminder_type,
-                sent=False,
-                message=f"Payment reminder for {student_fee.fee_structure.name}",
-            )
-
-            # Send notification (implement based on reminder_type)
-            if reminder_type == "EMAIL":
-                # Send email
-                pass
-            elif reminder_type == "SMS":
-                # Send SMS
-                pass
-
-            reminder.sent = True
-            reminder.sent_date = timezone.now()
-            reminder.save()
-            count += 1
-
-        return count
-
 
 class ReportService:
     @staticmethod

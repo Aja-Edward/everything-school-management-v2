@@ -67,6 +67,12 @@ def _communication_settings(tenant):
     return CommunicationSettings.objects.filter(tenant=tenant).first()
 
 
+def _uses_service(tenant, service):
+    """Whether the school has this service on (tenants.TenantService.is_on)."""
+    from tenants.models import TenantService
+    return TenantService.is_on(tenant, service)
+
+
 def _school_name(tenant):
     if tenant is None:
         return "School"
@@ -215,6 +221,10 @@ class EmailChannel(Channel):
         return (getattr(user, "email", "") or "").strip() or None
 
     def deliver(self, *, tenant, destination, subject, body):
+        if not _uses_service(tenant, "email_notifications"):
+            return SendResult.unavailable(
+                self.provider, "Email notifications are switched off for this school")
+
         credentials = _brevo_credentials(tenant)
         if credentials is None:
             return SendResult.unavailable(
@@ -266,14 +276,13 @@ class EmailChannel(Channel):
 
 class SmsChannel(Channel):
     """
-    Currently Twilio, because that is what the project already has credentials
-    for. For Nigerian volume a local provider with a documented DND corporate
-    route is the better answer — see the notes in docs — and swapping it in
-    means another Channel subclass here, not changes upstream.
+    Termii, through the platform's account. Each text costs the school
+    SMS_PRICE_PER_MESSAGE, so it is sent only for a school that has switched
+    the SMS add-on on, and every one sent is recorded for its next invoice.
     """
 
     name = "sms"
-    provider = "twilio"
+    provider = "termii"
 
     def destination_for(self, recipient_profile, user):
         candidates = [
@@ -287,23 +296,28 @@ class SmsChannel(Channel):
         return None
 
     def deliver(self, *, tenant, destination, subject, body):
-        from utils.sms import send_sms_via_twilio
+        from utils import termii
 
-        # There is no platform fallback for SMS, deliberately: texts cost real
-        # money per message, so a school that has not set up an account has not
-        # agreed to spend anything, and the platform should not spend it for
-        # them. Checked up front so an unconfigured school is skipped rather
-        # than retried three times.
-        comm = _communication_settings(tenant)
-        if not comm or not comm.twilio_configured:
+        # Texts cost money per message, so a school that has not switched the
+        # add-on on has not agreed to spend anything, and nothing is sent.
+        # Checked up front, like an unconfigured provider, so the notification
+        # is skipped rather than retried three times.
+        if tenant is None or not _uses_service(tenant, "sms_notifications"):
             return SendResult.unavailable(
-                self.provider, "SMS is not configured for this school")
+                self.provider, "The SMS add-on is switched off for this school")
+        if not termii.is_configured():
+            return SendResult.unavailable(
+                self.provider, "SMS is not set up on the platform")
 
-        ok, detail, message_sid = send_sms_via_twilio(
-            destination, body, tenant=tenant)
-        if ok:
-            return SendResult.success(self.provider, message_sid or "")
-        return SendResult.failure(self.provider, detail)
+        ok, detail, message_id = termii.send_sms(destination, body)
+        if not ok:
+            return SendResult.failure(self.provider, detail)
+
+        from tenants.models import SentSms
+        SentSms.objects.create(
+            tenant=tenant, recipient=termii.normalize_number(destination)[:20],
+            provider=self.provider, provider_message_id=message_id or "")
+        return SendResult.success(self.provider, message_id or "")
 
 
 _CHANNELS = {

@@ -544,13 +544,11 @@ Filterable by `channel`, `status`, `student`. Each row carries the rendered `sub
 
 Statuses are `queued`, `sent`, `failed`, `skipped`. `skipped` means we had no address for that parent on that channel — the row is kept deliberately, because "we had no phone number for her" is the answer to a complaint and an absent row is invisible.
 
-### 9.6 Choosing an SMS provider
+### 9.6 SMS provider
 
-The SMS channel currently uses Twilio, because that is what the project already has credentials for. For Nigerian volume that is the wrong choice: Twilio needs alphanumeric sender-ID pre-registration above 30,000 SMS/month, requiring four separate No Objection Certificates, and its Nigeria rates run to ₦395/message at the top of the range.
+SMS goes out through **Termii**, from the platform's own account, and each school pays ₦10 per SMS on its next invoice. A school gets SMS only once it switches on the **SMS Notifications** add-on under Settings → Services; until then SMS rows are `skipped` and parents still get in-app and email alerts.
 
-A local provider with a documented DND corporate route — Termii or Sendchamp — is the better answer, and matters more than price: over 30 million Nigerian numbers are on DND, so a promotional route silently fails to reach them. For a safeguarding message that is the worst failure mode there is.
-
-Swapping provider means one new `Channel` subclass in `backend/utils/notifications.py` and registering it. Nothing above that module changes. **None of the Nigerian providers publish DND-route pricing** — it needs a written quote per network.
+Termii's `generic` route does not reach numbers on DND, and over 30 million Nigerian numbers are on it. Once the sender ID is approved for the DND route, set `TERMII_CHANNEL=dnd` and every number is reached; no code changes.
 
 ## 10. Notes and open items
 

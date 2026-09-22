@@ -1,55 +1,17 @@
 from celery import shared_task
-from django.core.mail import send_mail
-from django.conf import settings
 from django.utils import timezone
 
 
 @shared_task
-def send_payment_reminders():
-    """Send automated payment reminders"""
-    from .models import StudentFee, PaymentReminder
+def deliver_payment_reminders(reminder_ids=None):
+    """
+    Send queued fee reminders (fee.reminders): the ones given, or every one
+    still queued. Replaces a reminder task that used fields PaymentReminder
+    never had and emailed the student rather than the parents.
+    """
+    from .reminders import deliver
 
-    overdue_fees = StudentFee.objects.filter(
-        status="OVERDUE", due_date__lt=timezone.now().date()
-    ).select_related("student", "fee_structure")
-
-    reminders_sent = 0
-
-    for fee in overdue_fees:
-        # Check if reminder was sent recently (within 7 days)
-        recent_reminder = fee.payment_reminders.filter(
-            sent=True, sent_at__gte=timezone.now() - timezone.timedelta(days=7)
-        ).exists()
-
-        if not recent_reminder:
-            reminder = PaymentReminder.objects.create(
-                student_fee=fee,
-                reminder_type="EMAIL",
-                message=f"Payment reminder for {fee.fee_structure.name} - Amount: ₦{fee.amount_due}",
-            )
-
-            # Send email reminder
-            try:
-                send_mail(
-                    subject=f"Payment Reminder - {fee.fee_structure.name}",
-                    message=reminder.message,
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[fee.student.email],
-                    fail_silently=False,
-                )
-
-                reminder.sent = True
-                reminder.sent_at = timezone.now()
-                reminder.delivery_status = "DELIVERED"
-                reminder.save()
-
-                reminders_sent += 1
-
-            except Exception as e:
-                reminder.delivery_status = f"FAILED: {str(e)}"
-                reminder.save()
-
-    return f"Sent {reminders_sent} payment reminders"
+    return deliver(reminder_ids)
 
 
 @shared_task
