@@ -440,12 +440,28 @@ class SectionFilterMixin:
                     section__class_grade__education_level__level_type__in=allowed_education_levels
                 )
 
-                # Filter teachers who are assigned to classrooms in allowed sections
+                # Teachers assigned to a classroom in allowed sections, plus
+                # those of these education levels, plus those not placed
+                # anywhere yet.
+                #
+                # On assignments alone, a teacher enrolled minutes ago has none
+                # and is missing from the list of the very admin who enrolled
+                # her - reported as "she can sign in but is not on the list".
                 # FIXED: Use correct field name 'classroom_assignments' (with 's')
                 try:
+                    unplaced = (
+                        Q(classroom_assignments__isnull=True)
+                        & Q(assigned_classes__isnull=True)
+                        & Q(education_levels__isnull=True)
+                    )
+                    levels = [level.lower() for level in allowed_education_levels]
                     filtered = queryset.filter(
                         Q(classroom_assignments__classroom__in=allowed_classrooms)
                         | Q(assigned_classes__in=allowed_classrooms)
+                        | Q(education_levels__level_type__in=allowed_education_levels)
+                        # `level` is the older free-text field kept for display.
+                        | Q(level__in=levels + list(allowed_education_levels))
+                        | unplaced
                     ).distinct()
 
                     logger.info(

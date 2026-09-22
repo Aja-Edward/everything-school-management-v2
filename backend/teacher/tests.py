@@ -248,3 +248,61 @@ class TeacherWhoseProfileWasDeletedTest(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(Teacher.objects.filter(user__email="parent@kebi-academy.example.com").exists())
+
+
+class SectionAdminSeesNewTeachersTest(TestCase):
+    """
+    A section admin's teacher list was built from classroom assignments alone,
+    so a teacher enrolled minutes ago - who has none yet - was missing from
+    the list of the very admin who enrolled her, though she could sign in.
+    """
+
+    client_class = APIClient
+
+    def setUp(self):
+        self.school = Tenant.objects.create(
+            name="Kebi Academy", slug="kebi-academy", status="active", is_active=True,
+            owner_email="owner@kebi-academy.example.com")
+        # A section admin: not staff, not superadmin, so section filters apply.
+        self.primary_admin = CustomUser.objects.create_user(
+            username="kebi_primary_head", email="primary@kebi-academy.example.com",
+            password=None, role="primary_admin", is_active=True, tenant=self.school)
+        self.client.force_authenticate(user=self.primary_admin)
+
+    def enrol(self, username, employee_id, **teacher_fields):
+        user = CustomUser.objects.create_user(
+            username=username, email=f"{username}@kebi-academy.example.com", password=None,
+            role="teacher", first_name="Peace", last_name="Nnabunike",
+            is_active=True, tenant=self.school)
+        return Teacher.objects.create(
+            tenant=self.school, user=user, employee_id=employee_id, **teacher_fields)
+
+    def listed_ids(self):
+        response = self.client.get(TEACHERS, HTTP_X_TENANT_SLUG=self.school.slug)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        results = response.data["results"] if isinstance(response.data, dict) else response.data
+        return {row["id"] for row in results}
+
+    def test_a_teacher_enrolled_today_shows_before_she_is_given_any_class(self):
+        peace = self.enrol("peace_n", "EMP-101")
+
+        self.assertIn(peace.id, self.listed_ids())
+
+    def test_a_teacher_of_this_section_shows(self):
+        from academics.models import EducationLevel
+
+        primary = EducationLevel.objects.get(tenant=self.school, code="primary")
+        teacher = self.enrol("primary_teacher", "EMP-102")
+        teacher.education_levels.add(primary)
+
+        self.assertIn(teacher.id, self.listed_ids())
+
+    def test_a_teacher_of_another_section_stays_out_of_it(self):
+        from academics.models import EducationLevel
+
+        other = (EducationLevel.objects.filter(tenant=self.school)
+                 .exclude(code="primary").first())
+        teacher = self.enrol("other_section_teacher", "EMP-103")
+        teacher.education_levels.add(other)
+
+        self.assertNotIn(teacher.id, self.listed_ids())
