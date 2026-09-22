@@ -306,3 +306,55 @@ class SectionAdminSeesNewTeachersTest(TestCase):
         teacher.education_levels.add(other)
 
         self.assertNotIn(teacher.id, self.listed_ids())
+
+
+class SearchingReachesTheWholeSchoolTest(TestCase):
+    """
+    The list page searched only the 20 teachers it had loaded, so looking for
+    someone on page 2 found nothing and read as "she is not in the list".
+    The search is the API's, over every teacher in the school.
+    """
+
+    client_class = APIClient
+
+    def setUp(self):
+        self.school = Tenant.objects.create(
+            name="Kebi Academy", slug="kebi-academy", status="active", is_active=True,
+            owner_email="owner@kebi-academy.example.com")
+        self.admin = CustomUser.objects.create_user(
+            username="kebi_boss", email="boss@kebi-academy.example.com", password=None,
+            role="superadmin", is_active=True, is_staff=True, tenant=self.school)
+        self.client.force_authenticate(user=self.admin)
+
+        # Enough to push the last one onto the second page.
+        for n in range(20):
+            self.enrol(f"filler{n}", f"EMP-{n:03d}", "Ada", "Bello")
+        self.peace = self.enrol("peace_n", "EMP-999", "Peace", "Nnabunike")
+
+    def enrol(self, username, employee_id, first, last):
+        user = CustomUser.objects.create_user(
+            username=username, email=f"{username}@kebi-academy.example.com", password=None,
+            role="teacher", first_name=first, last_name=last, is_active=True, tenant=self.school)
+        return Teacher.objects.create(
+            tenant=self.school, user=user, employee_id=employee_id)
+
+    def search(self, term):
+        response = self.client.get(TEACHERS, {"search": term}, HTTP_X_TENANT_SLUG=self.school.slug)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        return {row["id"] for row in response.data["results"]}, response.data["count"]
+
+    def test_a_teacher_on_the_second_page_is_found_by_name(self):
+        found, count = self.search("Nnabunike")
+
+        self.assertEqual(count, 1)
+        self.assertEqual(found, {self.peace.id})
+
+    def test_she_is_found_by_email_too(self):
+        found, _ = self.search("peace_n@kebi-academy.example.com")
+
+        self.assertEqual(found, {self.peace.id})
+
+    def test_and_by_employee_id(self):
+        found, _ = self.search("EMP-999")
+
+        self.assertEqual(found, {self.peace.id})

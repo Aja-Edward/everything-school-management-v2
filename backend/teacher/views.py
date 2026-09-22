@@ -259,6 +259,7 @@ class TeacherViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
                 models.Q(user__username__icontains=search)
                 | models.Q(user__first_name__icontains=search)
                 | models.Q(user__last_name__icontains=search)
+                | models.Q(user__email__icontains=search)
                 | models.Q(employee_id__icontains=search)
             ).distinct()
 

@@ -46,6 +46,7 @@ const TeacherList = () => {
   const [showGuide, setShowGuide] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const PAGE_SIZE = 20;
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
@@ -54,6 +55,9 @@ const TeacherList = () => {
     return () => clearTimeout(timer);
   }, []);
 
+  // Searching and filtering happen in the API, over the whole school: doing
+  // it here only ever saw the 20 teachers on the page, so searching for a
+  // teacher on page 2 found nothing and read as "she is not in the list".
   const loadTeachers = useCallback(async () => {
   try {
     setLoading(true);
@@ -61,6 +65,9 @@ const TeacherList = () => {
     const response = await TeacherService.getTeachers({
       page: currentPage,
       page_size: PAGE_SIZE,
+      ...(debouncedSearch ? { search: debouncedSearch } : {}),
+      ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
+      ...(levelFilter !== 'all' ? { level: levelFilter } : {}),
     });
     const teachersData = Array.isArray(response.results) ? response.results :
       Array.isArray(response) ? response : [];
@@ -75,37 +82,27 @@ const TeacherList = () => {
   } finally {
     setLoading(false);
   }
-}, [currentPage]);
+}, [currentPage, debouncedSearch, statusFilter, levelFilter]);
 
   useEffect(() => {
     loadTeachers();
   }, [loadTeachers]);
 
+  // Let them finish typing before asking the server.
   useEffect(() => {
-    let filtered = Array.isArray(teachers) ? teachers : [];
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 400);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
-    if (searchTerm) {
-      filtered = filtered.filter(teacher => {
-        const teacherName = teacher.full_name || `${teacher.first_name || ''} ${teacher.last_name || ''}`;
-        const teacherEmail = teacher.user?.email || teacher.email || '';
-        return teacherName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          teacherEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          (teacher.qualification || '').toLowerCase().includes(searchTerm.toLowerCase());
-      });
-    }
+  // A narrower list starts at its own first page, not on whichever page they
+  // happened to be looking at.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, statusFilter, levelFilter]);
 
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(teacher =>
-        statusFilter === 'active' ? teacher.is_active : !teacher.is_active
-      );
-    }
-
-    if (levelFilter !== 'all') {
-      filtered = filtered.filter(teacher => teacher.level === levelFilter);
-    }
-
-    setFilteredTeachers(filtered);
-  }, [teachers, searchTerm, statusFilter, levelFilter]);
+  useEffect(() => {
+    setFilteredTeachers(Array.isArray(teachers) ? teachers : []);
+  }, [teachers]);
 
   const handleDelete = (teacher: Teacher) => {
     setTeacherToDelete(teacher);
