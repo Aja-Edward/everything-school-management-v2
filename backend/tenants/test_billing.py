@@ -5,8 +5,10 @@ add-ons on top at their own prices, and a session billed as three terms.
 
 from datetime import date
 from decimal import Decimal
+from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -304,3 +306,56 @@ class SchoolBillingTest(APITestCase):
         SentSms.objects.create(tenant=other, recipient="2348000000099")
 
         self.assertIsNone(self.sms_line(self.quote("term")))
+
+
+class PayPlatformInvoiceByPaystackTest(SchoolBillingTest):
+    """A school paying its own invoice to the platform by card."""
+
+    URL = "/api/tenants/payments/initialize_paystack/"
+
+    def pay(self):
+        invoice_id = self.generate("term").data["id"]
+        return self.client.post(
+            self.URL, {"invoice_id": invoice_id, "callback_url": "https://alpha.example.com/back"},
+            format="json", **self.as_admin())
+
+    def test_paystacks_reason_for_refusing_is_passed_on_and_logged(self):
+        refused = Mock(status_code=401, text='{"status":false}')
+        refused.json.return_value = {"status": False, "message": "Invalid key"}
+
+        with override_settings(PAYSTACK_SECRET_KEY="sk_test_wrong"), \
+                patch("requests.post", return_value=refused), \
+                self.assertLogs("tenants.views", level="ERROR") as logged:
+            response = self.pay()
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertIn("Invalid key", response.data["error"])
+        self.assertIn("HTTP 401, Invalid key", logged.output[0])
+        self.assertEqual(TenantPayment.objects.get().status, "failed")
+
+    def test_without_a_platform_key_the_school_is_told_to_pay_by_transfer(self):
+        with override_settings(PAYSTACK_SECRET_KEY=""), patch("requests.post") as post:
+            response = self.pay()
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertIn("bank transfer", response.data["error"])
+        post.assert_not_called()
+        self.assertFalse(TenantPayment.objects.exists())
+
+    def test_a_payment_paystack_accepts_sends_the_school_to_checkout(self):
+        accepted = Mock(status_code=200, text="")
+        accepted.json.return_value = {"status": True, "data": {
+            "authorization_url": "https://checkout.paystack.com/xyz", "access_code": "xyz"}}
+
+        with override_settings(PAYSTACK_SECRET_KEY="sk_test_platform"), \
+                patch("requests.post", return_value=accepted):
+            response = self.pay()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["authorization_url"], "https://checkout.paystack.com/xyz")
+
+
+# Only the tests above belong to this class; SchoolBillingTest's own run once, there.
+for _name in list(vars(SchoolBillingTest)):
+    if _name.startswith("test_") and _name not in vars(PayPlatformInvoiceByPaystackTest):
+        setattr(PayPlatformInvoiceByPaystackTest, _name, None)

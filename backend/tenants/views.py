@@ -1766,7 +1766,12 @@ class TenantPaymentViewSet(viewsets.ReadOnlyModelViewSet):
         import requests
         import secrets
 
-        paystack_secret = getattr(settings, 'PAYSTACK_SECRET_KEY', '')
+        paystack_secret = getattr(settings, 'PAYSTACK_SECRET_KEY', '') or ''
+        if not paystack_secret.strip():
+            logger.error("initialize_paystack: PAYSTACK_SECRET_KEY is not set")
+            return Response(
+                {'error': 'Online payment is not set up on the platform yet. '
+                          'Pay by bank transfer, or contact Nuventa.'}, status=503)
         reference = f"TNT-{tenant.slug}-{secrets.token_hex(8).upper()}"
 
         # Create pending payment record
@@ -1797,22 +1802,32 @@ class TenantPaymentViewSet(viewsets.ReadOnlyModelViewSet):
                         'invoice_id': str(invoice.id),
                         'payment_id': str(payment.id),
                     }
-                }
+                },
+                timeout=30,
             )
 
-            if response.status_code == 200:
+            try:
                 data = response.json()
-                if data['status']:
-                    return Response({
-                        'message': 'Payment initialized',
-                        'authorization_url': data['data']['authorization_url'],
-                        'access_code': data['data']['access_code'],
-                        'reference': reference,
-                    })
+            except ValueError:
+                data = {}
+            if response.status_code == 200 and data.get('status'):
+                return Response({
+                    'message': 'Payment initialized',
+                    'authorization_url': data['data']['authorization_url'],
+                    'access_code': data['data']['access_code'],
+                    'reference': reference,
+                })
 
+            # Paystack says why it refused; that used to be thrown away, which
+            # left only "Failed to initialize payment" in the logs.
+            reason = data.get('message') or response.text[:200]
+            logger.error(
+                "initialize_paystack refused for %s invoice %s: HTTP %s, %s",
+                tenant.slug, invoice.id, response.status_code, reason)
             payment.status = 'failed'
             payment.save()
-            return Response({'error': 'Failed to initialize payment'}, status=500)
+            return Response(
+                {'error': f"Paystack refused the payment: {reason}"}, status=502)
 
         except Exception as e:
             logger.error(f"Paystack initialization error: {str(e)}")
