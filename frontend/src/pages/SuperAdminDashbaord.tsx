@@ -804,7 +804,13 @@ const SuperAdminDashboard = () => {
 
                         {/* Mobile action buttons */}
                         {!isMarketer && (
-                          <div className="flex items-center gap-2 pl-9">
+                          <div className="flex flex-wrap items-center gap-2 pl-9">
+                            <button
+                              onClick={() => setPricingFor(t)}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+                            >
+                              <BadgeDollarSign className="w-3 h-3" />Pricing
+                            </button>
                             {isActive ? (
                               <button
                                 onClick={() => openConfirm('suspend', t)}

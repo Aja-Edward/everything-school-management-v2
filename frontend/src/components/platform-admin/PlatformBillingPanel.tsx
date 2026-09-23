@@ -26,6 +26,7 @@ import {
   recordInvoicePayment,
 } from '@/services/BillingService';
 import type { BillingPeriod, Invoice, InvoiceQuote, PlatformBillingSummary } from '@/types/types';
+import TenantPricingModal from './TenantPricingModal';
 
 interface School {
   id: string;
@@ -454,6 +455,7 @@ const PlatformBillingPanel: React.FC = () => {
 
   const [summary, setSummary] = useState<PlatformBillingSummary | null>(null);
   const [schools, setSchools] = useState<School[]>([]);
+  const [pricingFor, setPricingFor] = useState<School | null>(null);
 
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [count, setCount] = useState(0);
@@ -543,12 +545,24 @@ const PlatformBillingPanel: React.FC = () => {
         <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400">
           Invoices ({loading && page === 1 ? '…' : count})
         </h2>
-        <button
-          onClick={() => setRaising(true)}
-          className="self-start lg:self-auto flex items-center gap-1.5 px-3 py-1.5 bg-black text-white text-xs font-semibold rounded-lg hover:bg-gray-800 transition-colors"
-        >
-          <Plus className="w-3.5 h-3.5" /> Raise Invoice
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
+          {/* What each school was agreed to pay, which its invoices are raised at */}
+          <select
+            value=""
+            onChange={e => setPricingFor(schools.find(s => s.id === e.target.value) ?? null)}
+            className="px-3 py-1.5 text-xs font-semibold border border-gray-300 text-gray-700 bg-white rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-black"
+            aria-label="Set a school's prices"
+          >
+            <option value="">School prices…</option>
+            {schools.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          <button
+            onClick={() => setRaising(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-black text-white text-xs font-semibold rounded-lg hover:bg-gray-800 transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" /> Raise Invoice
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -655,6 +669,12 @@ const PlatformBillingPanel: React.FC = () => {
       )}
       {raising && (
         <RaiseInvoiceModal schools={schools} onClose={() => setRaising(false)} onRaised={handleRaised} />
+      )}
+      {pricingFor && (
+        <TenantPricingModal
+          tenant={pricingFor}
+          onClose={() => { setPricingFor(null); loadInvoices(1); loadSummary(); }}
+        />
       )}
     </div>
   );
