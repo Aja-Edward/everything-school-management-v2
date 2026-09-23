@@ -12,7 +12,7 @@ import {
   Lock,
   AlertCircle,
 } from 'lucide-react';
-import { tenantService, AvailableService } from '@/services/TenantService';
+import { tenantService, AvailableService, applyToggle, missingRequirement } from '@/services/TenantService';
 import { toast } from 'react-toastify';
 
 interface ServicesTabProps {
@@ -77,18 +77,18 @@ const ServicesTab: React.FC<ServicesTabProps> = () => {
       return;
     }
 
+    const blocker = missingRequirement(service, services);
+    if (!service.is_enabled && blocker) {
+      toast.info(`Switch on ${blocker.name} first. ${service.name} works with it.`);
+      return;
+    }
+
     setTogglingService(service.service);
 
     try {
       const result = await tenantService.toggleService(service.service, !service.is_enabled);
 
-      setServices(prev =>
-        prev.map(s =>
-          s.service === service.service
-            ? { ...s, is_enabled: result.is_enabled }
-            : s
-        )
-      );
+      setServices(prev => applyToggle(prev, result));
 
       toast.success(result.message);
     } catch (err: any) {
@@ -244,6 +244,7 @@ const ServicesTab: React.FC<ServicesTabProps> = () => {
               {categoryServices.map(service => {
                 const isToggling = togglingService === service.service;
                 const price = priceOf(service);
+                const blocker = missingRequirement(service, services);
 
                 return (
                   <li key={service.service} className="flex items-center gap-4 px-4 py-3.5">
@@ -264,6 +265,12 @@ const ServicesTab: React.FC<ServicesTabProps> = () => {
                       </div>
                       {service.description && (
                         <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{service.description}</p>
+                      )}
+                      {blocker && (
+                        <p className="mt-1 inline-flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
+                          <Lock className="w-3 h-3" />
+                          Switch on {blocker.name} first: alerts are sent when a card is scanned at the gate.
+                        </p>
                       )}
                       {service.is_add_on && (
                         <p className="sm:hidden mt-1 text-xs font-medium text-slate-700 dark:text-slate-200">
@@ -294,7 +301,7 @@ const ServicesTab: React.FC<ServicesTabProps> = () => {
                       disabled={service.is_default || isToggling}
                       className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
                         service.is_enabled ? 'bg-primary-600' : 'bg-slate-200 dark:bg-slate-700'
-                      } ${service.is_default ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+                      } ${service.is_default || blocker ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
                     >
                       <span
                         className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform flex items-center justify-center ${

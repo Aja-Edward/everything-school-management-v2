@@ -133,8 +133,43 @@ class SchoolBillingTest(APITestCase):
         self.assertEqual(
             TenantInvoice.objects.get(id=invoice_id).total_amount, Decimal("9000.00"))
 
+    def toggle(self, service, enable):
+        return self.client.post("/api/tenants/services/toggle/",
+                                {"service": service, "enable": enable},
+                                format="json", **self.as_admin())
+
+    def test_arrival_notifications_need_the_gate_tracker_on_first(self):
+        response = self.toggle("arrival_notification", True)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["requires"], "gate_tracker")
+        self.assertIn("Switch on Gate Tracker first", response.data["error"])
+        self.assertFalse(TenantService.is_on(self.school, "arrival_notification"))
+
+    def test_switching_the_gate_tracker_off_takes_arrival_notifications_with_it(self):
+        self.toggle("gate_tracker", True)
+        self.assertEqual(self.toggle("arrival_notification", True).status_code, status.HTTP_200_OK)
+
+        response = self.toggle("gate_tracker", False)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["also_disabled"], ["arrival_notification"])
+        self.assertFalse(TenantService.is_on(self.school, "arrival_notification"))
+
+    def test_the_services_list_says_arrival_notifications_need_the_gate(self):
+        # As a school might have it from before the rule: on, with the gate off.
+        TenantService.objects.create(
+            tenant=self.school, service="arrival_notification", is_enabled=True)
+
+        response = self.client.get("/api/tenants/services/", **self.as_admin())
+
+        arrival = next(s for s in response.data if s["service"] == "arrival_notification")
+        self.assertEqual(arrival["requires"], "gate_tracker")
+        self.assertFalse(arrival["is_enabled"])
+
     def test_a_service_the_school_has_used_can_be_switched_off_and_on_again(self):
         toggle = "/api/tenants/services/toggle/"
+        self.toggle("gate_tracker", True)
         self.client.post(toggle, {"service": "arrival_notification", "enable": True},
                          format="json", **self.as_admin())
 

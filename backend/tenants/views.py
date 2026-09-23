@@ -685,6 +685,9 @@ class ServiceManagementViewSet(viewsets.ViewSet):
             is_enabled = switched.get(
                 service_code,
                 is_default or service_code in TenantService.ON_BY_DEFAULT)
+            needed = TenantService.REQUIRES.get(service_code)
+            if needed and not switched.get(needed, False):
+                is_enabled = False  # it can't work without what it needs
 
             services.append({
                 'service': service_code,
@@ -698,6 +701,7 @@ class ServiceManagementViewSet(viewsets.ViewSet):
                 'is_default': is_default,
                 'is_enabled': is_enabled,
                 'is_add_on': is_add_on,
+                'requires': TenantService.REQUIRES.get(service_code),
                 'category': self._get_service_category(service_code),
             })
 
@@ -730,6 +734,16 @@ class ServiceManagementViewSet(viewsets.ViewSet):
                 'error': 'Cannot disable default services (Exams, Results)'
             }, status=400)
 
+        names = dict(TenantService.SERVICE_CHOICES)
+        needed = TenantService.REQUIRES.get(service_code)
+        if enable and needed and not TenantService.is_on(tenant, needed):
+            return Response({
+                'error': f"Switch on {names[needed]} first. {names[service_code]} "
+                         f"works with it: alerts are sent when a student's card "
+                         f"is scanned at the gate.",
+                'requires': needed,
+            }, status=400)
+
         # enabled_at can't be null: switching off keeps when it was last
         # switched on. Setting it to None made every switch-off of a service
         # the school already had a row for fail with a 500.
@@ -740,6 +754,18 @@ class ServiceManagementViewSet(viewsets.ViewSet):
         tenant_service, created = TenantService.objects.update_or_create(
             tenant=tenant, service=service_code, defaults=changes)
 
+        # Whatever only works alongside this service goes off with it.
+        also_disabled = []
+        if not enable:
+            dependents = [s for s, need in TenantService.REQUIRES.items()
+                          if need == service_code]
+            for row in TenantService.objects.filter(
+                    tenant=tenant, service__in=dependents, is_enabled=True):
+                row.is_enabled = False
+                row.disabled_at = timezone.now()
+                row.save(update_fields=['is_enabled', 'disabled_at'])
+                also_disabled.append(row.service)
+
         # Recalculate current invoice if exists
         self._recalculate_current_invoice(tenant)
 
@@ -747,6 +773,7 @@ class ServiceManagementViewSet(viewsets.ViewSet):
             'success': True,
             'service': service_code,
             'is_enabled': enable,
+            'also_disabled': also_disabled,
             'message': f"Service {'enabled' if enable else 'disabled'} successfully"
         })
 

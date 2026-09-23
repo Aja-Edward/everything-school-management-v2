@@ -189,11 +189,36 @@ export interface TenantServiceType {
    * price.
    */
   is_add_on: boolean;
+  /** Another service this one only works alongside, e.g. arrival alerts need the Gate Tracker. */
+  requires?: string | null;
   category: 'core' | 'attendance' | 'assessment' | 'communication' | 'finance' | 'scheduling' | 'other';
 }
 
 /** A service as the services list returns it for the current school. */
 export type AvailableService = TenantServiceType;
+
+/**
+ * The service this one needs, when that one is off: it can't be switched on
+ * until the needed one is. Null when nothing stands in its way.
+ */
+export const missingRequirement = (
+  service: TenantServiceType, services: TenantServiceType[],
+): TenantServiceType | null => {
+  if (!service.requires) return null;
+  const needed = services.find(s => s.service === service.requires);
+  return needed && !needed.is_enabled ? needed : null;
+};
+
+/** The services list after a toggle, including what went off along with it. */
+export const applyToggle = (
+  services: TenantServiceType[],
+  result: { service: string; is_enabled: boolean; also_disabled?: string[] },
+): TenantServiceType[] =>
+  services.map(s => {
+    if (s.service === result.service) return { ...s, is_enabled: result.is_enabled };
+    if (result.also_disabled?.includes(s.service)) return { ...s, is_enabled: false };
+    return s;
+  });
 
 /** How a service's price reads on the services pages. */
 export const servicePriceLabel = (service: TenantServiceType): string => {
@@ -658,6 +683,7 @@ class TenantService {
     success: boolean;
     service: string;
     is_enabled: boolean;
+    also_disabled?: string[];
     message: string;
   }> {
     try {

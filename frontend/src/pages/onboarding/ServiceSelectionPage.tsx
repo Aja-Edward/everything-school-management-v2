@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { tenantService, AvailableService, Tenant, servicePriceLabel } from '@/services/TenantService';
+import { tenantService, AvailableService, Tenant, servicePriceLabel, applyToggle, missingRequirement } from '@/services/TenantService';
 import {
   ArrowLeft,
   ArrowRight,
@@ -135,18 +135,18 @@ const ServiceSelectionPage: React.FC = () => {
       return;
     }
 
+    const blocker = missingRequirement(service, services);
+    if (!service.is_enabled && blocker) {
+      toast.info(`Switch on ${blocker.name} first. ${service.name} works with it.`);
+      return;
+    }
+
     setTogglingService(service.service);
 
     try {
       const result = await tenantService.toggleService(service.service, !service.is_enabled);
 
-      setServices(prev =>
-        prev.map(s =>
-          s.service === service.service
-            ? { ...s, is_enabled: result.is_enabled }
-            : s
-        )
-      );
+      setServices(prev => applyToggle(prev, result));
 
       toast.success(result.message);
     } catch (error: any) {

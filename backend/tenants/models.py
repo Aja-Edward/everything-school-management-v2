@@ -263,6 +263,12 @@ class TenantService(models.Model):
     # per student at a ServicePricing price.
     PER_MESSAGE_ADD_ONS = ['sms_notifications']
 
+    # A service that only works alongside another. Arrival and departure
+    # alerts are sent when a student's card is scanned at the gate, so they
+    # need the Gate Tracker: they can't be switched on without it, and go off
+    # with it.
+    REQUIRES = {'arrival_notification': 'gate_tracker'}
+
     # In the Basic package and on for every school unless it switches it off,
     # so a school that has never opened the services page still emails parents.
     ON_BY_DEFAULT = ['email_notifications']
