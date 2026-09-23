@@ -52,6 +52,18 @@ ANOMALY_WARNINGS = frozenset({
 
 # ── Policy ────────────────────────────────────────────────────────────────────
 
+def alerts_switched_on(tenant):
+    """
+    Whether the school has asked for arrival and departure alerts: the
+    Arrival Notification service, which only works alongside the Gate
+    Tracker. Scans are recorded either way; only the alerts wait on this.
+    """
+    from tenants.models import TenantService
+
+    return (TenantService.is_on(tenant, "gate_tracker")
+            and TenantService.is_on(tenant, "arrival_notification"))
+
+
 def is_notifiable(outcome, settings):
     """
     Whether this scan should reach a parent at all.
@@ -162,6 +174,8 @@ def queue_scan_notifications(outcome, *, tenant, settings):
     Never raises: a gate must record the scan even if alerting is broken.
     """
     try:
+        if not alerts_switched_on(tenant):
+            return []
         if not is_notifiable(outcome, settings):
             return []
 

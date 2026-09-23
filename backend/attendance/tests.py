@@ -1203,6 +1203,10 @@ class NotificationFixtureMixin:
         )
         TenantSettings.objects.create(
             tenant=self.tenant, timezone="Africa/Lagos")
+        # Parents are alerted only when the school has both switched on.
+        for service in ("gate_tracker", "arrival_notification"):
+            TenantService.objects.create(
+                tenant=self.tenant, service=service, is_enabled=True)
         self.settings_row = AttendanceSettings.objects.create(
             tenant=self.tenant, alert_policy=alert_policy)
         self.tz = ZoneInfo("Africa/Lagos")
@@ -1280,6 +1284,24 @@ class ScanNotificationQueueingTest(NotificationFixtureMixin, TestCase):
             channels_used,
             {NotificationChannel.IN_APP, NotificationChannel.EMAIL},
         )
+
+    def test_no_alerts_while_arrival_notification_is_off(self):
+        """The school switched alerts off: the scan is kept, parents hear nothing."""
+        TenantService.objects.filter(
+            tenant=self.tenant, service="arrival_notification").update(is_enabled=False)
+
+        self._scan("in")
+
+        self.assertTrue(GateScan.objects.filter(student=self.vincent).exists())
+        self.assertFalse(ScanNotification.objects.filter(student=self.vincent).exists())
+
+    def test_no_alerts_without_the_gate_tracker(self):
+        TenantService.objects.filter(
+            tenant=self.tenant, service="gate_tracker").update(is_enabled=False)
+
+        self._scan("in")
+
+        self.assertFalse(ScanNotification.objects.filter(student=self.vincent).exists())
 
     def test_in_app_is_delivered_the_moment_it_is_stored(self):
         self._scan("in")
