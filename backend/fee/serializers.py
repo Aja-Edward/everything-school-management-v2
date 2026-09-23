@@ -156,11 +156,58 @@ class PaymentGatewayConfigSerializer(serializers.ModelSerializer):
 
 
 class PaymentGatewayConfigAdminSerializer(PaymentGatewayConfigSerializer):
-    """Admin serializer with sensitive fields"""
+    """
+    What a school's own admin sets up.
+
+    The secret key goes in and never comes back out: it used to be returned
+    with every read of the config, so anyone who could open the settings could
+    copy the key and charge cards on that school's account. What comes back
+    says whether one is saved and its last four characters, which is enough to
+    tell one key from another.
+    """
+
+    secret_key_saved = serializers.SerializerMethodField()
+    secret_key_hint = serializers.SerializerMethodField()
 
     class Meta:
         model = PaymentGatewayConfig
-        fields = "__all__"
+        fields = [
+            "id",
+            "gateway",
+            "gateway_display",
+            "is_active",
+            "is_test_mode",
+            "mode",
+            "public_key",
+            "secret_key",
+            "secret_key_saved",
+            "secret_key_hint",
+            "webhook_url",
+            "callback_url",
+            "min_amount",
+            "max_amount",
+            "transaction_fee_percentage",
+            "fixed_charge",
+            "created_at",
+            "updated_at",
+        ]
+        extra_kwargs = {
+            "secret_key": {"write_only": True, "required": False, "allow_blank": True},
+        }
+
+    def get_secret_key_saved(self, obj):
+        return bool((obj.secret_key or "").strip())
+
+    def get_secret_key_hint(self, obj):
+        secret = (obj.secret_key or "").strip()
+        return f"…{secret[-4:]}" if secret else ""
+
+    def update(self, instance, validated_data):
+        # An empty box means "leave the saved key alone", not "erase it":
+        # the key is never shown, so it cannot be retyped from the screen.
+        if not (validated_data.get("secret_key") or "").strip():
+            validated_data.pop("secret_key", None)
+        return super().update(instance, validated_data)
 
 
 # ---------------------------------------------------------------------------

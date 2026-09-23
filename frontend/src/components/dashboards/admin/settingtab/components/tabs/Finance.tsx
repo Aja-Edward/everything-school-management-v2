@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Loader2, Wallet } from 'lucide-react';
 import FeeRemindersPanel from './FeeRemindersPanel';
 import FeeItemsPanel from './FeeItemsPanel';
+import PaystackPanel from './PaystackPanel';
 import { tenantService, TenantServiceType } from '@/services/TenantService';
 import { useBillingSummary } from '@/hooks/useBilling';
 
@@ -133,6 +134,8 @@ const Finance: React.FC = () => {
       </Card>
 
       <FeeItemsPanel />
+
+      <PaystackPanel />
     </div>
   );
 };

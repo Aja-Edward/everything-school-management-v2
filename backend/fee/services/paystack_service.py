@@ -10,17 +10,80 @@ import uuid
 logger = logging.getLogger(__name__)
 
 
-class PaystackService:
-    """Service class for Paystack payment integration"""
+class PaystackNotConfigured(Exception):
+    """This school has not set up Paystack; the message says what is missing."""
 
-    def __init__(self):
-        self.secret_key = getattr(settings, "PAYSTACK_SECRET_KEY", "")
-        self.public_key = getattr(settings, "PAYSTACK_PUBLIC_KEY", "")
+
+class PaystackService:
+    """
+    Paystack, for one account.
+
+    School fees are collected into the school's own Paystack account, so the
+    keys come from that school's PaymentGatewayConfig - `for_school()`. The
+    platform's own keys, used for what schools pay Nuventa, are the default
+    and belong to nobody else.
+    """
+
+    def __init__(self, secret_key=None, public_key=None):
+        self.secret_key = (
+            secret_key if secret_key is not None
+            else getattr(settings, "PAYSTACK_SECRET_KEY", "")) or ""
+        self.public_key = (
+            public_key if public_key is not None
+            else getattr(settings, "PAYSTACK_PUBLIC_KEY", "")) or ""
         self.base_url = "https://api.paystack.co"
         self.headers = {
             "Authorization": f"Bearer {self.secret_key}",
             "Content-Type": "application/json",
         }
+
+    @classmethod
+    def for_school(cls, tenant):
+        """The school's own Paystack account. Never the platform's."""
+        from ..models import PaymentGatewayConfig
+
+        if tenant is None:
+            raise PaystackNotConfigured("Name the school.")
+        config = PaymentGatewayConfig.objects.filter(
+            tenant=tenant, gateway="PAYSTACK", is_active=True).first()
+        if config is None:
+            raise PaystackNotConfigured(
+                "This school has not set up Paystack. Add its keys under "
+                "Settings → Finance.")
+        return cls.from_config(config)
+
+    @classmethod
+    def from_config(cls, config):
+        secret = (config.secret_key or "").strip()
+        public = (config.public_key or "").strip()
+        if not secret or not public:
+            raise PaystackNotConfigured(
+                "This school's Paystack keys are incomplete: both the public "
+                "and the secret key are needed.")
+        return cls(secret_key=secret, public_key=public)
+
+    def verify_keys(self):
+        """
+        Whether Paystack accepts this secret key, and whose account it is.
+        Returns (ok, message). Reads only; nothing is charged.
+        """
+        try:
+            response = requests.get(
+                f"{self.base_url}/balance", headers=self.headers, timeout=20)
+        except requests.exceptions.RequestException as error:
+            return False, f"Paystack could not be reached: {error}"
+
+        if response.status_code == 200:
+            live = self.secret_key.startswith("sk_live")
+            return True, ("Paystack accepted the key ("
+                          f"{'live' if live else 'test'} mode).")
+        if response.status_code in (401, 403):
+            return False, "Paystack refused that secret key."
+        try:
+            detail = (response.json() or {}).get("message", "")
+        except ValueError:
+            detail = response.text[:200]
+        return False, f"Paystack returned {response.status_code}: {detail}"
 
     def initialize_payment(
         self, email, amount, reference=None, callback_url=None, metadata=None

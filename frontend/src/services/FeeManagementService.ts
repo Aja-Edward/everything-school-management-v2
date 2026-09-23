@@ -61,16 +61,25 @@ export interface Payment {
   notes?: string;
 }
 
+/**
+ * How a school collects fees online, as /api/fee/payment-gateways/ returns it.
+ * The secret key only ever goes out: what comes back says whether one is
+ * saved and its last four characters.
+ */
 export interface PaymentGateway {
   id: number;
-  name: string;
-  gateway_type: 'PAYSTACK' | 'FLUTTERWAVE' | 'STRIPE' | 'PAYPAL' | 'BANK_TRANSFER' | 'CASH';
+  gateway: 'PAYSTACK' | 'FLUTTERWAVE' | 'STRIPE' | 'PAYPAL' | 'BANK_TRANSFER' | 'CASH';
+  gateway_display?: string;
   is_active: boolean;
+  is_test_mode: boolean;
+  mode?: string;
   public_key?: string;
+  /** Write only. Leave it out to keep the key already saved. */
   secret_key?: string;
-  merchant_id?: string;
-  webhook_url?: string;
-  configuration: Record<string, any>;
+  secret_key_saved?: boolean;
+  secret_key_hint?: string;
+  webhook_url?: string | null;
+  callback_url?: string | null;
 }
 
 export interface PaymentAttempt {

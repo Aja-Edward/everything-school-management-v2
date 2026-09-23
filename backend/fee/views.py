@@ -58,6 +58,7 @@ from .serializers import (
 from .filters import StudentFeeFilter, PaymentFilter
 from .permissions import IsAdminOrReadOnly, IsOwnerOrAdmin
 from .services.services import PaymentService, FeeService, ReportService
+from .services.paystack_service import PaystackNotConfigured, PaystackService
 from . import billing, reminders
 from schoolSettings.permissions import HasFinancePermission
 from students.models import Student
@@ -574,7 +575,7 @@ class PaymentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         if serializer.is_valid():
             try:
                 result = PaymentService.initiate_payment(
-                    serializer.validated_data, request.user
+                    request.tenant, serializer.validated_data, request.user
                 )
                 return Response(result)
             except Exception as e:
@@ -588,7 +589,7 @@ class PaymentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         if serializer.is_valid():
             try:
                 result = PaymentService.verify_payment(
-                    serializer.validated_data["reference"]
+                    request.tenant, serializer.validated_data["reference"]
                 )
                 return Response(result)
             except Exception as e:
@@ -741,11 +742,16 @@ class PaymentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
 # PaymentGatewayConfig ViewSet
 # ==============================================================================
 class PaymentGatewayConfigViewSet(TenantFilterMixin, viewsets.ModelViewSet):
-    """ViewSet for managing payment gateway configurations"""
+    """
+    How a school collects fees online: its own Paystack account.
+
+    Finance access, not is_staff: the keys charge that school's account, and
+    reading them is as sensitive as writing them.
+    """
 
     queryset = PaymentGatewayConfig.objects.all().order_by("gateway")
     serializer_class = PaymentGatewayConfigSerializer
-    permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
+    permission_classes = [permissions.IsAuthenticated, HasFinancePermission]
     pagination_class = StandardResultsPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["gateway", "is_active", "is_test_mode"]
@@ -775,14 +781,27 @@ class PaymentGatewayConfigViewSet(TenantFilterMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def test_connection(self, request, pk=None):
-        """Test gateway connection"""
+        """
+        Ask the gateway whether it accepts this school's keys. Reads only:
+        nothing is charged. It used to answer "connection successful" without
+        asking anybody, so a wrong key looked fine until a parent tried to pay.
+        """
         gateway_config = self.get_object()
+        if gateway_config.gateway != "PAYSTACK":
+            return Response(
+                {"success": False,
+                 "message": f"{gateway_config.get_gateway_display()} is not wired up yet."},
+                status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            result = PaymentService.test_gateway_connection(gateway_config)
-            return Response(result)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            paystack = PaystackService.from_config(gateway_config)
+        except PaystackNotConfigured as error:
+            return Response({"success": False, "message": str(error)},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        ok, message = paystack.verify_keys()
+        return Response({"success": ok, "message": message},
+                        status=status.HTTP_200_OK if ok else status.HTTP_400_BAD_REQUEST)
 
 
 # ==============================================================================

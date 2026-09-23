@@ -123,90 +123,76 @@ class FeeService:
 
 class PaymentService:
     @staticmethod
-    def initiate_payment(data, user):
-        """Initiate payment using configured gateway"""
-        student_fee_id = data.get("student_fee_id")
-        gateway_id = data.get("payment_gateway_id")
-        amount = data.get("amount")
+    def initiate_payment(tenant, data, user):
+        """
+        Start a card payment for one of this school's fees, into the school's
+        own Paystack account.
 
+        Both the fee and the gateway used to be looked up by id alone, so a
+        parent at one school could pay against another school's fee, and the
+        charge went to the platform's Paystack account rather than the
+        school's.
+        """
+        student_fee = StudentFee.objects.filter(
+            id=data.get("student_fee_id"), tenant=tenant).first()
+        if student_fee is None:
+            raise ValueError("That fee is not this school's.")
+
+        amount = Decimal(str(data.get("amount")))
+        if amount <= 0:
+            raise ValueError("Enter an amount to pay.")
+        if amount > student_fee.balance:
+            raise ValueError("That is more than the outstanding balance.")
+
+        paystack = PaystackService.for_school(tenant)
+        attempt = PaymentAttempt.objects.create(
+            tenant=tenant, student_fee=student_fee, amount=amount,
+            gateway="PAYSTACK", status="INITIATED")
         try:
-            student_fee = StudentFee.objects.get(id=student_fee_id)
-            gateway_config = PaymentGatewayConfig.objects.get(
-                id=gateway_id, is_active=True
-            )
-
-            # Create payment attempt
-            attempt = PaymentAttempt.objects.create(
-                student_fee=student_fee,
+            result = paystack.initialize_payment(
+                email=data.get("email"),
                 amount=amount,
-                gateway=gateway_config.gateway,
-                status="INITIATED",
+                callback_url=data.get("callback_url"),
+                metadata={
+                    "tenant": str(tenant.id),
+                    "student_fee_id": student_fee.id,
+                    "attempt_id": attempt.id,
+                },
             )
-
-            # Use appropriate gateway service
-            if gateway_config.gateway == "PAYSTACK":
-                paystack = PaystackService()
-                result = paystack.initialize_payment(data)
-                attempt.attempt_reference = result.get("reference")
-                attempt.status = "PROCESSING"
-                attempt.save()
-                return result
-            else:
-                # Add other gateway integrations here
-                raise ValueError(f"Gateway {gateway_config.gateway} not implemented")
-
-        except Exception as e:
-            if "attempt" in locals():
-                attempt.status = "FAILED"
-                attempt.error_message = str(e)
-                attempt.save()
+        except Exception as error:
+            attempt.status = "FAILED"
+            attempt.error_message = str(error)
+            attempt.save()
             raise
 
-    @staticmethod
-    def verify_payment(reference):
-        """Verify payment with gateway"""
-        try:
-            # Find payment attempt
-            attempt = PaymentAttempt.objects.filter(
-                attempt_reference=reference
-            ).first()
-
-            if not attempt:
-                raise ValueError("Payment attempt not found")
-
-            # Verify with appropriate gateway
-            if attempt.gateway == "PAYSTACK":
-                paystack = PaystackService()
-                result = paystack.verify_payment(reference)
-
-                if result.get("status") == "success":
-                    attempt.status = "SUCCESSFUL"
-                    attempt.save()
-                else:
-                    attempt.status = "FAILED"
-                    attempt.error_message = result.get("message", "Verification failed")
-                    attempt.save()
-
-                return result
-            else:
-                raise ValueError(f"Gateway {attempt.gateway} not implemented")
-
-        except Exception as e:
-            raise
+        reference = (result.get("data") or {}).get("reference") or result.get("reference")
+        attempt.attempt_reference = reference or ""
+        attempt.status = "PROCESSING"
+        attempt.save()
+        return {**result, "public_key": paystack.public_key, "reference": reference}
 
     @staticmethod
-    def test_gateway_connection(gateway_config):
-        """Test gateway connection"""
-        if gateway_config.gateway == "PAYSTACK":
-            # Test Paystack connection
-            paystack = PaystackService()
-            # Implement test connection logic
-            return {"status": "success", "message": "Connection successful"}
+    def verify_payment(tenant, reference):
+        """Ask this school's Paystack account what became of one payment."""
+        attempt = PaymentAttempt.objects.filter(
+            tenant=tenant, attempt_reference=reference).first()
+        if attempt is None:
+            raise ValueError("No payment of this school carries that reference.")
+
+        paystack = PaystackService.for_school(tenant)
+        result = paystack.verify_payment(reference)
+        paid = (result.get("data") or {}).get("status") or result.get("status")
+        if paid == "success":
+            attempt.status = "SUCCESSFUL"
         else:
-            return {
-                "status": "error",
-                "message": f"Gateway {gateway_config.gateway} not implemented",
-            }
+            attempt.status = "FAILED"
+            attempt.error_message = result.get("message", "Verification failed")
+        attempt.save()
+        return result
+
+    # Testing a gateway's keys lives in PaystackService.verify_keys(), which
+    # actually asks Paystack. What used to be here answered "Connection
+    # successful" without asking anyone.
 
     @staticmethod
     def get_failure_analysis():
