@@ -147,7 +147,7 @@ class PaymentService:
         paystack = PaystackService.for_school(tenant)
         attempt = PaymentAttempt.objects.create(
             tenant=tenant, student_fee=student_fee, amount=amount,
-            gateway="PAYSTACK", status="INITIATED")
+            gateway="PAYSTACK", status="PENDING")
         try:
             result = paystack.initialize_payment(
                 email=data.get("email"),
@@ -173,21 +173,22 @@ class PaymentService:
 
     @staticmethod
     def verify_payment(tenant, reference):
-        """Ask this school's Paystack account what became of one payment."""
-        attempt = PaymentAttempt.objects.filter(
-            tenant=tenant, attempt_reference=reference).first()
-        if attempt is None:
+        """
+        Ask this school's Paystack account what became of one payment, and
+        credit the fee if it went through (fee.checkout.settle). It used to
+        mark the attempt successful without ever recording the payment.
+        """
+        from .. import checkout
+
+        if not PaymentAttempt.objects.filter(
+                tenant=tenant, attempt_reference=reference).exists():
             raise ValueError("No payment of this school carries that reference.")
 
         paystack = PaystackService.for_school(tenant)
         result = paystack.verify_payment(reference)
-        paid = (result.get("data") or {}).get("status") or result.get("status")
-        if paid == "success":
-            attempt.status = "SUCCESSFUL"
-        else:
-            attempt.status = "FAILED"
-            attempt.error_message = result.get("message", "Verification failed")
-        attempt.save()
+        data = result.get("data") or {}
+        if data:
+            checkout.settle(tenant, reference, data)
         return result
 
     # Testing a gateway's keys lives in PaystackService.verify_keys(), which
@@ -467,7 +468,7 @@ class ReportService:
         for gateway in ["PAYSTACK", "FLUTTERWAVE", "STRIPE", "PAYPAL"]:
             total_attempts = PaymentAttempt.objects.filter(gateway=gateway).count()
             successful = PaymentAttempt.objects.filter(
-                gateway=gateway, status="SUCCESSFUL"
+                gateway=gateway, status="SUCCESS"
             ).count()
             failed = PaymentAttempt.objects.filter(
                 gateway=gateway, status="FAILED"

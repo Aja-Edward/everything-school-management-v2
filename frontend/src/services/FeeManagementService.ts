@@ -78,6 +78,7 @@ export interface PaymentGateway {
   secret_key?: string;
   secret_key_saved?: boolean;
   secret_key_hint?: string;
+  paystack_webhook_url?: string;
   webhook_url?: string | null;
   callback_url?: string | null;
 }

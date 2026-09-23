@@ -1,6 +1,8 @@
 # fees/views.py - UPDATED FOR FK-BASED MODELS
 from rest_framework import viewsets, status, permissions
-from rest_framework.decorators import action
+from rest_framework.decorators import (
+    action, api_view, authentication_classes, permission_classes)
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
@@ -56,14 +58,15 @@ from .serializers import (
     PaymentWebhookSerializer,
 )
 from .filters import StudentFeeFilter, PaymentFilter
-from .permissions import IsAdminOrReadOnly, IsOwnerOrAdmin
+from .permissions import FamiliesReadOnly, IsAdminOrReadOnly, IsOwnerOrAdmin
 from .services.services import PaymentService, FeeService, ReportService
 from .services.paystack_service import PaystackNotConfigured, PaystackService
-from . import billing, reminders
+from . import billing, checkout, reminders
 from schoolSettings.permissions import HasFinancePermission
 from students.models import Student
 from academics.models import EducationLevel
 from classroom.models import Class as StudentClass
+from tenants.models import Tenant
 
 
 # ==============================================================================
@@ -204,7 +207,7 @@ class StudentFeeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     """
 
     queryset = StudentFee.objects.all().order_by("-created_at")
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, FamiliesReadOnly]
     pagination_class = LargeResultsPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = StudentFeeFilter
@@ -251,9 +254,15 @@ class StudentFeeViewSet(TenantFilterMixin, viewsets.ModelViewSet):
             ),
         )
 
-        # If user is a student, only show their own fees
-        if hasattr(self.request.user, "student_profile"):
-            queryset = queryset.filter(student=self.request.user.student_profile)
+        # A student sees only their own fees, and a parent only their
+        # children's. Parents used to fall through and see the whole school's.
+        user = self.request.user
+        if hasattr(user, "student_profile"):
+            queryset = queryset.filter(student=user.student_profile)
+        elif getattr(user, "role", None) == "parent":
+            parent = checkout.parent_of(user, getattr(self.request, "tenant", None))
+            queryset = (queryset.filter(student__in=parent.get_students())
+                        if parent else queryset.none())
 
         return queryset
 
@@ -523,7 +532,7 @@ class PaymentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
 
     queryset = Payment.objects.all().order_by("-created_at")
     serializer_class = PaymentSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, FamiliesReadOnly]
     pagination_class = LargeResultsPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = PaymentFilter
@@ -554,11 +563,15 @@ class PaymentViewSet(TenantFilterMixin, viewsets.ModelViewSet):
             "student_fee__academic_session",
         )
 
-        # If user is a student, only show their own payments
-        if hasattr(self.request.user, "student_profile"):
-            queryset = queryset.filter(
-                student_fee__student=self.request.user.student_profile
-            )
+        # A student sees only their own payments, and a parent only their
+        # children's. Parents used to fall through and see the whole school's.
+        user = self.request.user
+        if hasattr(user, "student_profile"):
+            queryset = queryset.filter(student_fee__student=user.student_profile)
+        elif getattr(user, "role", None) == "parent":
+            parent = checkout.parent_of(user, getattr(self.request, "tenant", None))
+            queryset = (queryset.filter(student_fee__student__in=parent.get_students())
+                        if parent else queryset.none())
 
         return queryset
 
@@ -1272,3 +1285,106 @@ class ReportViewSet(viewsets.ViewSet):
             return Response(performance)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ==============================================================================
+# A parent's fees: one bill per child per term, paid into the school's account
+# ==============================================================================
+class FamilyFeesViewSet(viewsets.ViewSet):
+    """
+    What a parent owes for each of their children, and paying it (fee.checkout).
+    Only the signed-in parent's own children at this school are ever in reach.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _parent(self, request):
+        parent = checkout.parent_of(request.user, getattr(request, "tenant", None))
+        if parent is None:
+            raise PermissionDenied("Only a parent at this school can see family fees.")
+        return parent
+
+    def list(self, request):
+        return Response(checkout.family_bills(self._parent(request)))
+
+    @action(detail=False, methods=["post"])
+    def pay(self, request):
+        parent = self._parent(request)
+        try:
+            started = checkout.start(
+                parent,
+                student_id=request.data.get("student_id"),
+                academic_session_id=request.data.get("academic_session_id"),
+                term=request.data.get("term"),
+                callback_url=request.data.get("callback_url"),
+            )
+        except checkout.CheckoutError as error:
+            return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(started)
+
+    @action(detail=False, methods=["post"])
+    def verify(self, request):
+        parent = self._parent(request)
+        reference = (request.data.get("reference") or "").strip()
+        if not reference:
+            return Response({"error": "Which payment?"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            return Response(checkout.verify(parent, reference))
+        except checkout.CheckoutError as error:
+            return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=["get"])
+    def receipt(self, request):
+        parent = self._parent(request)
+        found = checkout.receipt(
+            parent.tenant, request.query_params.get("reference", ""),
+            children=parent.get_students())
+        if found is None:
+            return Response({"error": "No receipt of yours carries that reference."},
+                            status=status.HTTP_404_NOT_FOUND)
+        return Response(found)
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([permissions.AllowAny])
+def paystack_webhook(request, tenant_id):
+    """
+    Paystack telling a school that a charge went through, so a parent who
+    closes the tab before coming back is still credited.
+
+    Each school points its own Paystack account here, and the school is in the
+    address because Paystack calls the API host, not the school's domain. The
+    body must be signed with that school's secret key, or nothing is recorded.
+    """
+    tenant = Tenant.objects.filter(id=tenant_id, is_active=True).first()
+    config = tenant and PaymentGatewayConfig.objects.filter(
+        tenant=tenant, gateway="PAYSTACK", is_active=True).first()
+    try:
+        paystack = PaystackService.from_config(config) if config else None
+    except PaystackNotConfigured:
+        paystack = None
+    signature = request.headers.get("X-Paystack-Signature", "")
+    body = request.body.decode("utf-8")
+    if paystack is None or not signature or not paystack.webhook_signature_valid(body, signature):
+        return Response(status=status.HTTP_401_UNAUTHORIZED)
+
+    event = request.data.get("event", "")
+    data = request.data.get("data") or {}
+    webhook = PaymentWebhook.objects.create(
+        tenant=tenant, gateway="PAYSTACK", event_type=event[:100],
+        event_id=str(data.get("id") or "")[:100] or None, payload=request.data)
+
+    if event == "charge.success" and data.get("reference"):
+        try:
+            if checkout.settle(tenant, data["reference"], data):
+                webhook.payment = Payment.objects.filter(
+                    tenant=tenant, gateway_reference=data["reference"]).first()
+        except checkout.CheckoutError as error:
+            webhook.processing_error = str(error)
+    webhook.processed = True
+    webhook.processed_at = timezone.now()
+    webhook.save()
+    # Paystack retries anything but a 200, so a charge that isn't a fee
+    # checkout is still acknowledged once its signature checks out.
+    return Response({"received": True})

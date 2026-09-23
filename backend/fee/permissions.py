@@ -64,3 +64,17 @@ class CanMakePayment(permissions.BasePermission):
                 return obj.student == request.user.student_profile
 
         return False
+
+
+class FamiliesReadOnly(permissions.BasePermission):
+    """
+    Students and parents may look at fees and payments but never change them.
+    They pay through family-fees, which records the payment itself.
+    """
+
+    message = "Students and parents cannot change fees or payments."
+
+    def has_permission(self, request, view):
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return getattr(request.user, "role", None) not in ("student", "parent")

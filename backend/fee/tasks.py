@@ -66,29 +66,17 @@ def process_pending_webhooks():
 
 
 def process_paystack_success_webhook(webhook):
-    """Process Paystack successful payment webhook"""
+    """Credit the fees a Paystack charge paid for (fee.checkout.settle)."""
+    from . import checkout
     from .models import Payment
 
-    payload = webhook.payload
-    reference = payload.get("data", {}).get("reference")
-
+    data = webhook.payload.get("data", {})
+    reference = data.get("reference")
     if reference:
-        try:
-            payment = Payment.objects.get(
-                gateway_reference=reference, payment_gateway="PAYSTACK"
-            )
-
-            payment.verified = True
-            payment.verification_date = timezone.now()
-            payment.gateway_status = "SUCCESS"
-            payment.gateway_response = payload
-            payment.save()
-
-            webhook.payment = payment
-            webhook.save()
-
-        except Payment.DoesNotExist:
-            raise Exception(f"Payment not found for reference: {reference}")
+        checkout.settle(webhook.tenant, reference, data)
+        webhook.payment = Payment.objects.filter(
+            tenant=webhook.tenant, gateway_reference=reference).first()
+        webhook.save()
 
 
 def process_flutterwave_success_webhook(webhook):

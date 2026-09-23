@@ -17,6 +17,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import api from '@/services/api';
+import FamilyFees from './FamilyFees';
 import { toast } from 'react-toastify';
 
 interface StudentData {
@@ -132,6 +133,8 @@ const ParentDashboard = () => {
   }
 
   const currentStudent = dashboardData.find(s => s.student_id === selectedStudent) || dashboardData[0];
+  // Paystack sends a parent back to ?tab=fees&reference=… after paying.
+  const openOnFees = new URLSearchParams(window.location.search).get('tab') === 'fees';
 
   return (
     <ParentLayout>
@@ -237,11 +240,16 @@ const ParentDashboard = () => {
         </div>
 
         {/* Detailed Views */}
-        <Tabs defaultValue="attendance" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 lg:w-auto">
+        <Tabs defaultValue={openOnFees ? 'fees' : 'attendance'} className="space-y-6">
+          <TabsList className="grid w-full grid-cols-3 lg:w-auto">
             <TabsTrigger value="attendance">Attendance</TabsTrigger>
             <TabsTrigger value="results">Academic Results</TabsTrigger>
+            <TabsTrigger value="fees">Fees</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="fees">
+            <FamilyFees studentId={currentStudent.student_id} />
+          </TabsContent>
 
           {/* Attendance Tab */}
           <TabsContent value="attendance">

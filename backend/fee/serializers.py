@@ -168,6 +168,7 @@ class PaymentGatewayConfigAdminSerializer(PaymentGatewayConfigSerializer):
 
     secret_key_saved = serializers.SerializerMethodField()
     secret_key_hint = serializers.SerializerMethodField()
+    paystack_webhook_url = serializers.SerializerMethodField()
 
     class Meta:
         model = PaymentGatewayConfig
@@ -182,6 +183,7 @@ class PaymentGatewayConfigAdminSerializer(PaymentGatewayConfigSerializer):
             "secret_key",
             "secret_key_saved",
             "secret_key_hint",
+            "paystack_webhook_url",
             "webhook_url",
             "callback_url",
             "min_amount",
@@ -201,6 +203,15 @@ class PaymentGatewayConfigAdminSerializer(PaymentGatewayConfigSerializer):
     def get_secret_key_hint(self, obj):
         secret = (obj.secret_key or "").strip()
         return f"…{secret[-4:]}" if secret else ""
+
+    def get_paystack_webhook_url(self, obj):
+        """
+        Where the school tells its Paystack account to report payments, so a
+        parent who closes the tab before coming back is still credited.
+        """
+        path = f"/api/fee/paystack/webhook/{obj.tenant_id}/"
+        request = self.context.get("request")
+        return request.build_absolute_uri(path) if request else path
 
     def update(self, instance, validated_data):
         # An empty box means "leave the saved key alone", not "erase it":

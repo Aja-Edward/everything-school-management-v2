@@ -16,6 +16,8 @@ from .views import (
     StudentDiscountViewSet,
     PaymentReminderViewSet,
     ReportViewSet,
+    FamilyFeesViewSet,
+    paystack_webhook,
 )
 
 app_name = "fees"
@@ -47,6 +49,9 @@ router.register(r"student-discounts", StudentDiscountViewSet, basename="student-
 # Payment Reminders
 router.register(r"payment-reminders", PaymentReminderViewSet, basename="payment-reminder")
 
+# A parent's own children's bills, and paying them
+router.register(r"family-fees", FamilyFeesViewSet, basename="family-fees")
+
 # Financial Reports
 router.register(r"reports", ReportViewSet, basename="fee-report")
 
@@ -57,4 +62,8 @@ router.register(r"terms", TermViewSet, basename="term")
 # Legacy route for backward compatibility
 router.register(r"studentfee", StudentFeeViewSet, basename="studentfee")
 
-urlpatterns = router.urls
+urlpatterns = [
+    # Each school points its own Paystack account at this address.
+    path("paystack/webhook/<uuid:tenant_id>/", paystack_webhook,
+         name="paystack-webhook"),
+] + router.urls

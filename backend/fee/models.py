@@ -457,8 +457,9 @@ class Payment(TenantMixin, models.Model):
 
     def save(self, *args, **kwargs):
         # Calculate net amount before saving
+        # gateway_fee defaults to the float 0.00, and Decimal - float raises.
         if self.net_amount is None:
-            self.net_amount = self.amount - self.gateway_fee
+            self.net_amount = Decimal(str(self.amount)) - Decimal(str(self.gateway_fee or 0))
 
         # Generate receipt number inline (before save) to avoid recursive double-save
         if self.verified and not self.receipt_number:

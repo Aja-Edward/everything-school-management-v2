@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle2, CreditCard, Eye, EyeOff, Loader2, PlugZap } from 'lucide-react';
+import { CheckCircle2, Copy, CreditCard, Eye, EyeOff, Loader2, PlugZap } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { PaymentGateway, PaymentGatewayService } from '@/services/FeeManagementService';
 
@@ -164,6 +164,25 @@ const PaystackPanel: React.FC = () => {
               : 'text-red-600 dark:text-red-400'}`}>
               {testResult.message}
             </p>
+          )}
+
+          {config?.paystack_webhook_url && (
+            <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3 space-y-2">
+              <p className="text-sm text-slate-700 dark:text-slate-200">
+                <strong>Webhook URL.</strong> Paste this into Paystack under Settings → API Keys &amp; Webhooks,
+                so a parent who closes the page before returning is still credited.
+              </p>
+              <div className="flex gap-2">
+                <input readOnly value={config.paystack_webhook_url} onFocus={e => e.currentTarget.select()}
+                       className={`${field} font-mono text-xs`} />
+                <button type="button"
+                        onClick={() => navigator.clipboard.writeText(config.paystack_webhook_url!)
+                          .then(() => toast.success('Webhook URL copied.'))}
+                        className="inline-flex items-center gap-1 px-3 py-2 text-sm text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800">
+                  <Copy className="w-4 h-4" /> Copy
+                </button>
+              </div>
+            </div>
           )}
 
           <p className="text-xs text-slate-500 dark:text-slate-400">
