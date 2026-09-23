@@ -11,8 +11,10 @@ the way staff carry them on a flash drive.
 """
 
 import json
+import time
 from contextlib import contextmanager
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.contrib.auth.hashers import check_password
 from django.db import transaction
@@ -87,11 +89,16 @@ class OfflineTest(EngineTest):
         """Act as the exam station. Nothing it writes outlasts the block."""
         self.client.force_authenticate(user=None)
         saved = transaction.savepoint()
+        # Rate limits count in fixed windows, and a window that ended between
+        # two guesses reset the count, so the limit tests failed now and then.
+        # The limiter's clock stands still for the block.
+        frozen = int(time.time())
         try:
             Tenant.objects.filter(pk=self.school.pk).update(slug="the-cloud-copy")
             CBTOfflinePackage.objects.all().delete()
             with self.settings(CBT_STATION=True, CBT_STATION_KEY=KEY,
-                               RATELIMIT_IP_META_KEY="cbt.station_views.client_address"):
+                               RATELIMIT_IP_META_KEY="cbt.station_views.client_address"), \
+                    patch("django_ratelimit.core.time.time", return_value=frozen):
                 yield
         finally:
             transaction.savepoint_rollback(saved)
