@@ -730,16 +730,15 @@ class ServiceManagementViewSet(viewsets.ViewSet):
                 'error': 'Cannot disable default services (Exams, Results)'
             }, status=400)
 
-        # Update or create service record
+        # enabled_at can't be null: switching off keeps when it was last
+        # switched on. Setting it to None made every switch-off of a service
+        # the school already had a row for fail with a 500.
+        changes = {'is_enabled': enable,
+                   'disabled_at': None if enable else timezone.now()}
+        if enable:
+            changes['enabled_at'] = timezone.now()
         tenant_service, created = TenantService.objects.update_or_create(
-            tenant=tenant,
-            service=service_code,
-            defaults={
-                'is_enabled': enable,
-                'enabled_at': timezone.now() if enable else None,
-                'disabled_at': None if enable else timezone.now(),
-            }
-        )
+            tenant=tenant, service=service_code, defaults=changes)
 
         # Recalculate current invoice if exists
         self._recalculate_current_invoice(tenant)

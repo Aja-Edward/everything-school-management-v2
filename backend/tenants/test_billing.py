@@ -133,6 +133,26 @@ class SchoolBillingTest(APITestCase):
         self.assertEqual(
             TenantInvoice.objects.get(id=invoice_id).total_amount, Decimal("9000.00"))
 
+    def test_a_service_the_school_has_used_can_be_switched_off_and_on_again(self):
+        toggle = "/api/tenants/services/toggle/"
+        self.client.post(toggle, {"service": "arrival_notification", "enable": True},
+                         format="json", **self.as_admin())
+
+        off = self.client.post(toggle, {"service": "arrival_notification", "enable": False},
+                               format="json", **self.as_admin())
+        self.assertEqual(off.status_code, status.HTTP_200_OK, off.data)
+        row = TenantService.objects.get(tenant=self.school, service="arrival_notification")
+        self.assertFalse(row.is_enabled)
+        self.assertIsNotNone(row.enabled_at)
+        self.assertIsNotNone(row.disabled_at)
+
+        on = self.client.post(toggle, {"service": "arrival_notification", "enable": True},
+                              format="json", **self.as_admin())
+        self.assertEqual(on.status_code, status.HTTP_200_OK, on.data)
+        row.refresh_from_db()
+        self.assertTrue(row.is_enabled)
+        self.assertIsNone(row.disabled_at)
+
     def test_an_invoice_with_money_against_it_is_not_repriced(self):
         invoice = TenantInvoice.objects.get(id=self.generate("term").data["id"])
         TenantPayment.objects.create(
