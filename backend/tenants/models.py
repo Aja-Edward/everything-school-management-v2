@@ -13,11 +13,13 @@ from cloudinary.models import CloudinaryField
 TERMS_PER_SESSION = 3
 
 # Every service other than an add-on is in the Basic package, one price per
-# student per term whichever of them a school uses.
+# student per term whichever of them a school uses. This is the standard
+# price; a platform admin sets each school's own in TenantPricing.
 BASIC_PRICE_PER_STUDENT = Decimal('800.00')
 
 # SMS is billed by the message, not by the student: a school may text every
 # parent once in a term or twenty times, and the platform pays Termii for each.
+# The standard price; TenantPricing can set a school's own.
 SMS_PRICE_PER_MESSAGE = Decimal('10.00')
 
 
@@ -389,6 +391,76 @@ class ServicePricing(models.Model):
         return self.price_per_student * TERMS_PER_SESSION
 
 
+class TenantPricing(models.Model):
+    """
+    What the platform agreed to charge one school, set by a platform admin
+    when the school subscribes. Prices are bargained school by school. A
+    price left blank falls back to the standard one (tenants.pricing), which
+    is also what a school with no agreement pays.
+    """
+
+    tenant = models.OneToOneField(
+        Tenant, on_delete=models.CASCADE, related_name='pricing')
+    basic_price_per_student = models.DecimalField(
+        max_digits=10, decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.00'))],
+        help_text="Basic package, per student for one term, in Naira")
+    basic_price_per_student_per_session = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(Decimal('0.00'))],
+        help_text="Basic package, per student for a whole session. "
+                  "Blank means three times the term price.")
+    sms_price_per_message = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(Decimal('0.00'))],
+        help_text="Per text sent. Blank means the standard price.")
+    notes = models.TextField(
+        blank=True, help_text="What was agreed with the school, for the record")
+    updated_by = models.ForeignKey(
+        'users.CustomUser', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'tenant_pricing'
+        verbose_name = 'Tenant Pricing'
+        verbose_name_plural = 'Tenant Pricing'
+
+    def __str__(self):
+        return f"{self.tenant.name} - ₦{self.basic_price_per_student}/student"
+
+
+class TenantAddOnPrice(models.Model):
+    """One school's agreed price for one per-student add-on."""
+
+    tenant = models.ForeignKey(
+        Tenant, on_delete=models.CASCADE, related_name='add_on_prices')
+    service = models.CharField(max_length=50, choices=TenantService.SERVICE_CHOICES)
+    price_per_student = models.DecimalField(
+        max_digits=10, decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.00'))],
+        help_text="Per student for one term, in Naira")
+    price_per_student_per_session = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(Decimal('0.00'))],
+        help_text="Per student for a whole session. Blank means three terms.")
+
+    class Meta:
+        db_table = 'tenant_add_on_price'
+        unique_together = ['tenant', 'service']
+        ordering = ['service']
+
+    def __str__(self):
+        return f"{self.tenant.name} - {self.get_service_display()} - ₦{self.price_per_student}"
+
+    @property
+    def session_price(self):
+        if self.price_per_student_per_session is not None:
+            return self.price_per_student_per_session
+        return self.price_per_student * TERMS_PER_SESSION
+
+
 class TenantInvoice(models.Model):
     """
     Invoice for a tenant for a billing period (term or session).
@@ -502,8 +574,12 @@ class TenantInvoice(models.Model):
         return TERMS_PER_SESSION if self.billing_period == 'session' else 1
 
     def recalculate(self):
+        # The Basic package line says what was charged: a school's agreed
+        # session price need not be three times its term price.
+        base_lines = list(self.line_items.filter(item_type='base')) if self.pk else []
         self.base_amount = (
-            self.base_price_per_student * self.student_count * self.terms_billed)
+            sum((item.amount for item in base_lines), Decimal('0.00')) if base_lines
+            else self.base_price_per_student * self.student_count * self.terms_billed)
         self.services_amount = sum(
             item.amount for item in self.line_items.filter(item_type='service')
         ) if self.pk else Decimal('0.00')

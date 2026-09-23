@@ -31,8 +31,8 @@ import cloudinary.uploader
 from utils.pagination import StandardResultsPagination
 
 from . import billing
+from . import pricing as school_pricing
 from .models import (
-    BASIC_PRICE_PER_STUDENT, SMS_PRICE_PER_MESSAGE, TERMS_PER_SESSION,
     Tenant, TenantService, ServicePricing, TenantSettings,
     TenantInvoice, TenantInvoiceLineItem, TenantPayment, TenantInvitation,
     TenantSetupToken, PlatformContent
@@ -484,6 +484,26 @@ class TenantViewSet(viewsets.ModelViewSet):
             'tenant': TenantSerializer(tenant).data
         })
 
+    @action(detail=True, methods=['get', 'put', 'delete'])
+    def pricing(self, request, pk=None):
+        """
+        What this school pays, as agreed when it subscribed (tenants.pricing).
+        PUT records the agreement; DELETE puts the school back on the
+        standard prices. Either way, invoices nobody has paid are repriced.
+        """
+        tenant = self.get_object()
+        if request.method == 'GET':
+            return Response(school_pricing.summary(tenant))
+        if request.method == 'DELETE':
+            summary = school_pricing.reset(tenant)
+        else:
+            try:
+                summary = school_pricing.save(tenant, request.data, request.user)
+            except school_pricing.PricingError as error:
+                return Response({'error': str(error)}, status=400)
+        repriced = billing.reprice_unpaid(tenant)
+        return Response({**summary, 'invoices_repriced': repriced})
+
     @action(detail=True, methods=['post'])
     def suspend(self, request, pk=None):
         """Suspend a tenant."""
@@ -634,16 +654,21 @@ class ServiceManagementViewSet(viewsets.ViewSet):
 
         switched = dict(tenant.services.values_list('service', 'is_enabled'))
 
-        # Get pricing for all services
+        # Descriptions from the standard price list; prices are this school's
+        # own where the platform agreed them (tenants.pricing).
         pricing = {
             p.service: p for p in ServicePricing.objects.filter(is_active=True)}
+        agreed = school_pricing.agreement(tenant)
+        add_on_prices = school_pricing.add_on_prices(
+            tenant, school_pricing.per_student_add_ons())
 
         services = [{
             'service': 'basic',
             'name': 'Basic Package',
             'description': 'Every service except add-ons, whichever of them you use.',
-            'price_per_student': float(BASIC_PRICE_PER_STUDENT),
-            'price_per_student_per_session': float(BASIC_PRICE_PER_STUDENT * TERMS_PER_SESSION),
+            'price_per_student': float(school_pricing.basic_price(tenant, agreed=agreed)),
+            'price_per_student_per_session': float(
+                school_pricing.basic_price(tenant, per_session=True, agreed=agreed)),
             'price_per_message': None,
             'is_default': True,
             'is_enabled': True,
@@ -655,7 +680,7 @@ class ServiceManagementViewSet(viewsets.ViewSet):
             is_default = service_code in TenantService.DEFAULT_SERVICES
             is_add_on = service_code in TenantService.ADD_ON_SERVICES
             per_message = service_code in TenantService.PER_MESSAGE_ADD_ONS
-            priced = is_add_on and not per_message and service_pricing is not None
+            priced = is_add_on and not per_message and service_code in add_on_prices
             # As TenantService.is_on, from the rows already fetched.
             is_enabled = switched.get(
                 service_code,
@@ -666,9 +691,10 @@ class ServiceManagementViewSet(viewsets.ViewSet):
                 'name': service_name,
                 'description': (service_pricing.description if service_pricing else '')
                                or TenantService.SERVICE_DESCRIPTIONS.get(service_code, ''),
-                'price_per_student': float(service_pricing.price_per_student) if priced else 0,
-                'price_per_student_per_session': float(service_pricing.session_price) if priced else 0,
-                'price_per_message': float(SMS_PRICE_PER_MESSAGE) if per_message else None,
+                'price_per_student': float(add_on_prices[service_code][0]) if priced else 0,
+                'price_per_student_per_session': float(add_on_prices[service_code][1]) if priced else 0,
+                'price_per_message': (float(school_pricing.sms_price(tenant, agreed=agreed))
+                                      if per_message else None),
                 'is_default': is_default,
                 'is_enabled': is_enabled,
                 'is_add_on': is_add_on,
@@ -727,10 +753,7 @@ class ServiceManagementViewSet(viewsets.ViewSet):
 
     def _recalculate_current_invoice(self, tenant):
         """Reprice unpaid invoices, so a switched add-on shows up on them."""
-        for invoice in TenantInvoice.objects.filter(
-                tenant=tenant, status__in=['draft', 'pending']):
-            if not billing.is_settled_or_settling(invoice):
-                billing.refresh_invoice(invoice)
+        billing.reprice_unpaid(tenant)
 
 
 class ServicePricingViewSet(viewsets.ReadOnlyModelViewSet):

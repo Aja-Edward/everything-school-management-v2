@@ -3,8 +3,8 @@ Telling parents what their children still owe.
 
 A reminder goes to each parent linked to a student with an unpaid fee: by
 email, which is free in the Basic package, and by SMS if the school asks for
-it and has the SMS add-on on (SMS_PRICE_PER_MESSAGE a text, on its next
-invoice). One message per parent per child covers all of that child's unpaid
+it and has the SMS add-on on (at the school's price per text, tenants.pricing,
+on its next invoice). One message per parent per child covers all of that child's unpaid
 fees, so a parent with two fees outstanding pays for one text, not two.
 
 Every message is saved as a PaymentReminder before anything is sent, then
@@ -21,7 +21,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from parent.models import ParentStudentRelationship
-from tenants.models import SMS_PRICE_PER_MESSAGE, TenantService
+from tenants import pricing
+from tenants.models import TenantService
 from utils import notifications
 
 from .models import PaymentReminder, StudentFee
@@ -170,8 +171,8 @@ def preview(tenant, student_ids=None):
         "no_phone": no_address["sms"],
         "already_reminded": dict(already_reminded),
         "sms_enabled": sms_on,
-        "sms_price": str(SMS_PRICE_PER_MESSAGE),
-        "sms_cost": str(SMS_PRICE_PER_MESSAGE * texts),
+        "sms_price": str(pricing.sms_price(tenant)),
+        "sms_cost": str(pricing.sms_price(tenant) * texts),
     }
 
 
@@ -213,7 +214,7 @@ def send_reminders(tenant, channel_names, student_ids=None):
             "already_reminded": already_reminded[name],
         }
     if "sms" in summary:
-        summary["sms"]["cost"] = str(SMS_PRICE_PER_MESSAGE * summary["sms"]["sent"])
+        summary["sms"]["cost"] = str(pricing.sms_price(tenant) * summary["sms"]["sent"])
     return summary
 
 

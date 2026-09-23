@@ -4,7 +4,7 @@ import {
   LogOut, RefreshCw, AlertCircle, CheckCircle,
   Clock, XCircle, ChevronRight, Building2,
   PowerOff, Power, Trash2, Loader2, X,
-  FileText, UserCog, Copy, Link2,
+  FileText, UserCog, Copy, Link2, BadgeDollarSign,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
@@ -13,6 +13,7 @@ import { UserRole } from '@/types/types';
 import PlatformContentPanel from '@/components/platform-admin/PlatformContentPanel';
 import PlatformUsersPanel from '@/components/platform-admin/PlatformUsersPanel';
 import PlatformBillingPanel from '@/components/platform-admin/PlatformBillingPanel';
+import TenantPricingModal from '@/components/platform-admin/TenantPricingModal';
 
 
 const PLATFORM_LOGO = '/images/nuventa-logo.png';
@@ -272,6 +273,7 @@ const SuperAdminDashboard = () => {
   // Per-row action state
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [confirm, setConfirm]             = useState<ConfirmState | null>(null);
+  const [pricingFor, setPricingFor]       = useState<Tenant | null>(null);
   const [processing, setProcessing]       = useState(false);
   const [actionError, setActionError]     = useState<string | null>(null);
 
@@ -717,6 +719,16 @@ const SuperAdminDashboard = () => {
                             {!isMarketer && (
                               <td className="px-5 py-3.5">
                                 <div className="flex items-center gap-2">
+                                  {/* What this school was agreed to pay */}
+                                  <button
+                                    onClick={() => setPricingFor(t)}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+                                    title="Set this school's prices"
+                                  >
+                                    <BadgeDollarSign className="w-3.5 h-3.5" />
+                                    Pricing
+                                  </button>
+
                                   {/* Deactivate / Activate */}
                                   {isActive ? (
                                     <button
@@ -841,6 +853,10 @@ const SuperAdminDashboard = () => {
       </main>
 
       {/* ── Confirmation modal ───────────────────────────────────────────────── */}
+      {pricingFor && (
+        <TenantPricingModal tenant={pricingFor} onClose={() => setPricingFor(null)} />
+      )}
+
       {confirm && (
         <ConfirmModal
           state={confirm}

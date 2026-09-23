@@ -1,14 +1,16 @@
 """
 What a school owes the platform for a term or a session.
 
-The Basic package covers every service except the add-ons, at
-BASIC_PRICE_PER_STUDENT per student per term, whichever of those services the
-school uses. Each per-student add-on the school has switched on is billed on
-top at its ServicePricing price. A session is billed as three terms: the Basic
-package is tripled, and add-ons are charged at their session price.
+The Basic package covers every service except the add-ons, at one price per
+student per term, whichever of those services the school uses. Each
+per-student add-on the school has switched on is billed on top. A session is
+billed at the session prices, which default to three terms.
 
 SMS is billed by the message instead: every text sent since the school's last
-invoice, at SMS_PRICE_PER_MESSAGE.
+invoice.
+
+Every price is the one agreed with that school, or the standard price where
+nothing was agreed (tenants.pricing).
 
 Students and texts are counted when the invoice is raised, and again whenever
 an unpaid invoice is brought up to date.
@@ -25,10 +27,8 @@ from django.utils import timezone
 from academics.models import AcademicSession, Term
 from students.models import Student
 
-from .models import (
-    BASIC_PRICE_PER_STUDENT, SMS_PRICE_PER_MESSAGE, TERMS_PER_SESSION,
-    SentSms, ServicePricing, TenantInvoice, TenantInvoiceLineItem, TenantService,
-)
+from . import pricing
+from .models import SentSms, TenantInvoice, TenantInvoiceLineItem, TenantService
 
 PAYMENT_DUE_AFTER = timedelta(days=14)
 
@@ -91,28 +91,30 @@ def active_student_count(tenant):
 
 def price_lines(tenant, billing_period, student_count, sms_count=0):
     per_session = billing_period == 'session'
-    terms = TERMS_PER_SESSION if per_session else 1
+    agreed = pricing.agreement(tenant)
     lines = [Line(
-        'base', None, 'Basic package', student_count, BASIC_PRICE_PER_STUDENT * terms)]
+        'base', None, 'Basic package', student_count,
+        pricing.basic_price(tenant, per_session, agreed=agreed))]
 
     enabled_add_ons = tenant.services.filter(
         is_enabled=True, service__in=TenantService.ADD_ON_SERVICES,
     ).exclude(
         service__in=TenantService.PER_MESSAGE_ADD_ONS,
     ).values_list('service', flat=True)
-    add_on_prices = ServicePricing.objects.filter(
-        service__in=list(enabled_add_ons), is_active=True).order_by('service')
-    for pricing in add_on_prices:
+    names = dict(TenantService.SERVICE_CHOICES)
+    prices = pricing.add_on_prices(tenant, enabled_add_ons)
+    for service in sorted(prices):
+        term_price, session_price = prices[service]
         lines.append(Line(
-            'service', pricing.service, pricing.get_service_display(), student_count,
-            pricing.session_price if per_session else pricing.price_per_student,
+            'service', service, names.get(service, service), student_count,
+            session_price if per_session else term_price,
         ))
 
     # Billed whether or not SMS is still switched on: these texts were sent.
     if sms_count:
         lines.append(Line(
             'service', 'sms_notifications', 'SMS messages sent', sms_count,
-            SMS_PRICE_PER_MESSAGE))
+            pricing.sms_price(tenant, agreed=agreed)))
     return lines
 
 
@@ -149,7 +151,7 @@ def refresh_invoice(invoice):
     lines = price_lines(
         invoice.tenant, invoice.billing_period, students, invoice.sent_sms.count())
 
-    invoice.base_price_per_student = BASIC_PRICE_PER_STUDENT
+    invoice.base_price_per_student = pricing.basic_price(invoice.tenant)
     invoice.student_count = students
     invoice.line_items.all().delete()
     # bulk_create skips TenantInvoiceLineItem.save(), so amount is set here.
@@ -161,6 +163,20 @@ def refresh_invoice(invoice):
         for line in lines
     ])
     invoice.save()  # recalculates the totals from the new lines
+
+
+def reprice_unpaid(tenant):
+    """
+    Bring every invoice nobody has paid up to the school's current prices and
+    services. Returns how many were repriced. Paid ones are left as they were.
+    """
+    repriced = 0
+    for invoice in TenantInvoice.objects.filter(
+            tenant=tenant, status__in=['draft', 'pending']):
+        if not is_settled_or_settling(invoice):
+            refresh_invoice(invoice)
+            repriced += 1
+    return repriced
 
 
 @transaction.atomic
