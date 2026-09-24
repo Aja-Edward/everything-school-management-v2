@@ -132,8 +132,25 @@ const TenantContactPage: React.FC = () => {
                   src={section.contact_map_embed}
                   width="100%" height="100%" loading="lazy"
                   className="border-0"
+                  allowFullScreen
                   title="School Location"
                 />
+              </div>
+            )}
+
+            {/* Street View of the gate, so visitors know what to look for */}
+            {section?.contact_streetview_embed && (
+              <div>
+                <div className="rounded-2xl overflow-hidden border border-gray-200 shadow-sm h-64">
+                  <iframe
+                    src={section.contact_streetview_embed}
+                    width="100%" height="100%" loading="lazy"
+                    className="border-0"
+                    allowFullScreen
+                    title="Street view of the school entrance"
+                  />
+                </div>
+                <p className="mt-2 text-xs text-gray-400">Our entrance, from the road.</p>
               </div>
             )}
           </div>

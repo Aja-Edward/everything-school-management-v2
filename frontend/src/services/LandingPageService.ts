@@ -34,6 +34,8 @@ export interface LandingSection {
   contact_email?: string;
   contact_hours?: string;
   contact_map_embed?: string;
+  /** Optional Street View of the gate, shown under the map. */
+  contact_streetview_embed?: string;
   // admissions
   admissions_deadline?: string;
   admissions_fee?: string;

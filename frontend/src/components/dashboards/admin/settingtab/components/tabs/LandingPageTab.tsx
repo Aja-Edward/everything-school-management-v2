@@ -43,6 +43,23 @@ const Input: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = (props) => 
       focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${props.className ?? ''}`} />
 );
 
+/**
+ * What to tell the admin when a save is refused. The API answers a rejected
+ * field with {"contact_map_embed": ["..."]}, which says exactly what is wrong
+ * and which box to fix — far more use than "Save failed".
+ */
+const saveProblem = (e: unknown): string => {
+  const data = (e as { response?: { data?: unknown } })?.response?.data;
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const [field, detail] = Object.entries(data as Record<string, unknown>)[0] ?? [];
+    if (field) {
+      const text = Array.isArray(detail) ? String(detail[0]) : String(detail);
+      return field === 'detail' ? text : `${field.replace(/_/g, ' ')}: ${text}`;
+    }
+  }
+  return e instanceof Error && e.message ? e.message : 'Save failed. Please try again.';
+};
+
 const Textarea: React.FC<React.TextareaHTMLAttributes<HTMLTextAreaElement>> = (props) => (
   <textarea {...props}
     className={`w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 placeholder-gray-400
@@ -263,7 +280,18 @@ const SectionEditor: React.FC<{
                   <Input value={section.contact_hours ?? ''} onChange={e => upd({ contact_hours: e.target.value })} placeholder="Mon–Fri 8am–5pm" />
                 </Field>
                 <Field label="Google Maps Embed URL">
-                  <Input value={section.contact_map_embed ?? ''} onChange={e => upd({ contact_map_embed: e.target.value })} placeholder="https://maps.google.com/maps?..." />
+                  <Input value={section.contact_map_embed ?? ''} onChange={e => upd({ contact_map_embed: e.target.value })} placeholder="https://www.google.com/maps/embed?pb=..." />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Google Maps → Share → Embed a map → paste what you copied. A
+                    https://maps.google.com/maps?q=...&amp;output=embed link works too.
+                  </p>
+                </Field>
+                <Field label="Street View Embed URL (optional)">
+                  <Input value={section.contact_streetview_embed ?? ''} onChange={e => upd({ contact_streetview_embed: e.target.value })} placeholder="https://www.google.com/maps/embed?pb=...!6m8!1m7..." />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Shown under the map, so visitors recognise the gate. Stand on the street in
+                    Street View, then Share → Embed a map.
+                  </p>
                 </Field>
               </div>
             </div>
@@ -421,8 +449,8 @@ const LandingPageTab: React.FC = () => {
 
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-    } catch {
-      setError('Save failed. Please try again.');
+    } catch (e) {
+      setError(saveProblem(e));
     } finally {
       setSaving(false);
     }

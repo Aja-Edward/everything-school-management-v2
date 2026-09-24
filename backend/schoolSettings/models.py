@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 from django.core.validators import FileExtensionValidator
 from django.utils import timezone
 import uuid
+from urllib.parse import urlparse
 from tenants.models import Tenant
 from django.core.exceptions import ValidationError
 
@@ -540,12 +541,36 @@ class TenantLandingPage(models.Model):
         return f"Landing Page — {self.tenant.name}"
 
 
+MAPS_EMBED_HELP = (
+    "Use a Google Maps embed URL. Either the one from Maps → Share → Embed a map "
+    '(the src="..." value, starting https://www.google.com/maps/embed), or a '
+    "https://maps.google.com/maps?q=...&output=embed link."
+)
+
+
 def validate_maps_embed_url(value):
-    if value and not value.strip().startswith("https://www.google.com/maps/embed"):
-        raise ValidationError(
-            "Please use a Google Maps embed URL. "
-            "It must start with https://www.google.com/maps/embed"
-        )
+    """
+    Allow only Google's own embeddable map URLs, in the three forms Google gives out:
+
+        https://www.google.com/maps/embed?pb=...      Share → Embed a map, and Street View
+        https://www.google.com/maps/embed/v1/place?   Maps Embed API, with a key
+        https://maps.google.com/maps?q=...&output=embed   the key-free form
+
+    The value is rendered as an iframe's src on the school's public page, so
+    anything else — another host, or a Maps page that isn't an embed — is refused.
+    """
+    if not value:
+        return
+    parsed = urlparse(value.strip())
+    host, path = parsed.netloc.lower(), parsed.path
+
+    if parsed.scheme == "https":
+        if host in ("www.google.com", "google.com") and path.startswith("/maps/embed"):
+            return
+        if host in ("maps.google.com", "www.google.com", "google.com") and path.rstrip("/") in ("/maps", "/maps/"):
+            if "output=embed" in (parsed.query or ""):
+                return
+    raise ValidationError(MAPS_EMBED_HELP)
 
 
 class LandingSection(models.Model):
@@ -583,7 +608,13 @@ class LandingSection(models.Model):
     contact_map_embed = models.TextField(
         blank=True,
         null=True,
-        help_text="Google Maps embed URL (must start with https://www.google.com/maps/embed)",
+        help_text=f"Map of the school, shown on the contact section. {MAPS_EMBED_HELP}",
+        validators=[validate_maps_embed_url],
+    )
+    contact_streetview_embed = models.TextField(
+        blank=True,
+        null=True,
+        help_text=f"Optional Street View of the school gate, shown under the map. {MAPS_EMBED_HELP}",
         validators=[validate_maps_embed_url],
     )
 

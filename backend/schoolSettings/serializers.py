@@ -1,5 +1,10 @@
+import html
+import re
+
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 from .models import (
+    validate_maps_embed_url,
     NotificationSettings,
     SystemPreferences,
     SchoolHoliday,
@@ -542,20 +547,29 @@ class NavigationLinkSerializer(serializers.ModelSerializer):
 
 class LandingSectionSerializer(serializers.ModelSerializer):
 
-    def validate_contact_map_embed(self, value):
+    def _embed_url(self, value):
+        """
+        One rule for both embed fields, the model's — so the API and a save from
+        the admin can't drift apart. A pasted <iframe ...> tag is unwrapped
+        rather than refused: it is what Google's own Share dialog hands over.
+        """
         if not value:
             return value
         value = value.strip()
-        # Already correct format
-        if value.startswith("https://www.google.com/maps/embed"):
-            return value
-        # Common mistake: user pasted the full share/place URL
-        # Reject it with a helpful message instead of silently breaking
-        raise serializers.ValidationError(
-            "Invalid map URL. Please use the embed URL from Google Maps: "
-            'Maps → Share → Embed a map → copy the src="..." value. '
-            "It should start with https://www.google.com/maps/embed"
-        )
+        pasted_tag = re.search(r'<iframe[^>]*\ssrc=["\']([^"\']+)["\']', value, re.IGNORECASE)
+        if pasted_tag:
+            value = html.unescape(pasted_tag.group(1)).strip()
+        try:
+            validate_maps_embed_url(value)
+        except DjangoValidationError as refusal:
+            raise serializers.ValidationError(refusal.messages[0])
+        return value
+
+    def validate_contact_map_embed(self, value):
+        return self._embed_url(value)
+
+    def validate_contact_streetview_embed(self, value):
+        return self._embed_url(value)
 
     class Meta:
         model = LandingSection
@@ -564,7 +578,7 @@ class LandingSectionSerializer(serializers.ModelSerializer):
             "is_enabled", "display_order",
             # contact fields
             "contact_address", "contact_phone", "contact_email",
-            "contact_hours", "contact_map_embed",
+            "contact_hours", "contact_map_embed", "contact_streetview_embed",
             # admissions fields
             "admissions_deadline", "admissions_fee",
             "admissions_contact_name", "admissions_contact_email",
