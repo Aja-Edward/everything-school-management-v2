@@ -32,8 +32,22 @@ export interface CBTAttemptState {
   audio_plays: Record<string, number>;
   /** Present once the paper is fully marked and the school's release setting allows it. */
   score?: { total: string; max: string; percentage: number } | null;
+  /** Why there is no score yet, for `scorePendingMessage`. Empty when there is nothing to wait for. */
+  score_pending?: CBTScorePending;
   session_token?: string;
 }
+
+export type CBTScorePending = '' | 'after_close' | 'release' | 'marking';
+
+const SCORE_PENDING: Record<string, string> = {
+  after_close: 'Your score will show when the exam closes.',
+  release: 'Your score will show when your teacher releases it.',
+  marking: 'Your score will show once your answers have been marked.',
+};
+
+/** What to tell a student who has finished but has no score yet. */
+export const scorePendingMessage = (pending?: CBTScorePending): string =>
+  SCORE_PENDING[pending ?? ''] ?? 'Your score will show when it is released.';
 
 export interface CBTMyExam {
   paper: number;

@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, CheckCircle2, EyeOff, Eye, Loader2, Send } from 'lucide-react';
 import { toast } from 'react-toastify';
 import CBTService, {
-  CBTMarkingOverview, CBTObjectiveMarking, CBTPaper, CBTPushResults, CBTQuestionToMark, CBTResultTargets, cbtProblems,
+  CBTMarkingOverview, CBTObjectiveMarking, CBTPaper, CBTPushResults, CBTQuestionToMark, CBTResultTargets,
+  CBTStudentScore, cbtProblems,
 } from '@/services/CBTService';
 import SafeHtml from './student/SafeHtml';
 import { toggleKey } from './student/QuestionView';
@@ -267,6 +268,77 @@ const AnswerKeyRow: React.FC<{ paperId: number; question: CBTObjectiveMarking; o
   );
 };
 
+const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '');
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** Every finished attempt's score, so staff can see who got what without leaving the tab. */
+const StudentScores: React.FC<{ rows: CBTStudentScore[] }> = ({ rows }) => {
+  const [search, setSearch] = useState('');
+
+  if (!rows.length) return null;
+
+  const needle = search.trim().toLowerCase();
+  const shown = needle ? rows.filter((row) => row.student.toLowerCase().includes(needle)) : rows;
+  const retakes = rows.some((row) => !row.counts_for_results);
+  const cell = 'px-2 py-1.5 text-right tabular-nums';
+
+  return (
+    <section className={card}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold text-slate-900 dark:text-white">Each student's score</h3>
+          <p className="text-sm text-slate-500">Marks on this paper, before they are scaled to a score column.</p>
+        </div>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Find a student"
+          aria-label="Find a student" className={`${input} w-44`} />
+      </div>
+
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[34rem] text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-700">
+              <th className="px-2 py-1.5 text-left font-medium">Student</th>
+              <th className="px-2 py-1.5 text-left font-medium">Handed in</th>
+              <th className="px-2 py-1.5 text-right font-medium">Objective</th>
+              <th className="px-2 py-1.5 text-right font-medium">Typed</th>
+              <th className="px-2 py-1.5 text-right font-medium">Total</th>
+              <th className="px-2 py-1.5 text-right font-medium">%</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            {shown.map((row) => (
+              <tr key={row.attempt} className={row.counts_for_results ? '' : 'text-slate-400 dark:text-slate-500'}>
+                <td className="px-2 py-1.5 text-slate-800 dark:text-slate-100">
+                  {row.student}
+                  {row.number > 1 && <span className="ml-1.5 text-xs text-slate-500">attempt {row.number}</span>}
+                  {row.status === 'timed_out' && <span className="ml-1.5 text-xs text-amber-600">time ran out</span>}
+                </td>
+                <td className="px-2 py-1.5 text-left text-xs text-slate-500">{when(row.submitted_at)}</td>
+                <td className={cell}>{row.objective === '' ? '—' : Number(row.objective)}</td>
+                {/* A part-marked typed score reads as a zero the student earned, so hold it back. */}
+                <td className={cell}>{row.text === '' || row.to_mark ? '—' : Number(row.text)}</td>
+                <td className={`${cell} font-semibold text-slate-900 dark:text-white`}>
+                  {row.total === null
+                    ? <span className="font-normal text-xs text-amber-600">{row.to_mark} to mark</span>
+                    : `${Number(row.total)} / ${Number(row.max)}`}
+                </td>
+                <td className={cell}>{row.percentage === null ? '' : `${row.percentage}%`}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!shown.length && <p className="py-3 text-center text-sm text-slate-500">No student by that name sat this paper.</p>}
+      </div>
+
+      {retakes && (
+        <p className="mt-2 text-xs text-slate-500">
+          Greyed-out rows are earlier attempts. Only a student's last finished attempt is sent to results.
+        </p>
+      )}
+    </section>
+  );
+};
+
 const MarkingPanel: React.FC<Props> = ({ paper, onPaperChanged }) => {
   const [overview, setOverview] = useState<CBTMarkingOverview | null>(null);
   const [targets, setTargets] = useState<CBTResultTargets | null>(null);
@@ -319,6 +391,8 @@ const MarkingPanel: React.FC<Props> = ({ paper, onPaperChanged }) => {
   });
 
   const chosenComponent = targets?.components.find((c) => String(c.id) === component);
+  // Marking, not the release setting, is what holds a score back once staff have released it.
+  const waitingOnMarking = overview.finished_attempts - overview.fully_marked;
 
   return (
     <div className="space-y-5">
@@ -337,6 +411,8 @@ const MarkingPanel: React.FC<Props> = ({ paper, onPaperChanged }) => {
           </div>
         ))}
       </div>
+
+      <StudentScores rows={overview.students} />
 
       {overview.text.length > 0 && (
         <section className={card}>
@@ -445,6 +521,12 @@ const MarkingPanel: React.FC<Props> = ({ paper, onPaperChanged }) => {
               ? 'Students see their score as soon as their paper is fully marked.'
               : 'Students see their score once the exam window has closed and their paper is fully marked.'}{' '}
             Change this in Settings.
+          </p>
+        )}
+        {waitingOnMarking > 0 && (
+          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
+            {plural(waitingOnMarking, 'student')} still {waitingOnMarking === 1 ? 'has' : 'have'} answers to mark.
+            Until those are marked, {waitingOnMarking === 1 ? 'that student sees' : 'they see'} no score, released or not.
           </p>
         )}
       </section>

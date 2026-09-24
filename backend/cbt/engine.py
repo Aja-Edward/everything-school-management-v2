@@ -156,9 +156,10 @@ def attempt_state(attempt, now, session_token=None):
         "question_count": len(attempt.question_ids),
         "audio_plays": attempt.audio_plays or {},
     }
-    from .marking import score_for_student
+    from .marking import score_for_student, score_pending
 
     state["score"] = score_for_student(attempt, now)
+    state["score_pending"] = score_pending(attempt, now)
     if session_token:
         state["session_token"] = session_token
     return state

@@ -139,6 +139,11 @@ event log can be opened in full.
 The **Marking & results** tab shows how many attempts are finished, how many
 are fully marked, and how many answers are still to mark.
 
+- **Each student's score** lists every finished attempt with its marks out of
+  the marks on that student's paper, before any scaling. A student whose typed
+  answers are still to be marked shows how many are left instead of a total.
+  Where a student sat the paper twice, the earlier attempt is greyed out: only
+  their last one goes to the results.
 - **Objective, true/false, choose-all and numeric** answers are already
   marked. The tab shows how many students chose each option, so a question
   most of the class got wrong stands out.
@@ -153,7 +158,10 @@ are fully marked, and how many answers are still to mark.
   results are written; anything already approved or published is skipped and
   listed.
 - **Release scores** decides when students see theirs, if the paper is set to
-  release manually.
+  release manually. Releasing doesn't show a score whose typed answers are
+  still to be marked, so the tab says how many students are still waiting on
+  marking. Each student's own exams list tells them which of the two they are
+  waiting for.
 
 ## 5. Analysis, afterwards
 

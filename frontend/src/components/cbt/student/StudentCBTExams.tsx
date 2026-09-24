@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CalendarClock, CheckCircle2, Clock, KeyRound, Loader2, Monitor, PlayCircle, RefreshCw } from 'lucide-react';
-import StudentCBTService, { CBTExamState, CBTMyExam } from '@/services/StudentCBTService';
+import StudentCBTService, { CBTExamState, CBTMyExam, scorePendingMessage } from '@/services/StudentCBTService';
 
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
@@ -86,7 +86,7 @@ const StudentCBTExams: React.FC = () => {
                         <span className="ml-2 text-sm font-normal text-gray-500">({exam.attempt.score.percentage}%)</span>
                       </p>
                     ) : (
-                      <p className="text-xs text-gray-500">Your score will show here when it is released.</p>
+                      <p className="text-xs text-gray-500">{scorePendingMessage(exam.attempt?.score_pending)}</p>
                     ))}
                   </div>
                   {(state === 'open' || state === 'in_progress') && (

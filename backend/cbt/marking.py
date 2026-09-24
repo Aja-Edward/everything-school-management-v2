@@ -225,13 +225,53 @@ def _objective_overview(q, answers, given_to):
     return item
 
 
+def _student_rows(attempts, answers, questions):
+    """
+    Each finished attempt's score, and how much of it is still to mark.
+
+    `counts_for_results` marks the attempt push_results() would send: a
+    student's last finished one.
+    """
+    typed = {q.id for q in questions if not q.is_auto_marked}
+    to_mark = Counter()
+    for answer in answers:
+        if (answer["question_id"] in typed and answer["marks_awarded"] is None
+                and answer["text_answer"].strip()):
+            to_mark[answer["attempt_id"]] += 1
+
+    latest = {}
+    for attempt in attempts:
+        best = latest.get(attempt.student_id)
+        if best is None or attempt.number >= best.number:
+            latest[attempt.student_id] = attempt
+
+    rows = [{
+        "attempt": attempt.id,
+        "number": attempt.number,
+        "student": attempt.student.full_name,
+        "status": attempt.status,
+        "submitted_at": attempt.submitted_at,
+        "objective": str(attempt.objective_score) if attempt.objective_score is not None else "",
+        "text": str(attempt.text_score) if attempt.text_score is not None else "",
+        "total": str(attempt.total_score) if attempt.total_score is not None else None,
+        "max": str(attempt.max_score),
+        "percentage": (round(float(attempt.total_score / attempt.max_score * 100), 1)
+                       if attempt.total_score is not None and attempt.max_score else None),
+        "to_mark": to_mark[attempt.id],
+        "counts_for_results": latest[attempt.student_id] is attempt,
+    } for attempt in attempts]
+    rows.sort(key=lambda row: (row["student"].lower(), row["number"]))
+    return rows
+
+
 def overview(paper):
-    """Marking progress, answer-key statistics, and where results go."""
-    attempts = list(CBTAttempt.objects.filter(paper=paper, status__in=FINISHED))
+    """Marking progress, each student's score, answer-key statistics, and where results go."""
+    attempts = list(CBTAttempt.objects.filter(paper=paper, status__in=FINISHED)
+                    .select_related("student__user"))
     attempt_ids = [a.id for a in attempts]
     questions = list(paper.questions.order_by("order"))
     answers = list(CBTAnswer.objects.filter(attempt_id__in=attempt_ids).values(
-        "question_id", "selected_option", "text_answer", "marks_awarded"))
+        "attempt_id", "question_id", "selected_option", "text_answer", "marks_awarded"))
     served = Counter(qid for a in attempts for qid in a.question_ids)
 
     by_question = {}
@@ -256,6 +296,7 @@ def overview(paper):
         "in_progress": CBTAttempt.objects.filter(paper=paper, status=CBTAttempt.Status.IN_PROGRESS).count(),
         "fully_marked": sum(1 for a in attempts if a.total_score is not None),
         "still_to_mark": sum(t["answers"] - t["marked"] for t in text),
+        "students": _student_rows(attempts, answers, questions),
         "objective": objective,
         "text": text,
         "results": {
@@ -386,6 +427,31 @@ def push_results(paper, actor, now=None):
 
 
 # ── What students see ─────────────────────────────────────────────────────────
+
+
+def score_pending(attempt, now=None):
+    """
+    Why the student can't see their score yet, for their exam list to explain:
+
+        "after_close"  the paper shows scores when the exam window closes;
+        "release"      staff release scores, and haven't;
+        "marking"      a teacher still has typed answers of theirs to mark;
+        ""             nothing to wait for: the score shows, or they are still writing.
+
+    The release settings come first, because a released score still waits for
+    marking but an unreleased one waits for staff whether it is marked or not.
+    """
+    now = now or timezone.now()
+    paper = attempt.paper
+    if attempt.status not in FINISHED:
+        return ""
+    if paper.result_release == CBTPaper.ResultRelease.AFTER_CLOSE and not (paper.closes_at and now >= paper.closes_at):
+        return "after_close"
+    if paper.result_release == CBTPaper.ResultRelease.MANUAL and paper.results_released_at is None:
+        return "release"
+    if attempt.total_score is None:
+        return "marking"
+    return ""
 
 
 def score_for_student(attempt, now=None):

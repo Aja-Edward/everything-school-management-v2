@@ -171,11 +171,29 @@ export interface CBTTextMarking {
   marked: number;
 }
 
+export interface CBTStudentScore {
+  attempt: number;
+  number: number;
+  student: string;
+  status: string;
+  submitted_at: string | null;
+  objective: string;
+  text: string;
+  /** null until every typed answer of theirs is marked. */
+  total: string | null;
+  max: string;
+  percentage: number | null;
+  to_mark: number;
+  /** The attempt "Send scores" would use: the student's last finished one. */
+  counts_for_results: boolean;
+}
+
 export interface CBTMarkingOverview {
   finished_attempts: number;
   in_progress: number;
   fully_marked: number;
   still_to_mark: number;
+  students: CBTStudentScore[];
   objective: CBTObjectiveMarking[];
   text: CBTTextMarking[];
   results: {

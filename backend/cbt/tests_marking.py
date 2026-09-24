@@ -229,10 +229,16 @@ class ResultsTest(MarkingTest):
 
 
 class StudentScoreTest(MarkingTest):
-    def my_score(self):
+    def my_attempt(self):
         self.as_student(self.student)
         exams = self.request("get", MY_EXAMS).data["exams"]
-        return next(e for e in exams if e["paper"] == self.paper.id)["attempt"]["score"]
+        return next(e for e in exams if e["paper"] == self.paper.id)["attempt"]
+
+    def my_score(self):
+        return self.my_attempt()["score"]
+
+    def my_pending(self):
+        return self.my_attempt()["score_pending"]
 
     def test_with_manual_release_the_score_waits_for_staff(self):
         self.sit(self.student, {1: {"selected_option": "B"}})
@@ -261,3 +267,72 @@ class StudentScoreTest(MarkingTest):
         CBTPaper.objects.filter(pk=self.paper.pk).update(closes_at=timezone.now() - timedelta(minutes=1))
 
         self.assertEqual(self.my_score()["total"], "2.00")
+
+    def test_a_student_without_a_score_is_told_what_it_is_waiting_for(self):
+        """Staff release and teachers' marking hold a score back for different reasons."""
+        attempt = self.sit(self.student, {1: {"selected_option": "B"}, 4: {"text_answer": "Answer."}})
+        self.assertEqual(self.my_pending(), "release")
+
+        self.as_staff(self.admin)
+        self.staff("post", "results/release/")
+        # Released, but a teacher still has this student's typed answer to mark.
+        self.assertEqual(self.my_pending(), "marking")
+
+        self.as_staff(self.admin)
+        self.staff("post", "marking/marks/", {"marks": [{"attempt": attempt.id, "question": self.q[4].id, "marks": 4}]})
+
+        self.assertEqual(self.my_pending(), "")
+        self.assertEqual(self.my_score()["total"], "6.00")
+
+    def test_a_paper_that_shows_scores_at_the_close_says_so(self):
+        CBTPaper.objects.filter(pk=self.paper.pk).update(result_release=CBTPaper.ResultRelease.AFTER_CLOSE)
+        self.sit(self.student, {1: {"selected_option": "B"}})
+
+        self.assertEqual(self.my_pending(), "after_close")
+
+    def test_a_student_still_writing_is_not_told_to_wait_for_a_score(self):
+        self.sit(self.student, {1: {"selected_option": "B"}}, submit=False)
+
+        self.assertEqual(self.my_pending(), "")
+
+
+class StudentScoreListTest(MarkingTest):
+    def overview(self):
+        self.as_staff(self.admin)
+        return self.staff("get", "marking/").data
+
+    def test_each_finished_attempt_is_listed_with_its_score(self):
+        self.student.user.first_name, self.student.user.last_name = "Zainab", "Bello"
+        self.student.user.save()
+        other = self.sitting_student()
+        other.user.first_name, other.user.last_name = "Ada", "Okafor"
+        other.user.save()
+
+        self.sit(self.student, {1: {"selected_option": "B"}, 2: {"selected_option": "B"}})
+        self.sit(other, {1: {"selected_option": "B"}, 4: {"text_answer": "Answer."}})
+
+        rows = self.overview()["students"]
+
+        self.assertEqual([row["student"] for row in rows], ["Ada Okafor", "Zainab Bello"])
+        ada, zainab = rows
+        # Ada's typed answer is still to mark, so she has no total yet; Zainab's paper is finished.
+        self.assertIsNone(ada["total"])
+        self.assertEqual(ada["to_mark"], 1)
+        self.assertEqual((zainab["total"], zainab["max"], zainab["percentage"]), ("4.00", "16.00", 25.0))
+        self.assertEqual(zainab["to_mark"], 0)
+        self.assertTrue(all(row["counts_for_results"] for row in rows))
+
+    def test_only_the_last_attempt_of_a_retake_counts_for_results(self):
+        CBTPaper.objects.filter(pk=self.paper.pk).update(max_attempts=2)
+        self.sit(self.student, {1: {"selected_option": "A"}})
+        self.sit(self.student, {1: {"selected_option": "B"}})
+
+        rows = self.overview()["students"]
+
+        self.assertEqual([(row["number"], row["total"], row["counts_for_results"]) for row in rows],
+                         [(1, "0.00", False), (2, "2.00", True)])
+
+    def test_a_paper_nobody_has_finished_lists_nobody(self):
+        self.sit(self.student, {1: {"selected_option": "B"}}, submit=False)
+
+        self.assertEqual(self.overview()["students"], [])

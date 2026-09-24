@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, CheckCircle2, Clock, KeyRound, Loader2, LogOut, Monitor, TimerOff } from 'lucide-react';
 import StationService from '@/services/StationService';
 import StudentCBTService, {
-  CBTAttemptDetail, CBTAttemptState, CBTMyExam, CBTRequestError, sessionTokens,
+  CBTAttemptDetail, CBTAttemptState, CBTMyExam, CBTRequestError, scorePendingMessage, sessionTokens,
 } from '@/services/StudentCBTService';
 import ExamScreen from '@/components/cbt/student/ExamScreen';
 
@@ -161,11 +161,13 @@ const CBTExamPage: React.FC = () => {
             <LogOut className="h-5 w-5" /> Sign out so the next student can sign in
           </button>
         )}
-        {view.state?.score && (
+        {view.state?.score ? (
           <p className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-lg font-semibold text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-200">
             Your score: {Number(view.state.score.total)} / {Number(view.state.score.max)} ({view.state.score.percentage}%)
           </p>
-        )}
+        ) : view.state?.score_pending ? (
+          <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">{scorePendingMessage(view.state.score_pending)}</p>
+        ) : null}
       </Shell>
     );
   }
