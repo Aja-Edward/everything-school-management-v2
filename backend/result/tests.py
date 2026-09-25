@@ -168,3 +168,79 @@ class AssessmentComponentLevelTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
         self.assertIn("another school", str(response.data))
         self.assertFalse(self.mine().exists())
+
+    def existing(self, name, code):
+        return AssessmentComponent.objects.create(
+            tenant=self.tenant, education_level=self.my_level, name=name, code=code,
+            component_type="CA", max_score=20)
+
+    def add(self, name, code, level=None):
+        return self.client.post(
+            self.URL,
+            {"education_level": (level or self.my_level).id, "name": name, "code": code,
+             "component_type": "CA", "max_score": 20},
+            format="json", HTTP_X_TENANT_SLUG=self.tenant.slug)
+
+    def test_the_same_name_under_a_different_code_is_refused(self):
+        """The regression: '1st CA Test' and '1st CA' lived side by side."""
+        self.existing("1st CA", "1st_ca")
+        # The school is seeded components of its own, so count the change.
+        on_level = AssessmentComponent.objects.filter(education_level=self.my_level)
+        before = on_level.count()
+
+        response = self.add("  1ST   ca  ", "CA1-NEW")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertIn("already has a component named", str(response.data["name"]))
+        self.assertEqual(on_level.count(), before)
+
+    def test_the_same_name_on_another_level_is_allowed(self):
+        """Every level has its own 1st CA; only a repeat within one level is wrong."""
+        self.existing("1st CA", "1st_ca")
+        other_level = self.make_level(self.tenant, "jss")
+
+        response = self.add("1st CA", "1st_ca", level=other_level)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+    def test_a_repeated_code_is_refused_before_the_database_has_to(self):
+        """Without this the unique index raises IntegrityError, which is a 500."""
+        self.existing("Classwork", "cw")
+
+        response = self.add("Homework", "CW")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertIn("already has a component with the code", str(response.data["code"]))
+
+    def test_editing_a_component_without_renaming_it_is_allowed(self):
+        """Its own name must not count as a clash with itself."""
+        component = self.existing("1st CA", "1st_ca")
+
+        response = self.client.patch(
+            f"{self.URL}{component.id}/", {"max_score": 15}, format="json",
+            HTTP_X_TENANT_SLUG=self.tenant.slug)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        component.refresh_from_db()
+        self.assertEqual(component.max_score, 15)
+
+    def test_a_school_that_already_has_a_clash_can_still_edit_its_way_out(self):
+        """
+        The check must not trap the data it exists to clean up: where two
+        components already mean the same thing, editing either one -- including
+        renaming it to something else -- has to go through.
+        """
+        keep = self.existing("1st CA", "1st_ca")
+        self.existing("1ST ca", "ca1_old")  # made before the rule existed
+
+        untouched = self.client.patch(
+            f"{self.URL}{keep.id}/", {"max_score": 15}, format="json",
+            HTTP_X_TENANT_SLUG=self.tenant.slug)
+        renamed = self.client.patch(
+            f"{self.URL}{keep.id}/", {"name": "First CA"}, format="json",
+            HTTP_X_TENANT_SLUG=self.tenant.slug)
+
+        self.assertEqual(untouched.status_code, status.HTTP_200_OK, untouched.data)
+        self.assertEqual(renamed.status_code, status.HTTP_200_OK, renamed.data)
+        keep.refresh_from_db()
+        self.assertEqual(keep.name, "First CA")

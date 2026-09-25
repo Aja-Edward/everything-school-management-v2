@@ -541,6 +541,50 @@ class AssessmentComponentCreateUpdateSerializer(serializers.ModelSerializer):
             )
         return value.lower()
 
+    @staticmethod
+    def _same_name(name):
+        """A name stripped to what a reader would call the same thing."""
+        return "".join(ch for ch in (name or "").lower() if ch.isalnum())
+
+    def validate(self, attrs):
+        """
+        One component per name and per code on a level.
+
+        The database now refuses a repeated code, but a school can still end up
+        with "1st CA Test" beside "1st CA" under different codes -- the same
+        component twice as far as anyone entering marks is concerned. That is
+        how one school reached 37 components where 28 were meant. The seeding
+        routine has always normalised names this way; the API did not, so
+        anything added afterwards escaped the check.
+        """
+        level = attrs.get("education_level", getattr(self.instance, "education_level", None))
+        tenant = (getattr(self.context.get("request"), "tenant", None)
+                  or getattr(self.instance, "tenant", None))
+        if level is None or tenant is None:
+            return attrs
+
+        siblings = AssessmentComponent.objects.filter(tenant=tenant, education_level=level)
+        if self.instance is not None:
+            siblings = siblings.exclude(pk=self.instance.pk)
+
+        # Only what this request actually sets is checked. A school that
+        # already has two components meaning the same thing must still be able
+        # to edit either of them -- otherwise the check traps the very data it
+        # exists to clean up.
+        if "name" in attrs:
+            wanted = self._same_name(attrs["name"])
+            clash = next((s for s in siblings if self._same_name(s.name) == wanted), None)
+            if clash:
+                raise serializers.ValidationError({
+                    "name": f"{level.name} already has a component named \"{clash.name}\" "
+                            f"(code {clash.code}). Rename that one, or edit it instead."
+                })
+        if "code" in attrs and siblings.filter(code__iexact=attrs["code"]).exists():
+            raise serializers.ValidationError({
+                "code": f"{level.name} already has a component with the code \"{attrs['code']}\"."
+            })
+        return attrs
+
     def create(self, validated_data):
         request = self.context.get("request")
         if request and hasattr(request, "tenant"):
