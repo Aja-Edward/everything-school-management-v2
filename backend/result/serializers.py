@@ -481,9 +481,38 @@ class AssessmentComponentSerializer(serializers.ModelSerializer):
 
 
 class AssessmentComponentCreateUpdateSerializer(serializers.ModelSerializer):
+    # Narrowed to the caller's own school in __init__. Unfiltered, a school
+    # could post another school's education_level id and hang its components
+    # off that school's levels -- which is how one school ended up with 60
+    # components on another's nursery and primary levels.
     education_level = serializers.PrimaryKeyRelatedField(
         queryset=EducationLevel.objects.all()
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if tenant is not None:
+            field = self.fields["education_level"]
+            field.queryset = EducationLevel.objects.filter(tenant=tenant)
+            # Otherwise another school's level is refused as "Invalid pk", which
+            # reads like a bug in the sender rather than the rule it broke.
+            field.error_messages["does_not_exist"] = (
+                "That education level belongs to another school, or does not exist."
+            )
+
+    def validate_education_level(self, level):
+        """
+        Checked again here: the queryset above is only narrowed when the
+        serializer is built with a request, and a mismatch must be refused
+        however this serializer is reached.
+        """
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if tenant is not None and level.tenant_id != tenant.id:
+            raise serializers.ValidationError(
+                "That education level belongs to another school."
+            )
+        return level
 
     class Meta:
         model = AssessmentComponent

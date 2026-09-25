@@ -1,5 +1,6 @@
 """
 Exam sessions: their term must belong to their academic session.
+Assessment components: their education level must belong to the same school.
 """
 
 from datetime import date
@@ -8,8 +9,8 @@ from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from academics.models import AcademicSession, Term, TermType
-from result.models import ExamSession, ExamType
+from academics.models import AcademicSession, EducationLevel, Term, TermType
+from result.models import AssessmentComponent, ExamSession, ExamType
 from tenants.models import Tenant
 
 User = get_user_model()
@@ -105,3 +106,65 @@ class ExamSessionTermTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
 
         self.assertFalse(ExamSession.objects.exists())
+
+
+class AssessmentComponentLevelTest(APITestCase):
+    """
+    A component must hang off one of the caller's own education levels.
+
+    The regression: the create serializer offered every school's levels, so a
+    posted id belonging to another school was accepted. One school ended up
+    with 60 components attached to another school's nursery and primary.
+    """
+
+    URL = "/api/results/assessment-components/"
+
+    def setUp(self):
+        self.tenant = self.make_tenant("component-school")
+        self.other = self.make_tenant("component-elsewhere")
+        self.my_level = self.make_level(self.tenant, "primary")
+        self.their_level = self.make_level(self.other, "primary")
+        admin = User.objects.create_user(
+            username="component_admin", email="component_admin@example.com", role="admin",
+            password="testpass123", is_active=True, tenant=self.tenant)
+        self.client.force_authenticate(user=admin)
+
+    def make_tenant(self, slug):
+        return Tenant.objects.create(
+            name=slug.replace("-", " ").title(), slug=slug, status="active",
+            is_active=True, owner_email=f"{slug}@example.com")
+
+    def make_level(self, tenant, code):
+        level, _ = EducationLevel.objects.get_or_create(
+            tenant=tenant, code=code, defaults={"name": code.title(), "level_type": code.upper()})
+        return level
+
+    # Creating a tenant seeds it a set of components, so every assertion below
+    # looks for this one by its own code rather than counting the table.
+    CODE = "CA1-PORTED"
+
+    def post(self, level):
+        return self.client.post(
+            self.URL,
+            {"education_level": level.id, "name": "First CA", "code": self.CODE,
+             "component_type": "CA", "max_score": 20},
+            format="json", HTTP_X_TENANT_SLUG=self.tenant.slug)
+
+    def mine(self):
+        # The serializer lowercases code on the way in.
+        return AssessmentComponent.objects.filter(code__iexact=self.CODE)
+
+    def test_a_component_can_be_added_to_our_own_level(self):
+        response = self.post(self.my_level)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        component = self.mine().get()
+        self.assertEqual(component.education_level, self.my_level)
+        self.assertEqual(component.tenant, self.tenant)
+
+    def test_another_schools_education_level_is_refused(self):
+        response = self.post(self.their_level)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertIn("another school", str(response.data))
+        self.assertFalse(self.mine().exists())
