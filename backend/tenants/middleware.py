@@ -20,6 +20,17 @@ class TenantMiddleware:
     # Main platform domain
     PLATFORM_DOMAIN = getattr(settings, "PLATFORM_DOMAIN", "nuventacloud.com")
 
+    # A tenant is reachable only when both of these say so: suspending a school
+    # and deactivating one each write a different field, so either on its own
+    # has to close it. Every resolution branch below applies this, not a
+    # half of it.
+    ACTIVE = {"status": "active", "is_active": True}
+
+    @staticmethod
+    def _is_active_tenant(tenant):
+        """The same rule, for a tenant already in hand rather than a query."""
+        return bool(tenant) and tenant.status == "active" and tenant.is_active
+
     def __init__(self, get_response):
         self.get_response = get_response
 
@@ -46,7 +57,7 @@ class TenantMiddleware:
                 if parts and parts[0] not in self.EXCLUDED_SUBDOMAINS:
                     subdomain = parts[0]
                     tenant = Tenant.objects.filter(
-                        slug=subdomain, status="active", is_active=True
+                        slug=subdomain, **self.ACTIVE
                     ).first()
                     logger.debug(f"TenantMiddleware: localhost subdomain lookup for '{subdomain}': tenant={tenant}")
 
@@ -60,8 +71,7 @@ class TenantMiddleware:
                 tenant = Tenant.objects.filter(
                     custom_domain=host,
                     custom_domain_verified=True,
-                    is_active=True,
-                    status='active'
+                    **self.ACTIVE
                 ).first()
                 logger.debug(
                     f"TenantMiddleware: Custom domain lookup for '{host}': tenant={tenant}"
@@ -73,7 +83,7 @@ class TenantMiddleware:
                 if parts and parts[0] not in self.EXCLUDED_SUBDOMAINS:
                     subdomain = parts[0]
                     tenant = Tenant.objects.filter(
-                        slug=subdomain, status="active", is_active=True
+                        slug=subdomain, **self.ACTIVE
                     ).first()
                     logger.debug(
                         f"TenantMiddleware: Platform subdomain lookup for '{subdomain}': tenant={tenant}"
@@ -89,11 +99,11 @@ class TenantMiddleware:
                         import uuid
                         uuid.UUID(tenant_header)
                         tenant = Tenant.objects.filter(
-                            id=tenant_header, is_active=True
+                            id=tenant_header, **self.ACTIVE
                         ).first()
                     except ValueError:
                         tenant = Tenant.objects.filter(
-                            slug=tenant_header, is_active=True
+                            slug=tenant_header, **self.ACTIVE
                         ).first()
                     logger.debug(f"TenantMiddleware: Header lookup for '{tenant_header}': tenant={tenant}")
 
@@ -103,9 +113,17 @@ class TenantMiddleware:
                     f"TenantMiddleware: Attempting user tenant fallback for user={request.user}"
                 )
                 user_tenant = getattr(request.user, 'tenant', None)
-                if user_tenant and isinstance(user_tenant, Tenant):
+                # This branch reads the FK straight off the user rather than
+                # through a filtered queryset, so it is the one place where a
+                # closed school could still be reached: deactivating it shut
+                # the subdomain but left anyone already signed in working.
+                if user_tenant and isinstance(user_tenant, Tenant) and self._is_active_tenant(user_tenant):
                     tenant = user_tenant
                     logger.info(f"TenantMiddleware: Using user's tenant: {tenant}")
+                elif user_tenant:
+                    logger.warning(
+                        f"TenantMiddleware: User {request.user}'s tenant {user_tenant} is not active"
+                    )
                 else:
                     logger.warning(
                         f"TenantMiddleware: User {request.user} has no valid tenant attribute"
@@ -115,7 +133,7 @@ class TenantMiddleware:
             if not tenant and hasattr(request, "session"):
                 tenant_id = request.session.get("tenant_id")
                 if tenant_id:
-                    tenant = Tenant.objects.filter(id=tenant_id, is_active=True).first()
+                    tenant = Tenant.objects.filter(id=tenant_id, **self.ACTIVE).first()
                     logger.debug(
                         f"TenantMiddleware: Session tenant lookup for '{tenant_id}': tenant={tenant}"
                     )
