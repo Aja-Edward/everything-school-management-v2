@@ -1316,6 +1316,28 @@ def debug_login_function(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 
+def _account_in_callers_school(request, user_id):
+    """
+    The account `user_id` names, if the caller may manage it; else a Response.
+
+    IsAdminUser is only is_staff, which every school's own admin has, so the
+    lookup itself must stay inside the caller's school. An account in another
+    school answers 404, the same as one that doesn't exist, so ids can't be
+    probed; one in the school but above the caller's rank answers 403.
+    """
+    from common.admin_access import in_same_school, outranks
+
+    target = User.objects.filter(pk=user_id).first()
+    if target is None or not in_same_school(request.user, target):
+        return None, Response({"error": "User not found."}, status=404)
+    if not outranks(request.user, target):
+        return None, Response(
+            {"error": "You don't have permission to manage this account."},
+            status=403,
+        )
+    return target, None
+
+
 @api_view(["PATCH"])
 @permission_classes([IsAdminUser])
 def activate_user(request, user_id):
@@ -1324,7 +1346,9 @@ def activate_user(request, user_id):
         print(f"🔍 Request data: {request.data}")
         print(f"🔍 Request user: {request.user}")
 
-        user = User.objects.get(pk=user_id)
+        user, refusal = _account_in_callers_school(request, user_id)
+        if refusal is not None:
+            return refusal
         print(
             f"🔍 Found user: {user.username} (ID: {user.id}), current is_active: {user.is_active}"
         )
@@ -1361,7 +1385,9 @@ def admin_reset_password(request):
                 {"error": "user_id and new_password are required."}, status=400
             )
 
-        user = User.objects.get(id=user_id)
+        user, refusal = _account_in_callers_school(request, user_id)
+        if refusal is not None:
+            return refusal
         user.set_password(new_password)
         user.save()
 
@@ -1387,6 +1413,20 @@ def create_admin(request):
     role = request.data.get("role", "admin")  # allow section admins
     if not all([email, first_name, last_name]):
         return Response({"detail": "email, first_name, last_name required"}, 400)
+
+    from common.admin_access import SCHOOL_ADMIN_ROLES, SECTION_ADMIN_LEVELS
+
+    # Only a school's own admins add admins; a section admin who happens to
+    # be staff does not. And never a superadmin: that is the school owner,
+    # made at registration, and role came straight from the request body.
+    if not request.user.is_platform_staff and request.user.role not in SCHOOL_ADMIN_ROLES:
+        return Response({"detail": "Only a school admin can add admins."}, 403)
+    if role not in {"admin", *SECTION_ADMIN_LEVELS}:
+        return Response({"detail": f"'{role}' is not a role an admin can be given."}, 400)
+    tenant = getattr(request, "tenant", None) or request.user.tenant
+    if tenant is None:
+        return Response({"detail": "Unable to determine your school."}, 400)
+
     if User.objects.filter(email=email).exists():
         return Response({"detail": "Email already in use"}, 400)
     # Callers that ARE platform superusers create via Django shell,
@@ -1404,8 +1444,9 @@ def create_admin(request):
             is_staff=True,  # Can access Django admin
             is_superuser=False,  # NEVER True for school admins
             is_active=True,
-            # Link to the calling admin's tenant
-            tenant=request.user.tenant,
+            # The school the request is for, which authentication has
+            # already confirmed is the caller's own.
+            tenant=tenant,
         )
         return Response(
             {

@@ -402,12 +402,45 @@ def update_user_role(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    try:
-        user = User.objects.get(email=email)
-    except User.DoesNotExist:
+    from common.admin_access import (
+        SCHOOL_ADMIN_ROLES, SECTION_ADMIN_LEVELS, in_same_school, outranks,
+    )
+
+    # Only a school's own admins change roles, and only to a school role:
+    # role came straight from the request body, so without this a staff
+    # account could make anyone, itself included, a superadmin.
+    if not request.user.is_platform_staff and request.user.role not in SCHOOL_ADMIN_ROLES:
+        return Response(
+            {"error": "Only a school admin can change roles."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    if role_name not in {"admin", "teacher", *SECTION_ADMIN_LEVELS}:
+        return Response(
+            {"error": f"'{role_name}' is not a role that can be assigned here."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Emails are not unique across schools, and the lookup used to span all of
+    # them, so this could change a user in another school.
+    matches = [
+        u for u in User.objects.filter(email__iexact=email)
+        if in_same_school(request.user, u)
+    ]
+    if not matches:
         return Response(
             {"error": f"No user found with email '{email}'"},
             status=status.HTTP_404_NOT_FOUND,
+        )
+    if len(matches) > 1:
+        return Response(
+            {"error": f"More than one account in your school uses '{email}'."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    user = matches[0]
+    if not outranks(request.user, user):
+        return Response(
+            {"error": "You don't have permission to manage this account."},
+            status=status.HTTP_403_FORBIDDEN,
         )
 
     # Ensure role exists (create if missing)
