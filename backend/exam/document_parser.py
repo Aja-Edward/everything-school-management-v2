@@ -895,8 +895,17 @@ class ExamDocumentParser:
         # front of the first question with nothing to separate them and get
         # read as part of its stem - drop it, since it's already captured
         # separately as the exam title.
+        # The title falls back to the first long line, which can just as well
+        # be "Section A", a numbered question, or the stem above a question's
+        # options. Dropping those lost Section A, or the first question, from
+        # a paper typed with no title at the top.
         title_norm = title.strip()
-        if title_norm and paras and paras[0] == title_norm:
+        if (
+            title_norm and paras and paras[0] == title_norm
+            and not SECTION_HEADER_RE.match(paras[0])
+            and not NUMBERED_LINE_RE.match(paras[0])
+            and not (len(paras) > 1 and OPTION_LINE_RE.match(paras[1]))
+        ):
             paras = paras[1:]
 
         # Find genuine section headers, skipping table-of-contents style

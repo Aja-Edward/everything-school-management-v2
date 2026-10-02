@@ -420,6 +420,14 @@ class Exam(TenantMixin, models.Model):
         default=dict, blank=True,
         help_text='A sound clip for the objective or theory section, played on the CBT paper: '
                   '{"objective": {"url", "title", "plays", "duration"}}. A custom section keeps its own under "audio".')
+    # The paper typed out freely on one page, the way a teacher would in Word,
+    # with their own line breaks. It can be printed as it stands, and can be
+    # turned into the questions above for CBT and marking.
+    plain_page = models.TextField(
+        blank=True, help_text="HTML of the exam paper typed freely in the Plain Page tab")
+    print_plain_page = models.BooleanField(
+        default=False,
+        help_text="Print the plain page exactly as typed instead of the question sections")
 
     # File uploads (optional)
     questions_file = models.FileField(

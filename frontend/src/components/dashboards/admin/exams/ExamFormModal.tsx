@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   X, ChevronRight, AlertCircle, CheckCircle2,
-  FileText, List, BookOpen, FlaskConical, LayoutGrid, Settings2,
+  FileText, List, BookOpen, FlaskConical, LayoutGrid, Settings2, PenLine,
 } from 'lucide-react';
 import {
   Exam, ExamCreateData, ExamService,
@@ -15,6 +15,7 @@ import QuestionSectionTheory from './QuestionSectionTheory';
 import QuestionSectionPractical from './QuestionSectionPractical';
 import QuestionSectionCustom from './QuestionSectionCustom';
 import { SoundClipField } from '@/components/shared/ExamEditor';
+import ExamPlainPage, { plainPageHasContent } from '@/components/shared/ExamPlainPage';
 import type { SoundClip } from '@/services/SoundClipService';
 import ClassroomService from '@/services/ClassroomService';
 import { loadDefaultPrintSettings, saveDefaultPrintSettings } from '@/utils/printSettingsDefaults';
@@ -31,7 +32,7 @@ interface ExamFormModalProps {
   saveError?: string | null;
 }
 
-type Tab = 'details' | 'mcq' | 'theory' | 'practical' | 'custom' | 'print';
+type Tab = 'details' | 'mcq' | 'theory' | 'practical' | 'custom' | 'plain' | 'print';
 
 const TABS: { key: Tab; label: string; icon: React.ReactNode; section: string }[] = [
   { key: 'details',   label: 'Details',       icon: <FileText size={15} />,     section: '' },
@@ -39,6 +40,7 @@ const TABS: { key: Tab; label: string; icon: React.ReactNode; section: string }[
   { key: 'theory',    label: 'Section B – Theory', icon: <BookOpen size={15} />, section: 'B' },
   { key: 'practical', label: 'Section C – Practical', icon: <FlaskConical size={15} />, section: 'C' },
   { key: 'custom',    label: 'Section D – Custom', icon: <LayoutGrid size={15} />, section: 'D' },
+  { key: 'plain',     label: 'Plain Page',      icon: <PenLine size={15} />,    section: '' },
   { key: 'print',     label: 'Print Settings',  icon: <Settings2 size={15} />, section: '' },
 ];
 
@@ -254,6 +256,10 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
   const [practicalQs,  setPracticalQs]  = useState<PracticalQuestion[]>([]);
   const [customSecs,   setCustomSecs]   = useState<CustomSection[]>([]);
 
+  // The paper typed freely in the Plain Page tab
+  const [plainPage,      setPlainPage]      = useState('');
+  const [printPlainPage, setPrintPlainPage] = useState(false);
+
   // Print settings
   const [printSettings, setPrintSettings] = useState<PrintSettings>({ ...DEFAULT_PRINT_SETTINGS });
 
@@ -385,6 +391,8 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
       setPracticalQs(exam.practical_questions || []);
       setCustomSecs(exam.custom_sections || []);
       setSectionAudio(exam.section_audio || {});
+      setPlainPage(exam.plain_page || '');
+      setPrintPlainPage(!!exam.print_plain_page);
       setPrintSettings({
         ...DEFAULT_PRINT_SETTINGS,
         ...(loadDefaultPrintSettings() ?? {}),
@@ -400,6 +408,7 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
       setVenue(''); setInstructions(''); setMaterialsAllowed('');
       setStatus('draft'); setIsPractical(false); setRequiresComputer(false); setIsOnline(false);
       setObjectiveQs([]); setTheoryQs([]); setPracticalQs([]); setCustomSecs([]); setSectionAudio({});
+      setPlainPage(''); setPrintPlainPage(false);
       setPrintSettings({ ...DEFAULT_PRINT_SETTINGS, ...(loadDefaultPrintSettings() ?? {}) });
     }
     setActiveTab('details');
@@ -473,6 +482,9 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
         theory_instructions: theoInstructions,
         practical_instructions: practInstructions,
         section_audio: sectionAudio,
+        plain_page: plainPageHasContent(plainPage) ? plainPage : '',
+        // Nothing typed means nothing to print in place of the sections.
+        print_plain_page: printPlainPage && plainPageHasContent(plainPage),
         print_settings: printSettings,
       };
       onSubmit(data);
@@ -488,7 +500,7 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
     const counts: Record<Tab, number> = {
       mcq: objectiveQs.length, theory: theoryQs.length,
       practical: practicalQs.length, custom: customSecs.length,
-      details: 0, print: 0,
+      details: 0, plain: 0, print: 0,
     };
     return counts[tab] > 0 ? counts[tab] : null;
   };
@@ -818,6 +830,32 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
             {/* ─── CUSTOM TAB ─── */}
             {activeTab === 'custom' && (
               <QuestionSectionCustom value={customSecs} onChange={setCustomSecs} />
+            )}
+
+            {/* ─── PLAIN PAGE TAB ─── */}
+            {activeTab === 'plain' && (
+              <ExamPlainPage
+                value={plainPage}
+                onChange={setPlainPage}
+                printAsTyped={printPlainPage}
+                onPrintAsTypedChange={setPrintPlainPage}
+                existingQuestionCount={
+                  objectiveQs.length + theoryQs.length + practicalQs.length +
+                  customSecs.reduce((n, sec) => n + ((sec as any).questions?.length ?? 0), 0)
+                }
+                onConvert={converted => {
+                  setObjectiveQs(converted.objective_questions);
+                  setTheoryQs(converted.theory_questions);
+                  setPracticalQs(converted.practical_questions);
+                  setCustomSecs(converted.custom_sections);
+                  setActiveTab(
+                    converted.objective_questions.length ? 'mcq'
+                      : converted.theory_questions.length ? 'theory'
+                      : converted.practical_questions.length ? 'practical'
+                      : 'custom',
+                  );
+                }}
+              />
             )}
 
             {/* ─── PRINT SETTINGS TAB ─── */}

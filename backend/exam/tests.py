@@ -10,13 +10,16 @@ reaches every school's rows.
 """
 
 from datetime import date, time, timedelta
+from textwrap import dedent
 
 from django.contrib.auth import get_user_model
+from django.test import SimpleTestCase
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from academics.models import AcademicSession, EducationLevel, Term, TermType
 from classroom.models import Class, GradeLevel
+from exam.document_parser import ExamDocumentParser
 from exam.models import (
     DifficultyLevel,
     Exam,
@@ -258,6 +261,121 @@ class SavingAnEditedExamTest(ExamApiTestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("status", response.data)
+
+
+class ThePlainPageTest(ExamApiTestCase):
+    """
+    A school asked to type the paper on one page, the way they would in Word,
+    breaking lines where they choose. The page is kept as typed, and so is the
+    choice to print it in place of the question sections.
+    """
+
+    PAGE = "<p>Section A</p><p>1. What is 2 + 2?</p><p></p><p>A. 3</p><p>B. 4</p>"
+
+    def setUp(self):
+        super().setUp()
+        self.login("admin")
+
+    def test_a_new_exam_keeps_its_page_with_no_questions(self):
+        response = self.post(EXAMS, {
+            **self.new_exam_payload(self.school),
+            "plain_page": self.PAGE, "print_plain_page": True,
+        })
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        exam = Exam.objects.get(tenant=self.school, title="New exam")
+        self.assertEqual((exam.plain_page, exam.print_plain_page), (self.PAGE, True))
+        self.assertEqual(exam.objective_questions, [])
+
+    def test_the_page_comes_back_where_the_forms_and_printing_read_it(self):
+        Exam.objects.filter(pk=self.exam.pk).update(plain_page=self.PAGE, print_plain_page=True)
+
+        detail = self.get(f"{EXAMS}{self.exam.id}/").data
+        listing = self.get(EXAMS).data
+        listed = next(e for e in listing.get("results", listing) if e["id"] == self.exam.id)
+
+        for read in (detail, listed):
+            self.assertEqual((read["plain_page"], read["print_plain_page"]), (self.PAGE, True))
+
+    def test_an_edit_can_change_the_page_and_stop_printing_it(self):
+        Exam.objects.filter(pk=self.exam.pk).update(plain_page=self.PAGE, print_plain_page=True)
+
+        response = self.client.patch(
+            f"{EXAMS}{self.exam.id}/", {"plain_page": "<p>Changed</p>", "print_plain_page": False},
+            format="json", HTTP_X_TENANT_SLUG=self.school.slug)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.exam.refresh_from_db()
+        self.assertEqual((self.exam.plain_page, self.exam.print_plain_page), ("<p>Changed</p>", False))
+
+    def test_an_exam_made_before_the_page_existed_has_none(self):
+        self.assertEqual((self.exam.plain_page, self.exam.print_plain_page), ("", False))
+
+
+class ReadingATypedPaperTest(SimpleTestCase):
+    """
+    Pasted text and the Plain Page are both read by the same parser. With no
+    title at the top, it took the first long line as the title and dropped it
+    from the paper - and that line was "Section A" or the first question, so
+    a whole section, or the first question, vanished from what was imported.
+    """
+
+    def sections(self, text):
+        parsed = ExamDocumentParser(text.encode("utf-8"), "pasted-exam.txt").parse()
+        return [(s["type"], len(s["questions"])) for s in parsed["sections"]]
+
+    def test_a_paper_starting_with_section_a_keeps_section_a(self):
+        self.assertEqual(self.sections(dedent("""\
+            Section A - Objective
+
+            What is 2 + 2?
+            A. 2
+            B. 3
+            C. 4
+            D. 5
+
+            Section B - Theory
+            1. Explain photosynthesis. (10 marks)
+            """)), [("objective", 1), ("theory", 1)])
+
+    def test_a_paper_starting_with_a_question_keeps_it(self):
+        numbered = dedent("""\
+            1. What is 2 + 2?
+            A. 3
+            B. 4
+            C. 5
+            D. 6
+            2. What is 3 + 3?
+            A. 6
+            B. 7
+            C. 8
+            D. 9
+            """)
+        unnumbered = dedent("""\
+            What is the capital of Nigeria?
+            A. Lagos
+            B. Abuja
+            C. Kano
+            D. Ibadan
+            What is 3 + 3?
+            A. 6
+            B. 7
+            C. 8
+            D. 9
+            """)
+
+        self.assertEqual(self.sections(numbered), [("objective", 2)])
+        self.assertEqual(self.sections(unnumbered), [("objective", 2)])
+
+    def test_a_title_line_is_still_left_out_of_the_questions(self):
+        self.assertEqual(self.sections(dedent("""\
+            First Term Mathematics Examination
+            What is 2 + 2?
+            A. 2
+            B. 3
+            C. 4
+            D. 5
+            """)), [("objective", 1)])
 
 
 class ExamsAreForStaffTest(ExamApiTestCase):

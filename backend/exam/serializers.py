@@ -335,6 +335,8 @@ class ExamListSerializer(serializers.ModelSerializer):
             "theory_instructions",
             "practical_instructions",
             "section_audio",
+            "plain_page",
+            "print_plain_page",
             "approved_by_name",
             "approved_at",
             "approval_notes",
@@ -428,6 +430,8 @@ class ExamDetailSerializer(serializers.ModelSerializer):
             "theory_instructions",
             "practical_instructions",
             "section_audio",
+            "plain_page",
+            "print_plain_page",
             "approved_by_name",
             "approved_at",
             "approval_notes",
@@ -535,6 +539,8 @@ class ExamCreateUpdateSerializer(SchoolScopedRelationsMixin, serializers.ModelSe
             "theory_instructions",
             "practical_instructions",
             "section_audio",
+            "plain_page",
+            "print_plain_page",
         ]
         extra_kwargs = {
             "code": {"required": False},

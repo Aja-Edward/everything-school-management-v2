@@ -5,7 +5,7 @@ import ClassroomService from '@/services/ClassroomService';
 import TeacherService from '@/services/TeacherService';
 import { ExamService, ExamCreateData } from '@/services/ExamService';
 import { toast } from 'react-toastify';
-import { X, XCircle, Plus, Trash2, Save, Clock, Clock3, CheckCircle, AlertCircle, Upload, FileDown } from 'lucide-react';
+import { X, XCircle, Plus, Trash2, Save, Clock, Clock3, CheckCircle, AlertCircle, Upload, FileDown, PenLine } from 'lucide-react';
 import { generateExamWordTemplate, generateExamCsvTemplate } from '@/utils/examTemplateGenerator';
 import { MathTextInput, ObjectiveAnswerFields, RichTextEditor, SoundClipField } from '@/components/shared/ExamEditor';
 import type { SoundClip } from '@/services/SoundClipService';
@@ -14,6 +14,7 @@ import {
   normalizeExamDataForEdit
 } from '@/utils/examDataNormalizer';
 import { ExamDocumentUploader } from '@/components/shared/ExamDocumentUploader';
+import ExamPlainPage, { plainPageHasContent } from '@/components/shared/ExamPlainPage';
 
 
 interface ExamCreationFormProps {
@@ -44,7 +45,7 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
-  const [activeTab, setActiveTab] = useState<'basic' | 'questions' | 'upload'>('basic');
+  const [activeTab, setActiveTab] = useState<'basic' | 'questions' | 'upload' | 'plain'>('basic');
   const [formData, setFormData] = useState<ExamCreateData>({
     title: '',
     subject: 0,
@@ -69,7 +70,9 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({
     custom_sections: [],
     objective_instructions: '',
     theory_instructions: '',
-    practical_instructions: ''
+    practical_instructions: '',
+    plain_page: '',
+    print_plain_page: false
   });
 
   const [objectiveQuestions, setObjectiveQuestions] = useState<any[]>([]);
@@ -163,7 +166,9 @@ useEffect(() => {
       custom_sections: normalized.custom_sections || [],
       objective_instructions: normalized.objective_instructions || '',
       theory_instructions: normalized.theory_instructions || '',
-      practical_instructions: normalized.practical_instructions || ''
+      practical_instructions: normalized.practical_instructions || '',
+      plain_page: normalized.plain_page || '',
+      print_plain_page: !!normalized.print_plain_page
     });
 
     setObjectiveQuestions(normalized.objective_questions || []);
@@ -657,8 +662,9 @@ const handleInputChange = (field: keyof ExamCreateData, value: any) => {
       return false;
     }
     if (objectiveQuestions.length === 0 && theoryQuestions.length === 0 &&
-        practicalQuestions.length === 0 && customSections.length === 0) {
-      toast.error('Please add at least one question');
+        practicalQuestions.length === 0 && customSections.length === 0 &&
+        !plainPageHasContent(formData.plain_page)) {
+      toast.error('Please add at least one question, or type the exam on the Plain Page');
       return false;
     }
 
@@ -689,13 +695,47 @@ const editingStatusPk = editingExam
   ? (typeof editingExam.status === 'number' ? editingExam.status : (editingExam.status as any)?.id)
   : null;
 
+const plainPageFields = () => {
+  const hasPage = plainPageHasContent(formData.plain_page);
+  return {
+    plain_page: hasPage ? formData.plain_page : '',
+    // Nothing typed means nothing to print in place of the sections.
+    print_plain_page: hasPage && !!formData.print_plain_page,
+  };
+};
+
+// The marks come from the questions. A paper typed only on the Plain Page has
+// none yet, so it keeps the total entered there.
+const totalMarksForSave = () => {
+  const fromQuestions = calculateTotalMarks();
+  return fromQuestions > 0 || !plainPageHasContent(formData.plain_page)
+    ? fromQuestions
+    : formData.total_marks;
+};
+
+const handlePlainPageConvert = (examData: any) => {
+  setObjectiveQuestions(examData.objective_questions);
+  setTheoryQuestions(examData.theory_questions);
+  setPracticalQuestions(examData.practical_questions);
+  setCustomSections(examData.custom_sections);
+  // Custom sections only show, and only save, once they're in the order.
+  setSectionOrder([
+    { kind: 'objective' },
+    { kind: 'theory' },
+    { kind: 'practical' },
+    ...examData.custom_sections.map((section: any) => ({ kind: 'custom' as const, id: section.id })),
+  ]);
+  toast.success('Page converted to questions. Check them over before saving.');
+  setActiveTab('questions');
+};
+
 const saveAsDraft = async () => {
   if (!validateForm()) return;
 
   try {
     setSavingDraft(true);
     
-    const computedTotalMarks = calculateTotalMarks();
+    const computedTotalMarks = totalMarksForSave();
     const examData: ExamCreateData = {
       ...formData,
       // Preserve whatever status the exam already has (e.g. don't
@@ -711,6 +751,7 @@ const saveAsDraft = async () => {
       theory_instructions: theoryInstructions,
       practical_instructions: practicalInstructions,
       section_audio: sectionAudio,
+      ...plainPageFields(),
       total_marks: computedTotalMarks,
       pass_marks: Math.min(formData.pass_marks ?? computedTotalMarks, computedTotalMarks),
     };
@@ -743,7 +784,7 @@ const submitForApproval = async () => {
   try {
     setLoading(true);
     
-    const computedTotalMarks = calculateTotalMarks();
+    const computedTotalMarks = totalMarksForSave();
     const examData: ExamCreateData = {
       ...formData,
       // The admin's Approve action only accepts exams awaiting approval.
@@ -757,6 +798,7 @@ const submitForApproval = async () => {
       theory_instructions: theoryInstructions,
       practical_instructions: practicalInstructions,
       section_audio: sectionAudio,
+      ...plainPageFields(),
       total_marks: computedTotalMarks,
       pass_marks: Math.min(formData.pass_marks ?? computedTotalMarks, computedTotalMarks),
     };
@@ -867,6 +909,19 @@ const submitForApproval = async () => {
           >
             Questions & Instructions
           </button>
+          <button
+            onClick={() => setActiveTab('plain')}
+            className={`px-6 py-3 text-sm font-medium ${
+              activeTab === 'plain'
+                ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+          >
+            <div className="flex items-center space-x-2">
+              <PenLine className="w-4 h-4" />
+              <span>Plain Page</span>
+            </div>
+          </button>
         </div>
 
         <div className="p-6">
@@ -875,6 +930,34 @@ const submitForApproval = async () => {
               onImport={handleDocumentImport}
               onCancel={() => setActiveTab('basic')}
             />
+          ) : activeTab === 'plain' ? (
+            <div className="space-y-4">
+              {calculateTotalMarks() === 0 && (
+                <div className="flex items-center gap-3">
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Total marks for this paper
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={formData.total_marks}
+                    onChange={(e) => handleInputChange('total_marks', e.target.value)}
+                    className="w-24 px-3 py-1.5 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white text-sm"
+                  />
+                </div>
+              )}
+              <ExamPlainPage
+                value={formData.plain_page || ''}
+                onChange={(html) => handleInputChange('plain_page', html)}
+                printAsTyped={!!formData.print_plain_page}
+                onPrintAsTypedChange={(value) => handleInputChange('print_plain_page', value)}
+                existingQuestionCount={
+                  objectiveQuestions.length + theoryQuestions.length + practicalQuestions.length +
+                  customSections.reduce((n: number, s: any) => n + (s.questions?.length ?? 0), 0)
+                }
+                onConvert={handlePlainPageConvert}
+              />
+            </div>
           ) : activeTab === 'basic' ? (
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

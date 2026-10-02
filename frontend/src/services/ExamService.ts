@@ -63,6 +63,10 @@ export interface Exam {
   practical_instructions?: string;
   /** Sound clips for whole sections: {objective?, theory?}. Custom sections keep their own. */
   section_audio?: Record<string, SoundClip>;
+  /** The paper typed freely in the Plain Page tab, as HTML. */
+  plain_page?: string;
+  /** Print plain_page as typed instead of the question sections. */
+  print_plain_page?: boolean;
   // Per-exam print settings
   print_settings?: PrintSettings;
 }
@@ -135,6 +139,10 @@ export interface ExamCreateData {
   practical_instructions?: string;
   /** Sound clips for whole sections: {objective?, theory?}. Custom sections keep their own. */
   section_audio?: Record<string, SoundClip>;
+  /** The paper typed freely in the Plain Page tab, as HTML. */
+  plain_page?: string;
+  /** Print plain_page as typed instead of the question sections. */
+  print_plain_page?: boolean;
   print_settings?: PrintSettings;
 }
 
@@ -165,6 +173,10 @@ export interface ExamUpdateData {
   practical_instructions?: string;
   /** Sound clips for whole sections: {objective?, theory?}. Custom sections keep their own. */
   section_audio?: Record<string, SoundClip>;
+  /** The paper typed freely in the Plain Page tab, as HTML. */
+  plain_page?: string;
+  /** Print plain_page as typed instead of the question sections. */
+  print_plain_page?: boolean;
   pass_marks?: number;
   venue?: string;
   max_students?: number;

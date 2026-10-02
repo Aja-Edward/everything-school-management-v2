@@ -153,6 +153,27 @@ function renderRichContent(content: any): string {
 }
 
 // ===========================
+// PLAIN PAGE
+// ===========================
+
+/**
+ * The paper as typed on the Plain Page, when the exam is set to print it in
+ * place of the question sections; otherwise null.
+ */
+function plainPageBlock(exam: any): string | null {
+  if (!exam.print_plain_page || !safeString(exam.plain_page).trim()) return null;
+  return `<div class="plain-page">${renderRichContent(exam.plain_page)}</div>`;
+}
+
+/* Each line the teacher typed prints as one line, and an empty line they left
+   keeps its height, so the paper breaks where they broke it. */
+const PLAIN_PAGE_CSS = `
+    .plain-page p { margin: 0; }
+    .plain-page p:empty::before { content: "\\00a0"; }
+    .plain-page ul, .plain-page ol { margin: 0; padding-left: 24px; }
+`;
+
+// ===========================
 // PRINT SETTINGS HELPERS
 // ===========================
 
@@ -381,6 +402,7 @@ function generateStudentCopy(
 
     /* ===== DYNAMIC PRINT SETTINGS ===== */
     ${dynamicCss}
+    ${PLAIN_PAGE_CSS}
 
     /* ===== WATERMARK ===== */
     body::before {
@@ -624,6 +646,8 @@ function generateStudentCopy(
   </div>
   ` : ''}
 
+  <!-- PLAIN PAGE, printed as typed in place of the sections -->
+  ${plainPageBlock(exam) ?? `
   <!-- OBJECTIVE QUESTIONS -->
   ${exam.objective_questions?.length ? `
   <div class="section">
@@ -727,6 +751,8 @@ function generateStudentCopy(
     `).join('') : ''}
   </div>
   `).join('') : ''}
+
+  `}
 
   <!-- FOOTER -->
   <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #ddd; text-align: center; color: #666; font-size: 12px;">
@@ -843,6 +869,7 @@ function generateTeacherCopy(
       .question-content img, img { max-width: 90%; page-break-inside: avoid; }
       table { page-break-inside: avoid; }
     }
+    ${PLAIN_PAGE_CSS}
   </style>
 </head>
 <body>
@@ -879,6 +906,12 @@ function generateTeacherCopy(
     <div class="section-instruction">${renderRichContent(exam.instructions)}</div>
   </div>
   ` : ''}
+
+  ${/* A paper only typed on the Plain Page has no answers to list yet, so the
+       marking guide shows the paper itself rather than nothing. */
+    !exam.objective_questions?.length && !exam.theory_questions?.length &&
+    !exam.practical_questions?.length && !exam.custom_sections?.length
+      ? plainPageBlock(exam) ?? '' : ''}
 
   ${exam.objective_questions?.length ? `
   <div class="section">
