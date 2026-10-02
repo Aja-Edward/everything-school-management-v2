@@ -841,7 +841,7 @@ const handleEditExam = useCallback((exam: Exam) => {
         exam={selectedExamForPrint}
         onClose={() => setShowPrintPreview(false)}
         onSaveSettings={async (examId, ps) => {
-          await ExamService.updateExam(examId, { print_settings: ps } as any);
+          await ExamService.patchExam(examId, { print_settings: ps });
           setExams(prev => prev.map(e =>
             e.id === examId ? { ...e, print_settings: ps } as any : e
           ));

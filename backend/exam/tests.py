@@ -312,6 +312,73 @@ class ThePlainPageTest(ExamApiTestCase):
         self.assertEqual((self.exam.plain_page, self.exam.print_plain_page), ("", False))
 
 
+class SavingAnExamsPrintSettingsTest(ExamApiTestCase):
+    """
+    The exam form and Print Preview both say an exam keeps its own print
+    format, and both sent it - but the serializers left print_settings out,
+    so it was dropped on every save and never read back. The paper always
+    printed in the default format, whatever the school had chosen.
+    """
+
+    SETTINGS = {
+        "font_family": "arial", "font_size": 11, "line_height": 1.15,
+        "question_spacing": "compact", "option_layout": "stacked", "column_layout": 2,
+        "margin": "custom", "margin_mm": {"top": 8, "right": 10, "bottom": 8, "left": 10},
+        "show_marks": False, "show_instructions": True,
+    }
+
+    def setUp(self):
+        super().setUp()
+        self.login("admin")
+
+    def patch(self, data):
+        return self.client.patch(f"{EXAMS}{self.exam.id}/", data, format="json",
+                                 HTTP_X_TENANT_SLUG=self.school.slug)
+
+    def test_print_preview_saves_the_format_on_its_own(self):
+        response = self.patch({"print_settings": self.SETTINGS})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.exam.refresh_from_db()
+        self.assertEqual(self.exam.print_settings, self.SETTINGS)
+        self.assertEqual(self.exam.title, "First Term Mathematics")
+
+    def test_a_new_exam_keeps_its_format(self):
+        response = self.post(EXAMS, {**self.new_exam_payload(self.school), "print_settings": self.SETTINGS})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(Exam.objects.get(tenant=self.school, title="New exam").print_settings, self.SETTINGS)
+
+    def test_the_format_comes_back_where_the_form_and_printing_read_it(self):
+        Exam.objects.filter(pk=self.exam.pk).update(print_settings=self.SETTINGS)
+
+        detail = self.get(f"{EXAMS}{self.exam.id}/").data
+        listing = self.get(EXAMS).data
+        listed = next(e for e in listing.get("results", listing) if e["id"] == self.exam.id)
+
+        self.assertEqual(detail["print_settings"], self.SETTINGS)
+        self.assertEqual(listed["print_settings"], self.SETTINGS)
+
+    def test_a_format_that_would_print_oddly_is_refused(self):
+        for bad in (
+            {"font_size": 40},
+            {"font_family": "comic_sans"},
+            {"line_height": 3},
+            {"column_layout": 3},
+            {"show_marks": "yes"},
+            {"margin": "custom", "margin_mm": {"top": 1, "right": 10, "bottom": 10, "left": 10}},
+            {"margin_mm": {"top": 10}},
+            ["not", "an", "object"],
+        ):
+            with self.subTest(sent=bad):
+                response = self.patch({"print_settings": bad})
+
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertIn("print_settings", response.data)
+        self.exam.refresh_from_db()
+        self.assertEqual(self.exam.print_settings, {})
+
+
 class ReadingATypedPaperTest(SimpleTestCase):
     """
     Pasted text and the Plain Page are both read by the same parser. With no

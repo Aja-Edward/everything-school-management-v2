@@ -337,6 +337,7 @@ class ExamListSerializer(serializers.ModelSerializer):
             "section_audio",
             "plain_page",
             "print_plain_page",
+            "print_settings",
             "approved_by_name",
             "approved_at",
             "approval_notes",
@@ -432,6 +433,7 @@ class ExamDetailSerializer(serializers.ModelSerializer):
             "section_audio",
             "plain_page",
             "print_plain_page",
+            "print_settings",
             "approved_by_name",
             "approved_at",
             "approval_notes",
@@ -541,6 +543,7 @@ class ExamCreateUpdateSerializer(SchoolScopedRelationsMixin, serializers.ModelSe
             "section_audio",
             "plain_page",
             "print_plain_page",
+            "print_settings",
         ]
         extra_kwargs = {
             "code": {"required": False},
@@ -598,6 +601,51 @@ class ExamCreateUpdateSerializer(SchoolScopedRelationsMixin, serializers.ModelSe
             raise serializers.ValidationError(errors)
 
         return data
+
+    # Each print setting and what it may be, matching PrintSettings in the
+    # frontend's ExamService. A value outside these would print an odd paper.
+    PRINT_SETTING_CHOICES = {
+        "font_family": {"times_new_roman", "arial", "georgia", "calibri"},
+        "line_height": {1.0, 1.15, 1.5, 2.0},
+        "question_spacing": {"compact", "normal", "relaxed"},
+        "option_layout": {"auto", "inline", "stacked"},
+        "column_layout": {1, 2},
+        "margin": {"tight", "narrow", "normal", "wide", "custom"},
+    }
+
+    def validate_print_settings(self, value):
+        if value in (None, ""):
+            return {}
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Print settings must be an object.")
+
+        errors = {}
+        for key, choices in self.PRINT_SETTING_CHOICES.items():
+            if key in value and value[key] not in choices:
+                errors[key] = f"{value[key]!r} is not one of {sorted(choices, key=str)}."
+
+        if "font_size" in value:
+            size = value["font_size"]
+            if isinstance(size, bool) or not isinstance(size, (int, float)) or not 10 <= size <= 14:
+                errors["font_size"] = "Font size must be between 10 and 14."
+
+        for key in ("show_marks", "show_instructions"):
+            if key in value and not isinstance(value[key], bool):
+                errors[key] = "Must be true or false."
+
+        if value.get("margin_mm") is not None:
+            sides = value["margin_mm"]
+            if not isinstance(sides, dict) or any(
+                isinstance(sides.get(side), bool)
+                or not isinstance(sides.get(side), (int, float))
+                or not 5 <= sides[side] <= 50
+                for side in ("top", "right", "bottom", "left")
+            ):
+                errors["margin_mm"] = "Each margin needs top, right, bottom and left, from 5 to 50 mm."
+
+        if errors:
+            raise serializers.ValidationError(errors)
+        return value
 
     def validate_exam_date(self, value):
         if value < timezone.now().date():

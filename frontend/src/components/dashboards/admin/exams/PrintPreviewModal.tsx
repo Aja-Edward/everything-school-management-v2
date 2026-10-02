@@ -15,6 +15,18 @@ interface Props {
   onSaveSettings?: (examId: number, ps: PrintSettings) => Promise<void>;
 }
 
+/** Why saving the format failed, in words: a refused setting names itself. */
+const saveFailure = (err: unknown): string => {
+  const refused = (err as any)?.response?.data?.print_settings;
+  if (refused && typeof refused === 'object' && !Array.isArray(refused)) {
+    return Object.entries(refused)
+      .map(([setting, why]) => `${setting.replace(/_/g, ' ')}: ${([] as unknown[]).concat(why).join(' ')}`)
+      .join('; ');
+  }
+  if (Array.isArray(refused)) return refused.join(' ');
+  return err instanceof Error ? err.message : 'Could not save the format.';
+};
+
 const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSettings }) => {
   const { settings } = useSettings();
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -22,7 +34,7 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
   const [copyType,     setCopyType]     = useState<'student' | 'teacher'>('student');
   const [printSettings, setPrintSettings] = useState<PrintSettings>({ ...DEFAULT_PRINT_SETTINGS });
   const [downloading,  setDownloading]  = useState(false);
-  const [pdfError,     setPdfError]     = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [showPanel,    setShowPanel]    = useState(false);
   const [saving,       setSaving]       = useState(false);
   const [showSaveMenu, setShowSaveMenu] = useState(false);
@@ -74,12 +86,12 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
   // and page numbers instead of whatever the browser's print dialog produces.
   const handleDownloadPdf = async () => {
     if (!exam?.id || !html) return;
-    setPdfError(null);
+    setActionError(null);
     setDownloading(true);
     try {
       await downloadExamPdf(exam.id, html, copyType);
     } catch (err) {
-      setPdfError(err instanceof Error ? err.message : 'Could not download the PDF.');
+      setActionError(err instanceof Error ? err.message : 'Could not download the PDF.');
     } finally {
       setDownloading(false);
     }
@@ -88,11 +100,14 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
   const handleSaveSettings = async () => {
     if (!exam?.id || !onSaveSettings) return;
     setShowSaveMenu(false);
+    setActionError(null);
     setSaving(true);
     try {
       await onSaveSettings(exam.id, printSettings);
       setJustSaved('exam');
       setTimeout(() => setJustSaved(null), 2500);
+    } catch (err) {
+      setActionError(saveFailure(err));
     } finally {
       setSaving(false);
     }
@@ -102,6 +117,7 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
   // instead of the platform's hardcoded defaults - until an admin changes it.
   const handleSaveAsDefault = async () => {
     setShowSaveMenu(false);
+    setActionError(null);
     setSaving(true);
     try {
       saveDefaultPrintSettings(printSettings);
@@ -110,6 +126,10 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
       }
       setJustSaved('default');
       setTimeout(() => setJustSaved(null), 2500);
+    } catch (err) {
+      setActionError(
+        `Saved as the default for future exams, but not for this exam: ${saveFailure(err)}`,
+      );
     } finally {
       setSaving(false);
     }
@@ -217,11 +237,11 @@ const PrintPreviewModal: React.FC<Props> = ({ open, exam, onClose, onSaveSetting
           </div>
         </div>
 
-        {pdfError && (
+        {actionError && (
           <div className="px-5 py-2 bg-red-50 border-b border-red-200 text-xs text-red-700 flex items-center justify-between flex-shrink-0">
-            <span>{pdfError}</span>
+            <span>{actionError}</span>
             <button
-              onClick={() => setPdfError(null)}
+              onClick={() => setActionError(null)}
               className="text-red-500 hover:text-red-700"
               aria-label="Dismiss error"
             >

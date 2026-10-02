@@ -332,6 +332,20 @@ export class ExamService {
   }
 
   /**
+   * Change some of an exam's fields and leave the rest as they are. A PUT
+   * with only those fields is refused for want of the title, subject and the
+   * rest.
+   */
+  static async patchExam(id: number, data: Partial<ExamUpdateData>): Promise<Exam> {
+    try {
+      return await api.patch(`${this.baseUrl}/exams/${id}/`, data);
+    } catch (error) {
+      console.error('Error updating exam:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Delete an exam
    */
   static async deleteExam(id: number): Promise<void> {
