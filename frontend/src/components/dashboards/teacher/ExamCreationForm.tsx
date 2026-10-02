@@ -608,7 +608,9 @@ const handleInputChange = (field: keyof ExamCreateData, value: any) => {
         : prev.pass_marks;
       return {
         ...prev,
-        title: examData.title || prev.title,
+        // A title the teacher already typed stays. The imported one is only
+        // a guess - the document's first long line, or "Imported Exam".
+        title: prev.title.trim() ? prev.title : examData.title || prev.title,
         instructions: examData.instructions || prev.instructions,
         total_marks: newTotalMarks,
         pass_marks: newPassMarks,
