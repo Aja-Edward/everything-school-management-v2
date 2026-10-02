@@ -514,6 +514,9 @@ function processSection(section: ParsedSection, examData: any): void {
     default:
       if (validQuestions.length > 0) {
         examData.custom_sections.push({
+          // The exam forms keep custom sections in order by id, and drop
+          // any section without one when the exam is saved.
+          id: Date.now() + examData.custom_sections.length,
           name: section.name || 'Custom Section',
           instructions: section.instructions ?? '',
           questions: validQuestions.map((q, i) => ({

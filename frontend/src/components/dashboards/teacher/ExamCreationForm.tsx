@@ -634,6 +634,12 @@ const handleInputChange = (field: keyof ExamCreateData, value: any) => {
 
     if (examData.custom_sections?.length > 0) {
       setCustomSections(examData.custom_sections);
+      // Custom sections only show, and only save, once they're in the order.
+      // The imported ones replace the custom sections already there.
+      setSectionOrder(prev => [
+        ...prev.filter(item => item.kind !== 'custom'),
+        ...examData.custom_sections.map((section: any) => ({ kind: 'custom' as const, id: section.id })),
+      ]);
     }
 
     // Switch to questions tab to review imported content
