@@ -7,7 +7,7 @@
  * as uploaded photos.
  *
  * Features:
- *  • 30+ shape types across 5 categories
+ *  • 40 shape types across 5 categories, every basic geometric shape among them
  *  • Fill colour, stroke colour, background colour
  *  • Size (24 – 300 px), stroke width (0 – 12 px)
  *  • Live preview
@@ -32,12 +32,18 @@ const SHAPE_CATEGORIES: { name: string; shapes: ShapeDef[] }[] = [
       { label: 'Square',    path: (f,s,w) => `<rect x="${w/2}" y="${w/2}" width="${100-w}" height="${100-w}" fill="${f}" stroke="${s}" stroke-width="${w}"/>` },
       { label: 'Rectangle', path: (f,s,w) => `<rect x="${w/2}" y="${25+w/2}" width="${100-w}" height="${50-w}" fill="${f}" stroke="${s}" stroke-width="${w}"/>` },
       { label: 'Oval',      path: (f,s,w) => `<ellipse cx="50" cy="50" rx="${46-w/2}" ry="${28-w/2}" fill="${f}" stroke="${s}" stroke-width="${w}"/>` },
+      { label: 'Semicircle', path: (f,s,w) => `<path d="M${3+w/2} 72 A${47-w/2} ${47-w/2} 0 0 1 ${97-w/2} 72 Z" fill="${f}" stroke="${s}" stroke-width="${w}" stroke-linejoin="round"/>` },
       { label: 'Triangle',  path: (f,s,w) => poly([[50,3],[97,97],[3,97]], f,s,w) },
-      { label: 'Diamond',   path: (f,s,w) => poly([[50,3],[97,50],[50,97],[3,50]], f,s,w) },
+      { label: 'Right-angled triangle', path: (f,s,w) => poly([[3,3],[3,97],[97,97]], f,s,w) + `<polyline points="3,85 15,85 15,97" fill="none" stroke="${s}" stroke-width="${Math.max(1, w/2)}"/>` },
+      { label: 'Rhombus',   path: (f,s,w) => poly([[50,3],[97,50],[50,97],[3,50]], f,s,w) },
+      { label: 'Kite',      path: (f,s,w) => poly([[50,3],[90,35],[50,97],[10,35]], f,s,w) },
+      { label: 'Parallelogram', path: (f,s,w) => poly([[20,10],[100,10],[80,90],[0,90]], f,s,w) },
+      { label: 'Trapezium', path: (f,s,w) => poly([[20,10],[80,10],[97,90],[3,90]], f,s,w) },
       { label: 'Pentagon',  path: (f,s,w) => poly([[50,3],[97,36],[79,95],[21,95],[3,36]], f,s,w) },
       { label: 'Hexagon',   path: (f,s,w) => poly([[50,3],[93,27],[93,73],[50,97],[7,73],[7,27]], f,s,w) },
-      { label: 'Parallelogram', path: (f,s,w) => poly([[20,10],[100,10],[80,90],[0,90]], f,s,w) },
-      { label: 'Trapezoid', path: (f,s,w) => poly([[20,10],[80,10],[97,90],[3,90]], f,s,w) },
+      { label: 'Octagon',   path: (f,s,w) => poly([[30,3],[70,3],[97,30],[97,70],[70,97],[30,97],[3,70],[3,30]], f,s,w) },
+      { label: 'Star',      path: (f,s,w) => poly([[50,3],[61,35],[95,35],[68,57],[79,91],[50,70],[21,91],[32,57],[5,35],[39,35]], f,s,w) },
+      { label: 'Cross',     path: (f,s,w) => poly([[33,3],[67,3],[67,33],[97,33],[97,67],[67,67],[67,97],[33,97],[33,67],[3,67],[3,33],[33,33]], f,s,w) },
     ],
   },
   {
@@ -47,7 +53,6 @@ const SHAPE_CATEGORIES: { name: string; shapes: ShapeDef[] }[] = [
       { label: 'Star 6pt', path: (f,s,w) => poly([[50,3],[60,35],[90,35],[70,55],[80,85],[50,68],[20,85],[30,55],[10,35],[40,35]], f,s,w) },
       { label: 'Star 4pt', path: (f,s,w) => poly([[50,3],[60,40],[97,50],[60,60],[50,97],[40,60],[3,50],[40,40]], f,s,w) },
       { label: 'Heart',    path: (f,s,w) => `<path d="M50 85 C28 65 3 52 3 30 C3 14 18 4 32 14 C40 19 50 30 50 30 C50 30 60 19 68 14 C82 4 97 14 97 30 C97 52 72 65 50 85Z" fill="${f}" stroke="${s}" stroke-width="${w}" stroke-linejoin="round"/>` },
-      { label: 'Cross',    path: (f,s,w) => poly([[33,3],[67,3],[67,33],[97,33],[97,67],[67,67],[67,97],[33,97],[33,67],[3,67],[3,33],[33,33]], f,s,w) },
       { label: 'Plus',     path: (f,s,w) => poly([[35,3],[65,3],[65,35],[97,35],[97,65],[65,65],[65,97],[35,97],[35,65],[3,65],[3,35],[35,35]], f,s,w) },
       { label: 'Check ✓',  path: (f,s,w) => `<polyline points="10,55 38,80 90,20" fill="none" stroke="${f === 'none' ? s : f}" stroke-width="${Math.max(w,8)}" stroke-linecap="round" stroke-linejoin="round"/>` },
       { label: 'X Mark',   path: (f,s,w) => `<g stroke="${f === 'none' ? s : f}" stroke-width="${Math.max(w,8)}" stroke-linecap="round"><line x1="15" y1="15" x2="85" y2="85"/><line x1="85" y1="15" x2="15" y2="85"/></g>` },
@@ -118,6 +123,8 @@ function buildSvgDataUrl(config: ShapeConfig): string {
 interface ShapePanelProps {
   onInsert: (dataUrl: string, altText: string, size: number) => void;
   onClose: () => void;
+  /** Opens the drawing board, where shapes can be labelled. */
+  onDraw?: () => void;
 }
 
 const DEFAULT: ShapeConfig = {
@@ -130,7 +137,7 @@ const DEFAULT: ShapeConfig = {
   strokeWidth: 2,
 };
 
-const ShapePanel: React.FC<ShapePanelProps> = ({ onInsert, onClose }) => {
+const ShapePanel: React.FC<ShapePanelProps> = ({ onInsert, onClose, onDraw }) => {
   const [cfg, setCfg] = useState<ShapeConfig>({ ...DEFAULT });
 
   const set = <K extends keyof ShapeConfig>(k: K, v: ShapeConfig[K]) =>
@@ -148,11 +155,14 @@ const ShapePanel: React.FC<ShapePanelProps> = ({ onInsert, onClose }) => {
     <div className="w-5 h-5 rounded border border-gray-300 flex-shrink-0" style={{ background: color }} />
   );
 
-  // Anchored to the right: its button sits at the end of the toolbar, so a
-  // panel hung from the left runs off the side of the screen.
+  // A window of its own over the page. Hung from the toolbar, it sat inside
+  // the editor's box, which cut it down to whatever height the editor had:
+  // a short question showed an oval and a hexagon and nothing else.
+  // preventDefault keeps the editor's cursor where the shape should go.
   return (
-    <div className="absolute top-full right-0 mt-1 z-30 bg-white border border-gray-200 rounded-xl shadow-2xl w-[520px] max-w-[92vw] max-h-[80vh] overflow-hidden flex flex-col"
-      onMouseDown={e => e.preventDefault()}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-3"
+      onMouseDown={e => { e.preventDefault(); if (e.target === e.currentTarget) onClose(); }}>
+    <div className="bg-white border border-gray-200 rounded-xl shadow-2xl w-[640px] max-w-full max-h-[90vh] overflow-hidden flex flex-col">
 
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gray-50">
@@ -304,8 +314,20 @@ const ShapePanel: React.FC<ShapePanelProps> = ({ onInsert, onClose }) => {
           >
             Insert Shape
           </button>
+
+          {/* A shape from here is a picture, so it can't carry labels. */}
+          {onDraw && (
+            <button
+              type="button"
+              onClick={onDraw}
+              className="w-full py-2 border border-gray-300 text-gray-700 rounded-xl text-xs font-medium hover:bg-gray-50 transition-colors"
+            >
+              Need to label sides or angles? Draw and label it ✏️
+            </button>
+          )}
         </div>
       </div>
+    </div>
     </div>
   );
 };

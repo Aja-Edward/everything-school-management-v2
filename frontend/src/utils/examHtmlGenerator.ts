@@ -274,7 +274,7 @@ function buildPrintCss(ps: PrintSettings): string {
  * gets a line to write the number on instead, and a choose-all-that-apply
  * question says so.
  */
-function renderOptions(q: any, showMarks: boolean, marksLabel: string): string {
+function renderOptions(q: any, showMarks: boolean): string {
   const type = answerTypeOf(q);
   const marksTag = showMarks && q.marks
     ? `<span style="color:#555;font-size:0.85em;margin-left:0.5em;">[${q.marks}]</span>`
@@ -665,7 +665,7 @@ function generateStudentCopy(
           ${q.table ? `<div class="question-content">${renderRichContent(q.table)}</div>` : ''}
       ${clipNote(q.audio)}
         </span>
-        ${renderOptions(q, ps.show_marks, '[marks]')}
+        ${renderOptions(q, ps.show_marks)}
       </div>
     </div>
     `).join('')}

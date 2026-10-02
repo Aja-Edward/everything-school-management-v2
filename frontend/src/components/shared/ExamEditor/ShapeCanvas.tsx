@@ -13,7 +13,7 @@
  * exam station with no connection (see docs/cbt-offline-station.md).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Circle, Minus, MousePointer2, Redo2, Square, Trash2, Triangle, Type, Undo2, X } from 'lucide-react';
+import { ArrowRight, ChevronDown, Minus, MousePointer2, Redo2, Trash2, Type, Undo2, X } from 'lucide-react';
 
 // ─── The drawing ──────────────────────────────────────────────────────────────
 
@@ -24,11 +24,58 @@ const MIN_SIZE = 8;
 /** Marks an SVG as one of our drawings, and carries the items to edit again. */
 const DRAWING_ATTR = 'data-drawing';
 
-type Tool = 'select' | 'rect' | 'ellipse' | 'triangle' | 'line' | 'arrow' | 'text';
+/** Every shape the board draws, each filling the box it is dragged out to. */
+const SHAPES = [
+  { kind: 'rect',           label: 'Rectangle' },
+  { kind: 'square',         label: 'Square' },
+  { kind: 'circle',         label: 'Circle' },
+  { kind: 'ellipse',        label: 'Oval' },
+  { kind: 'semicircle',     label: 'Semicircle' },
+  { kind: 'triangle',       label: 'Triangle' },
+  { kind: 'right_triangle', label: 'Right-angled triangle' },
+  { kind: 'rhombus',        label: 'Rhombus' },
+  { kind: 'kite',           label: 'Kite' },
+  { kind: 'parallelogram',  label: 'Parallelogram' },
+  { kind: 'trapezium',      label: 'Trapezium' },
+  { kind: 'pentagon',       label: 'Pentagon' },
+  { kind: 'hexagon',        label: 'Hexagon' },
+  { kind: 'octagon',        label: 'Octagon' },
+  { kind: 'star',           label: 'Star' },
+  { kind: 'cross',          label: 'Cross' },
+] as const;
+
+type ShapeKind = typeof SHAPES[number]['kind'];
+type Tool = 'select' | ShapeKind | 'line' | 'arrow' | 'text';
+
+const SHAPE_KINDS = new Set<string>(SHAPES.map((shape) => shape.kind));
+/** Shapes that keep their sides equal however they're dragged. */
+const EVEN_KINDS = new Set<string>(['square', 'circle']);
+
+/** Corners of each straight-sided shape, as fractions of its box. */
+const CORNERS: Partial<Record<ShapeKind, [number, number][]>> = {
+  rect:           [[0, 0], [1, 0], [1, 1], [0, 1]],
+  square:         [[0, 0], [1, 0], [1, 1], [0, 1]],
+  triangle:       [[0.5, 0], [1, 1], [0, 1]],
+  right_triangle: [[0, 0], [1, 1], [0, 1]],
+  rhombus:        [[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]],
+  kite:           [[0.5, 0], [1, 0.35], [0.5, 1], [0, 0.35]],
+  parallelogram:  [[0.25, 0], [1, 0], [0.75, 1], [0, 1]],
+  trapezium:      [[0.25, 0], [0.75, 0], [1, 1], [0, 1]],
+  pentagon:       [[0.5, 0], [1, 0.38], [0.81, 1], [0.19, 1], [0, 0.38]],
+  hexagon:        [[0.25, 0], [0.75, 0], [1, 0.5], [0.75, 1], [0.25, 1], [0, 0.5]],
+  octagon:        [[0.3, 0], [0.7, 0], [1, 0.3], [1, 0.7], [0.7, 1], [0.3, 1], [0, 0.7], [0, 0.3]],
+  star:           [[0.5, 0], [0.61, 0.33], [0.95, 0.33], [0.68, 0.55], [0.79, 0.9], [0.5, 0.69], [0.21, 0.9], [0.32, 0.55], [0.05, 0.33], [0.39, 0.33]],
+  cross:          [[0.33, 0], [0.67, 0], [0.67, 0.33], [1, 0.33], [1, 0.67], [0.67, 0.67], [0.67, 1], [0.33, 1], [0.33, 0.67], [0, 0.67], [0, 0.33], [0.33, 0.33]],
+};
+
+/** Shapes whose sides and corners a maths question would name. */
+const LABELLED_KINDS = new Set<string>(
+  Object.keys(CORNERS).filter((kind) => kind !== 'star' && kind !== 'cross'),
+);
 
 interface BoxItem {
   id: string;
-  kind: 'rect' | 'ellipse' | 'triangle';
+  kind: ShapeKind;
   x: number; y: number; w: number; h: number;
   fill: string; stroke: string; strokeWidth: number;
 }
@@ -45,12 +92,16 @@ interface TextItem {
   kind: 'text';
   x: number; y: number;
   text: string; fill: string; fontSize: number;
+  /**
+   * Which end of the text sits on its spot. A label beside a shape grows away
+   * from it as it's typed: centred above or below, leftwards on the left.
+   */
+  anchor?: 'middle' | 'end';
 }
 
 export type DrawingItem = BoxItem | LineItem | TextItem;
 
-const isBox = (item: DrawingItem): item is BoxItem =>
-  item.kind === 'rect' || item.kind === 'ellipse' || item.kind === 'triangle';
+const isBox = (item: DrawingItem): item is BoxItem => SHAPE_KINDS.has(item.kind);
 const isLine = (item: DrawingItem): item is LineItem =>
   item.kind === 'line' || item.kind === 'arrow';
 
@@ -58,6 +109,22 @@ const newId = () => Math.random().toString(36).slice(2, 10);
 
 /** Roughly how wide a label sits, for its grab patch and selection outline. */
 const textWidth = (item: TextItem) => Math.max(40, item.text.length * item.fontSize * 0.6);
+/** Where a label's grab patch starts. */
+const textLeft = (item: TextItem) => {
+  if (item.anchor === 'middle') return item.x - textWidth(item) / 2;
+  if (item.anchor === 'end') return item.x - textWidth(item);
+  return item.x - 4;
+};
+
+/** A straight-sided shape's corners on the sheet, or null for a curved one. */
+const cornersOf = (item: BoxItem): [number, number][] | null =>
+  CORNERS[item.kind]?.map(([u, v]) => [item.x + u * item.w, item.y + v * item.h]) ?? null;
+
+/** The box a square or circle fills: its longer side, both ways, from where the drag began. */
+const evenBox = (fromX: number, fromY: number, x: number, y: number) => {
+  const side = Math.max(Math.abs(x - fromX), Math.abs(y - fromY));
+  return { x: x < fromX ? fromX - side : fromX, y: y < fromY ? fromY - side : fromY, w: side, h: side };
+};
 
 // ─── Drawing → SVG ────────────────────────────────────────────────────────────
 
@@ -69,20 +136,30 @@ const ARROW_HEAD = 'drawing-arrow-head';
 /** One item as SVG markup. The same shapes the board itself draws. */
 const itemToSvg = (item: DrawingItem): string => {
   if (isBox(item)) {
-    if (item.kind === 'rect') {
-      return `<rect x="${item.x}" y="${item.y}" width="${item.w}" height="${item.h}" fill="${item.fill}" stroke="${item.stroke}" stroke-width="${item.strokeWidth}"/>`;
+    const paint = `fill="${item.fill}" stroke="${item.stroke}" stroke-width="${item.strokeWidth}"`;
+    if (item.kind === 'rect' || item.kind === 'square') {
+      return `<rect x="${item.x}" y="${item.y}" width="${item.w}" height="${item.h}" ${paint}/>`;
     }
-    if (item.kind === 'ellipse') {
-      return `<ellipse cx="${item.x + item.w / 2}" cy="${item.y + item.h / 2}" rx="${item.w / 2}" ry="${item.h / 2}" fill="${item.fill}" stroke="${item.stroke}" stroke-width="${item.strokeWidth}"/>`;
+    if (item.kind === 'ellipse' || item.kind === 'circle') {
+      return `<ellipse cx="${item.x + item.w / 2}" cy="${item.y + item.h / 2}" rx="${item.w / 2}" ry="${item.h / 2}" ${paint}/>`;
     }
-    const points = `${item.x + item.w / 2},${item.y} ${item.x + item.w},${item.y + item.h} ${item.x},${item.y + item.h}`;
-    return `<polygon points="${points}" fill="${item.fill}" stroke="${item.stroke}" stroke-width="${item.strokeWidth}" stroke-linejoin="round"/>`;
+    if (item.kind === 'semicircle') {
+      return `<path d="M${item.x} ${item.y + item.h} A${item.w / 2} ${item.h} 0 0 1 ${item.x + item.w} ${item.y + item.h} Z" ${paint} stroke-linejoin="round"/>`;
+    }
+    const points = (cornersOf(item) ?? []).map(([x, y]) => `${x},${y}`).join(' ');
+    const shape = `<polygon points="${points}" ${paint} stroke-linejoin="round"/>`;
+    if (item.kind !== 'right_triangle') return shape;
+    // The little square that marks the right angle.
+    const mark = Math.min(14, item.w / 4, item.h / 4);
+    const corner = item.y + item.h;
+    return shape + `<polyline points="${item.x},${corner - mark} ${item.x + mark},${corner - mark} ${item.x + mark},${corner}" fill="none" stroke="${item.stroke}" stroke-width="${Math.max(1, item.strokeWidth / 2)}"/>`;
   }
   if (isLine(item)) {
     const head = item.kind === 'arrow' ? ` marker-end="url(#${ARROW_HEAD})"` : '';
     return `<line x1="${item.x1}" y1="${item.y1}" x2="${item.x2}" y2="${item.y2}" stroke="${item.stroke}" stroke-width="${item.strokeWidth}" stroke-linecap="round"${head}/>`;
   }
-  return `<text x="${item.x}" y="${item.y}" fill="${item.fill}" font-size="${item.fontSize}" font-family="system-ui, -apple-system, Segoe UI, sans-serif">${escapeXml(item.text)}</text>`;
+  const anchor = item.anchor ? ` text-anchor="${item.anchor}"` : '';
+  return `<text x="${item.x}" y="${item.y}"${anchor} fill="${item.fill}" font-size="${item.fontSize}" font-family="system-ui, -apple-system, Segoe UI, sans-serif">${escapeXml(item.text)}</text>`;
 };
 
 /** The finished drawing: an SVG carrying its own items, so it can be edited again. */
@@ -131,13 +208,17 @@ interface Props {
 
 const TOOLS: { tool: Tool; label: string; icon: React.ReactNode }[] = [
   { tool: 'select',   label: 'Select and move',  icon: <MousePointer2 className="h-4 w-4" /> },
-  { tool: 'rect',     label: 'Rectangle',        icon: <Square className="h-4 w-4" /> },
-  { tool: 'ellipse',  label: 'Circle or oval',   icon: <Circle className="h-4 w-4" /> },
-  { tool: 'triangle', label: 'Triangle',         icon: <Triangle className="h-4 w-4" /> },
   { tool: 'line',     label: 'Line',             icon: <Minus className="h-4 w-4" /> },
   { tool: 'arrow',    label: 'Arrow',            icon: <ArrowRight className="h-4 w-4" /> },
-  { tool: 'text',     label: 'Label',            icon: <Type className="h-4 w-4" /> },
+  { tool: 'text',     label: 'Label: click anywhere, on a shape or beside it, to add text or a number', icon: <Type className="h-4 w-4" /> },
 ];
+
+/** A shape drawn small, as its button in the shape picker. */
+const shapeIcon = (kind: ShapeKind) => {
+  const tall = kind === 'semicircle' ? 11 : 22;
+  const svg = itemToSvg({ id: kind, kind, x: 1, y: 23 - tall, w: 22, h: tall, fill: 'none', stroke: '#334155', strokeWidth: 1.5 });
+  return <svg viewBox="0 0 24 24" className="h-6 w-6" dangerouslySetInnerHTML={{ __html: svg }} />;
+};
 
 const SWATCHES = ['#1d4ed8', '#dc2626', '#16a34a', '#ca8a04', '#7c3aed', '#0f172a', '#ffffff', 'none'];
 
@@ -151,6 +232,7 @@ const ShapeCanvas: React.FC<Props> = ({ initialItems, onInsert, onClose }) => {
   const [stroke, setStroke] = useState('#1d4ed8');
   const [strokeWidth, setStrokeWidth] = useState(2);
   const [background, setBackground] = useState<'transparent' | '#ffffff'>('transparent');
+  const [showShapes, setShowShapes] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);
   // What the pointer is doing between mousedown and mouseup.
   const drag = useRef<{ mode: 'draw' | 'move' | 'resize' | 'end1' | 'end2'; id: string; dx: number; dy: number } | null>(null);
@@ -250,7 +332,9 @@ const ShapeCanvas: React.FC<Props> = ({ initialItems, onInsert, onClose }) => {
 
     if (active.mode === 'draw') {
       if (isLine(item)) update(item.id, { x2: x, y2: y } as Partial<DrawingItem>);
-      else if (isBox(item)) {
+      else if (isBox(item) && EVEN_KINDS.has(item.kind)) {
+        update(item.id, evenBox(active.dx, active.dy, x, y) as Partial<DrawingItem>);
+      } else if (isBox(item)) {
         update(item.id, {
           x: Math.min(active.dx, x), y: Math.min(active.dy, y),
           w: Math.abs(x - active.dx), h: Math.abs(y - active.dy),
@@ -264,7 +348,10 @@ const ShapeCanvas: React.FC<Props> = ({ initialItems, onInsert, onClose }) => {
         update(item.id, { x1: x - active.dx, y1: y - active.dy, x2: x - active.dx + width, y2: y - active.dy + height } as Partial<DrawingItem>);
       } else update(item.id, { x: x - active.dx, y: y - active.dy } as Partial<DrawingItem>);
     } else if (active.mode === 'resize' && isBox(item)) {
-      update(item.id, { w: Math.max(MIN_SIZE, x - item.x), h: Math.max(MIN_SIZE, y - item.y) } as Partial<DrawingItem>);
+      const w = Math.max(MIN_SIZE, x - item.x);
+      const h = Math.max(MIN_SIZE, y - item.y);
+      const side = Math.max(w, h);
+      update(item.id, (EVEN_KINDS.has(item.kind) ? { w: side, h: side } : { w, h }) as Partial<DrawingItem>);
     } else if (active.mode === 'end1' && isLine(item)) {
       update(item.id, { x1: x, y1: y } as Partial<DrawingItem>);
     } else if (active.mode === 'end2' && isLine(item)) {
@@ -287,9 +374,12 @@ const ShapeCanvas: React.FC<Props> = ({ initialItems, onInsert, onClose }) => {
   };
 
   const grabItem = (event: React.MouseEvent, item: DrawingItem) => {
+    // With a drawing tool in hand, a click on a shape is for the tool: a
+    // label goes on the shape, or a new shape is drawn over it. Grabbing the
+    // shape here put nothing there, so a side couldn't be labelled.
+    if (tool !== 'select') return;
     event.stopPropagation();
     setSelectedId(item.id);
-    if (tool !== 'select') return;
     const { x, y } = pointAt(event);
     setPast((stack) => [...stack.slice(-49), items]);
     setFuture([]);
@@ -304,6 +394,45 @@ const ShapeCanvas: React.FC<Props> = ({ initialItems, onInsert, onClose }) => {
     setFuture([]);
     drag.current = { mode, id: item.id, dx: 0, dy: 0 };
   };
+
+  /**
+   * Put a label just outside each side, or each corner, of the selected
+   * shape - "a", "b", "c" or "A", "B", "C" - for the teacher to change to the
+   * lengths or names the question gives.
+   */
+  const labelShape = (what: 'sides' | 'corners') => {
+    if (!selected || !isBox(selected)) return;
+    const corners = cornersOf(selected);
+    if (!corners) return;
+    const centre = {
+      x: corners.reduce((sum, [x]) => sum + x, 0) / corners.length,
+      y: corners.reduce((sum, [, y]) => sum + y, 0) / corners.length,
+    };
+    const spots = what === 'corners'
+      ? corners
+      : corners.map(([x, y], i) => {
+        const [nx, ny] = corners[(i + 1) % corners.length];
+        return [(x + nx) / 2, (y + ny) / 2] as [number, number];
+      });
+    const fontSize = 16;
+    const labels: TextItem[] = spots.map(([x, y], i) => {
+      const away = Math.hypot(x - centre.x, y - centre.y) || 1;
+      const gap = what === 'corners' ? 14 : 16;
+      const sideways = (x - centre.x) / away;
+      const anchor: TextItem['anchor'] = sideways > 0.5 ? undefined : sideways < -0.5 ? 'end' : 'middle';
+      return {
+        id: newId(), kind: 'text', anchor, fill: selected.stroke, fontSize,
+        text: String.fromCharCode((what === 'corners' ? 65 : 97) + i),
+        x: x + ((x - centre.x) / away) * gap,
+        // Baseline a little below the spot, so the letters sit centred on it.
+        y: y + ((y - centre.y) / away) * gap + fontSize * 0.35,
+      };
+    });
+    commit([...items, ...labels]);
+    setSelectedId(labels[0]?.id ?? null);
+  };
+
+  const currentShape = SHAPES.find((shape) => shape.kind === tool);
 
   const preview = useMemo(() => drawingToDataUrl(items, background), [items, background]);
 
@@ -333,7 +462,39 @@ const ShapeCanvas: React.FC<Props> = ({ initialItems, onInsert, onClose }) => {
         {/* Tools */}
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2">
           <div className="flex gap-1">
-            {TOOLS.map((entry) => (
+            {TOOLS.slice(0, 1).map((entry) => (
+              <button key={entry.tool} type="button" title={entry.label} aria-label={entry.label}
+                aria-pressed={tool === entry.tool}
+                onClick={() => setTool(entry.tool)} className={button(tool === entry.tool)}>
+                {entry.icon}
+              </button>
+            ))}
+
+            {/* Every shape, in a picker: they don't fit along the toolbar. */}
+            <div className="relative">
+              <button type="button" aria-expanded={showShapes} aria-label="Shapes"
+                title={currentShape ? `Drawing a ${currentShape.label.toLowerCase()}` : 'Pick a shape to draw'}
+                onClick={() => setShowShapes((open) => !open)}
+                className={`flex h-8 items-center gap-1 rounded-lg border px-2 text-xs font-medium transition ${
+                  currentShape ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>
+                {currentShape ? currentShape.label : 'Shapes'} <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+              {showShapes && (
+                <div className="absolute left-0 top-full z-10 mt-1 grid w-72 grid-cols-4 gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
+                  {SHAPES.map((shape) => (
+                    <button key={shape.kind} type="button" title={shape.label} aria-label={shape.label}
+                      onClick={() => { setTool(shape.kind); setShowShapes(false); }}
+                      className={`flex flex-col items-center gap-0.5 rounded-md border p-1.5 text-[10px] leading-tight transition ${
+                        tool === shape.kind ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-transparent text-slate-600 hover:bg-slate-50'}`}>
+                      {shapeIcon(shape.kind)}
+                      <span className="text-center">{shape.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {TOOLS.slice(1).map((entry) => (
               <button key={entry.tool} type="button" title={entry.label} aria-label={entry.label}
                 aria-pressed={tool === entry.tool}
                 onClick={() => setTool(entry.tool)} className={button(tool === entry.tool)}>
@@ -413,7 +574,7 @@ const ShapeCanvas: React.FC<Props> = ({ initialItems, onInsert, onClose }) => {
                     fiddly to hit, so a label gets an invisible patch to grab.
                     It stays on the board and never reaches the picture. */}
                 {item.kind === 'text' && (
-                  <rect x={item.x - 4} y={item.y - item.fontSize} width={textWidth(item)} height={item.fontSize * 1.4} fill="transparent" />
+                  <rect x={textLeft(item)} y={item.y - item.fontSize} width={textWidth(item)} height={item.fontSize * 1.4} fill="transparent" />
                 )}
                 <g dangerouslySetInnerHTML={{ __html: itemToSvg(item) }} />
               </g>
@@ -434,7 +595,7 @@ const ShapeCanvas: React.FC<Props> = ({ initialItems, onInsert, onClose }) => {
               </>
             )}
             {selected && selected.kind === 'text' && (
-              <rect x={selected.x - 4} y={selected.y - selected.fontSize} width={textWidth(selected)} height={selected.fontSize * 1.4}
+              <rect x={textLeft(selected)} y={selected.y - selected.fontSize} width={textWidth(selected)} height={selected.fontSize * 1.4}
                 fill="none" stroke="#2563eb" strokeDasharray="4 3" strokeWidth={1} pointerEvents="none" />
             )}
           </svg>
@@ -453,9 +614,27 @@ const ShapeCanvas: React.FC<Props> = ({ initialItems, onInsert, onClose }) => {
                 className="w-20" />
             </label>
           ) : (
-            <span className="text-xs text-slate-500">
-              {selected ? 'Drag the shape to move it, or its square to resize.' : `${items.length} shape${items.length === 1 ? '' : 's'} on the sheet.`}
-            </span>
+            <>
+              <span className="text-xs text-slate-500">
+                {selected
+                  ? 'Drag the shape to move it, or its square to resize.'
+                  : `${items.length} shape${items.length === 1 ? '' : 's'} on the sheet. To label anything, pick the T tool and click where the text should go.`}
+              </span>
+              {selected && isBox(selected) && LABELLED_KINDS.has(selected.kind) && (
+                <span className="flex items-center gap-1">
+                  <button type="button" onClick={() => labelShape('sides')}
+                    title="Put a label beside each side, to change to the lengths the question gives"
+                    className="rounded-lg border border-blue-200 bg-white px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50">
+                    Label sides
+                  </button>
+                  <button type="button" onClick={() => labelShape('corners')}
+                    title="Put a letter at each corner: A, B, C…"
+                    className="rounded-lg border border-blue-200 bg-white px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50">
+                    Label corners
+                  </button>
+                </span>
+              )}
+            </>
           )}
 
           <div className="ml-auto flex items-center gap-1">

@@ -326,12 +326,13 @@ const MenuBar: React.FC<MenuBarProps> = ({
           className={`px-3 py-1 rounded text-sm font-medium transition ${
             showShapePanel ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-200'
           }`}
-          title="Open Shape Designer — 30+ shapes with full colour and size control">
+          title="Open Shape Designer — 40 shapes with full colour and size control">
           ◆ Shapes
         </button>
         {showShapePanel && (
           <ShapePanel
             onClose={() => setShowShapePanel(false)}
+            onDraw={() => { setShowShapePanel(false); onDraw(); }}
             onInsert={(dataUrl, label, size) => {
               editor.chain().focus().setImage({
                 src: dataUrl,
