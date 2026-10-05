@@ -24,6 +24,8 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from tenants.membership import member_or_none
+from common.admin_access import is_whole_school_staff
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
 logger = logging.getLogger(__name__)
@@ -48,7 +50,7 @@ def _jwt_auth(request):
         try:
             jwt_auth = JWTAuthentication()
             validated = jwt_auth.get_validated_token(auth_header[7:])
-            return jwt_auth.get_user(validated)
+            return member_or_none(request, jwt_auth.get_user(validated))
         except (InvalidToken, TokenError):
             pass
 
@@ -60,7 +62,7 @@ def _jwt_auth(request):
             try:
                 jwt_auth = JWTAuthentication()
                 validated = jwt_auth.get_validated_token(raw_token)
-                return jwt_auth.get_user(validated)
+                return member_or_none(request, jwt_auth.get_user(validated))
             except (InvalidToken, TokenError):
                 pass
 
@@ -84,7 +86,9 @@ def _require_admin(request):
     user = _jwt_auth(request)
     if not user:
         return None, JsonResponse({"error": "Authentication required."}, status=401)
-    if not user.is_staff:
+    # Parents are read-only for a section admin, so whole-school admins
+    # only; is_staff alone would still let a staff section admin in.
+    if not is_whole_school_staff(user):
         return None, JsonResponse({"error": "Admin access required."}, status=403)
     return user, None
 

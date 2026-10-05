@@ -113,6 +113,39 @@ def _is_admin(user) -> bool:
     return _user_role(user) in _ADMIN_ROLES
 
 
+def _is_results_admin(user, student=None) -> bool:
+    """
+    Whether `user` may approve, publish, edit or delete results as an admin.
+
+    _is_admin(), plus a section admin, who runs their own section's results.
+    With `student`, a section admin only for a student at their levels; the
+    bulk methods below apply those levels to their querysets instead.
+    Kept apart from _is_admin(), which also decides who sees every section.
+    """
+    if _is_admin(user):
+        return True
+    from common.admin_access import section_admin_levels
+
+    levels = section_admin_levels(user)
+    if levels is None:
+        return False
+    if student is None:
+        return True
+    student_class = getattr(student, "student_class", None)
+    level = getattr(getattr(student_class, "education_level", None), "level_type", None)
+    return level in levels
+
+
+def _limit_to_admin_levels(queryset, user):
+    """A section admin's part of `queryset`; all of it for anyone else."""
+    from common.admin_access import section_admin_levels
+
+    levels = section_admin_levels(user)
+    if levels is None or _is_admin(user):
+        return queryset
+    return queryset.filter(student__student_class__education_level__level_type__in=levels)
+
+
 # ============================================================
 # GRADING SYSTEM
 # ============================================================
@@ -1246,7 +1279,7 @@ class BaseResult(models.Model):
         Admin roles may edit at any status.
         Teachers may only edit while DRAFT.
         """
-        if _is_admin(user):
+        if _is_results_admin(user, getattr(self, "student", None)):
             return True
         if self.status != "DRAFT":
             return False
@@ -1264,9 +1297,10 @@ class BaseResult(models.Model):
         Only admin roles may call this.
         Raises PermissionDenied if user is not authorised.
         """
-        if not _is_admin(user):
+        if not _is_results_admin(user):
             raise PermissionDenied(
                 "Only admin-level users can bulk-approve results.")
+        queryset = _limit_to_admin_levels(queryset, user)
         now = timezone.now()
         with transaction.atomic():
             return queryset.filter(status="DRAFT").update(
@@ -1282,9 +1316,10 @@ class BaseResult(models.Model):
         Publish all APPROVED results in *queryset* in a single UPDATE.
         Only admin roles may call this.
         """
-        if not _is_admin(user):
+        if not _is_results_admin(user):
             raise PermissionDenied(
                 "Only admin-level users can bulk-publish results.")
+        queryset = _limit_to_admin_levels(queryset, user)
         now = timezone.now()
         with transaction.atomic():
             return queryset.filter(status="APPROVED").update(
@@ -1305,8 +1340,8 @@ class BaseResult(models.Model):
         Returns (deleted_count, detail_dict).
         """
         with transaction.atomic():
-            if _is_admin(user):
-                return queryset.delete()
+            if _is_results_admin(user):
+                return _limit_to_admin_levels(queryset, user).delete()
             # Non-admin: restrict to DRAFT only.
             return queryset.filter(status="DRAFT").delete()
 
@@ -1547,13 +1582,13 @@ class BaseTermReport(models.Model):
             return False
 
     def can_edit_head_teacher_remark(self, user) -> bool:
-        return _is_admin(user)
+        return _is_results_admin(user, getattr(self, "student", None))
 
     # ── Report-level edit / delete ────────────────────────────────────────
 
     def can_edit(self, user) -> bool:
         """Admin roles may edit at any status. Teachers only while DRAFT."""
-        if _is_admin(user):
+        if _is_results_admin(user, getattr(self, "student", None)):
             return True
         if self.status != "DRAFT":
             return False
@@ -1591,9 +1626,10 @@ class BaseTermReport(models.Model):
     @classmethod
     def bulk_approve(cls, queryset, user):
         """Approve all DRAFT reports in *queryset* in a single UPDATE."""
-        if not _is_admin(user):
+        if not _is_results_admin(user):
             raise PermissionDenied(
                 "Only admin-level users can bulk-approve reports.")
+        queryset = _limit_to_admin_levels(queryset, user)
         now = timezone.now()
         with transaction.atomic():
             return queryset.filter(status="DRAFT").update(
@@ -1606,9 +1642,10 @@ class BaseTermReport(models.Model):
     @classmethod
     def bulk_publish(cls, queryset, user):
         """Publish all APPROVED reports in *queryset* in a single UPDATE."""
-        if not _is_admin(user):
+        if not _is_results_admin(user):
             raise PermissionDenied(
                 "Only admin-level users can bulk-publish reports.")
+        queryset = _limit_to_admin_levels(queryset, user)
         now = timezone.now()
         with transaction.atomic():
             return queryset.filter(status="APPROVED").update(
@@ -1625,8 +1662,8 @@ class BaseTermReport(models.Model):
         Teachers    → delete DRAFT only.
         """
         with transaction.atomic():
-            if _is_admin(user):
-                return queryset.delete()
+            if _is_results_admin(user):
+                return _limit_to_admin_levels(queryset, user).delete()
             return queryset.filter(status="DRAFT").delete()
 
     # ── Position recalculation (SQL RANK) ─────────────────────────────────

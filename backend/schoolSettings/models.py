@@ -308,7 +308,17 @@ class Permission(models.Model):
 class Role(models.Model):
     """Custom roles with specific permissions"""
 
-    name = models.CharField(max_length=100, unique=True)
+    name = models.CharField(max_length=100)
+    # The school that made the role. Blank for the built-in roles every school
+    # shares. Without this, roles were one list for the whole platform: every
+    # school saw, and could edit, the roles every other school had made.
+    tenant = models.ForeignKey(
+        "tenants.Tenant",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="roles",
+    )
     description = models.TextField(blank=True, null=True)
     color = models.CharField(
         max_length=7, default="#3B82F6", help_text="Hex color for role display"
@@ -340,16 +350,32 @@ class Role(models.Model):
         verbose_name = "Role"
         verbose_name_plural = "Roles"
         ordering = ["name"]
+        constraints = [
+            # Unique within a school, so two schools can each have a "Bursar";
+            # the name used to be unique across the whole platform.
+            models.UniqueConstraint(
+                fields=["tenant", "name"], name="role_name_unique_per_school"
+            ),
+            # NULLs are distinct in a unique index, so the shared roles need
+            # their own rule.
+            models.UniqueConstraint(
+                fields=["name"],
+                condition=models.Q(tenant__isnull=True),
+                name="role_name_unique_among_shared",
+            ),
+        ]
 
     def __str__(self):
         return self.name
 
     @property
     def user_count(self):
-        """Get the number of users with this role"""
-        from users.models import CustomUser
-
-        return CustomUser.objects.filter(role=self.name).count()
+        """
+        The number of users with an active assignment of this role. It used to
+        count every user on the platform whose role field had the same name.
+        """
+        assignments = self.user_assignments.filter(is_active=True)
+        return assignments.values("user").distinct().count()
 
     def has_permission(self, module, permission_type, section="all"):
         """Check if role has specific permission"""

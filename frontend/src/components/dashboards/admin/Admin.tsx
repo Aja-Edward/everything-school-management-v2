@@ -172,9 +172,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       { name: 'CBT Invigilation', icon: Monitor, path: '/admin/cbt-invigilation' },
       { name: 'Results', icon: BarChart3, path: '/admin/results' },
       { name: 'Admin Remarks', icon: PenTool, path: '/admin/admin-remarks' },
-      { name: 'Token Generator', icon: Key, path: '/admin/token-generator' },
-      { name: 'Messages', icon: MessageSquare, path: '/admin/messages' }
     );
+    // Result tokens are made for the whole school at once, so the server
+    // keeps them to whole-school admins.
+    if (!isSectionAdmin()) {
+      items.push({ name: 'Token Generator', icon: Key, path: '/admin/token-generator' });
+    }
+    items.push({ name: 'Messages', icon: MessageSquare, path: '/admin/messages' });
 
     if (canViewSettings()) {
       items.push({ name: 'Settings', icon: Settings, path: '/admin/classroom-management/settings' });

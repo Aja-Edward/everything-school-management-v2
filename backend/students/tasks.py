@@ -646,12 +646,29 @@ def process_bulk_student_upload(
         imported = []
         errors = []
 
+        # A section admin may only enrol into their own section's classes.
+        # Worked out from the uploader here, since the job runs long after
+        # the request that could have told it.
+        from common.admin_access import section_admin_levels
+        from users.models import CustomUser
+
+        uploader = CustomUser.objects.filter(pk=uploaded_by_id).first() if uploaded_by_id else None
+        allowed_levels = section_admin_levels(uploader) if uploader else None
+
         for i, raw_row in enumerate(rows, start=2):  # row 1 = header
             row_errors, cleaned = _validate_row(
                 i, raw_row, tenant_id, academic_session_id
             )
             if row_errors == ["__skip__"]:
                 continue
+            if (
+                not row_errors
+                and allowed_levels is not None
+                and cleaned["class_obj"].education_level.level_type not in allowed_levels
+            ):
+                row_errors = [
+                    f"Row {i}: '{cleaned['class_obj'].name}' is not in your section."
+                ]
             if row_errors:
                 errors.append({
                     "row": i,

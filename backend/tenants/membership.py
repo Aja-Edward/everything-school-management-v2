@@ -48,6 +48,22 @@ def user_school_id(user):
     return model.objects.filter(user=user).values_list("tenant_id", flat=True).first()
 
 
+def in_school_q(school_id, prefix=""):
+    """
+    A Q matching users of school `school_id`, the queryset form of
+    user_school_id(): their own tenant, or their teacher, student or parent
+    profile's. `prefix` reaches the user through a relation, e.g. "user__".
+    """
+    from django.db.models import Q
+
+    return (
+        Q(**{f"{prefix}tenant_id": school_id})
+        | Q(**{f"{prefix}teacher__tenant_id": school_id})
+        | Q(**{f"{prefix}student_profile__tenant_id": school_id})
+        | Q(**{f"{prefix}parent_profile__tenant_id": school_id})
+    )
+
+
 def user_belongs_to_tenant(user, tenant):
     if tenant is None or not user.is_authenticated:
         return True
@@ -89,6 +105,22 @@ def restrict_to_request_tenant(request, user_auth):
         user.pk, user_school_id(user), tenant.slug, request.path,
     )
     return (AnonymousUser(), None)
+
+
+def member_or_none(request, user):
+    """
+    `user` if they may act in the request's school, else None.
+
+    For the plain Django views that read the JWT themselves (the bulk upload
+    template, credential export and error report downloads). They sit outside
+    DRF's authenticators, so restrict_to_request_tenant never ran for them and
+    a staff user of one school could name another school's slug and download
+    that school's credential sheet.
+    """
+    if user is None:
+        return None
+    signed_in = restrict_to_request_tenant(request, (user, None))[0]
+    return signed_in if signed_in.is_authenticated else None
 
 
 def _default_to_users_school(request, user):

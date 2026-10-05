@@ -1414,7 +1414,9 @@ def create_admin(request):
     if not all([email, first_name, last_name]):
         return Response({"detail": "email, first_name, last_name required"}, 400)
 
-    from common.admin_access import SCHOOL_ADMIN_ROLES, SECTION_ADMIN_LEVELS
+    from common.admin_access import (
+        SCHOOL_ADMIN_ROLES, SECTION_ADMIN_LEVELS, admin_account_flags,
+    )
 
     # Only a school's own admins add admins; a section admin who happens to
     # be staff does not. And never a superadmin: that is the school owner,
@@ -1441,7 +1443,9 @@ def create_admin(request):
             first_name=first_name,
             last_name=last_name,
             role=role,
-            is_staff=True,  # Can access Django admin
+            # Staff only for a whole-school admin, and the section a section
+            # admin runs (see admin_account_flags).
+            **admin_account_flags(role),
             is_superuser=False,  # NEVER True for school admins
             is_active=True,
             # The school the request is for, which authentication has
@@ -1457,6 +1461,37 @@ def create_admin(request):
             },
             status=201,
         )
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAdminUser])
+def delete_admin(request, user_id):
+    """
+    Delete one of the school's admin accounts.
+
+    The admin list's delete button called a URL that never existed, so it
+    always failed. Same reach as the other account endpoints (see
+    _account_in_callers_school), and two more refusals: the school's owner
+    is never deleted here, since a school without one has nobody left who
+    can manage it, and nobody deletes their own account by mis-click.
+    """
+    from common.admin_access import SCHOOL_ADMIN_ROLES, SECTION_ADMIN_LEVELS
+
+    target, refusal = _account_in_callers_school(request, user_id)
+    if refusal is not None:
+        return refusal
+    if target.role not in SCHOOL_ADMIN_ROLES | set(SECTION_ADMIN_LEVELS):
+        return Response({"error": "That account is not an admin."}, status=400)
+    if target.role == "superadmin":
+        return Response(
+            {"error": "The school's owner account can't be deleted. Deactivate it instead."},
+            status=400,
+        )
+    if target.pk == request.user.pk:
+        return Response({"error": "You can't delete your own account."}, status=400)
+
+    target.delete()
+    return Response(status=204)
 
 
 @api_view(["POST"])

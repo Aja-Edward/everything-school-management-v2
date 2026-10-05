@@ -11,12 +11,14 @@ import ParentService, {
 import api from '@/services/api';
 import ParentViewModal from "@/components/dashboards/admin/ParentViewModal";
 import ParentBulkUploadMenu from "@/components/dashboards/admin/ParentBulkUploadMenu";
+import { usePermissions } from '@/hooks/usePermissions';
 
 // ---------------------------------------------------------------------------
 // Main list component
 // ---------------------------------------------------------------------------
 
 const ParentListNew: React.FC = () => {
+  const { isSectionAdmin } = usePermissions();
   const [parents,          setParents]          = useState<Parent[]>([]);
   const [filteredParents,  setFilteredParents]  = useState<Parent[]>([]);
   const [selectedParent,   setSelectedParent]   = useState<Parent | null>(null);
@@ -270,7 +272,8 @@ useEffect(() => { fetchParents(1); }, []);
                 {viewMode === 'cards' ? 'List View' : 'Card View'}
               </button>
 
-              <ParentBulkUploadMenu />
+              {/* Parent imports are whole-school only; the server refuses a section admin. */}
+              {!isSectionAdmin() && <ParentBulkUploadMenu />}
 
               <button
                 onClick={handleCreate}

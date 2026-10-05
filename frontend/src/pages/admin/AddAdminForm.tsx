@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { toast } from 'react-toastify';
 import api from '@/services/api';
+import { ADMIN_ROLE_OPTIONS } from './adminRoles';
 
 const AddAdminForm: React.FC = () => {
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
     email: '',
+    role: 'admin',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -15,7 +17,7 @@ const AddAdminForm: React.FC = () => {
   const [adminPassword, setAdminPassword] = useState<string | null>(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
@@ -33,6 +35,7 @@ const AddAdminForm: React.FC = () => {
         email: formData.email,
         first_name: formData.firstName,
         last_name: formData.lastName,
+        role: formData.role,
       };
       
       // Use the admins endpoint that generates unique username
@@ -41,10 +44,12 @@ const AddAdminForm: React.FC = () => {
       setSuccess('Admin created successfully!');
       toast.success('Admin added successfully');
       
-      // Set credentials from response
-      if (response.data) {
-        setAdminUsername(response.data.admin_username);
-        setAdminPassword(response.data.admin_password);
+      // api.post returns the body itself, { id, username, password, email }.
+      // Reading response.data.admin_username here meant the credentials box
+      // never opened and the only copy of the password was lost.
+      if (response?.username) {
+        setAdminUsername(response.username);
+        setAdminPassword(response.password);
         setShowPasswordModal(true);
       }
       
@@ -54,6 +59,7 @@ const AddAdminForm: React.FC = () => {
           firstName: '',
           lastName: '',
           email: '',
+          role: 'admin',
         });
       }, 1200);
       
@@ -115,8 +121,25 @@ const AddAdminForm: React.FC = () => {
           onChange={handleInputChange} 
           className="w-full p-3 border border-gray-300 rounded-lg" 
           placeholder="admin@example.com"
-          required 
+          required
         />
+      </div>
+      <div className="mb-4">
+        <label htmlFor="admin-role" className="block text-sm font-medium text-gray-700 mb-2">Role*</label>
+        <select
+          id="admin-role"
+          name="role"
+          value={formData.role}
+          onChange={handleInputChange}
+          className="w-full p-3 border border-gray-300 rounded-lg bg-white"
+        >
+          {ADMIN_ROLE_OPTIONS.map(option => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        <p className="mt-1 text-xs text-gray-500">
+          {ADMIN_ROLE_OPTIONS.find(option => option.value === formData.role)?.hint}
+        </p>
       </div>
       <div className="flex justify-end gap-4 pt-6 border-t border-gray-200">
         <button 
@@ -186,7 +209,7 @@ const AddAdminForm: React.FC = () => {
               </div>
             )}
             <p className="text-sm text-gray-600 mb-4">
-              Send these credentials to the new admin. They will be required to change their password on first login.
+              Send these credentials to the new admin and ask them to change the password after they sign in.
             </p>
             <button 
               onClick={handleCloseModal} 

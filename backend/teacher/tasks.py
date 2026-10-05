@@ -199,6 +199,34 @@ def _resolve_education_levels(tenant, level_raw):
     return matched
 
 
+def _limit_to_section(tenant, cleaned, allowed_levels):
+    """
+    Hold a section admin's row to their own levels. Returns an error, or None.
+
+    Blank or "All" means every level the admin runs, not every level in the
+    school; a teacher with no level at all is shown to every section. Rewrites
+    cleaned["level_raw"] to those level names so creation resolves the same.
+    """
+    from academics.models import EducationLevel
+
+    level_raw = cleaned.get("level_raw", "")
+    if not level_raw or level_raw.strip().lower() == "all":
+        names = list(
+            EducationLevel.objects.filter(
+                tenant=tenant, is_active=True, level_type__in=allowed_levels
+            ).order_by("display_order").values_list("name", flat=True)
+        )
+        if not names:
+            return f"Row {cleaned['row_num']}: your section has no education level set up."
+        cleaned["level_raw"] = ", ".join(names)
+        return None
+
+    matched = _resolve_education_levels(tenant, level_raw)
+    if not matched or any(level.level_type not in allowed_levels for level in matched):
+        return f"Row {cleaned['row_num']}: level '{level_raw}' is not in your section."
+    return None
+
+
 def _create_teacher_from_cleaned(tenant, cleaned):
     """
     Atomically create a CustomUser + Teacher.
@@ -454,8 +482,21 @@ def process_bulk_teacher_upload(
         imported = []
         errors = []
 
+        # A section admin may only add teachers to their own section's levels.
+        # Worked out from the uploader here, since the job runs long after
+        # the request that could have told it.
+        from common.admin_access import section_admin_levels
+        from users.models import CustomUser
+
+        uploader = CustomUser.objects.filter(pk=uploaded_by_id).first() if uploaded_by_id else None
+        allowed_levels = section_admin_levels(uploader) if uploader else None
+
         for i, raw_row in enumerate(rows, start=2):  # row 1 = header
             row_errors, cleaned = _validate_row(i, raw_row, tenant_id)
+            if not row_errors and allowed_levels is not None:
+                section_error = _limit_to_section(tenant, cleaned, allowed_levels)
+                if section_error:
+                    row_errors = [section_error]
             if row_errors:
                 errors.append({
                     "row": i,

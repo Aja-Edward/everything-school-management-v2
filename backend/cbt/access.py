@@ -8,7 +8,7 @@ in their school. Section admins manage the exams at their levels. Teachers
 manage the exams they are assigned to.
 """
 
-from common.admin_access import admin_level_access
+from common.admin_access import admin_level_access, is_whole_school_staff
 from exam.models import Exam
 from teacher.models import Teacher
 
@@ -17,7 +17,8 @@ APPROVED_STATUS_CODES = frozenset({"approved", "scheduled", "in_progress", "comp
 
 
 def _is_school_wide(user, tenant):
-    if user.is_superuser or user.is_staff or getattr(user, "is_platform_staff", False):
+    # Not is_staff alone: a section admin who is staff is still one section's.
+    if is_whole_school_staff(user) or getattr(user, "is_platform_staff", False):
         return True
     if (getattr(user, "role", "") or "").lower() == "principal":
         return True

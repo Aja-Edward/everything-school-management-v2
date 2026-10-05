@@ -286,3 +286,150 @@ class AdminEndpointsStayInsideTheSchoolTest(APITestCase):
         self.assertEqual(response.status_code, 403)
         self.owner.refresh_from_db()
         self.assertEqual(self.owner.role, "superadmin")
+
+    # ── Deleting admins ───────────────────────────────────────────────────────
+
+    def _delete(self, actor, target):
+        return self.client.delete(
+            reverse("authentication:delete-admin", args=[target.pk]),
+            **self._as(actor),
+        )
+
+    def test_the_owner_deletes_one_of_their_admins(self):
+        response = self._delete(self.owner, self.admin)
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(User.objects.filter(pk=self.admin.pk).exists())
+
+    def test_the_owner_account_is_never_deleted(self):
+        response = self._delete(self.owner, self.owner)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(User.objects.filter(pk=self.owner.pk).exists())
+
+    def test_an_admin_does_not_delete_themselves(self):
+        response = self._delete(self.admin, self.admin)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(User.objects.filter(pk=self.admin.pk).exists())
+
+    def test_another_schools_admin_cannot_be_deleted(self):
+        other_admin = self._user("other-admin", "admin", self.other, is_staff=True)
+
+        response = self._delete(self.owner, other_admin)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(User.objects.filter(pk=other_admin.pk).exists())
+
+    def test_it_only_deletes_admins(self):
+        """Teachers have their own flow, which says what deletion destroys."""
+        response = self._delete(self.owner, self.teacher)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(User.objects.filter(pk=self.teacher.pk).exists())
+
+
+class SectionAdminsStayInTheirSectionTest(APITestCase):
+    """
+    A section admin sees their own section, whatever their staff flag says.
+
+    create_admin made every admin staff, and the section filter let any staff
+    user straight through, so a Primary Admin saw every section as if they
+    ran the whole school.
+    """
+
+    def setUp(self):
+        from classroom.models import GradeLevel
+
+        # Creating a school seeds its Nursery and Primary grade levels.
+        self.school = Tenant.objects.create(
+            name="Section School", slug="section-school", status="active",
+            is_active=True, owner_email="section@example.com",
+        )
+        self.levels = GradeLevel.objects.filter(tenant=self.school)
+        self.owner = User.objects.create_user(
+            username="section-owner", email="section-owner@example.com",
+            first_name="Owner", last_name="User", role="superadmin",
+            password=None, is_active=True, is_staff=True, tenant=self.school,
+        )
+
+    def _visible_level_types(self, user):
+        from types import SimpleNamespace
+        from utils.section_filtering import SectionFilterMixin
+
+        mixin = SectionFilterMixin()
+        mixin.request = SimpleNamespace(user=user)
+        visible = mixin.apply_section_filters(self.levels)
+        return set(visible.values_list("education_level__level_type", flat=True))
+
+    def _section_admin(self, **extra):
+        return User.objects.create_user(
+            username="primary-head", email="primary-head@example.com",
+            first_name="Primary", last_name="Head", role="primary_admin",
+            password=None, is_active=True, tenant=self.school, **extra,
+        )
+
+    def test_the_seeded_levels_cover_more_than_primary(self):
+        # Guards the tests below: filtering proves nothing on primary alone.
+        self.assertGreater(len(self._visible_level_types(self.owner)), 1)
+
+    def test_a_staff_section_admin_sees_only_their_section(self):
+        visible = self._visible_level_types(self._section_admin(is_staff=True))
+
+        self.assertTrue(visible)
+        self.assertEqual({t.upper() for t in visible}, {"PRIMARY"})
+
+    def test_a_whole_school_staff_admin_still_sees_everything(self):
+        self.assertEqual(
+            self._visible_level_types(self.owner),
+            set(self.levels.values_list("education_level__level_type", flat=True)),
+        )
+
+    def test_a_section_admin_made_through_the_api_is_not_staff(self):
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.post(
+            reverse("authentication:create-admin"),
+            {"email": "made@example.com", "first_name": "Made",
+             "last_name": "Here", "role": "junior_secondary_admin"},
+            format="json", HTTP_X_TENANT_SLUG=self.school.slug,
+        )
+
+        self.assertEqual(response.status_code, 201)
+        made = User.objects.get(email="made@example.com")
+        self.assertFalse(made.is_staff)
+        self.assertEqual(made.section, "junior_secondary")
+
+    def test_a_school_admin_made_through_the_api_is_staff(self):
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.post(
+            reverse("authentication:create-admin"),
+            {"email": "whole@example.com", "first_name": "Whole",
+             "last_name": "School", "role": "admin"},
+            format="json", HTTP_X_TENANT_SLUG=self.school.slug,
+        )
+
+        self.assertEqual(response.status_code, 201)
+        made = User.objects.get(email="whole@example.com")
+        self.assertTrue(made.is_staff)
+        self.assertIsNone(made.section)
+
+    def test_being_made_secondary_admin_no_longer_grants_staff(self):
+        teacher = User.objects.create_user(
+            username="to-promote", email="to-promote@example.com",
+            first_name="To", last_name="Promote", role="teacher",
+            password=None, is_active=True, tenant=self.school,
+        )
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.post(
+            reverse("schoolSettings:update-user-role"),
+            {"email": teacher.email, "role": "secondary_admin"},
+            format="json", HTTP_X_TENANT_SLUG=self.school.slug,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        teacher.refresh_from_db()
+        self.assertFalse(teacher.is_staff)
+        self.assertEqual(teacher.section, "secondary")

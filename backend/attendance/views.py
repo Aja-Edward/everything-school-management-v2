@@ -24,6 +24,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.views import APIView
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -42,6 +43,7 @@ from teacher.models import Teacher
 from tenants.mixins import TenantFilterMixin
 from utils.pagination import LargeResultsPagination
 from utils.section_filtering import AutoSectionFilterMixin
+from common.admin_access import section_admin_levels
 
 from .filters import AttendanceFilter
 from .gate import ScanError, record_and_notify, settings_for
@@ -108,6 +110,10 @@ class AttendanceViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
     serializer_class = AttendanceSerializer
     queryset = Attendance.objects.all()
     permission_classes = [IsAuthenticated, HasAttendancePermissionOrReadOnly]
+    # Section admins may keep their section's register. Reads and single
+    # records already go through AutoSectionFilterMixin; the writes that take
+    # student and section ids check them with _outside_section below.
+    section_admin_modules = {"attendance"}
     pagination_class = LargeResultsPagination
     filter_backends = [DjangoFilterBackend,
                        filters.SearchFilter, filters.OrderingFilter]
@@ -156,6 +162,45 @@ class AttendanceViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
             )
 
         return super().get_queryset().select_related(*_SELECT)
+
+    # ── Section admins: their own section only ────────────────────────────────
+
+    def _outside_section(self, student=None, section=None):
+        """
+        Whether a section admin is writing for a student or class outside
+        their section. False for everyone else: teachers and whole-school
+        admins are held by their own rules, not this one.
+        """
+        levels = section_admin_levels(self.request.user)
+        if levels is None:
+            return False
+
+        def level_of(education_level):
+            return getattr(education_level, "level_type", None)
+
+        if student is not None:
+            student_class = getattr(student, "student_class", None)
+            if level_of(getattr(student_class, "education_level", None)) not in levels:
+                return True
+        if section is not None:
+            class_grade = getattr(section, "class_grade", None)
+            if level_of(getattr(class_grade, "education_level", None)) not in levels:
+                return True
+        return False
+
+    def _refuse_outside_section(self, data, instance=None):
+        student = data.get("student", getattr(instance, "student", None))
+        section = data.get("section", getattr(instance, "section", None))
+        if self._outside_section(student, section):
+            raise PermissionDenied("You can only take attendance for your own section.")
+
+    def perform_create(self, serializer):
+        self._refuse_outside_section(serializer.validated_data)
+        super().perform_create(serializer)
+
+    def perform_update(self, serializer):
+        self._refuse_outside_section(serializer.validated_data, serializer.instance)
+        super().perform_update(serializer)
 
     # ── FIX #2 — Bulk upsert ──────────────────────────────────────────────────
 
@@ -209,6 +254,19 @@ class AttendanceViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
                     "missing_sections": list(missing_sections),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        outside = [
+            item for item in raw_items
+            if self._outside_section(students[item["student"]], sections[item["section"]])
+        ]
+        if outside:
+            return Response(
+                {
+                    "error": "You can only take attendance for your own section.",
+                    "outside_section_students": sorted({item["student"] for item in outside}),
+                },
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         today = timezone.localdate()
@@ -412,6 +470,8 @@ class AttendanceViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Mode
                     id=row["student"].strip(), tenant=tenant)
                 section = Section.objects.get(
                     id=row["section"].strip(), tenant=tenant)
+                if self._outside_section(student, section):
+                    raise ValueError("This student or class is not in your section.")
                 teacher = None
                 if row.get("teacher", "").strip():
                     teacher = Teacher.objects.get(

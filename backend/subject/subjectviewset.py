@@ -295,16 +295,12 @@ class SubjectViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             return queryset
 
         # ── Section admin roles — filter by education level ────────────────
-        role_to_levels = {
-            "primary_admin": ["PRIMARY"],
-            "nursery_admin": ["NURSERY"],
-            "secondary_admin": ["JUNIOR_SECONDARY", "SENIOR_SECONDARY"],
-            "junior_secondary_admin": ["JUNIOR_SECONDARY", "SENIOR_SECONDARY"],
-            "senior_secondary_admin": ["JUNIOR_SECONDARY", "SENIOR_SECONDARY"],
-        }
+        # The shared map (common.admin_access). This copy gave a Junior
+        # Secondary admin the Senior Secondary subjects too, and vice versa.
+        from common.admin_access import SECTION_ADMIN_LEVELS
 
-        if user_role in role_to_levels:
-            allowed = role_to_levels[user_role]
+        if user_role in SECTION_ADMIN_LEVELS:
+            allowed = SECTION_ADMIN_LEVELS[user_role]
             # FK path
             fk_q = Q(grade_levels__education_level__level_type__in=allowed)
             # Legacy JSON path — build OR of icontains per level

@@ -15,6 +15,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.utils import timezone
 from django.core.exceptions import ValidationError
+from django.db.models import Q
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import ValidationError as DRFValidationError
+from common.admin_access import in_same_school
+from tenants.membership import in_school_q, user_school_id
 from django.db import transaction
 from django.core.cache import cache
 import cloudinary
@@ -403,7 +408,8 @@ def update_user_role(request):
         )
 
     from common.admin_access import (
-        SCHOOL_ADMIN_ROLES, SECTION_ADMIN_LEVELS, in_same_school, outranks,
+        SCHOOL_ADMIN_ROLES, SECTION_ADMIN_LEVELS, admin_account_flags,
+        in_same_school, outranks,
     )
 
     # Only a school's own admins change roles, and only to a school role:
@@ -443,16 +449,24 @@ def update_user_role(request):
             status=status.HTTP_403_FORBIDDEN,
         )
 
-    # Ensure role exists (create if missing)
+    # Ensure role exists (create if missing). One shared, built-in role per
+    # role name; tenant=None keeps a school's own role of the same name out.
     role, _ = Role.objects.get_or_create(
         name=role_name,
-        defaults={"description": f"Auto-created role: {role_name}"},
+        tenant=None,
+        defaults={"description": f"Auto-created role: {role_name}", "is_system": True},
     )
 
-    # Update user's primary role field and staff status
+    # Update user's primary role field, staff status and section. Staff went
+    # to secondary_admin too, which let one section's admin act on the whole
+    # school through every staff-only endpoint (see admin_account_flags).
+    flags = admin_account_flags(role_name)
     user.role = role_name
-    user.is_staff = role_name in ["admin", "secondary_admin"]
-    user.save(update_fields=["role", "is_staff"])
+    user.is_staff = flags["is_staff"]
+    if role_name != "teacher":
+        # A teacher's own section says where they teach; keep it.
+        user.section = flags["section"]
+    user.save(update_fields=["role", "is_staff", "section"])
 
     # Ensure UserRole link exists
     user_role, created = UserRole.objects.get_or_create(
@@ -1320,6 +1334,26 @@ def send_test_sms(request):
 # ============================================================================
 
 
+def _callers_school_id(request):
+    """
+    The caller's school id, or None for platform staff (who see every school).
+
+    Role, UserRole and Permission carry no school of their own, and these
+    viewsets used to list them unfiltered: any school's owner saw every other
+    school's role assignments, with those users' names and emails, and could
+    edit or delete roles other schools use. Until the models get a school,
+    each queryset below reaches its school through a user instead.
+    """
+    if getattr(request.user, "is_platform_staff", False):
+        return None
+    return user_school_id(request.user)
+
+
+def _refuse_unless_platform(request, what):
+    if not getattr(request.user, "is_platform_staff", False):
+        raise PermissionDenied(f"{what} are shared by every school; only the platform can change them.")
+
+
 class PermissionViewSet(viewsets.ModelViewSet):
     """ViewSet for managing permissions"""
 
@@ -1346,9 +1380,24 @@ class PermissionViewSet(viewsets.ModelViewSet):
 
         return queryset.order_by("module", "permission_type", "section")
 
+    # One catalogue for every school, and a role grants a row by linking it,
+    # so a school flipping a row's `granted` flag changed every school's roles.
+    def perform_create(self, serializer):
+        _refuse_unless_platform(self.request, "Permissions")
+        serializer.save()
+
+    def perform_update(self, serializer):
+        _refuse_unless_platform(self.request, "Permissions")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        _refuse_unless_platform(self.request, "Permissions")
+        instance.delete()
+
     @action(detail=False, methods=["post"])
     def bulk_create(self, request):
         """Create multiple permissions at once"""
+        _refuse_unless_platform(request, "Permissions")
         try:
             permissions_data = request.data.get("permissions", [])
             created_permissions = []
@@ -1393,14 +1442,52 @@ class RoleViewSet(viewsets.ModelViewSet):
             return RoleCreateUpdateSerializer
         return RoleSerializer
 
+    def get_queryset(self):
+        """The built-in roles, and the roles this school made."""
+        queryset = Role.objects.all()
+        if getattr(self.request.user, "is_platform_staff", False):
+            return queryset
+        school_id = _callers_school_id(self.request)
+        if school_id is None:
+            return queryset.none()
+        return queryset.filter(Q(is_system=True) | Q(tenant_id=school_id))
+
+    def _new_roles_school_id(self):
+        """This school's; for platform staff, the school the request is for."""
+        if getattr(self.request.user, "is_platform_staff", False):
+            return getattr(getattr(self.request, "tenant", None), "id", None)
+        return _callers_school_id(self.request)
+
+    def _refuse_taken_name(self, name, school_id, exclude_pk=None):
+        # Checked here, not left to the database: the serializer can't see
+        # the school, so a clash would otherwise surface as a 500.
+        taken = Role.objects.filter(name=name, tenant_id=school_id)
+        if exclude_pk is not None:
+            taken = taken.exclude(pk=exclude_pk)
+        if taken.exists():
+            raise DRFValidationError({"name": "Your school already has a role with this name."})
+
     def perform_create(self, serializer):
-        """Set the creator when creating a role"""
-        serializer.save(created_by=self.request.user)
+        """Set the creator and school when creating a role"""
+        school_id = self._new_roles_school_id()
+        self._refuse_taken_name(serializer.validated_data.get("name"), school_id)
+        serializer.save(created_by=self.request.user, tenant_id=school_id)
+
+    def perform_update(self, serializer):
+        # Built-in roles are every school's; a school duplicates one to change it.
+        if serializer.instance.is_system:
+            _refuse_unless_platform(self.request, "Built-in roles")
+        if "name" in serializer.validated_data:
+            self._refuse_taken_name(
+                serializer.validated_data["name"], serializer.instance.tenant_id,
+                exclude_pk=serializer.instance.pk,
+            )
+        serializer.save()
 
     def perform_destroy(self, instance):
         """Prevent deletion of system roles"""
         if instance.is_system:
-            raise ValidationError("System roles cannot be deleted")
+            raise PermissionDenied("System roles cannot be deleted")
         instance.delete()
 
     @action(detail=True, methods=["post"])
@@ -1409,9 +1496,14 @@ class RoleViewSet(viewsets.ModelViewSet):
         try:
             original_role = self.get_object()
 
-            # Create new role with similar data
+            # Create new role with similar data, as this school's own: this is
+            # how a school gets an editable version of a built-in role.
+            school_id = self._new_roles_school_id()
+            name = f"{original_role.name} (Copy)"
+            self._refuse_taken_name(name, school_id)
             new_role = Role.objects.create(
-                name=f"{original_role.name} (Copy)",
+                tenant_id=school_id,
+                name=name,
                 description=original_role.description,
                 color=original_role.color,
                 primary_section_access=original_role.primary_section_access,
@@ -1430,6 +1522,8 @@ class RoleViewSet(viewsets.ModelViewSet):
                 }
             )
 
+        except DRFValidationError:
+            raise
         except Exception as e:
             return Response(
                 {"error": f"Failed to duplicate role: {str(e)}"},
@@ -1444,6 +1538,9 @@ class RoleViewSet(viewsets.ModelViewSet):
 
             # Get users assigned to this role through UserRole model
             user_roles = UserRole.objects.filter(role=role, is_active=True)
+            school_id = _callers_school_id(request)
+            if school_id is not None:
+                user_roles = user_roles.filter(in_school_q(school_id, "user__")).distinct()
             user_data = []
 
             for user_role in user_roles:
@@ -1493,13 +1590,35 @@ class UserRoleViewSet(viewsets.ModelViewSet):
             return UserRoleCreateUpdateSerializer
         return UserRoleSerializer
 
+    def _check_assignment(self, data):
+        """The user must be this school's, and the role one this school can see."""
+        user = data.get("user")
+        if user is not None and not in_same_school(self.request.user, user):
+            raise DRFValidationError({"user": "No such user in your school."})
+        role = data.get("role")
+        visible = RoleViewSet(request=self.request).get_queryset()
+        if role is not None and not visible.filter(pk=role.pk).exists():
+            raise DRFValidationError({"role": "No such role."})
+
     def perform_create(self, serializer):
         """Set the assigner when creating a user role assignment"""
+        self._check_assignment(serializer.validated_data)
         serializer.save(assigned_by=self.request.user)
+
+    def perform_update(self, serializer):
+        self._check_assignment(serializer.validated_data)
+        serializer.save()
 
     def get_queryset(self):
         """Filter user roles based on query parameters"""
         queryset = UserRole.objects.all()
+        if not getattr(self.request.user, "is_platform_staff", False):
+            school_id = _callers_school_id(self.request)
+            queryset = (
+                queryset.filter(in_school_q(school_id, "user__")).distinct()
+                if school_id is not None
+                else queryset.none()
+            )
 
         user_id = self.request.query_params.get("user", None)
         if user_id:
@@ -1530,6 +1649,9 @@ class UserRoleViewSet(viewsets.ModelViewSet):
             from users.models import CustomUser
 
             user = CustomUser.objects.get(id=user_id)
+            if user != request.user and not in_same_school(request.user, user):
+                # Another school's user; same answer as a missing one.
+                raise CustomUser.DoesNotExist
 
             # Get user's role assignments
             user_roles = UserRole.objects.filter(user=user, is_active=True)
@@ -1626,6 +1748,7 @@ class UserRoleViewSet(viewsets.ModelViewSet):
             for assignment_data in assignments_data:
                 serializer = self.get_serializer(data=assignment_data)
                 if serializer.is_valid():
+                    self._check_assignment(serializer.validated_data)
                     assignment = serializer.save(assigned_by=request.user)
                     created_assignments.append(assignment)
                 else:

@@ -446,6 +446,12 @@ class RoleCreateUpdateSerializer(serializers.ModelSerializer):
 
         return instance
 
+    def to_representation(self, instance):
+        # `permissions` is a list of ids going in, but the model's is a
+        # many-to-many manager, which a ListField can't write back out: every
+        # create and update saved the role and then answered with a 500.
+        return RoleSerializer(instance, context=self.context).data
+
 
 class UserRoleSerializer(serializers.ModelSerializer):
     """Serializer for user role assignments"""

@@ -5,6 +5,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _is_whole_school_staff(user):
+    # See common.admin_access; imported late, since that imports tenants.
+    from common.admin_access import is_whole_school_staff
+
+    return is_whole_school_staff(user)
+
+
 class SectionFilterMixin:
     """
     Enhanced mixin to automatically filter querysets based on user's section and role.
@@ -86,7 +93,7 @@ class SectionFilterMixin:
         user = self.request.user
 
         # CRITICAL: Check superuser/staff first
-        if getattr(user, "is_superuser", False) or getattr(user, "is_staff", False):
+        if _is_whole_school_staff(user):
             logger.info("✅ Super admin/staff access - returning all sections")
             return Section.objects.all()
 
@@ -213,8 +220,8 @@ class SectionFilterMixin:
             logger.info("✅ Super admin (is_superuser) - all education levels")
             return ["NURSERY", "PRIMARY", "JUNIOR_SECONDARY", "SENIOR_SECONDARY"]
 
-        # Check 2: Direct is_staff check
-        if getattr(user, "is_staff", False):
+        # Check 2: Direct is_staff check (not for a section admin role)
+        if _is_whole_school_staff(user):
             logger.info("✅ Staff user (is_staff) - all education levels")
             return ["NURSERY", "PRIMARY", "JUNIOR_SECONDARY", "SENIOR_SECONDARY"]
 
@@ -316,8 +323,8 @@ class SectionFilterMixin:
             )
             return queryset
 
-        # Check 2: Direct is_staff check
-        if getattr(user, "is_staff", False):
+        # Check 2: Direct is_staff check (not for a section admin role)
+        if _is_whole_school_staff(user):
             logger.info(f"✅ Staff user (is_staff=True) - no filtering on {model_name}")
             return queryset
 
@@ -421,9 +428,13 @@ class SectionFilterMixin:
                         logger.error(f"Error filtering classrooms for teacher: {e}")
                         return queryset.none()
 
-                # For section admins — fix the ORM path
+                # For section admins. The allowed list holds level_type codes
+                # ('PRIMARY'), so matching on name alone ('Primary') found no
+                # class at all; match either, as the default branch does.
+                level = "section__class_grade__education_level"
                 filtered = queryset.filter(
-                    section__class_grade__education_level__name__in=allowed_education_levels
+                    Q(**{f"{level}__name__in": allowed_education_levels})
+                    | Q(**{f"{level}__level_type__in": allowed_education_levels})
                 )
                 logger.info(
                     f"✅ Filtered Classrooms: {filtered.count()} of {queryset.count()}"

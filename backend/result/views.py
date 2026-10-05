@@ -30,6 +30,7 @@ from messaging.models import BulkMessage, Message
 from students.models import Student
 from subject.models import Subject
 from tenants.mixins import TenantFilterMixin
+from common.admin_access import is_whole_school_staff
 from utils.section_filtering import AutoSectionFilterMixin, SectionFilterMixin
 from utils.signature_handler import upload_signature_to_cloudinary
 from utils.teacher_portal_permissions import TeacherPortalCheckMixin
@@ -67,6 +68,7 @@ from .models import (
     StudentTermResult,
     # Permission helpers — single source of truth from models.py
     _is_admin,
+    _is_results_admin,
     _user_role,
 )
 from .report_generation import get_report_generator
@@ -398,6 +400,19 @@ def _result_qs_base(ModelClass, extra_selects=(), tenant=None):
     return qs
 
 
+def _may_manage_level(user, level_type):
+    """
+    Whether `user` may run a whole-level operation (recalculating positions)
+    on `level_type`: a school admin, or a section admin whose section it is.
+    """
+    if _is_admin(user):
+        return True
+    from common.admin_access import section_admin_levels
+
+    levels = section_admin_levels(user)
+    return levels is not None and level_type in levels
+
+
 def _apply_role_filter(queryset, viewset, user):
     """Apply role-based visibility filter on a result queryset."""
     # SECURITY: is_staff/_is_admin(user) alone used to return the queryset
@@ -411,12 +426,16 @@ def _apply_role_filter(queryset, viewset, user):
         return queryset
     tenant = getattr(getattr(viewset, "request", None), "tenant", None)
     queryset = queryset.filter(tenant=tenant) if tenant else queryset.none()
-    if user.is_superuser or user.is_staff:
+    # Not is_staff alone: a section admin who is staff still gets their
+    # section only (common.admin_access.is_whole_school_staff).
+    if is_whole_school_staff(user):
         return queryset
     if _is_admin(user):
         return queryset
     role = _user_role(user)
-    if role in (
+    # _user_role() upper-cases, and these are lower-case, so section admins
+    # never matched and only ever saw results by being staff.
+    if role.lower() in (
         "secondary_admin",
         "nursery_admin",
         "primary_admin",
@@ -461,12 +480,16 @@ def _apply_report_role_filter(queryset, viewset, user):
         return queryset
     tenant = getattr(getattr(viewset, "request", None), "tenant", None)
     queryset = queryset.filter(tenant=tenant) if tenant else queryset.none()
-    if user.is_superuser or user.is_staff:
+    # Not is_staff alone: a section admin who is staff still gets their
+    # section only (common.admin_access.is_whole_school_staff).
+    if is_whole_school_staff(user):
         return queryset
     if _is_admin(user):
         return queryset
     role = _user_role(user)
-    if role in (
+    # _user_role() upper-cases, and these are lower-case, so section admins
+    # never matched and only ever saw results by being staff.
+    if role.lower() in (
         "secondary_admin",
         "nursery_admin",
         "primary_admin",
@@ -682,7 +705,7 @@ class TraitRatingsRecordView(APIView):
 
         report = get_object_or_404(model, pk=report_id, tenant=request.tenant)
 
-        if not (_is_admin(request.user) or self._can_teacher_rate(request.user, report)):
+        if not (_is_results_admin(request.user, report.student) or self._can_teacher_rate(request.user, report)):
             raise PermissionDenied(
                 "You are not allowed to view ratings on this report."
             )
@@ -709,7 +732,7 @@ class TraitRatingsRecordView(APIView):
 
         report = get_object_or_404(model, pk=report_id, tenant=request.tenant)
 
-        if not (_is_admin(request.user) or self._can_teacher_rate(request.user, report)):
+        if not (_is_results_admin(request.user, report.student) or self._can_teacher_rate(request.user, report)):
             raise PermissionDenied(
                 "You are not allowed to record ratings on this report."
             )
@@ -837,7 +860,7 @@ class TeacherTermReportGetOrCreateView(APIView):
         student = get_object_or_404(
             Student, pk=student_id, tenant=request.tenant)
 
-        if not (_is_admin(request.user) or self._teacher_can_access_student(request.user, student)):
+        if not (_is_results_admin(request.user, student) or self._teacher_can_access_student(request.user, student)):
             raise PermissionDenied("You do not have access to this student.")
 
         report, _ = model.objects.get_or_create(
@@ -1266,7 +1289,7 @@ class BaseResultViewSetMixin:
         SQL UPDATE path is used for both single and bulk operations.
         Requires _is_admin(user) — consistent with model _ADMIN_ROLES.
         """
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user, result.student):
             return Response(
                 {"error": "You do not have permission to approve results."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -1297,7 +1320,7 @@ class BaseResultViewSetMixin:
         """
         Single-record publish.  Uses ModelClass.bulk_publish() — one UPDATE.
         """
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user, result.student):
             return Response(
                 {"error": "You do not have permission to publish results."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -1546,7 +1569,7 @@ class BaseResultViewSetMixin:
         if not hasattr(self, "_exam_session_cache"):
             self._exam_session_cache = {}
         if exam_session_id not in self._exam_session_cache:
-            self._exam_session_cache[exam_session_id] = ExamSession.objects.get(
+            self._exam_session_cache[exam_session_id] = ExamSession.objects.get(tenant=self.request.tenant, 
                 id=exam_session_id
             )
         return self._exam_session_cache[exam_session_id]
@@ -1778,10 +1801,10 @@ class BaseResultViewSetMixin:
         ModelClass = self.get_queryset().model
         education_level = self._get_education_level(ModelClass)
         try:
-            qs = ModelClass.objects.filter(pk__in=result_ids)
+            qs = ModelClass.objects.filter(tenant=request.tenant, pk__in=result_ids)
             count = ModelClass.bulk_approve(qs, request.user)
             # Ensure term reports exist and metrics are current.
-            affected = list(ModelClass.objects.filter(pk__in=result_ids))
+            affected = list(ModelClass.objects.filter(tenant=request.tenant, pk__in=result_ids))
             try:
                 self._ensure_term_reports_exist(
                     affected, ModelClass, education_level)
@@ -1811,10 +1834,10 @@ class BaseResultViewSetMixin:
         education_level = self._get_education_level(ModelClass)
         try:
             count = ModelClass.bulk_publish(
-                ModelClass.objects.filter(pk__in=result_ids), request.user
+                ModelClass.objects.filter(tenant=request.tenant, pk__in=result_ids), request.user
             )
             # Ensure term reports exist and metrics are current.
-            affected = list(ModelClass.objects.filter(pk__in=result_ids))
+            affected = list(ModelClass.objects.filter(tenant=request.tenant, pk__in=result_ids))
             try:
                 self._ensure_term_reports_exist(
                     affected, ModelClass, education_level)
@@ -1843,7 +1866,7 @@ class BaseResultViewSetMixin:
         ModelClass = self.get_queryset().model
         try:
             deleted_count, _ = ModelClass.bulk_delete(
-                ModelClass.objects.filter(pk__in=result_ids), request.user
+                ModelClass.objects.filter(tenant=request.tenant, pk__in=result_ids), request.user
             )
             return Response({"deleted_count": deleted_count})
         except Exception as exc:
@@ -2077,7 +2100,7 @@ class SeniorSecondaryTermReportViewSet(
         one for the subject results.
         """
         report = self.get_object()
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         if report.status != DRAFT:
             return Response(
@@ -2106,7 +2129,7 @@ class SeniorSecondaryTermReportViewSet(
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
         report = self.get_object()
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         if report.status not in (DRAFT, APPROVED):
             return Response(
@@ -2145,10 +2168,10 @@ class SeniorSecondaryTermReportViewSet(
         ser = BulkApproveSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         report_ids = ser.validated_data["result_ids"]
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         with transaction.atomic():
-            qs = SeniorSecondaryTermReport.objects.filter(pk__in=report_ids)
+            qs = SeniorSecondaryTermReport.objects.filter(tenant=request.tenant, pk__in=report_ids)
             count = SeniorSecondaryTermReport.bulk_approve(qs, request.user)
             # Cascade approve all DRAFT subject results for these reports.
             result_count = SeniorSecondaryResult.bulk_approve(
@@ -2168,10 +2191,10 @@ class SeniorSecondaryTermReportViewSet(
         ser = BulkPublishSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         report_ids = ser.validated_data["result_ids"]
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         with transaction.atomic():
-            qs = SeniorSecondaryTermReport.objects.filter(pk__in=report_ids)
+            qs = SeniorSecondaryTermReport.objects.filter(tenant=request.tenant, pk__in=report_ids)
             combos = list(qs.values_list("exam_session_id",
                           "student__student_class").distinct())
             count = SeniorSecondaryTermReport.bulk_publish(qs, request.user)
@@ -2180,11 +2203,11 @@ class SeniorSecondaryTermReportViewSet(
                     term_report__in=report_ids),
                 request.user,
             )
-            for r in SeniorSecondaryTermReport.objects.filter(pk__in=report_ids):
+            for r in SeniorSecondaryTermReport.objects.filter(tenant=request.tenant, pk__in=report_ids):
                 r.calculate_metrics()
             for exam_session_id, sc in combos:
                 if exam_session_id and sc:
-                    es = ExamSession.objects.get(pk=exam_session_id)
+                    es = ExamSession.objects.get(tenant=request.tenant, pk=exam_session_id)
                     SeniorSecondaryTermReport.bulk_recalculate_positions(
                         exam_session=es, student_class=sc,
                     )
@@ -2195,7 +2218,7 @@ class SeniorSecondaryTermReportViewSet(
     @action(detail=False, methods=["post"], url_path="recalculate-positions")
     def recalculate_positions(self, request):
         """Re-rank all APPROVED/PUBLISHED reports for an exam session using SQL RANK()."""
-        if not _is_admin(request.user):
+        if not _may_manage_level(request.user, "SENIOR_SECONDARY"):
             return Response({"error": "Permission denied."}, status=403)
         exam_session_id = request.data.get("exam_session")
         if not exam_session_id:
@@ -2309,7 +2332,7 @@ class SeniorSecondarySessionReportViewSet(
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
         report = self.get_object()
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         if report.status != DRAFT:
             return Response(
@@ -2330,7 +2353,7 @@ class SeniorSecondarySessionReportViewSet(
     def publish(self, request, pk=None):
         """Delegates to model publish() — targeted update_fields save."""
         report = self.get_object()
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         if report.status not in (DRAFT, APPROVED):
             return Response(
@@ -2521,7 +2544,7 @@ class JuniorSecondaryTermReportViewSet(
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
         report = self.get_object()
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         if report.status != DRAFT:
             return Response(
@@ -2550,7 +2573,7 @@ class JuniorSecondaryTermReportViewSet(
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
         report = self.get_object()
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         if report.status not in (DRAFT, APPROVED):
             return Response(
@@ -2587,11 +2610,11 @@ class JuniorSecondaryTermReportViewSet(
     def bulk_approve_reports(self, request):
         ser = BulkApproveSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         with transaction.atomic():
             qs = JuniorSecondaryTermReport.objects.filter(
-                pk__in=ser.validated_data["result_ids"]
+                tenant=request.tenant, pk__in=ser.validated_data["result_ids"]
             )
             count = JuniorSecondaryTermReport.bulk_approve(qs, request.user)
             result_count = JuniorSecondaryResult.bulk_approve(
@@ -2609,11 +2632,11 @@ class JuniorSecondaryTermReportViewSet(
     def bulk_publish_reports(self, request):
         ser = BulkPublishSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         with transaction.atomic():
             qs = JuniorSecondaryTermReport.objects.filter(
-                pk__in=ser.validated_data["result_ids"]
+                tenant=request.tenant, pk__in=ser.validated_data["result_ids"]
             )
             combos = list(qs.values_list("exam_session_id",
                           "student__student_class").distinct())
@@ -2624,11 +2647,11 @@ class JuniorSecondaryTermReportViewSet(
                 ),
                 request.user,
             )
-            for r in JuniorSecondaryTermReport.objects.filter(pk__in=ser.validated_data["result_ids"]):
+            for r in JuniorSecondaryTermReport.objects.filter(tenant=request.tenant, pk__in=ser.validated_data["result_ids"]):
                 r.calculate_metrics()
             for exam_session_id, sc in combos:
                 if exam_session_id and sc:
-                    es = ExamSession.objects.get(pk=exam_session_id)
+                    es = ExamSession.objects.get(tenant=request.tenant, pk=exam_session_id)
                     JuniorSecondaryTermReport.bulk_recalculate_positions(
                         exam_session=es, student_class=sc,
                     )
@@ -2638,7 +2661,7 @@ class JuniorSecondaryTermReportViewSet(
 
     @action(detail=False, methods=["post"], url_path="recalculate-positions")
     def recalculate_positions(self, request):
-        if not _is_admin(request.user):
+        if not _may_manage_level(request.user, "JUNIOR_SECONDARY"):
             return Response({"error": "Permission denied."}, status=403)
         exam_session_id = request.data.get("exam_session")
         if not exam_session_id:
@@ -2728,7 +2751,7 @@ class JuniorSecondarySessionReportViewSet(
 
     @action(detail=True, methods=["post"])
     def compute(self, request, pk=None):
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         report = self.get_object()
         try:
@@ -2744,7 +2767,7 @@ class JuniorSecondarySessionReportViewSet(
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
         report = self.get_object()
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         if report.status not in (DRAFT, APPROVED):
             return Response(
@@ -2943,7 +2966,7 @@ class PrimaryTermReportViewSet(
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
         report = self.get_object()
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         if report.status != DRAFT:
             return Response(
@@ -2971,7 +2994,7 @@ class PrimaryTermReportViewSet(
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
         report = self.get_object()
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         if report.status not in (DRAFT, APPROVED):
             return Response(
@@ -3006,11 +3029,11 @@ class PrimaryTermReportViewSet(
     def bulk_approve_reports(self, request):
         ser = BulkApproveSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         with transaction.atomic():
             qs = PrimaryTermReport.objects.filter(
-                pk__in=ser.validated_data["result_ids"]
+                tenant=request.tenant, pk__in=ser.validated_data["result_ids"]
             )
             count = PrimaryTermReport.bulk_approve(qs, request.user)
             result_count = PrimaryResult.bulk_approve(
@@ -3028,11 +3051,11 @@ class PrimaryTermReportViewSet(
     def bulk_publish_reports(self, request):
         ser = BulkPublishSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         with transaction.atomic():
             qs = PrimaryTermReport.objects.filter(
-                pk__in=ser.validated_data["result_ids"]
+                tenant=request.tenant, pk__in=ser.validated_data["result_ids"]
             )
             combos = list(qs.values_list("exam_session_id",
                           "student__student_class").distinct())
@@ -3043,11 +3066,11 @@ class PrimaryTermReportViewSet(
                 ),
                 request.user,
             )
-            for r in PrimaryTermReport.objects.filter(pk__in=ser.validated_data["result_ids"]):
+            for r in PrimaryTermReport.objects.filter(tenant=request.tenant, pk__in=ser.validated_data["result_ids"]):
                 r.calculate_metrics()
             for exam_session_id, sc in combos:
                 if exam_session_id and sc:
-                    es = ExamSession.objects.get(pk=exam_session_id)
+                    es = ExamSession.objects.get(tenant=request.tenant, pk=exam_session_id)
                     PrimaryTermReport.bulk_recalculate_positions(
                         exam_session=es, student_class=sc,
                     )
@@ -3057,7 +3080,7 @@ class PrimaryTermReportViewSet(
 
     @action(detail=False, methods=["post"], url_path="recalculate-positions")
     def recalculate_positions(self, request):
-        if not _is_admin(request.user):
+        if not _may_manage_level(request.user, "PRIMARY"):
             return Response({"error": "Permission denied."}, status=403)
         exam_session_id = request.data.get("exam_session")
         if not exam_session_id:
@@ -3147,7 +3170,7 @@ class PrimarySessionReportViewSet(
 
     @action(detail=True, methods=["post"])
     def compute(self, request, pk=None):
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         report = self.get_object()
         try:
@@ -3163,7 +3186,7 @@ class PrimarySessionReportViewSet(
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
         report = self.get_object()
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         if report.status not in (DRAFT, APPROVED):
             return Response(
@@ -3425,7 +3448,7 @@ class NurseryTermReportViewSet(
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
         report = self.get_object()
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         if report.status != DRAFT:
             return Response(
@@ -3452,7 +3475,7 @@ class NurseryTermReportViewSet(
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
         report = self.get_object()
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         if report.status not in (DRAFT, APPROVED):
             return Response(
@@ -3507,11 +3530,11 @@ class NurseryTermReportViewSet(
         """Admin one-click: approve all DRAFT nursery term reports for a batch."""
         ser = BulkApproveSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         report_ids = ser.validated_data["result_ids"]
         with transaction.atomic():
-            qs = NurseryTermReport.objects.filter(pk__in=report_ids)
+            qs = NurseryTermReport.objects.filter(tenant=request.tenant, pk__in=report_ids)
             count = NurseryTermReport.bulk_approve(qs, request.user)
             # One UPDATE for all child results — no per-report loop.
             result_count = NurseryResult.objects.filter(
@@ -3532,11 +3555,11 @@ class NurseryTermReportViewSet(
         """Admin one-click: publish all APPROVED nursery term reports for a batch."""
         ser = BulkPublishSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         report_ids = ser.validated_data["result_ids"]
         with transaction.atomic():
-            qs = NurseryTermReport.objects.filter(pk__in=report_ids)
+            qs = NurseryTermReport.objects.filter(tenant=request.tenant, pk__in=report_ids)
             combos = list(qs.values_list("exam_session_id",
                           "student__student_class").distinct())
             count = NurseryTermReport.bulk_publish(qs, request.user)
@@ -3548,11 +3571,11 @@ class NurseryTermReportViewSet(
                 published_by=request.user,
                 published_date=timezone.now(),
             )
-            for r in NurseryTermReport.objects.filter(pk__in=report_ids):
+            for r in NurseryTermReport.objects.filter(tenant=request.tenant, pk__in=report_ids):
                 r.calculate_metrics()
             for exam_session_id, sc in combos:
                 if exam_session_id and sc:
-                    es = ExamSession.objects.get(pk=exam_session_id)
+                    es = ExamSession.objects.get(tenant=request.tenant, pk=exam_session_id)
                     NurseryTermReport.bulk_recalculate_positions(
                         exam_session=es, student_class=sc,
                     )
@@ -3562,7 +3585,7 @@ class NurseryTermReportViewSet(
 
     @action(detail=False, methods=["post"], url_path="recalculate-positions")
     def recalculate_positions(self, request):
-        if not _is_admin(request.user):
+        if not _may_manage_level(request.user, "NURSERY"):
             return Response({"error": "Permission denied."}, status=403)
         exam_session_id = request.data.get("exam_session")
         if not exam_session_id:
@@ -3595,7 +3618,7 @@ class NurseryTermReportViewSet(
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response(
                 {"error": "Only administrators can delete term reports."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -3653,7 +3676,7 @@ class NurserySessionReportViewSet(
 
     @action(detail=True, methods=["post"])
     def compute(self, request, pk=None):
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         report = self.get_object()
         try:
@@ -3669,7 +3692,7 @@ class NurserySessionReportViewSet(
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
         report = self.get_object()
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         if report.status not in (DRAFT, APPROVED):
             return Response(
@@ -3861,8 +3884,11 @@ class UnifiedSubjectResultViewSet(TenantFilterMixin, viewsets.ViewSet):
 
 
 class StudentResultViewSet(
-    TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
+    TenantFilterMixin, TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
 ):
+    # TenantFilterMixin first, as everywhere else in this file. Without it the
+    # queryset spanned every school: a school admin listed, approved and
+    # published other schools' rows by id.
     queryset = StudentResult.objects.all()
     serializer_class = StudentResultSerializer
     permission_classes = [IsAuthenticated]
@@ -3887,9 +3913,10 @@ class StudentResultViewSet(
             .prefetch_related("assessment_scores", "comments")
         )
         if self.request.user.is_authenticated:
-            section_access = self.get_user_section_access()
-            education_levels = self.get_education_levels_for_sections(
-                section_access)
+            # get_education_levels_for_sections() was never defined, so every
+            # list and lookup here raised AttributeError. This is the mixin's
+            # own: every level for a school admin, a section admin's for them.
+            education_levels = self.get_user_education_level_access()
             if not education_levels:
                 return qs.none()
             qs = qs.filter(
@@ -3902,9 +3929,11 @@ class StudentResultViewSet(
             with transaction.atomic():
                 serializer = self.get_serializer(data=request.data)
                 serializer.is_valid(raise_exception=True)
+                # Saved with no school, a row vanished from its own school's
+                # list once the school filter applied.
                 return Response(
                     DetailedStudentResultSerializer(
-                        serializer.save()).data, status=201
+                        serializer.save(tenant=request.tenant)).data, status=201
                 )
         except Exception as exc:
             return Response({"error": str(exc)}, status=400)
@@ -3948,9 +3977,11 @@ class StudentResultViewSet(
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         result = self.get_object()
+        if not _is_results_admin(request.user, result.student):
+            return Response({"error": "Permission denied."}, status=403)
         if result.status != DRAFT:
             return Response(
                 {"error": f"Cannot approve from status '{result.status}'."}, status=400
@@ -3974,11 +4005,13 @@ class StudentResultViewSet(
 
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         try:
             with transaction.atomic():
                 result = self.get_object()
+                if not _is_results_admin(request.user, result.student):
+                    return Response({"error": "Permission denied."}, status=403)
                 result.status = PUBLISHED
                 result.save(update_fields=["status", "updated_at"])
             return Response(DetailedStudentResultSerializer(result).data)
@@ -3987,8 +4020,11 @@ class StudentResultViewSet(
 
 
 class StudentTermResultViewSet(
-    TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
+    TenantFilterMixin, TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
 ):
+    # TenantFilterMixin first, as everywhere else in this file. Without it the
+    # queryset spanned every school: a school admin listed, approved and
+    # published other schools' rows by id.
     queryset = StudentTermResult.objects.all()
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
@@ -4017,11 +4053,8 @@ class StudentTermResultViewSet(
         user = self.request.user
         if _user_role(user) == "STUDENT":
             return qs.filter(student__user=user)
-        section_access = self.get_user_section_access()
-        if not section_access:
-            return qs.none()
-        education_levels = self.get_education_levels_for_sections(
-            section_access)
+        # See StudentResultViewSet: the method called here never existed.
+        education_levels = self.get_user_education_level_access()
         if not education_levels:
             return qs.none()
         return qs.filter(
@@ -4039,11 +4072,13 @@ class StudentTermResultViewSet(
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         try:
             with transaction.atomic():
                 term_result = self.get_object()
+                if not _is_results_admin(request.user, term_result.student):
+                    return Response({"error": "Permission denied."}, status=403)
                 if term_result.status != DRAFT:
                     return Response(
                         {
@@ -4059,11 +4094,13 @@ class StudentTermResultViewSet(
 
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         try:
             with transaction.atomic():
                 term_result = self.get_object()
+                if not _is_results_admin(request.user, term_result.student):
+                    return Response({"error": "Permission denied."}, status=403)
                 if term_result.status not in (DRAFT, APPROVED):
                     return Response(
                         {
@@ -4082,8 +4119,11 @@ class StudentTermResultViewSet(
 
 
 class ResultSheetViewSet(
-    AutoSectionFilterMixin, TeacherPortalCheckMixin, viewsets.ModelViewSet
+    TenantFilterMixin, AutoSectionFilterMixin, TeacherPortalCheckMixin, viewsets.ModelViewSet
 ):
+    # TenantFilterMixin first, as everywhere else in this file. Without it the
+    # queryset spanned every school: a school admin listed, approved and
+    # published other schools' rows by id.
     queryset = ResultSheet.objects.all()
     serializer_class = ResultSheetSerializer
     permission_classes = [IsAuthenticated]
@@ -4106,9 +4146,20 @@ class ResultSheetViewSet(
             )
         )
 
+    def filter_queryset(self, queryset):
+        # The section filter has no rule for ResultSheet and passed every
+        # sheet through; a section admin sees their own levels' classes.
+        queryset = super().filter_queryset(queryset)
+        from common.admin_access import section_admin_levels
+
+        levels = section_admin_levels(self.request.user)
+        if levels is not None and not _is_admin(self.request.user):
+            queryset = queryset.filter(student_class__education_level__level_type__in=levels)
+        return queryset
+
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         try:
             with transaction.atomic():
@@ -4137,15 +4188,25 @@ class ResultSheetViewSet(
                 {"error": "exam_session_id and student_class_id are required"},
                 status=400,
             )
+        # Anyone signed in, students and parents included, could make a sheet.
+        role = _user_role(request.user)
+        if not (_is_results_admin(request.user) or role == "TEACHER"):
+            return Response({"error": "Permission denied."}, status=403)
         try:
-            exam_session = ExamSession.objects.get(id=es_id)
-            student_class = StudentClass.objects.get(id=sc_id)
+            exam_session = ExamSession.objects.get(tenant=request.tenant, id=es_id)
+            # The class was looked up across every school.
+            student_class = StudentClass.objects.get(id=sc_id, tenant=request.tenant)
+            if role != "TEACHER" and not _may_manage_level(
+                request.user, student_class.education_level.level_type
+            ):
+                return Response({"error": "Permission denied."}, status=403)
             existing = ResultSheet.objects.filter(
-                exam_session=exam_session, student_class=student_class
+                tenant=request.tenant, exam_session=exam_session, student_class=student_class
             ).first()
             if existing:
                 return Response(ResultSheetSerializer(existing).data)
             sheet = ResultSheet.objects.create(
+                tenant=request.tenant,
                 exam_session=exam_session,
                 student_class=student_class,
                 prepared_by=request.user,
@@ -4161,8 +4222,11 @@ class ResultSheetViewSet(
 
 
 class AssessmentScoreViewSet(
-    AutoSectionFilterMixin, TeacherPortalCheckMixin, viewsets.ModelViewSet
+    TenantFilterMixin, AutoSectionFilterMixin, TeacherPortalCheckMixin, viewsets.ModelViewSet
 ):
+    # TenantFilterMixin first, as everywhere else in this file. Without it the
+    # queryset spanned every school: a school admin listed, approved and
+    # published other schools' rows by id.
     queryset = AssessmentScore.objects.all()
     serializer_class = AssessmentScoreSerializer
     permission_classes = [IsAuthenticated]
@@ -4176,8 +4240,11 @@ class AssessmentScoreViewSet(
 
 
 class ResultCommentViewSet(
-    AutoSectionFilterMixin, TeacherPortalCheckMixin, viewsets.ModelViewSet
+    TenantFilterMixin, AutoSectionFilterMixin, TeacherPortalCheckMixin, viewsets.ModelViewSet
 ):
+    # TenantFilterMixin first, as everywhere else in this file. Without it the
+    # queryset spanned every school: a school admin listed, approved and
+    # published other schools' rows by id.
     queryset = ResultComment.objects.all().order_by("-created_at")
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
@@ -4197,7 +4264,7 @@ class ResultCommentViewSet(
         )
 
     def perform_create(self, serializer):
-        serializer.save(commented_by=self.request.user)
+        serializer.save(commented_by=self.request.user, tenant=self.request.tenant)
 
 
 class ResultTemplateViewSet(
@@ -4250,7 +4317,7 @@ class BulkResultOperationsViewSet(TenantFilterMixin, viewsets.ViewSet):
         """
         ser = BulkApproveSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
         level = request.data.get("education_level", "").upper()
         model = _RESULT_MODEL_MAP.get(level)
@@ -4258,7 +4325,7 @@ class BulkResultOperationsViewSet(TenantFilterMixin, viewsets.ViewSet):
             return Response({"error": "Valid education_level is required."}, status=400)
         try:
             count = model.bulk_approve(
-                model.objects.filter(pk__in=ser.validated_data["result_ids"]),
+                model.objects.filter(tenant=request.tenant, pk__in=ser.validated_data["result_ids"]),
                 request.user,
             )
             return Response({"approved_count": count})
@@ -4272,7 +4339,7 @@ class BulkResultOperationsViewSet(TenantFilterMixin, viewsets.ViewSet):
         """
         ser = BulkPublishSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        if not _is_admin(request.user):
+        if not _is_results_admin(request.user):
             return Response({"error": "Permission denied."}, status=403)
 
         result_ids = ser.validated_data["result_ids"]
@@ -4288,12 +4355,12 @@ class BulkResultOperationsViewSet(TenantFilterMixin, viewsets.ViewSet):
                 student_ids = set()
                 if send_notifications:
                     student_ids.update(
-                        model.objects.filter(pk__in=result_ids).values_list(
+                        model.objects.filter(tenant=request.tenant, pk__in=result_ids).values_list(
                             "student_id", flat=True
                         )
                     )
                 total_published = model.bulk_publish(
-                    model.objects.filter(pk__in=result_ids), request.user
+                    model.objects.filter(tenant=request.tenant, pk__in=result_ids), request.user
                 )
 
                 notifications_sent = 0

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import api from '@/services/api';
 import AddAdminForm from './AddAdminForm';
+import { adminRoleLabel } from './adminRoles';
 import {
   Search,
   Plus,
@@ -72,7 +73,7 @@ const AllAdmins = () => {
       fetchAdmins();
     } catch (error: any) {
       console.error('Error toggling admin status:', error);
-      toast.error('Failed to update admin status');
+      toast.error(error?.response?.data?.error || 'Failed to update admin status');
     }
   };
 
@@ -80,13 +81,14 @@ const AllAdmins = () => {
     if (!deleteModal.admin) return;
 
     try {
-      await api.delete(`/api/profiles/users/${deleteModal.admin.id}/`);
+      await api.delete(`/api/auth/admins/${deleteModal.admin.id}/`);
       toast.success('Admin deleted successfully');
       setDeleteModal({ open: false, admin: null });
       fetchAdmins();
     } catch (error: any) {
       console.error('Error deleting admin:', error);
-      toast.error('Failed to delete admin');
+      // The server says why, e.g. the owner account can't be deleted.
+      toast.error(error?.response?.data?.error || 'Failed to delete admin');
     }
   };
 
@@ -341,7 +343,7 @@ const AllAdmins = () => {
                         {admin.email}
                       </div>
                       {admin.role && (
-                        <p className="text-xs text-gray-500 mt-0.5">{admin.role}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">{adminRoleLabel(admin.role)}</p>
                       )}
                     </td>
                     <td className="px-4 py-3">

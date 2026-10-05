@@ -13,6 +13,28 @@ def _has_whole_school(user):
     return bool(getattr(user, "is_platform_staff", False) or getattr(user, "is_school_superadmin", False))
 
 
+def admin_on_scoped_view(request, view, module):
+    """
+    School admins run these modules by role, a section admin for their
+    section, with no Roles & Permissions assignment; before this both were
+    refused unless given one.
+
+    Only on a view that lists the module in `section_admin_modules`: that
+    is the view saying it holds a section admin's reads and writes to
+    their section. A school-wide view (the gate, tag enrolment) never
+    does, so a section admin is not let into it just by module name.
+    """
+    if module not in getattr(view, "section_admin_modules", ()):
+        return False
+    from common.admin_access import admin_level_access
+
+    # None: a whole-school admin of the request's school (an "admin",
+    # who was refused here too unless given a role). A non-empty list: a
+    # section admin of it. [] is anyone else.
+    access = admin_level_access(request.user, getattr(request, "tenant", None))
+    return access is None or bool(access)
+
+
 class HasStudentsPermissionOrReadOnly(permissions.BasePermission):
     """
     Custom permission to check if user has students module access.
@@ -36,6 +58,7 @@ class HasStudentsPermissionOrReadOnly(permissions.BasePermission):
             and (
                 request.user.is_staff
                 or is_platform_admin
+                or admin_on_scoped_view(request, view, "students")
                 or self._has_students_write_permission(request.user)
             )
         )
@@ -100,6 +123,9 @@ class ModulePermissionBase(permissions.BasePermission):
         perm_type = self.permission_type or self.get_permission_type_from_method(
             request.method
         )
+
+        if admin_on_scoped_view(request, view, module):
+            return True
 
         return self.user_has_permission(request.user, module, perm_type)
 

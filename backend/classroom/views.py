@@ -5,6 +5,7 @@ from rest_framework.decorators import action, api_view, permission_classes
 from django.utils.decorators import method_decorator
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from common.admin_access import IsSchoolOrSectionAdmin
 from django_filters.rest_framework import DjangoFilterBackend
 from django.views.decorators.cache import cache_page
 from django.db.models import Q, Count
@@ -1113,7 +1114,7 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-    @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
+    @action(detail=True, methods=["post"], permission_classes=[IsSchoolOrSectionAdmin])
     def transfer_student(self, request, pk=None):
         """Transfer a student from this classroom to another"""
         classroom = self.get_object()
@@ -1127,8 +1128,13 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
             )
 
         try:
-            student = Student.objects.get(id=student_id)
-            target_classroom = Classroom.objects.get(id=target_classroom_id)
+            # Both used to be looked up across every school. The student and
+            # the target class must be this school's, and a section admin's
+            # own section's: get_queryset() and the section filter apply both.
+            student = self.apply_section_filters(
+                Student.objects.filter(tenant=request.tenant)
+            ).get(id=student_id)
+            target_classroom = self.get_queryset().get(id=target_classroom_id)
 
             # Check target capacity
             if target_classroom.is_full:
@@ -1185,7 +1191,7 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-    @action(detail=True, methods=["patch"], permission_classes=[IsAdminUser])
+    @action(detail=True, methods=["patch"], permission_classes=[IsSchoolOrSectionAdmin])
     def set_capacity(self, request, pk=None):
         """Admin can raise or lower the classroom capacity cap"""
         classroom = self.get_object()

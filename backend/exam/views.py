@@ -70,6 +70,7 @@ from .serializers import (
 # Import filters
 from .filters import ExamFilter
 from .permissions import IsTeacherOrAdmin
+from common.admin_access import is_whole_school_staff, section_admin_levels
 
 logger = logging.getLogger(__name__)
 
@@ -1879,7 +1880,13 @@ class QuestionBankViewSet(
                 queryset = queryset.filter(is_shared=True).exclude(created_by=teacher)
             else:
                 queryset = queryset.filter(Q(created_by=teacher) | Q(is_shared=True))
-        elif not user.is_staff:
+        elif section_admin_levels(user) is not None:
+            # A section admin: everything at their levels, shared or not. The
+            # staff flag used to give them the whole school's instead.
+            queryset = queryset.filter(
+                grade_level__education_level__level_type__in=section_admin_levels(user)
+            )
+        elif not is_whole_school_staff(user):
             queryset = queryset.filter(is_shared=True)
 
         return queryset
@@ -2081,7 +2088,13 @@ class ExamTemplateViewSet(
                 queryset = queryset.filter(is_shared=True).exclude(created_by=teacher)
             else:
                 queryset = queryset.filter(Q(created_by=teacher) | Q(is_shared=True))
-        elif not user.is_staff:
+        elif section_admin_levels(user) is not None:
+            # A section admin: everything at their levels, shared or not. The
+            # staff flag used to give them the whole school's instead.
+            queryset = queryset.filter(
+                grade_level__education_level__level_type__in=section_admin_levels(user)
+            )
+        elif not is_whole_school_staff(user):
             queryset = queryset.filter(is_shared=True)
 
         return queryset

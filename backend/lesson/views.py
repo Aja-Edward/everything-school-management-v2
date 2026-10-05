@@ -115,29 +115,11 @@ class LessonViewSet(viewsets.ModelViewSet):
         Helper method to get education levels based on user's section/role
         Returns a list of education levels the user can access
         """
-        SECTION_TO_EDUCATION_LEVEL = {
-            "nursery": ["NURSERY"],
-            "primary": ["PRIMARY"],
-            "junior_secondary": ["JUNIOR_SECONDARY"],
-            "senior_secondary": ["SENIOR_SECONDARY"],
-            "secondary": ["JUNIOR_SECONDARY", "SENIOR_SECONDARY"],
-        }
+        # The same role -> levels map as everywhere else (common.admin_access),
+        # in every spelling a school may have seeded its level_type with.
+        from common.admin_access import section_admin_levels
 
-        ROLE_TO_SECTION = {
-            "nursery_admin": "nursery",
-            "primary_admin": "primary",
-            "junior_secondary_admin": "junior_secondary",
-            "senior_secondary_admin": "senior_secondary",
-            "secondary_admin": "secondary",
-        }
-
-        user_section = getattr(user, "section", None)
-        user_role = getattr(user, "role", None)
-
-        if not user_section and user_role in ROLE_TO_SECTION:
-            user_section = ROLE_TO_SECTION[user_role]
-
-        return SECTION_TO_EDUCATION_LEVEL.get(user_section, [])
+        return section_admin_levels(user) or []
 
     def get_user_role_info(self):
         """
@@ -151,7 +133,7 @@ class LessonViewSet(viewsets.ModelViewSet):
             return ("superadmin", None, {})
 
         # Check Section Admin role
-        if user.is_staff and getattr(user, "is_section_admin", False):
+        if getattr(user, "is_section_admin", False):
             education_levels = self._get_section_education_levels(user)
             return ("section_admin", None, {"education_levels": education_levels})
 
@@ -254,7 +236,7 @@ class LessonViewSet(viewsets.ModelViewSet):
             education_levels = additional_info.get("education_levels", [])
             if education_levels:
                 queryset = queryset.filter(
-                    classroom__section__class_grade__education_level__in=education_levels
+                    classroom__section__class_grade__education_level__level_type__in=education_levels
                 )
                 logger.info(
                     f"Section admin {self.request.user.username} "
@@ -386,7 +368,7 @@ class LessonViewSet(viewsets.ModelViewSet):
             education_levels = additional_info.get("education_levels", [])
             if hasattr(lesson, "classroom") and lesson.classroom and lesson.classroom.section:
                 lesson_education_level = lesson.classroom.section.class_grade.education_level
-                return lesson_education_level in education_levels
+                return lesson_education_level.level_type in education_levels
             return False
         elif role == "teacher" and lesson.teacher == instance:
             return True
@@ -940,29 +922,11 @@ class LessonAttendanceViewSet(viewsets.ModelViewSet):
 
     def _get_section_education_levels(self, user):
         """Helper method to get education levels based on user's section/role"""
-        SECTION_TO_EDUCATION_LEVEL = {
-            "nursery": ["NURSERY"],
-            "primary": ["PRIMARY"],
-            "junior_secondary": ["JUNIOR_SECONDARY"],
-            "senior_secondary": ["SENIOR_SECONDARY"],
-            "secondary": ["JUNIOR_SECONDARY", "SENIOR_SECONDARY"],
-        }
+        # The same role -> levels map as everywhere else (common.admin_access),
+        # in every spelling a school may have seeded its level_type with.
+        from common.admin_access import section_admin_levels
 
-        ROLE_TO_SECTION = {
-            "nursery_admin": "nursery",
-            "primary_admin": "primary",
-            "junior_secondary_admin": "junior_secondary",
-            "senior_secondary_admin": "senior_secondary",
-            "secondary_admin": "secondary",
-        }
-
-        user_section = getattr(user, "section", None)
-        user_role = getattr(user, "role", None)
-
-        if not user_section and user_role in ROLE_TO_SECTION:
-            user_section = ROLE_TO_SECTION[user_role]
-
-        return SECTION_TO_EDUCATION_LEVEL.get(user_section, [])
+        return section_admin_levels(user) or []
 
     def get_queryset(self):
         """Filter attendance records based on user role"""
@@ -976,12 +940,12 @@ class LessonAttendanceViewSet(viewsets.ModelViewSet):
             return queryset
 
         # Section Admin - see only their section's attendance
-        if user.is_staff and getattr(user, "is_section_admin", False):
+        if getattr(user, "is_section_admin", False):
             education_levels = self._get_section_education_levels(user)
             if not education_levels:
                 return queryset.none()
             return queryset.filter(
-                lesson__classroom__section__class_grade__education_level__in=education_levels
+                lesson__classroom__section__class_grade__education_level__level_type__in=education_levels
             )
 
         # Regular Admin/Staff - see all
@@ -1032,29 +996,11 @@ class LessonResourceViewSet(viewsets.ModelViewSet):
 
     def _get_section_education_levels(self, user):
         """Helper method to get education levels based on user's section/role"""
-        SECTION_TO_EDUCATION_LEVEL = {
-            "nursery": ["NURSERY"],
-            "primary": ["PRIMARY"],
-            "junior_secondary": ["JUNIOR_SECONDARY"],
-            "senior_secondary": ["SENIOR_SECONDARY"],
-            "secondary": ["JUNIOR_SECONDARY", "SENIOR_SECONDARY"],
-        }
+        # The same role -> levels map as everywhere else (common.admin_access),
+        # in every spelling a school may have seeded its level_type with.
+        from common.admin_access import section_admin_levels
 
-        ROLE_TO_SECTION = {
-            "nursery_admin": "nursery",
-            "primary_admin": "primary",
-            "junior_secondary_admin": "junior_secondary",
-            "senior_secondary_admin": "senior_secondary",
-            "secondary_admin": "secondary",
-        }
-
-        user_section = getattr(user, "section", None)
-        user_role = getattr(user, "role", None)
-
-        if not user_section and user_role in ROLE_TO_SECTION:
-            user_section = ROLE_TO_SECTION[user_role]
-
-        return SECTION_TO_EDUCATION_LEVEL.get(user_section, [])
+        return section_admin_levels(user) or []
 
     def get_queryset(self):
         queryset = LessonResource.objects.select_related("lesson")
@@ -1066,12 +1012,12 @@ class LessonResourceViewSet(viewsets.ModelViewSet):
             return queryset
 
         # Section Admin - see only their section's resources
-        if user.is_staff and getattr(user, "is_section_admin", False):
+        if getattr(user, "is_section_admin", False):
             education_levels = self._get_section_education_levels(user)
             if not education_levels:
                 return queryset.none()
             return queryset.filter(
-                lesson__classroom__section__class_grade__education_level__in=education_levels
+                lesson__classroom__section__class_grade__education_level__level_type__in=education_levels
             )
 
         # Regular Admin/Staff - see all
@@ -1137,29 +1083,11 @@ class LessonAssessmentViewSet(viewsets.ModelViewSet):
 
     def _get_section_education_levels(self, user):
         """Helper method to get education levels based on user's section/role"""
-        SECTION_TO_EDUCATION_LEVEL = {
-            "nursery": ["NURSERY"],
-            "primary": ["PRIMARY"],
-            "junior_secondary": ["JUNIOR_SECONDARY"],
-            "senior_secondary": ["SENIOR_SECONDARY"],
-            "secondary": ["JUNIOR_SECONDARY", "SENIOR_SECONDARY"],
-        }
+        # The same role -> levels map as everywhere else (common.admin_access),
+        # in every spelling a school may have seeded its level_type with.
+        from common.admin_access import section_admin_levels
 
-        ROLE_TO_SECTION = {
-            "nursery_admin": "nursery",
-            "primary_admin": "primary",
-            "junior_secondary_admin": "junior_secondary",
-            "senior_secondary_admin": "senior_secondary",
-            "secondary_admin": "secondary",
-        }
-
-        user_section = getattr(user, "section", None)
-        user_role = getattr(user, "role", None)
-
-        if not user_section and user_role in ROLE_TO_SECTION:
-            user_section = ROLE_TO_SECTION[user_role]
-
-        return SECTION_TO_EDUCATION_LEVEL.get(user_section, [])
+        return section_admin_levels(user) or []
 
     def get_queryset(self):
         queryset = LessonAssessment.objects.select_related("lesson")
@@ -1171,12 +1099,12 @@ class LessonAssessmentViewSet(viewsets.ModelViewSet):
             return queryset
 
         # Section Admin - see only their section's assessments
-        if user.is_staff and getattr(user, "is_section_admin", False):
+        if getattr(user, "is_section_admin", False):
             education_levels = self._get_section_education_levels(user)
             if not education_levels:
                 return queryset.none()
             return queryset.filter(
-                lesson__classroom__section__class_grade__education_level__in=education_levels
+                lesson__classroom__section__class_grade__education_level__level_type__in=education_levels
             )
 
         # Regular Admin/Staff - see all

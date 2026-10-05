@@ -27,6 +27,11 @@ from tenants.mixins import TenantFilterMixin
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from tenants.membership import member_or_none
+from common.admin_access import (
+    IsSchoolOrSectionAdmin, admin_level_access, is_school_or_section_admin,
+    may_see_upload,
+)
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
 logger = logging.getLogger(__name__)
@@ -47,7 +52,7 @@ def _get_tenant(request):
 # ---------------------------------------------------------------------------
 
 @api_view(["POST"])
-@permission_classes([IsAdminUser])
+@permission_classes([IsSchoolOrSectionAdmin])
 @parser_classes([MultiPartParser, FormParser])
 def bulk_upload_students(request):
     """
@@ -140,7 +145,7 @@ def bulk_upload_students(request):
 # ---------------------------------------------------------------------------
 
 @api_view(["GET"])
-@permission_classes([IsAdminUser])
+@permission_classes([IsSchoolOrSectionAdmin])
 def bulk_upload_status(request, upload_id):
     """
     Poll the processing status of a bulk upload.
@@ -159,6 +164,9 @@ def bulk_upload_status(request, upload_id):
     tenant = _get_tenant(request)
     try:
         record = BulkUploadRecord.objects.get(pk=upload_id, tenant=tenant)
+        if not may_see_upload(request.user, record):
+            # Another section's upload; same answer as a missing one.
+            raise BulkUploadRecord.DoesNotExist
     except BulkUploadRecord.DoesNotExist:
         return Response({"error": "Upload record not found."}, status=404)
 
@@ -205,7 +213,7 @@ def _jwt_auth(request):
         try:
             jwt_auth = JWTAuthentication()
             validated_token = jwt_auth.get_validated_token(auth_header[7:])
-            return jwt_auth.get_user(validated_token)
+            return member_or_none(request, jwt_auth.get_user(validated_token))
         except (InvalidToken, TokenError):
             pass
 
@@ -218,7 +226,7 @@ def _jwt_auth(request):
         try:
             jwt_auth = JWTAuthentication()
             validated_token = jwt_auth.get_validated_token(raw_token)
-            return jwt_auth.get_user(validated_token)
+            return member_or_none(request, jwt_auth.get_user(validated_token))
         except (InvalidToken, TokenError):
             pass
 
@@ -238,7 +246,7 @@ def download_upload_template(request):
     user = _jwt_auth(request)
     if not user:
         return JsonResponse({"error": "Authentication required."}, status=401)
-    if not user.is_staff:
+    if not is_school_or_section_admin(user, _get_tenant(request)):
         return JsonResponse({"error": "Admin access required."}, status=403)
 
     fmt = request.GET.get("format", "csv").lower()
@@ -259,6 +267,13 @@ def download_upload_template(request):
             .select_related("class_grade")
             .order_by("class_grade__order", "name")
         )
+        # A section admin's template offers their own classes only; the
+        # upload refuses rows for any other (see students.tasks).
+        levels = admin_level_access(user, tenant)
+        if levels is not None:
+            sections_qs = sections_qs.filter(
+                class_grade__education_level__level_type__in=levels
+            )
         classrooms = [f"{s.class_grade.name} - {s.name}" for s in sections_qs]
         streams = list(
             Stream.objects.filter(tenant=tenant)
@@ -653,7 +668,7 @@ def export_credentials(request, upload_id):
     user = _jwt_auth(request)
     if not user:
         return JsonResponse({"error": "Authentication required."}, status=401)
-    if not user.is_staff:
+    if not is_school_or_section_admin(user, _get_tenant(request)):
         return JsonResponse({"error": "Admin access required."}, status=403)
 
     tenant = _get_tenant(request)
@@ -662,6 +677,9 @@ def export_credentials(request, upload_id):
 
     try:
         record = BulkUploadRecord.objects.get(pk=upload_id, tenant=tenant)
+        if not may_see_upload(user, record):
+            # Another section's upload; same answer as a missing one.
+            raise BulkUploadRecord.DoesNotExist
     except BulkUploadRecord.DoesNotExist:
         return JsonResponse({"error": "Upload record not found."}, status=404)
 
@@ -931,7 +949,7 @@ def download_error_report(request, upload_id):
     user = _jwt_auth(request)
     if not user:
         return JsonResponse({"error": "Authentication required."}, status=401)
-    if not user.is_staff:
+    if not is_school_or_section_admin(user, _get_tenant(request)):
         return JsonResponse({"error": "Admin access required."}, status=403)
 
     # Bug 2: tenant must come from request, not from _jwt_auth
@@ -941,6 +959,9 @@ def download_error_report(request, upload_id):
 
     try:
         record = BulkUploadRecord.objects.get(pk=upload_id, tenant=tenant)
+        if not may_see_upload(user, record):
+            # Another section's upload; same answer as a missing one.
+            raise BulkUploadRecord.DoesNotExist
     except BulkUploadRecord.DoesNotExist:
         # Bug 3: can't use DRF Response in a plain Django view — use JsonResponse
         return JsonResponse({"error": "Upload record not found."}, status=404)

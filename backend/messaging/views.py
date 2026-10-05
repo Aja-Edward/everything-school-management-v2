@@ -12,6 +12,9 @@ from .serializers import (
 )
 from .permissions import IsParentTeacherOrAdmin
 from users.models import CustomUser
+from rest_framework.exceptions import ValidationError
+from common.admin_access import in_same_school
+from tenants.membership import in_school_q, user_school_id
 
 
 class MessageViewSet(TenantFilterMixin, viewsets.ModelViewSet):
@@ -63,6 +66,11 @@ class MessageViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         return MessageSerializer
 
     def perform_create(self, serializer):
+        # Any user id used to be accepted, so a message could go to anyone on
+        # the platform. The recipient has to be in the sender's school.
+        recipient = serializer.validated_data.get("recipient")
+        if recipient is not None and not in_same_school(self.request.user, recipient):
+            raise ValidationError({"recipient": "No such user in your school."})
         serializer.save(sender=self.request.user)
 
     @action(detail=True, methods=['post'])
@@ -131,6 +139,15 @@ class MessageViewSet(TenantFilterMixin, viewsets.ModelViewSet):
     def users(self, request):
         """Get list of users for message composition"""
         users = CustomUser.objects.filter(is_active=True).exclude(id=request.user.id)
+        # This listed every active user on the platform, names and emails,
+        # to anyone signed in. Platform staff still see everyone.
+        if not getattr(request.user, "is_platform_staff", False):
+            school_id = user_school_id(request.user)
+            users = (
+                users.filter(in_school_q(school_id)).distinct()
+                if school_id is not None
+                else users.none()
+            )
         serializer = UserSerializer(users, many=True)
         return Response(serializer.data)
 
@@ -189,10 +206,13 @@ class BulkMessageViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         
         # Count recipients by roles
         if bulk_message.recipient_roles:
+            # The sender's school's users, not every school's.
+            school_id = user_school_id(self.request.user)
             role_count = CustomUser.objects.filter(
+                in_school_q(school_id),
                 role__in=bulk_message.recipient_roles,
                 is_active=True
-            ).exclude(id=self.request.user.id).count()
+            ).exclude(id=self.request.user.id).distinct().count()
             total_recipients += role_count
         
         # Count custom recipients

@@ -896,6 +896,10 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
 
     queryset = Student.objects.all()
     permission_classes = [HasStudentsPermissionOrReadOnly]
+    # School and section admins edit and remove students by role. Every
+    # object lookup is section-filtered, and perform_update() stops a
+    # section admin moving a pupil into another section's class.
+    section_admin_modules = {"students"}
     pagination_class = LargeResultsPagination
     filter_backends = [
         DjangoFilterBackend,
@@ -1725,6 +1729,17 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         return super().update(request, *args, **kwargs)
+
+    def perform_update(self, serializer):
+        # The same rule as create(): a section admin's pupils stay in classes
+        # at their own levels.
+        access = admin_level_access(self.request.user, getattr(self.request, "tenant", None))
+        student_class = serializer.validated_data.get("student_class")
+        if access and student_class and not can_manage_level(access, student_class.education_level):
+            raise PermissionDenied(
+                f"You can only move students within your own section, not to {student_class.education_level.name}."
+            )
+        super().perform_update(serializer)
 
     def destroy(self, request, *args, **kwargs):
         """Override destroy method to add debugging."""
