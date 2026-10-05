@@ -84,7 +84,24 @@ NUMBERED_LINE_RE = re.compile(r'^(\d+)[\.\)]\s*(.+)$')
 
 # The heading that introduces a trailing answer key, e.g.
 # "Marking Guide (Teacher's Use)" or "Marking Scheme".
-MARKING_GUIDE_RE = re.compile(r'(?im)^\s*marking\s+(?:guide|scheme)\b.*$')
+MARKING_GUIDE_RE = re.compile(
+    r'(?im)^\s*(?:marking\s+(?:guide|scheme)\b.*|answer\s+key\b.*|answers\s*:?\s*)$'
+)
+
+# Where a marking guide's objective answers end: its theory part, whose
+# "2. a. books" would otherwise read as question 2's answer being A.
+MARKING_GUIDE_END_RE = re.compile(r'(?im)^\s*(?:section\s+[b-z]\b|theory\b)')
+
+# A line under a question's options naming its answer: "Answer: B",
+# "Ans - (c)", "Correct answer: D."
+ANSWER_LINE_RE = re.compile(
+    r'^(?:correct\s+)?(?:answer|ans)\s*[:\-–=]?\s*\(?([A-Ea-e])\)?\.?\s*$',
+    re.IGNORECASE
+)
+
+# How an option is marked as the answer in the text: a star before or after
+# it, or "(correct)". A star inside, as in "2 * 3", is maths, not a mark.
+ANSWER_MARK_RE = re.compile(r'^\s*\*\s*|\s*\*\s*$|\s*\(correct\)\s*', re.IGNORECASE)
 
 # Words that show up inside a marking-guide table/paragraph but aren't
 # themselves question numbers or answer letters - skipped while scanning
@@ -186,7 +203,7 @@ class ExamDocumentParser:
                 try:
                     if element.tag.endswith('p'):
                         para = Paragraph(element, doc)
-                        text = para.text.strip()
+                        text = self._word_paragraph_text(para)
                         if text and not is_template_boilerplate(text):
                             elements.append({'type': 'paragraph', 'text': text})
                     elif element.tag.endswith('tbl'):
@@ -201,9 +218,14 @@ class ExamDocumentParser:
             if not elements:
                 raise ValueError("Word document contains no readable content")
 
+            # A marking guide at the end lists answers, not questions.
+            elements, answer_key = self._split_word_marking_guide(elements)
+
             # Extract metadata and parse sections
             title, instructions, duration = self._extract_word_metadata(elements)
             sections = self._parse_word_sections(elements)
+            if sections and answer_key:
+                self._apply_answer_key(sections, answer_key)
 
             if not sections:
                 # Fallback: join all paragraph text and use generic text parser
@@ -286,6 +308,62 @@ class ExamDocumentParser:
 
         return title, instructions, duration
 
+    @staticmethod
+    def _word_paragraph_text(para) -> str:
+        """
+        A paragraph's text, with " *" after any option line whose answer is
+        bold, underlined or highlighted - the way teachers mark the correct
+        answer in Word. The star is then read like a typed one.
+        """
+        text = para.text.strip()
+        runs = para.runs
+        # Runs leave out hyperlinks and the like; without every character the
+        # formatting can't be lined up with the text, so leave it unmarked.
+        if ''.join(run.text for run in runs).strip() != text:
+            return text
+
+        lines: List[List[Tuple[str, bool]]] = [[]]
+        for run in runs:
+            marked = bool(run.bold) or bool(run.underline) or run.font.highlight_color is not None
+            for index, piece in enumerate(run.text.split('\n')):
+                if index:
+                    lines.append([])
+                lines[-1].extend((char, marked) for char in piece)
+
+        out = []
+        for chars in lines:
+            line = ''.join(char for char, _ in chars)
+            stripped = line.strip()
+            m = OPTION_LINE_RE.match(stripped)
+            if m:
+                start = (len(line) - len(line.lstrip())) + m.start(2)
+                answer = [marked for char, marked in chars[start:] if not char.isspace()]
+                if answer and all(answer):
+                    stripped += ' *'
+            out.append(stripped)
+        return '\n'.join(out).strip()
+
+    def _split_word_marking_guide(self, elements: List[Dict]) -> Tuple[List[Dict], Dict[int, str]]:
+        """
+        Take a trailing "Marking Guide" / "Answer Key" off the document's
+        elements and read its answers. Nothing is taken off when no answers
+        can be read from it, so no content is lost on a heading that only
+        looks like one.
+        """
+        for index, elem in enumerate(elements):
+            if elem['type'] == 'paragraph' and MARKING_GUIDE_RE.match(elem['text'].split('\n')[0]):
+                guide_lines = [elem['text']]
+                for rest in elements[index + 1:]:
+                    if rest['type'] == 'paragraph':
+                        guide_lines.append(rest['text'])
+                    else:
+                        guide_lines.extend(' '.join(row) for row in rest['rows'])
+                _, answer_key = self._extract_marking_guide('\n'.join(guide_lines))
+                if answer_key:
+                    return elements[:index], answer_key
+                return elements, {}
+        return elements, {}
+
     def _parse_word_sections(self, elements: List[Dict]) -> List[Dict]:
         """Group document elements into sections, parsing each section's questions."""
         sections = []
@@ -362,7 +440,7 @@ class ExamDocumentParser:
 
         # If no table questions, parse plain text
         if not questions and plain_lines:
-            plain_text = '\n'.join(plain_lines)
+            plain_text = '\n'.join(self._fold_answer_lines('\n'.join(plain_lines).splitlines()))
             if section_type == 'practical':
                 questions = self._parse_practical_text(plain_text)
             else:
@@ -870,8 +948,14 @@ class ExamDocumentParser:
 
         body_text = text[:m.start()]
         remainder = text[m.end():]
+        # Only the objective answers: a theory part's "2. a. books" would
+        # otherwise read as question 2's answer being A.
+        end = MARKING_GUIDE_END_RE.search(remainder)
+        if end:
+            remainder = remainder[:end.start()]
 
-        tokens = [t.strip('.:,() ') for t in re.split(r'\s+', remainder)]
+        # "1. B", "1) B", "1-B", "1.B" and "1 B" all pair a number with a letter.
+        tokens = re.split(r"[\s\-–—:.,()\[\]]+", remainder)
         tokens = [t for t in tokens if t and t.lower() not in MARKING_GUIDE_SKIP_WORDS]
 
         answer_key: Dict[int, str] = {}
@@ -879,7 +963,7 @@ class ExamDocumentParser:
         while i < len(tokens) - 1:
             num_tok, ans_tok = tokens[i], tokens[i + 1]
             if num_tok.isdigit() and re.match(r'^[A-Ea-e]$', ans_tok):
-                answer_key[int(num_tok)] = ans_tok.upper()
+                answer_key.setdefault(int(num_tok), ans_tok.upper())
                 i += 2
             else:
                 i += 1
@@ -918,7 +1002,7 @@ class ExamDocumentParser:
 
     def _detect_sections_from_paragraphs(self, text: str, title: str = '') -> List[Dict[str, Any]]:
         """Group pasted-text paragraphs into sections and parse their questions."""
-        paras = self._split_into_paragraphs(text)
+        paras = self._fold_answer_lines(self._split_into_paragraphs(text))
         if not paras:
             return []
 
@@ -1051,17 +1135,8 @@ class ExamDocumentParser:
                 stem_lines = [num_m.group(2).strip()] + stem_lines[1:]
             stem_text = ' '.join(s for s in stem_lines if s)
 
-            options: Dict[str, str] = {}
-            correct_answer = None
-            for opt_line in option_lines:
-                om = OPTION_LINE_RE.match(opt_line)
-                letter = om.group(1).upper()
-                opt_text = om.group(2).strip()
-                if '*' in opt_text or '(correct)' in opt_text.lower():
-                    correct_answer = letter
-                    opt_text = opt_text.replace('*', '').strip()
-                    opt_text = re.sub(r'\(correct\)', '', opt_text, flags=re.IGNORECASE).strip()
-                options[f'option{letter}'] = opt_text
+            options, correct_answer = self._options_and_answer(
+                [OPTION_LINE_RE.match(opt_line).groups() for opt_line in option_lines], stem_text)
 
             questions.append({
                 'question': self._clean_html(stem_text),
@@ -1077,6 +1152,11 @@ class ExamDocumentParser:
     def _parse_text_content(self, text: str) -> Dict[str, Any]:
         """Parse text content and extract exam structure"""
 
+        # Answers given in a marking guide or on "Answer: B" lines, as in
+        # pasted text and Word.
+        text, answer_key = self._extract_marking_guide(text)
+        text = '\n'.join(self._fold_answer_lines(text.splitlines()))
+
         # Extract exam title (usually first non-empty line or line with "EXAM" keyword)
         title = self._extract_title(text)
 
@@ -1085,6 +1165,8 @@ class ExamDocumentParser:
 
         # Detect sections
         sections = self._detect_sections(text)
+        if sections and answer_key:
+            self._apply_answer_key(sections, answer_key)
 
         # Calculate total marks
         total_marks = self._calculate_total_marks(sections)
@@ -1253,6 +1335,57 @@ class ExamDocumentParser:
 
         return questions
 
+    def _options_and_answer(self, pairs, stem: str) -> Tuple[Dict[str, str], Optional[str]]:
+        """
+        A question's options from (letter, text) pairs, and its answer: the
+        one option marked with a star or "(correct)" - or, from Word, made
+        bold, underlined or highlighted. The mark comes off the option's text.
+        More than one marked can't be told apart, so none is taken.
+        """
+        options: Dict[str, str] = {}
+        marked: List[str] = []
+        for letter, text in pairs:
+            letter = letter.upper()
+            text = text.strip()
+            cleaned = re.sub(r'\s{2,}', ' ', ANSWER_MARK_RE.sub(' ', text)).strip()
+            if cleaned != text:
+                marked.append(letter)
+            options[f'option{letter}'] = cleaned
+
+        if len(marked) > 1:
+            self.warnings.append(
+                f"More than one option is marked as the answer to: {stem[:50]} - "
+                "please choose the correct one."
+            )
+            return options, None
+        return options, (marked[0] if marked else None)
+
+    @staticmethod
+    def _fold_answer_lines(lines: List[str]) -> List[str]:
+        """
+        Turn an "Answer: B" line under a question's options into a star on
+        option B, the mark the question readers already look for. Left as it
+        was, the line would be read as the start of the next question.
+        """
+        out: List[str] = []
+        for line in lines:
+            m = ANSWER_LINE_RE.match(line.strip())
+            if m:
+                letter = m.group(1).upper()
+                placed = False
+                for j in range(len(out) - 1, -1, -1):
+                    option = OPTION_LINE_RE.match(out[j].strip())
+                    if not option:
+                        break  # past this question's options
+                    if option.group(1).upper() == letter:
+                        out[j] = out[j].rstrip() + ' *'
+                        placed = True
+                        break
+                if placed:
+                    continue
+            out.append(line)
+        return out
+
     def _parse_objective_question(self, content: str) -> Optional[Dict[str, Any]]:
         """Parse objective/multiple choice question"""
         if not content or not content.strip():
@@ -1282,16 +1415,7 @@ class ExamDocumentParser:
             self.warnings.append(f"Objective question has fewer than 2 options: {question_text[:50]}...")
             # Still return it but warn the user
 
-        options = {}
-        for letter, text in option_matches:
-            key = f'option{letter}'
-            options[key] = text.strip()
-
-        # Try to detect correct answer (sometimes marked with *)
-        correct_answer = None
-        for letter, text in option_matches:
-            if '*' in text or '(correct)' in text.lower():
-                correct_answer = letter
+        options, correct_answer = self._options_and_answer(option_matches, question_text)
 
         return {
             'question': self._clean_html(question_text),

@@ -444,7 +444,7 @@ function generateStudentCopy(
       font-size: 14px;
       font-weight: bold;
       margin-bottom: 2px;
-      color: #d32f2f;
+      color: #000;
       text-transform: uppercase;
     }
 
@@ -812,7 +812,7 @@ function generateTeacherCopy(
     .header { text-align: center; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 2px solid #000; page-break-after: avoid; }
     .school-name { font-size: 22px; font-weight: bold; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 1px; }
     .school-address { font-size: 13px; margin-bottom: 2px; color: #333; }
-    .exam-title { font-size: 14px; font-weight: bold; margin-bottom: 2px; color: #d32f2f; text-transform: uppercase; }
+    .exam-title { font-size: 14px; font-weight: bold; margin-bottom: 2px; color: #000; text-transform: uppercase; }
 
     .exam-details-table { width: 100%; border-collapse: collapse; margin: 2px 0 12px 0; font-size: 14px; border-bottom: 1.5px solid #000; page-break-after: avoid; }
     .exam-details-table td { padding: 3px 8px; vertical-align: top; }

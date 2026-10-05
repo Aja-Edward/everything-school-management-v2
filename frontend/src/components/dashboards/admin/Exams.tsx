@@ -1134,7 +1134,7 @@ const ExamsPage: React.FC<ExamsPageProps> = ({
     .header { text-align: center; margin-bottom: 0; border-bottom: none; padding-bottom: 2px; page-break-after: avoid; }
     .school-name { font-weight: bold; font-size: 20px; margin-bottom: 2px; }
     .school-address { font-size: 13px; margin-bottom: 2px; }
-    .exam-title { font-size: 14px; font-weight: bold; margin-bottom: 2px; color: #d32f2f; }
+    .exam-title { font-size: 14px; font-weight: bold; margin-bottom: 2px; color: #000; }
     .exam-details-table { width: 100%; border-collapse: collapse; margin: 2px 0 0 0; font-size: 14px; border-bottom: 1.5px solid #000; page-break-after: avoid; }
     .exam-details-table td { padding: 1px 4px; vertical-align: top; }
     .exam-details-table .label { font-weight: bold; width: 60px; }

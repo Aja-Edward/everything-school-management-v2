@@ -266,7 +266,8 @@ export const ExamDocumentUploader: React.FC<ExamDocumentUploaderProps> = ({
                   <li>Multiple choice options labeled A., B., C., D., E., each on their own line</li>
                   <li>Theory questions numbered (1., 2., 3., etc.)</li>
                   <li>Optional: Section headers like "Section A" or "Objective Questions"</li>
-                  <li>Optional: a trailing "Marking Guide" listing the correct answer for each objective question</li>
+                  <li>Optional: a line like "Answer: B" under a question's options, or a star after the correct one (B. 4 *)</li>
+                  <li>Optional: a trailing "Marking Guide" or "Answer Key" listing the correct answer for each objective question</li>
                 </ul>
                 <div className="mt-3 bg-white p-3 rounded border border-blue-300 font-mono text-xs">
                   <p className="font-semibold mb-2">Example Format:</p>
@@ -296,6 +297,13 @@ Marking Guide
                   <li>For multiple choice: options labeled A., B., C., D., E.</li>
                   <li>Optional: Section headers like "Section A" or "OBJECTIVE QUESTIONS"</li>
                   <li>Optional: Marks indicated as (5 marks) or [10m]</li>
+                </ul>
+                <p className="mt-2"><strong>To bring in the correct answers, do any one of these:</strong></p>
+                <ul className="list-disc list-inside space-y-1 ml-2">
+                  <li>In Word, make the correct option <strong>bold</strong>, <u>underlined</u> or highlighted</li>
+                  <li>Put a line like <code>Answer: B</code> under the options</li>
+                  <li>Put a star after the correct option: <code>B. goes *</code></li>
+                  <li>End the paper with a <em>Marking Guide</em> or <em>Answer Key</em> listing <code>1. B</code>, <code>2. C</code>…</li>
                 </ul>
                 <div className="mt-3 bg-white p-3 rounded border border-blue-300 font-mono text-xs">
                   <p className="font-semibold mb-2">Example Format:</p>

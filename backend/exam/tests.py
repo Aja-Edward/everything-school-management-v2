@@ -467,6 +467,94 @@ class ReadingATypedPaperTest(SimpleTestCase):
         self.assertEqual(objective["questions"][1]["question"], "<p>Choose the correct plural form of child.</p>")
         self.assertEqual(objective["questions"][1]["options"]["optionC"], "children")
 
+    def word_answers(self, build):
+        """The (options, answer) of each objective question in a Word paper."""
+        from io import BytesIO
+
+        import docx
+
+        paper = docx.Document()
+        paper.add_heading("SECTION A: OBJECTIVE QUESTIONS", level=2)
+        build(paper)
+        file = BytesIO()
+        paper.save(file)
+        parsed = ExamDocumentParser(file.getvalue(), "paper.docx").parse()
+        return [q["correctAnswer"] for s in parsed["sections"] if s["type"] == "objective"
+                for q in s["questions"]]
+
+    @staticmethod
+    def add_question(paper, stem, options, marked=None, how="bold"):
+        from docx.enum.text import WD_COLOR_INDEX
+
+        question = paper.add_paragraph(style="List Number")
+        question.add_run(stem)
+        for index, option in enumerate(options):
+            question.add_run(f"\n{'ABCD'[index]}. ")
+            run = question.add_run(option)
+            if index == marked:
+                if how == "bold":
+                    run.bold = True
+                elif how == "underline":
+                    run.underline = True
+                else:
+                    run.font.highlight_color = WD_COLOR_INDEX.YELLOW
+
+    def test_word_reads_a_bold_underlined_or_highlighted_option_as_the_answer(self):
+        def build(paper):
+            self.add_question(paper, "The boy _____ to school.", ["go", "goes", "going", "gone"], 1, "bold")
+            self.add_question(paper, "Plural of child?", ["childs", "childes", "children", "childrens"], 2, "underline")
+            self.add_question(paper, "Which is a noun?", ["quickly", "pretty", "teacher", "sing"], 2, "highlight")
+            self.add_question(paper, "Nothing marked?", ["w", "x", "y", "z"])
+
+        self.assertEqual(self.word_answers(build), ["B", "C", "C", None])
+
+    def test_word_reads_a_marking_guide_and_leaves_its_theory_answers_alone(self):
+        def build(paper):
+            self.add_question(paper, "Question one?", ["w", "x", "y", "z"])
+            self.add_question(paper, "Question two?", ["w", "x", "y", "z"])
+            paper.add_heading("SECTION B: THEORY", level=2)
+            paper.add_paragraph("1. Explain.")
+            paper.add_heading("Marking Guide", level=2)
+            for line in ("Section A", "1. C", "2-D", "Section B", "1. a. books b. boxes"):
+                paper.add_paragraph(line)
+
+        self.assertEqual(self.word_answers(build), ["C", "D"])
+
+    def test_a_whole_question_in_bold_names_no_answer(self):
+        """Every option bold is the teacher's styling, not one answer."""
+        def build(paper):
+            question = paper.add_paragraph(style="List Number")
+            question.add_run("All bold?\nA. w\nB. x\nC. y\nD. z").bold = True
+
+        self.assertEqual(self.word_answers(build), [None])
+
+    def test_pasted_answer_lines_and_stars_name_the_answer(self):
+        parsed = ExamDocumentParser(dedent("""\
+            Section A - Objective
+            What is 2 + 2?
+            A. 3
+            B. 4
+            C. 5
+            D. 6
+            Answer: B
+            What is 2 * 3?
+            A. 5
+            B. 6 *
+            C. 7
+            D. 8
+            What is 1 + 1?
+            A. 1
+            B. 2
+            C. 3
+            D. 4
+            Ans - (b)
+            """).encode("utf-8"), "pasted-exam.txt").parse()
+        questions = parsed["sections"][0]["questions"]
+
+        self.assertEqual([q["correctAnswer"] for q in questions], ["B", "B", "B"])
+        self.assertEqual(questions[1]["options"]["optionB"], "6")
+        self.assertEqual(questions[1]["question"], "<p>What is 2 * 3?</p>")
+
     def test_a_title_line_is_still_left_out_of_the_questions(self):
         self.assertEqual(self.sections(dedent("""\
             First Term Mathematics Examination
