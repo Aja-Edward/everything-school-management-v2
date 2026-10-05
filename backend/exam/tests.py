@@ -434,6 +434,39 @@ class ReadingATypedPaperTest(SimpleTestCase):
         self.assertEqual(self.sections(numbered), [("objective", 2)])
         self.assertEqual(self.sections(unnumbered), [("objective", 2)])
 
+    def test_word_objective_questions_numbered_by_word_itself_are_kept(self):
+        """
+        A Word paper numbered its objective questions with Word's own list
+        numbering, and put each question's options on line breaks inside the
+        same paragraph. The "1." isn't in the text, so the reader found no
+        questions and dropped Section A: only the theory section came in.
+        """
+        from io import BytesIO
+
+        import docx
+
+        paper = docx.Document()
+        paper.add_heading("PRIMARY 4 ENGLISH STUDIES EXAMINATION", level=1)
+        paper.add_heading("SECTION A: OBJECTIVE QUESTIONS", level=2)
+        paper.add_paragraph("Choose the correct answer.")
+        paper.add_paragraph("The boy _____ to school every morning.\nA. go\nB. goes\nC. going\nD. gone",
+                            style="List Number")
+        paper.add_paragraph("Choose the correct plural form of child.\nA. childs\nB. childes\nC. children\nD. childrens",
+                            style="List Number")
+        paper.add_heading("SECTION B: THEORY QUESTIONS", level=1)
+        paper.add_paragraph("1. Write five common nouns you can find in your classroom.")
+        file = BytesIO()
+        paper.save(file)
+
+        parsed = ExamDocumentParser(file.getvalue(), "paper.docx").parse()
+        objective = parsed["sections"][0]
+
+        self.assertEqual([(s["type"], len(s["questions"])) for s in parsed["sections"]],
+                         [("objective", 2), ("theory", 1)])
+        self.assertEqual(objective["instructions"], "Choose the correct answer.")
+        self.assertEqual(objective["questions"][1]["question"], "<p>Choose the correct plural form of child.</p>")
+        self.assertEqual(objective["questions"][1]["options"]["optionC"], "children")
+
     def test_a_title_line_is_still_left_out_of_the_questions(self):
         self.assertEqual(self.sections(dedent("""\
             First Term Mathematics Examination

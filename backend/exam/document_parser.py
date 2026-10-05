@@ -368,6 +368,21 @@ class ExamDocumentParser:
             else:
                 questions = self._extract_questions(plain_text, section_type)
 
+            # Objective questions numbered by Word's own list numbering have
+            # no "1." in their text, so the numbered reader above finds none
+            # and the whole section was dropped. Read them the way pasted
+            # text is read instead: a question, then its A./B./C./D. lines.
+            if section_type == 'objective':
+                lines = [l.strip() for l in plain_text.splitlines() if l.strip()]
+                lead_instruction = self._objective_lead_instruction(lines)
+                if lead_instruction:
+                    lines = lines[1:]
+                unnumbered = self._extract_objective_from_paragraphs(lines)
+                if len(unnumbered) > len(questions):
+                    questions = unnumbered
+                    if lead_instruction and not instructions:
+                        instructions = lead_instruction
+
         if not questions:
             return None
 
@@ -377,6 +392,23 @@ class ExamDocumentParser:
             'instructions': instructions,
             'questions': questions
         }
+
+    @staticmethod
+    def _objective_lead_instruction(lines: List[str]) -> str:
+        """
+        The section's opening line when it is an instruction such as "Choose
+        the correct answer." rather than a question - otherwise it would be
+        read as the start of the first question. A question that begins
+        "Choose..." is followed by its options; an instruction is not.
+        """
+        if len(lines) < 2:
+            return ''
+        lead = lines[0]
+        if OPTION_LINE_RE.match(lead) or NUMBERED_LINE_RE.match(lead) or OPTION_LINE_RE.match(lines[1]):
+            return ''
+        if lead.lower().startswith(('choose', 'select', 'answer', 'instruction', 'read ', 'pick')):
+            return lead
+        return ''
 
     def _parse_question_table(self, rows: List[List[str]]) -> List[Dict]:
         """Parse a Word table where each row is a question.
