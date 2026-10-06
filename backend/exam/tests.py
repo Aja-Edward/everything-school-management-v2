@@ -9,6 +9,8 @@ an id from the request body with a bare Model.objects.get(id=...), which
 reaches every school's rows.
 """
 
+import json
+import os
 from datetime import date, time, timedelta
 from textwrap import dedent
 
@@ -377,6 +379,112 @@ class SavingAnExamsPrintSettingsTest(ExamApiTestCase):
                 self.assertIn("print_settings", response.data)
         self.exam.refresh_from_db()
         self.assertEqual(self.exam.print_settings, {})
+
+
+class SuggestingAnswersTest(SimpleTestCase):
+    """
+    A school's papers often mark no answers at all, and every correct answer
+    was then chosen by hand. Unmarked ones are now worked out by Claude and
+    flagged for a teacher to check. These never reach the real API.
+    """
+
+    def paper(self):
+        def mcq(stem, options, answer=None):
+            return {"question": f"<p>{stem}</p>", "type": "objective", "correctAnswer": answer,
+                    "options": {f"option{k}": v for k, v in zip("ABC", options)}, "marks": 1}
+        return {"sections": [
+            {"type": "objective", "questions": [
+                mcq("What number comes after 1?", ["2", "4", "6"]),
+                mcq("Which is the biggest?", ["2", "5", "9"], answer="C"),  # marked in the paper
+                mcq("Which shape is this? <img src='x.png'>", ["circle", "square", "triangle"]),
+            ]},
+            {"type": "theory", "questions": [{"question": "<p>Explain.</p>", "marks": 5}]},
+        ], "metadata": {"warnings": []}}
+
+    def fake_client(self, answers, stop_reason="end_turn"):
+        from types import SimpleNamespace
+        from unittest import mock
+
+        response = SimpleNamespace(
+            stop_reason=stop_reason,
+            content=[SimpleNamespace(type="text", text=json.dumps({"answers": answers}))])
+        client = mock.MagicMock()
+        client.beta.messages.create.return_value = response
+        return client
+
+    def suggest(self, paper, client=None, key="test-key"):
+        from unittest import mock
+
+        from exam.answer_suggester import suggest_answers
+
+        env = {"ANTHROPIC_API_KEY": key} if key else {}
+        with mock.patch.dict("os.environ", env, clear=False), \
+                mock.patch("anthropic.Anthropic", return_value=client) as made:
+            if not key:
+                os.environ.pop("ANTHROPIC_API_KEY", None)
+            filled = suggest_answers(paper)
+        return filled, made
+
+    def test_only_unmarked_questions_are_filled_and_flagged(self):
+        paper = self.paper()
+        client = self.fake_client([{"id": 1, "answer": "A"}, {"id": 2, "answer": None}])
+
+        filled, _ = self.suggest(paper, client)
+
+        first, marked, picture = paper["sections"][0]["questions"]
+        self.assertEqual(filled, 1)
+        self.assertEqual((first["correctAnswer"], first.get("answerSuggested")), ("A", True))
+        self.assertEqual((marked["correctAnswer"], marked.get("answerSuggested")), ("C", None))
+        self.assertIsNone(picture["correctAnswer"])
+        self.assertIn("please check each one", " ".join(paper["metadata"]["warnings"]))
+
+    def test_the_request_sends_only_the_questions_and_asks_for_a_checked_answer_list(self):
+        client = self.fake_client([])
+
+        self.suggest(self.paper(), client)
+
+        sent = client.beta.messages.create.call_args.kwargs
+        self.assertEqual(sent["model"], "claude-opus-5-5")
+        self.assertEqual((sent["betas"], sent["fallbacks"]), (["server-side-fallback-2026-07-01"], "default"))
+        self.assertEqual(sent["output_config"]["format"]["type"], "json_schema")
+        prompt = sent["messages"][0]["content"]
+        self.assertIn("Question 1: What number comes after 1?", prompt)
+        self.assertIn("[picture]", prompt)
+        self.assertNotIn("biggest", prompt)  # already answered, so not asked
+        self.assertNotIn("<p>", prompt)
+
+    def test_a_letter_that_isnt_one_of_the_options_is_ignored(self):
+        paper = self.paper()
+
+        self.suggest(paper, self.fake_client([{"id": 1, "answer": "E"}]))
+
+        self.assertIsNone(paper["sections"][0]["questions"][0]["correctAnswer"])
+
+    def test_without_a_key_nothing_is_sent(self):
+        paper = self.paper()
+
+        filled, made = self.suggest(paper, key=None)
+
+        self.assertEqual(filled, 0)
+        made.assert_not_called()
+        self.assertEqual(paper["metadata"]["warnings"], [])
+
+    def test_a_failure_leaves_the_import_as_it_was_and_says_so(self):
+        import anthropic
+
+        for client in (self.fake_client([], stop_reason="refusal"), None):
+            with self.subTest(client=client):
+                paper = self.paper()
+                if client is None:
+                    from unittest import mock
+                    client = mock.MagicMock()
+                    client.beta.messages.create.side_effect = anthropic.APIConnectionError(request=mock.MagicMock())
+
+                filled, _ = self.suggest(paper, client)
+
+                self.assertEqual(filled, 0)
+                self.assertIsNone(paper["sections"][0]["questions"][0]["correctAnswer"])
+                self.assertIn("chosen by hand", paper["metadata"]["warnings"][-1])
 
 
 class ReadingATypedPaperTest(SimpleTestCase):

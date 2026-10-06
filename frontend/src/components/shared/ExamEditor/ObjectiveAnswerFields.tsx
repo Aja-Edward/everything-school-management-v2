@@ -35,7 +35,11 @@ function ObjectiveAnswerFields<T extends ObjectiveAnswer>({
 }: Props<T>) {
   const type = answerTypeOf(question);
   const answer = String(question.correctAnswer ?? '');
-  const set = (patch: Partial<ObjectiveAnswer>) => onChange({ ...question, ...patch });
+  // A teacher choosing the answer has checked it, so a suggestion stops being one.
+  const set = (patch: Partial<ObjectiveAnswer>) => onChange({
+    ...question, ...patch, ...('correctAnswer' in patch ? { answerSuggested: false } : {}),
+  });
+  const suggested = !!question.answerSuggested && !!answer;
   const problem = showProblems ? answerProblem(question) : null;
   const hint = ANSWER_TYPES.find((t) => t.value === type)?.hint;
   const optionLabel = (letter: Letter) => {
@@ -77,10 +81,20 @@ function ObjectiveAnswerFields<T extends ObjectiveAnswer>({
       {type === 'single' && (
         <label className="block">
           <span className={small}>Correct answer</span>
-          <select value={answer.toUpperCase()} onChange={(e) => set({ correctAnswer: e.target.value })} className={`${field} mt-1`}>
+          <select value={answer.toUpperCase()} onChange={(e) => set({ correctAnswer: e.target.value })}
+            className={`${field} mt-1 ${suggested ? 'border-amber-400 bg-amber-50 dark:bg-amber-900/20' : ''}`}>
             <option value="">Choose the correct answer</option>
             {OPTION_LETTERS.map((letter) => <option key={letter} value={letter}>{optionLabel(letter)}</option>)}
           </select>
+          {suggested && (
+            <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-amber-700 dark:text-amber-300">
+              Suggested on import - the paper didn't mark this one. Please check it.
+              <button type="button" onClick={() => onChange({ ...question, answerSuggested: false })}
+                className="rounded border border-amber-300 bg-white px-2 py-0.5 font-medium text-amber-800 hover:bg-amber-100 dark:bg-transparent dark:text-amber-200">
+                Looks right
+              </button>
+            </span>
+          )}
         </label>
       )}
 

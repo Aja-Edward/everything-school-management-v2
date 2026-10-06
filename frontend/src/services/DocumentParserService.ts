@@ -29,6 +29,8 @@ export interface ParsedQuestion {
     optionE?: string;
   };
   correctAnswer?: string;
+  /** correctAnswer was worked out by the server because the paper didn't mark it. */
+  answerSuggested?: boolean;
   marks?: number;
   expectedPoints?: string;
   subQuestions?: ParsedQuestion[];
@@ -478,6 +480,8 @@ function processSection(section: ParsedSection, examData: any): void {
         optionD: q.options?.optionD ?? '',
         optionE: q.options?.optionE ?? '',
         correctAnswer: q.correctAnswer ?? '',
+        // Worked out on import because the paper didn't mark it: shown for a teacher to check.
+        ...(q.answerSuggested ? { answerSuggested: true } : {}),
         marks: normalizeMarks(q.marks),
       }));
       examData.objective_instructions = section.instructions ?? '';

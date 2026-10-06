@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from django.utils import timezone
 import logging
 
+from .answer_suggester import suggest_answers
 from .document_parser import ExamDocumentParser
 from .permissions import IsTeacherOrAdmin
 
@@ -110,6 +111,8 @@ def parse_exam_document(request):
             )
 
         # Add timestamp
+        # Answers the paper didn't mark, worked out for a teacher to check.
+        suggest_answers(parsed_data)
         parsed_data['metadata']['parsedAt'] = timezone.now().isoformat()
 
         logger.info(
@@ -279,6 +282,8 @@ def parse_pasted_exam_text(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Answers the paper didn't mark, worked out for a teacher to check.
+        suggest_answers(parsed_data)
         parsed_data['metadata']['parsedAt'] = timezone.now().isoformat()
 
         logger.info(

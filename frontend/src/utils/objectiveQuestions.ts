@@ -23,6 +23,8 @@ export interface ObjectiveAnswer {
   partialCredit?: boolean;
   tolerance?: string | number;
   unit?: string;
+  /** The answer was worked out on import (the paper didn't mark it) and no teacher has checked it yet. */
+  answerSuggested?: boolean;
 }
 
 export const ANSWER_TYPES: { value: AnswerType; label: string; hint: string }[] = [
