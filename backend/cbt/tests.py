@@ -24,7 +24,10 @@ from tenants.models import Tenant
 
 User = get_user_model()
 
-OPENS = timezone.make_aware(datetime(2026, 12, 1, 9, 0))
+# The test exams' day: always ahead of today, so a paper on it can still be
+# published - a paper that has already closed is refused.
+EXAM_DAY = timezone.localdate() + timedelta(days=60)
+OPENS = timezone.make_aware(datetime.combine(EXAM_DAY, time(9, 0)))
 
 
 def objective(number, answer="B", **extra):
@@ -49,7 +52,7 @@ class CBTTestCase(TestCase):
             grade_level=GradeLevel.objects.filter(tenant=school, education_level__code="primary").first(),
             exam_type=ExamType.objects.get(tenant=school, code="final_exam"),
             status=ExamStatus.objects.get(tenant=school, code="approved"),
-            exam_date=date(2026, 12, 1), start_time=time(9), end_time=time(11),
+            exam_date=EXAM_DAY, start_time=time(9), end_time=time(11),
             instructions="Answer all questions.", objective_instructions="Choose one option.",
             **questions)
 

@@ -20,6 +20,7 @@ the result model recalculates its total and grade. A result that has already
 been approved or published is left alone and reported as skipped.
 """
 
+import logging
 from collections import Counter
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -35,6 +36,8 @@ from .snapshot import tolerance
 
 FINISHED = (CBTAttempt.Status.SUBMITTED, CBTAttempt.Status.TIMED_OUT)
 TWO_PLACES = Decimal("0.01")
+
+logger = logging.getLogger(__name__)
 
 
 # ── Marking ───────────────────────────────────────────────────────────────────
@@ -74,6 +77,10 @@ def mark_attempt(attempt):
     attempt.text_score = text
     attempt.total_score = objective + text if unmarked == 0 else None
     attempt.save(update_fields=["objective_score", "text_score", "total_score", "updated_at"])
+    # Fully marked - on submitting, for a paper with nothing typed - so the
+    # score can go to the student's result now rather than wait for staff.
+    if attempt.total_score is not None:
+        auto_push(attempt)
     return unmarked
 
 
@@ -264,6 +271,23 @@ def _student_rows(attempts, answers, questions):
     return rows
 
 
+def _results_overview(paper):
+    """Where the scores go - chosen by staff or worked out from the exam - and when they last went."""
+    session, component = targets_for(paper)
+    return {
+        "exam_session": session.id if session else None,
+        "exam_session_name": session.name if session else "",
+        "component": component.id if component else None,
+        "component_name": component.name if component else "",
+        "component_max": str(component.max_score) if component else "",
+        # False when the session and column were worked out from the exam's type and term.
+        "chosen_by_staff": bool(paper.result_exam_session_id and paper.result_component_id),
+        "auto_push": paper.auto_push_results,
+        "pushed_at": paper.results_pushed_at,
+        "pushed_by": _name(paper.results_pushed_by),
+    }
+
+
 def overview(paper):
     """Marking progress, each student's score, answer-key statistics, and where results go."""
     attempts = list(CBTAttempt.objects.filter(paper=paper, status__in=FINISHED)
@@ -299,15 +323,7 @@ def overview(paper):
         "students": _student_rows(attempts, answers, questions),
         "objective": objective,
         "text": text,
-        "results": {
-            "exam_session": paper.result_exam_session_id,
-            "exam_session_name": paper.result_exam_session.name if paper.result_exam_session_id else "",
-            "component": paper.result_component_id,
-            "component_name": paper.result_component.name if paper.result_component_id else "",
-            "component_max": str(paper.result_component.max_score) if paper.result_component_id else "",
-            "pushed_at": paper.results_pushed_at,
-            "pushed_by": _name(paper.results_pushed_by),
-        },
+        "results": _results_overview(paper),
         "release": {"mode": paper.result_release, "released_at": paper.results_released_at},
     }
 
@@ -350,8 +366,69 @@ def _result_model(exam):
     }.get(canonical_level_type(level.level_type) if level else None)
 
 
+# A school that hasn't said which exam types fill which column still gets the
+# obvious ones: an exam type with one of these codes goes to the class level's
+# only column of the matching kind. Tests and quizzes have no such default -
+# a level usually has several CA columns, and guessing between them would put
+# scores in the wrong one.
+EXAM_TYPE_COLUMN_KIND = {"final_exam": "EXAM", "practical": "PRACTICAL", "oral_exam": "ORAL"}
+
+
+def default_component(exam):
+    """
+    The score column an exam's scores belong in: the one active column at the
+    exam's class level set as filled by the exam's type. Without one set, see
+    EXAM_TYPE_COLUMN_KIND. None when it can't be told.
+    """
+    from result.models import AssessmentComponent
+
+    level, _ = _result_model(exam)
+    if level is None or not exam.exam_type_id:
+        return None
+    columns = AssessmentComponent.objects.filter(tenant=exam.tenant, education_level=level, is_active=True)
+    chosen = list(columns.filter(exam_types=exam.exam_type_id))
+    if len(chosen) == 1:
+        return chosen[0]
+    if chosen:
+        return None  # several columns claim this type: not ours to pick
+    kind = EXAM_TYPE_COLUMN_KIND.get(exam.exam_type.code)
+    same_kind = list(columns.filter(component_type=kind)) if kind else []
+    return same_kind[0] if len(same_kind) == 1 else None
+
+
+def default_exam_session(exam):
+    """
+    The results session an exam's scores belong in: an active one for the
+    exam's own academic session and term, or else one whose dates take in the
+    exam's date. Where several fit, the one for the same kind of exam (by
+    code) is taken. None when it can't be told.
+    """
+    from result.models import ExamSession
+
+    sessions = ExamSession.objects.filter(tenant=exam.tenant, is_active=True).select_related("exam_type")
+    schedule = exam.exam_schedule
+    if schedule is not None and schedule.academic_session_id and schedule.term_id:
+        candidates = list(sessions.filter(academic_session_id=schedule.academic_session_id,
+                                          term_id=schedule.term_id))
+    elif exam.exam_date:
+        candidates = list(sessions.filter(start_date__lte=exam.exam_date, end_date__gte=exam.exam_date))
+    else:
+        candidates = []
+    if len(candidates) > 1 and exam.exam_type_id:
+        same_kind = [s for s in candidates if s.exam_type.code == exam.exam_type.code]
+        if same_kind:
+            candidates = same_kind
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def targets_for(paper):
+    """Where the paper's scores go: what staff chose, else the defaults above."""
+    return (paper.result_exam_session or default_exam_session(paper.exam),
+            paper.result_component or default_component(paper.exam))
+
+
 def result_targets(paper):
-    """The exam sessions and score columns this paper's scores could go to."""
+    """The exam sessions and score columns this paper's scores could go to, and the right ones."""
     from result.models import AssessmentComponent, ExamSession
 
     level, model = _result_model(paper.exam)
@@ -359,28 +436,27 @@ def result_targets(paper):
         tenant=paper.tenant, education_level=level, is_active=True) if level else AssessmentComponent.objects.none()
     sessions = ExamSession.objects.filter(tenant=paper.tenant, is_active=True).select_related(
         "academic_session", "term__term_type").order_by("-start_date")
+    suggested_session, suggested_component = default_exam_session(paper.exam), default_component(paper.exam)
+    exam_type = paper.exam.exam_type if paper.exam.exam_type_id else None
     return {
         "education_level": level.name if level else "",
         "supported": model is not None,
+        "exam_type": exam_type.name if exam_type else "",
         "exam_sessions": [{"id": s.id, "name": s.name, "academic_session": s.academic_session.name,
                            "term": s.term.term_type.name if s.term_id and s.term.term_type_id else ""}
                           for s in sessions],
         "components": [{"id": c.id, "name": c.name, "code": c.code, "max_score": str(c.max_score),
                         "component_type": c.component_type} for c in components],
+        "suggested_exam_session": suggested_session.id if suggested_session else None,
+        "suggested_component": suggested_component.id if suggested_component else None,
     }
 
 
-def push_results(paper, actor, now=None):
-    """
-    Write each student's CBT score into their result for the exam's subject.
-    Uses the latest finished attempt per student. Returns {"pushed", "skipped"}.
-    """
-    from result.models import ComponentScore, GradingSystem
+def _push_checks(paper, session, component):
+    """What push_results needs before writing anything: (model, grading). Refuses when it can't."""
+    from result.models import GradingSystem
 
-    now = now or timezone.now()
-    exam = paper.exam
-    level, model = _result_model(exam)
-    component, session = paper.result_component, paper.result_exam_session
+    level, model = _result_model(paper.exam)
     if component is None or session is None:
         raise Refused("Choose the exam session and score column for these results first.")
     if model is None or component.education_level_id != getattr(level, "id", None):
@@ -388,6 +464,43 @@ def push_results(paper, actor, now=None):
     grading = GradingSystem.objects.filter(tenant=paper.tenant, is_active=True).order_by("id").first()
     if grading is None:
         raise Refused("Set up a grading system in the results settings first.")
+    return model, grading
+
+
+def _push_one(paper, attempt, model, grading, session, component, actor):
+    """Write one attempt's score to the student's draft result. Returns why not, or ""."""
+    from result.models import ComponentScore
+
+    student = attempt.student
+    if attempt.total_score is None:
+        return "Answers still to mark"
+    if not attempt.max_score:
+        return "No marks on the paper"
+    score = (attempt.total_score / attempt.max_score * component.max_score).quantize(TWO_PLACES, ROUND_HALF_UP)
+    with transaction.atomic():
+        defaults = {"grading_system": grading, "entered_by": actor}
+        if hasattr(model, "stream"):
+            defaults["stream"] = student.stream
+        result, _ = model.objects.select_for_update().get_or_create(
+            tenant=paper.tenant, student=student, subject=paper.exam.subject, exam_session=session,
+            defaults=defaults)
+        if result.status != "DRAFT":
+            return f"Result already {result.get_status_display().lower()}"
+        ComponentScore.objects.update_or_create(
+            tenant=paper.tenant, component=component, **{model.RESULT_FK_NAME: result},
+            defaults={"score": min(score, component.max_score)})
+        result.save()
+    return ""
+
+
+def push_results(paper, actor, now=None):
+    """
+    Write each student's CBT score into their result for the exam's subject.
+    Uses the latest finished attempt per student. Returns {"pushed", "skipped"}.
+    """
+    now = now or timezone.now()
+    session, component = targets_for(paper)
+    model, grading = _push_checks(paper, session, component)
 
     latest = {}
     for attempt in (CBTAttempt.objects.filter(paper=paper, status__in=FINISHED)
@@ -396,34 +509,49 @@ def push_results(paper, actor, now=None):
 
     pushed, skipped = 0, []
     for attempt in latest.values():
-        student = attempt.student
-        if attempt.total_score is None:
-            skipped.append({"student": student.full_name, "reason": "Answers still to mark"})
-            continue
-        if not attempt.max_score:
-            skipped.append({"student": student.full_name, "reason": "No marks on the paper"})
-            continue
-        score = (attempt.total_score / attempt.max_score * component.max_score).quantize(TWO_PLACES, ROUND_HALF_UP)
-        with transaction.atomic():
-            defaults = {"grading_system": grading, "entered_by": actor}
-            if hasattr(model, "stream"):
-                defaults["stream"] = student.stream
-            result, _ = model.objects.select_for_update().get_or_create(
-                tenant=paper.tenant, student=student, subject=exam.subject, exam_session=session,
-                defaults=defaults)
-            if result.status != "DRAFT":
-                skipped.append({"student": student.full_name,
-                                "reason": f"Result already {result.get_status_display().lower()}"})
-                continue
-            ComponentScore.objects.update_or_create(
-                tenant=paper.tenant, component=component, **{model.RESULT_FK_NAME: result},
-                defaults={"score": min(score, component.max_score)})
-            result.save()
+        why_not = _push_one(paper, attempt, model, grading, session, component, actor)
+        if why_not:
+            skipped.append({"student": attempt.student.full_name, "reason": why_not})
+        else:
             pushed += 1
 
     paper.results_pushed_at, paper.results_pushed_by = now, actor
     paper.save(update_fields=["results_pushed_at", "results_pushed_by", "updated_at"])
     return {"pushed": pushed, "skipped": skipped}
+
+
+def auto_push(attempt, now=None):
+    """
+    Send a fully marked attempt's score to the student's draft result, if the
+    paper does that and knows where it goes. Only the student's latest
+    finished attempt counts, as in push_results.
+
+    Runs once the surrounding save has committed, and never raises: a result
+    that can't be written must not undo a student's submitted exam or a
+    teacher's marks. Staff can still send the scores from the marking screen.
+    """
+    def push():
+        try:
+            fresh = CBTAttempt.objects.select_related("paper__exam", "student__user").get(pk=attempt.pk)
+            paper = fresh.paper
+            if not paper.auto_push_results or fresh.status not in FINISHED or fresh.total_score is None:
+                return
+            latest = (CBTAttempt.objects.filter(paper=paper, student=fresh.student, status__in=FINISHED)
+                      .order_by("-number").first())
+            if latest is None or latest.pk != fresh.pk:
+                return  # a later attempt is the one that counts
+            session, component = targets_for(paper)
+            if session is None or component is None:
+                return
+            model, grading = _push_checks(paper, session, component)
+            if not _push_one(paper, fresh, model, grading, session, component, actor=None):
+                CBTPaper.objects.filter(pk=paper.pk).update(results_pushed_at=now or timezone.now())
+        except Refused:
+            pass  # not set up for results yet; nothing to do until it is
+        except Exception:
+            logger.exception("Could not send CBT attempt %s to the results", attempt.pk)
+
+    transaction.on_commit(push)
 
 
 # ── What students see ─────────────────────────────────────────────────────────

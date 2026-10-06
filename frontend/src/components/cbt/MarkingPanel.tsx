@@ -356,6 +356,15 @@ const MarkingPanel: React.FC<Props> = ({ paper, onPaperChanged }) => {
 
   useEffect(load, [load]);
 
+  // Where the scores go unless staff choose otherwise: their saved choice,
+  // else what the exam's type and term point to. The boxes start there.
+  const savedSession = String(paper.result_exam_session ?? targets?.suggested_exam_session ?? '');
+  const savedComponent = String(paper.result_component ?? targets?.suggested_component ?? '');
+  useEffect(() => {
+    if (!paper.result_exam_session && targets?.suggested_exam_session) setSession(String(targets.suggested_exam_session));
+    if (!paper.result_component && targets?.suggested_component) setComponent(String(targets.suggested_component));
+  }, [targets, paper.result_exam_session, paper.result_component]);
+
   if (marking !== null) {
     return <TextMarking paperId={paper.id} questionId={marking} onBack={() => { setMarking(null); load(); }} onSaved={setOverview} />;
   }
@@ -363,7 +372,7 @@ const MarkingPanel: React.FC<Props> = ({ paper, onPaperChanged }) => {
     return error ? <p className="text-sm text-rose-700">{error}</p> : <Loader2 className="mx-auto mt-6 h-6 w-6 animate-spin text-slate-400" />;
   }
 
-  const targetsChanged = session !== String(paper.result_exam_session ?? '') || component !== String(paper.result_component ?? '');
+  const targetsChanged = session !== savedSession || component !== savedComponent;
 
   const run = async (work: () => Promise<void>) => {
     setBusy(true);
@@ -386,11 +395,20 @@ const MarkingPanel: React.FC<Props> = ({ paper, onPaperChanged }) => {
     load();
   });
 
+  const toggleAutoPush = () => run(async () => {
+    onPaperChanged(await CBTService.updatePaper(paper.id, { auto_push_results: !paper.auto_push_results }));
+    load();
+  });
+
   const toggleRelease = () => run(async () => {
     onPaperChanged(await (paper.results_released_at ? CBTService.withholdResults(paper.id) : CBTService.releaseResults(paper.id)));
   });
 
   const chosenComponent = targets?.components.find((c) => String(c.id) === component);
+  const suggestedComponent = targets?.components.find((c) => c.id === targets.suggested_component);
+  // A column other than the one the exam's type fills: a Final Examination
+  // sent to a CA column, say. Allowed, but worth a second look.
+  const offType = chosenComponent && suggestedComponent && chosenComponent.id !== suggestedComponent.id;
   // Marking, not the release setting, is what holds a score back once staff have released it.
   const waitingOnMarking = overview.finished_attempts - overview.fully_marked;
 
@@ -480,6 +498,31 @@ const MarkingPanel: React.FC<Props> = ({ paper, onPaperChanged }) => {
                 </button>
               )}
             </div>
+            {offType && (
+              <p className="mt-2 text-xs text-amber-700">
+                This exam is a {targets?.exam_type || 'kind'} whose scores go in {suggestedComponent!.name}, but {chosenComponent!.name} is chosen.
+              </p>
+            )}
+            {targets && !targets.suggested_component && !paper.result_component && (
+              <p className="mt-2 text-xs text-slate-500">
+                Choose the score column. To have it chosen for you, set which exam types fill each score column in
+                Settings → Exams &amp; Result → Assessment Components.
+              </p>
+            )}
+            {targets && !overview.results.chosen_by_staff && overview.results.component && !targetsChanged && (
+              <p className="mt-2 text-xs text-slate-500">Chosen from the exam's type ({targets.exam_type}) and term.</p>
+            )}
+            <label className="mt-3 flex items-start gap-2 text-sm">
+              <input type="checkbox" checked={paper.auto_push_results} onChange={() => void toggleAutoPush()} disabled={busy}
+                className="mt-0.5 rounded border-slate-300" />
+              <span>
+                <span className="font-medium text-slate-800 dark:text-slate-100">Send each score automatically</span>
+                <span className="block text-xs text-slate-500">
+                  As soon as a student's paper is fully marked - straight away for objective questions - their score goes
+                  to their draft result here. Sending again after correcting an answer key updates it.
+                </span>
+              </span>
+            </label>
             {chosenComponent && overview.fully_marked < overview.finished_attempts && (
               <p className="mt-2 text-xs text-amber-700">{overview.finished_attempts - overview.fully_marked} student(s) still have answers to mark and will be skipped.</p>
             )}

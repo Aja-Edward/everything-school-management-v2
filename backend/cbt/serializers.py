@@ -32,7 +32,7 @@ class CBTPaperSerializer(serializers.ModelSerializer):
             "include_objective", "include_theory", "objective_questions_per_attempt",
             "shuffle_questions", "shuffle_options", "allow_backtracking", "max_attempts",
             "access_code", "result_release", "results_released_at",
-            "result_exam_session", "result_component", "results_pushed_at",
+            "result_exam_session", "result_component", "results_pushed_at", "auto_push_results",
             "instructions", "sections", "published_at",
             "objective_count", "text_count", "attempt_count", "offline_package_count",
             "created_at", "updated_at",

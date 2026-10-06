@@ -7,6 +7,7 @@ from rest_framework import serializers
 from academics.models import AcademicSession, EducationLevel, Term
 from academics.serializers import AcademicSessionSerializer
 from classroom.models import Class as StudentClass
+from exam.models import ExamType as ExamTypeForExams
 from students.models import Student
 from students.serializers import StudentDetailSerializer
 from subject.models import Subject
@@ -488,6 +489,10 @@ class AssessmentComponentCreateUpdateSerializer(serializers.ModelSerializer):
     education_level = serializers.PrimaryKeyRelatedField(
         queryset=EducationLevel.objects.all()
     )
+    # The exam app's types: what an exam is set as. Narrowed to the school in __init__.
+    exam_types = serializers.PrimaryKeyRelatedField(
+        queryset=ExamTypeForExams.objects.all(), many=True, required=False
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -500,6 +505,9 @@ class AssessmentComponentCreateUpdateSerializer(serializers.ModelSerializer):
             field.error_messages["does_not_exist"] = (
                 "That education level belongs to another school, or does not exist."
             )
+            # The exam types filling the column are the school's own too.
+            self.fields["exam_types"].child_relation.queryset = ExamTypeForExams.objects.filter(
+                tenant=tenant)
 
     def validate_education_level(self, level):
         """
@@ -526,6 +534,7 @@ class AssessmentComponentCreateUpdateSerializer(serializers.ModelSerializer):
             "show_in_printed_report",
             "display_order",
             "is_active",
+            "exam_types",
         ]
 
     def validate_max_score(self, value):
@@ -533,6 +542,13 @@ class AssessmentComponentCreateUpdateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "max_score must be greater than zero")
         return value
+
+    def validate_exam_types(self, exam_types):
+        """Checked again for the same reason as validate_education_level."""
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if tenant is not None and any(t.tenant_id != tenant.id for t in exam_types):
+            raise serializers.ValidationError("That exam type belongs to another school.")
+        return exam_types
 
     def validate_code(self, value):
         if not value.replace("_", "").replace("-", "").isalnum():

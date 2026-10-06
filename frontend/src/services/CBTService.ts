@@ -36,6 +36,8 @@ export interface CBTPaper {
   result_exam_session: number | null;
   result_component: number | null;
   results_pushed_at: string | null;
+  /** Send each score to the student's draft result as soon as their paper is fully marked. */
+  auto_push_results: boolean;
   instructions: string;
   sections: CBTSection[];
   published_at: string | null;
@@ -52,7 +54,7 @@ export type CBTPaperSettings = Partial<Pick<CBTPaper,
   | 'opens_at' | 'closes_at' | 'duration_minutes'
   | 'include_objective' | 'include_theory' | 'objective_questions_per_attempt'
   | 'shuffle_questions' | 'shuffle_options' | 'allow_backtracking' | 'max_attempts'
-  | 'access_code' | 'result_release' | 'result_exam_session' | 'result_component'>>;
+  | 'access_code' | 'result_release' | 'result_exam_session' | 'result_component' | 'auto_push_results'>>;
 
 export interface CBTCheck {
   ready: boolean;
@@ -202,6 +204,9 @@ export interface CBTMarkingOverview {
     component: number | null;
     component_name: string;
     component_max: string;
+    /** False when the session and column were worked out from the exam's type and term. */
+    chosen_by_staff: boolean;
+    auto_push: boolean;
     pushed_at: string | null;
     pushed_by: string;
   };
@@ -236,6 +241,11 @@ export interface CBTResultTargets {
   supported: boolean;
   exam_sessions: { id: number; name: string; academic_session: string; term: string }[];
   components: { id: number; name: string; code: string; max_score: string; component_type: string }[];
+  /** The exam's type, e.g. "Final Examination". */
+  exam_type: string;
+  /** Where the exam's type and term say the scores belong; null when that can't be told. */
+  suggested_exam_session: number | null;
+  suggested_component: number | null;
 }
 
 export interface CBTPushResults {

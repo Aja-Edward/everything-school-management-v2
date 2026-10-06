@@ -12,7 +12,7 @@ from rest_framework import status
 
 from academics.models import AcademicSession, EducationLevel
 from cbt.models import CBTAnswer, CBTAnswerKeyChange, CBTAttempt, CBTPaper
-from cbt.tests import User, objective
+from cbt.tests import EXAM_DAY, User, objective
 from cbt.tests_engine import ATTEMPTS, MY_EXAMS, EngineTest
 from result.models import AssessmentComponent, ComponentScore, ExamSession, ExamType, GradingSystem, PrimaryResult
 from teacher.models import Teacher
@@ -161,11 +161,11 @@ class ResultsTest(MarkingTest):
         super().setUp()
         self.primary = EducationLevel.objects.get(tenant=self.school, code="primary")
         self.column = AssessmentComponent.objects.get(tenant=self.school, education_level=self.primary, code="EXAM")
-        session = AcademicSession.objects.create(tenant=self.school, name="2026/2027", start_date=date(2026, 9, 7),
-                                                 end_date=date(2027, 7, 23), is_current=True)
+        session = AcademicSession.objects.create(tenant=self.school, name="2026/2027", start_date=EXAM_DAY - timedelta(days=90),
+                                                 end_date=EXAM_DAY + timedelta(days=200), is_current=True)
         self.session = ExamSession.objects.create(
             tenant=self.school, name="First Term Exams", exam_type=ExamType.objects.filter(tenant=self.school).first(),
-            academic_session=session, start_date=date(2026, 12, 1), end_date=date(2026, 12, 12))
+            academic_session=session, start_date=EXAM_DAY, end_date=EXAM_DAY + timedelta(days=11))
         GradingSystem.objects.create(tenant=self.school, name="Standard", grading_type="PERCENTAGE")
         self.as_staff(self.admin)
 
@@ -221,11 +221,162 @@ class ResultsTest(MarkingTest):
         self.assertEqual(response.data["pushed"], 0)
         self.assertEqual(response.data["skipped"][0]["reason"], "Result already approved")
 
-    def test_pushing_without_a_column_is_refused(self):
+    def make_quiz(self):
+        """The exam as a quiz: no column is the obvious one for a quiz."""
+        from exam.models import ExamType as ExamKind
+
+        self.exam.exam_type = ExamKind.objects.get(tenant=self.school, code="quiz")
+        self.exam.save(update_fields=["exam_type"])
+        return self.exam.exam_type
+
+    def test_pushing_is_refused_when_the_column_cant_be_told(self):
+        self.make_quiz()
+
         response = self.staff("post", "results/push/")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Choose the exam session", response.data["detail"])
+
+
+class ResultsByExamTypeTest(ResultsTest):
+    """
+    A school asked that CBT scores be recorded by the kind of exam: a Final
+    Examination's in the exam column, a test's in its test column, without
+    staff having to pick the column every time. The term's session comes from
+    the exam too.
+    """
+
+    def score_in(self, column):
+        result = PrimaryResult.objects.get(student=self.student, subject=self.exam.subject, exam_session=self.session)
+        return ComponentScore.objects.get(primary_result=result, component=column).score
+
+    def test_a_final_exam_goes_to_the_exam_column_of_its_term_with_nothing_chosen(self):
+        self.sit(self.student, {1: {"selected_option": "B"}, 2: {"selected_option": "B"}})
+        self.as_staff(self.admin)
+
+        targets = self.staff("get", "results/targets/").data
+        self.assertEqual((targets["suggested_exam_session"], targets["suggested_component"]),
+                         (self.session.id, self.column.id))
+
+        response = self.staff("post", "results/push/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(self.score_in(self.column), Decimal("15.00"))
+
+    def test_the_column_set_for_the_exam_type_is_the_one_used(self):
+        quiz = self.make_quiz()
+        ca1 = AssessmentComponent.objects.get(tenant=self.school, education_level=self.primary, code="CA1")
+        ca1.exam_types.add(quiz)
+        self.sit(self.student, {1: {"selected_option": "B"}})
+        self.as_staff(self.admin)
+
+        self.assertEqual(self.staff("get", "results/targets/").data["suggested_component"], ca1.id)
+        self.staff("post", "results/push/")
+
+        # 2 of 16 marks: an eighth of CA1's maximum.
+        self.assertEqual(self.score_in(ca1), (ca1.max_score / 8).quantize(Decimal("0.01")))
+
+    def test_two_columns_set_for_one_exam_type_choose_neither(self):
+        quiz = self.make_quiz()
+        for code in ("CA1", "CA2"):
+            AssessmentComponent.objects.get(tenant=self.school, education_level=self.primary, code=code) \
+                .exam_types.add(quiz)
+
+        self.assertIsNone(self.staff("get", "results/targets/").data["suggested_component"])
+
+    def test_the_session_of_the_same_kind_wins_when_several_cover_the_exam_date(self):
+        tests_kind = ExamType.objects.create(tenant=self.school, name="Final Examination", code="final_exam")
+        exams_session = ExamSession.objects.create(
+            tenant=self.school, name="First Term Finals", exam_type=tests_kind,
+            academic_session=self.session.academic_session, start_date=EXAM_DAY - timedelta(days=11),
+            end_date=EXAM_DAY + timedelta(days=19))
+
+        self.assertEqual(self.staff("get", "results/targets/").data["suggested_exam_session"], exams_session.id)
+
+    def test_what_staff_choose_still_comes_first(self):
+        ca2 = AssessmentComponent.objects.get(tenant=self.school, education_level=self.primary, code="CA2")
+        self.request("patch", f"{PAPERS}{self.paper.id}/", {
+            "result_exam_session": self.session.id, "result_component": ca2.id}, token=None)
+        self.sit(self.student, {1: {"selected_option": "B"}})
+        self.as_staff(self.admin)
+
+        self.staff("post", "results/push/")
+
+        self.assertTrue(ComponentScore.objects.filter(component=ca2).exists())
+        self.assertFalse(ComponentScore.objects.filter(component=self.column).exists())
+
+
+class AutomaticResultsTest(ResultsTest):
+    """Scores reach the results by themselves once a student's paper is fully marked."""
+
+    def result(self):
+        return PrimaryResult.objects.filter(student=self.student, subject=self.exam.subject,
+                                            exam_session=self.session).first()
+
+    def test_an_objective_paper_goes_to_the_results_when_it_is_submitted(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            self.sit(self.student, {1: {"selected_option": "B"}, 2: {"selected_option": "B"}})
+
+        result = self.result()
+        self.assertEqual(result.status, "DRAFT")
+        self.assertEqual(ComponentScore.objects.get(primary_result=result, component=self.column).score,
+                         Decimal("15.00"))
+        self.paper.refresh_from_db()
+        self.assertIsNotNone(self.paper.results_pushed_at)
+
+    def test_a_typed_answer_waits_until_a_teacher_marks_it(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            attempt = self.sit(self.student, {1: {"selected_option": "B"}, 4: {"text_answer": "Two causes."}})
+        self.assertIsNone(self.result())
+
+        self.as_staff(self.admin)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.staff("post", "marking/marks/", {"marks": [
+                {"attempt": attempt.id, "question": self.q[4].id, "marks": 6}]})
+
+        # 2 + 6 of 16: half of the exam column's 60.
+        self.assertEqual(ComponentScore.objects.get(primary_result=self.result(), component=self.column).score,
+                         Decimal("30.00"))
+
+    def test_a_corrected_answer_key_updates_the_result(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            self.sit(self.student, {1: {"selected_option": "C"}})
+        self.assertEqual(ComponentScore.objects.get(component=self.column).score, Decimal("0.00"))
+
+        self.as_staff(self.admin)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.staff("post", f"questions/{self.q[1].id}/answer-key/", {"correct_option": "C"})
+
+        self.assertEqual(ComponentScore.objects.get(component=self.column).score, Decimal("7.50"))
+
+    def test_a_paper_set_not_to_leaves_the_results_alone(self):
+        CBTPaper.objects.filter(pk=self.paper.pk).update(auto_push_results=False)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.sit(self.student, {1: {"selected_option": "B"}})
+
+        self.assertIsNone(self.result())
+
+    def test_an_approved_result_is_left_alone(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            self.sit(self.student, {1: {"selected_option": "C"}})
+        PrimaryResult.objects.filter(student=self.student).update(status="APPROVED")
+        self.as_staff(self.admin)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.staff("post", f"questions/{self.q[1].id}/answer-key/", {"correct_option": "C"})
+
+        self.assertEqual(ComponentScore.objects.get(component=self.column).score, Decimal("0.00"))
+
+    def test_a_school_not_set_up_for_results_still_gets_its_submissions(self):
+        """No grading system: the score can't be written, but the exam is still submitted and marked."""
+        GradingSystem.objects.filter(tenant=self.school).delete()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            attempt = self.sit(self.student, {1: {"selected_option": "B"}})
+
+        self.assertEqual((attempt.status, attempt.total_score), (CBTAttempt.Status.SUBMITTED, Decimal("2")))
+        self.assertIsNone(self.result())
 
 
 class StudentScoreTest(MarkingTest):

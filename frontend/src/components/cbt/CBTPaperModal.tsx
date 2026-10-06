@@ -52,6 +52,24 @@ const toLocalInput = (iso: string | null): string => {
 
 const fromLocalInput = (value: string): string | null => (value ? new Date(value).toISOString() : null);
 
+/**
+ * A chosen time written out in full under its box - "Tue 6 Oct, 2:47 AM" -
+ * and flagged when it has already passed. The box itself can read 02:47 and
+ * hide that it means the small hours: a school set its papers for 2:47 AM
+ * meaning the afternoon, and students saw them as missed.
+ */
+const WhenItIs: React.FC<{ iso: string | null | undefined }> = ({ iso }) => {
+  if (!iso) return null;
+  const when = new Date(iso);
+  const passed = when.getTime() <= Date.now();
+  return (
+    <p className={`mt-1 text-xs ${passed ? 'font-medium text-rose-600' : 'text-slate-500'}`}>
+      {when.toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })}
+      {passed ? ' - already passed' : ''}
+    </p>
+  );
+};
+
 /** How long the window is, in whole minutes, or null when it isn't a window yet. */
 export const windowMinutes = (opensAt: string | null, closesAt: string | null): number | null => {
   if (!opensAt || !closesAt) return null;
@@ -330,12 +348,14 @@ const CBTPaperModal: React.FC<Props> = ({ open, exam, onClose, onChanged }) => {
                   <input id="cbt-opens" type="datetime-local" className={inputClass} disabled={busy}
                     value={toLocalInput(form.opens_at ?? null)}
                     onChange={(e) => setWindow('opens_at', fromLocalInput(e.target.value))} />
+                  <WhenItIs iso={form.opens_at} />
                 </div>
                 <div>
                   <label className={labelClass} htmlFor="cbt-closes">Closes</label>
                   <input id="cbt-closes" type="datetime-local" className={inputClass} disabled={busy}
                     value={toLocalInput(form.closes_at ?? null)}
                     onChange={(e) => setWindow('closes_at', fromLocalInput(e.target.value))} />
+                  <WhenItIs iso={form.closes_at} />
                 </div>
                 <div>
                   <label className={labelClass} htmlFor="cbt-duration">Minutes per student</label>

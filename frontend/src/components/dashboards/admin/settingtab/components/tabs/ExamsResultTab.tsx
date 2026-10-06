@@ -17,6 +17,7 @@ import resultSettingsService, {
 import {TraitRatingMode} from '@/services/ResultService'
 import tenantService, { NurseryReportStyle, TenantSettings } from '@/services/TenantService';
 import { AcademicSession } from '@/types/types';
+import { ExamService } from '@/services/ExamService';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -420,9 +421,13 @@ const [traitFieldForm, setTraitFieldForm] = useState(blankTraitField('AFFECTIVE'
   const blankComponent = (): AssessmentComponentCreateUpdate & { id?: number } => ({
     education_level: 0 as any, name: '', code: '', component_type: 'CA',
     max_score: '10', contributes_to_ca: true, show_in_printed_report: true,
-    display_order: 0, is_active: true,
+    display_order: 0, is_active: true, exam_types: [],
   });
   const [componentForm, setComponentForm] = useState(blankComponent());
+  // The kinds an exam can be set as (Final Examination, Class Test...), which
+  // say which score column a CBT paper's scores go in. Not the exam session
+  // types above: those label results sessions.
+  const [examKinds, setExamKinds] = useState<{ id: number; name: string; code: string }[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [saving,  setSaving]  = useState(false);
@@ -456,6 +461,13 @@ const [traitFieldForm, setTraitFieldForm] = useState(blankTraitField('AFFECTIVE'
       setAcademicSessions(as_);
       setExamTypes(et);
       setAssessmentComponents(ac);
+
+      // Non-fatal: without them the column form just can't link exam types.
+      try {
+        setExamKinds(await ExamService.fetchExamTypes());
+      } catch {
+        setExamKinds([]);
+      }
 
       // Nursery report style — non-fatal if it fails
       try {
@@ -1555,7 +1567,14 @@ const [traitFieldForm, setTraitFieldForm] = useState(blankTraitField('AFFECTIVE'
                       })
                       .map((comp) => (
                         <tr key={comp.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 font-medium text-gray-900">{comp.name}</td>
+                          <td className="px-4 py-3 font-medium text-gray-900">
+                            {comp.name}
+                            {!!comp.exam_types?.length && (
+                              <div className="text-[11px] font-normal text-gray-500">
+                                Scores of: {examKinds.filter((k) => comp.exam_types!.includes(k.id)).map((k) => k.name).join(', ')}
+                              </div>
+                            )}
+                          </td>
                           <td className="px-4 py-3 text-gray-500 font-mono text-xs">{comp.code}</td>
                           <td className="px-4 py-3">
                             <span className="text-xs bg-gray-100 px-2 py-0.5 rounded-full">
@@ -1598,6 +1617,7 @@ const [traitFieldForm, setTraitFieldForm] = useState(blankTraitField('AFFECTIVE'
                                     show_in_printed_report: comp.show_in_printed_report ?? true,
                                     display_order: comp.display_order,
                                     is_active: comp.is_active,
+                                    exam_types: comp.exam_types ?? [],
                                   });
                                   setShowComponentForm(true);
                                 }}
@@ -2079,6 +2099,30 @@ const [traitFieldForm, setTraitFieldForm] = useState(blankTraitField('AFFECTIVE'
               <span>Active</span>
             </label>
           </div>
+          {examKinds.length > 0 && (
+            <div>
+              <p className="text-sm font-medium text-gray-700">Exams recorded in this column</p>
+              <p className="text-xs text-gray-500 mb-2">
+                A CBT exam of a ticked type sends its scores here by itself. Tick each type for one column only.
+              </p>
+              <div className="flex flex-wrap gap-x-4 gap-y-2">
+                {examKinds.map((kind) => (
+                  <label key={kind.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={(componentForm.exam_types ?? []).includes(kind.id)}
+                      onChange={(e) => setComponentForm((f) => {
+                        const current = f.exam_types ?? [];
+                        return { ...f, exam_types: e.target.checked ? [...current, kind.id] : current.filter((id) => id !== kind.id) };
+                      })}
+                      className="w-4 h-4"
+                    />
+                    <span>{kind.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
           {!componentForm.show_in_printed_report && (
             <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
               This component will be entered by teachers and included in the CA/Exam total, but will <strong>not</strong> appear as its own column on the printed result sheet.

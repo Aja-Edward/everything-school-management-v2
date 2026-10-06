@@ -169,6 +169,28 @@ class AssessmentComponentLevelTest(APITestCase):
         self.assertIn("another school", str(response.data))
         self.assertFalse(self.mine().exists())
 
+    def test_a_column_records_the_exam_types_that_fill_it_but_only_our_own(self):
+        """A CBT paper's scores go to the column its exam's type is set to fill."""
+        from exam.models import ExamType as ExamKind
+
+        ours = ExamKind.objects.get(tenant=self.tenant, code="final_exam")
+        theirs = ExamKind.objects.get(tenant=self.other, code="final_exam")
+
+        def post(exam_types):
+            return self.client.post(
+                self.URL,
+                {"education_level": self.my_level.id, "name": "CBT Exam", "code": self.CODE,
+                 "component_type": "EXAM", "max_score": 60, "exam_types": exam_types},
+                format="json", HTTP_X_TENANT_SLUG=self.tenant.slug)
+
+        refused = post([theirs.id])
+        self.assertEqual(refused.status_code, status.HTTP_400_BAD_REQUEST, refused.data)
+        self.assertFalse(self.mine().exists())
+
+        response = post([ours.id])
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(list(self.mine().get().exam_types.all()), [ours])
+
     def existing(self, name, code):
         return AssessmentComponent.objects.create(
             tenant=self.tenant, education_level=self.my_level, name=name, code=code,

@@ -503,6 +503,20 @@ class ExamCreateUpdateSerializer(SchoolScopedRelationsMixin, serializers.ModelSe
         validated_data.pop("created_by", None)
         return super().create(validated_data)
 
+    def update(self, instance, validated_data):
+        # An exam moved to another day or time takes its CBT paper with it.
+        # The paper keeps its own window, copied when it was made, and
+        # students are listed by that: an exam moved to today still showed as
+        # missed because its paper said yesterday.
+        from cbt.models import CBTPaper
+
+        before = CBTPaper.for_exam(instance)
+        exam = super().update(instance, validated_data)
+        paper = CBTPaper.objects.filter(exam=exam).first()
+        if paper is not None:
+            paper.follow_exam_times(before)
+        return exam
+
     class Meta:
         model = Exam
         fields = [

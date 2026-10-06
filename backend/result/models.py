@@ -293,6 +293,14 @@ class AssessmentComponent(TenantMixin, models.Model):
     )
     display_order = models.PositiveSmallIntegerField(default=0)
     is_active = models.BooleanField(default=True)
+    # The kinds of exam whose scores belong in this column, so a CBT paper's
+    # score lands in the right one: a Final Examination in the exam column, a
+    # Class Test in Test 1. These are the exam app's types, the ones an exam
+    # is set as, not the result app's exam session types.
+    exam_types = models.ManyToManyField(
+        "exam.ExamType", blank=True, related_name="result_components",
+        help_text="Exam types whose scores are recorded in this column",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

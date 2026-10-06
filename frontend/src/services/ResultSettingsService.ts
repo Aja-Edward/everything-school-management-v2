@@ -77,6 +77,8 @@ export interface AssessmentComponent {
   show_in_printed_report: boolean;
   display_order: number;
   is_active: boolean;
+  /** The exam types (as set on an exam) whose scores belong in this column. */
+  exam_types?: number[];
   created_at: string;
   updated_at: string;
 }
@@ -91,6 +93,8 @@ export interface AssessmentComponentCreateUpdate {
   show_in_printed_report: boolean;
   display_order: number;
   is_active: boolean;
+  /** The exam types (as set on an exam) whose scores belong in this column. */
+  exam_types?: number[];
 }
 
 // ── ExamType ──────────────────────────────────────────────────────────────────

@@ -84,6 +84,9 @@ class CBTPaper(TenantMixin, models.Model):
     results_pushed_at = models.DateTimeField(null=True, blank=True)
     results_pushed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    auto_push_results = models.BooleanField(
+        default=True,
+        help_text="Write each student's score to their draft result as soon as their paper is fully marked")
 
     # Copied from the exam when published.
     instructions = models.TextField(blank=True)
@@ -156,6 +159,45 @@ class CBTPaper(TenantMixin, models.Model):
                 f"but the exam only has {objective_count}.")
         return sections, questions, problems
 
+    def follow_exam_times(self, before):
+        """
+        Move the paper's window to match its exam's date and times, when the
+        exam has just been moved. `before` is CBTPaper.for_exam() as the exam
+        stood before the change.
+
+        Left alone once anyone has started, and when the window isn't the
+        exam's old one: then it was set on the CBT screen on purpose. Returns
+        whether it moved.
+        """
+        after = CBTPaper.for_exam(self.exam)
+        if (self.opens_at, self.closes_at) != (before.opens_at, before.closes_at):
+            return False
+        if not (after.opens_at and after.closes_at) or \
+                (after.opens_at, after.closes_at) == (before.opens_at, before.closes_at):
+            return False
+        if self.attempts.exists():
+            return False
+        self.opens_at, self.closes_at = after.opens_at, after.closes_at
+        fields = ["opens_at", "closes_at", "updated_at"]
+        if after.duration_minutes and self.duration_minutes == before.duration_minutes:
+            self.duration_minutes = after.duration_minutes
+            fields.append("duration_minutes")
+        self.save(update_fields=fields)
+        return True
+
+    def _reopen_from_exam(self, now):
+        """
+        On republishing, take the exam's window when the paper's own has
+        already ended and the exam's is still to come: the exam was moved to a
+        new day, and the paper kept the old one, so students saw it as missed.
+        """
+        after = CBTPaper.for_exam(self.exam)
+        if self.closes_at and self.closes_at <= now and after.opens_at and after.closes_at \
+                and after.closes_at > now:
+            self.opens_at, self.closes_at = after.opens_at, after.closes_at
+            if after.duration_minutes:
+                self.duration_minutes = after.duration_minutes
+
     def publish(self, user=None):
         """
         Copy the exam's current questions onto the paper and open it for its window.
@@ -168,6 +210,17 @@ class CBTPaper(TenantMixin, models.Model):
             if paper.attempts.exists():
                 raise ValidationError(
                     "Students have already started this paper, so its questions can't be replaced.")
+            now = timezone.now()
+            self._reopen_from_exam(now)
+            # Published after it has closed, a paper goes straight to students'
+            # missed list. Mostly a time picked as AM that was meant as PM.
+            if self.closes_at and self.closes_at <= now:
+                when = timezone.localtime(self.closes_at)
+                today = timezone.localdate(now)
+                day = "today" if when.date() == today else f"on {when.day} {when:%B %Y}"
+                raise ValidationError(
+                    f"This paper closes at {when:%I:%M %p} {day}, which has already passed, so students "
+                    "would see it as missed. Set the opening and closing times to later - check AM and PM.")
 
             sections, questions, problems = self.prepare()
             if problems:
