@@ -14,7 +14,12 @@ import {
   normalizeExamDataForEdit
 } from '@/utils/examDataNormalizer';
 import { ExamDocumentUploader } from '@/components/shared/ExamDocumentUploader';
-import ExamPlainPage, { plainPageHasContent } from '@/components/shared/ExamPlainPage';
+import ExamPlainPage, { convertPlainPage, countQuestions, plainPageHasContent } from '@/components/shared/ExamPlainPage';
+
+/** The question sections an exam is saved with. */
+type SectionsToSave = {
+  objective_questions: any[]; theory_questions: any[]; practical_questions: any[]; custom_sections: any[];
+};
 
 
 interface ExamCreationFormProps {
@@ -401,7 +406,14 @@ const handleInputChange = (field: keyof ExamCreateData, value: any) => {
     return sectionOrder.filter(s => s.kind === 'custom' && s.id).map(s => idToSection.get(s.id!)).filter(Boolean);
   };
 
-  const calculateTotalMarks = () => {
+  const calculateTotalMarks = () => marksIn({
+    objective_questions: objectiveQuestions, theory_questions: theoryQuestions,
+    practical_questions: practicalQuestions, custom_sections: customSections,
+  });
+
+  /** Total marks of a set of sections, sub-questions included. */
+  const marksIn = ({ objective_questions: objectiveQuestions, theory_questions: theoryQuestions,
+                     practical_questions: practicalQuestions, custom_sections: customSections }: SectionsToSave) => {
     const objectiveMarks = objectiveQuestions.reduce((sum: number, q: any) => sum + (Number(q.marks) || 0), 0);
     const theoryMarks = theoryQuestions.reduce((sum: number, q: any) => {
       const base = sum + (Number(q.marks) || 0);
@@ -712,16 +724,16 @@ const plainPageFields = () => {
   };
 };
 
-// The marks come from the questions. A paper typed only on the Plain Page has
-// none yet, so it keeps the total entered there.
-const totalMarksForSave = () => {
-  const fromQuestions = calculateTotalMarks();
+// The marks come from the questions. A paper left only on the Plain Page has
+// none, so it keeps the total entered there.
+const totalMarksForSave = (sections: SectionsToSave) => {
+  const fromQuestions = marksIn(sections);
   return fromQuestions > 0 || !plainPageHasContent(formData.plain_page)
     ? fromQuestions
     : formData.total_marks;
 };
 
-const handlePlainPageConvert = (examData: any) => {
+const handlePlainPageConvert = (examData: any, announce = true) => {
   setObjectiveQuestions(examData.objective_questions);
   setTheoryQuestions(examData.theory_questions);
   setPracticalQuestions(examData.practical_questions);
@@ -733,8 +745,39 @@ const handlePlainPageConvert = (examData: any) => {
     { kind: 'practical' },
     ...examData.custom_sections.map((section: any) => ({ kind: 'custom' as const, id: section.id })),
   ]);
-  toast.success('Page converted to questions. Check them over before saving.');
-  setActiveTab('questions');
+  if (announce) {
+    toast.success('Page converted to questions. Check them over before saving.');
+    setActiveTab('questions');
+  }
+};
+
+/**
+ * The questions to save. A paper only on the Plain Page is turned into
+ * questions here: viewing, editing and CBT all work from the questions, and a
+ * page nobody converted looked like an exam with none. The page itself is
+ * saved either way.
+ */
+const sectionsForSave = async (): Promise<SectionsToSave> => {
+  const current: SectionsToSave = {
+    objective_questions: objectiveQuestions, theory_questions: theoryQuestions,
+    practical_questions: practicalQuestions, custom_sections: getOrderedCustomSections(),
+  };
+  if (countQuestions(current) > 0 || !plainPageHasContent(formData.plain_page)) return current;
+  try {
+    const converted = await convertPlainPage(formData.plain_page || '');
+    handlePlainPageConvert(converted, false);
+    return {
+      objective_questions: converted.objective_questions, theory_questions: converted.theory_questions,
+      practical_questions: converted.practical_questions, custom_sections: converted.custom_sections,
+    };
+  } catch (err) {
+    toast.warn(
+      "Your Plain Page is saved, but no questions could be read from it, so the exam can't be viewed " +
+      `as questions or used for CBT yet. ${(err as Error).message}`,
+      { autoClose: 12000 },
+    );
+    return current;
+  }
 };
 
 const saveAsDraft = async () => {
@@ -743,7 +786,8 @@ const saveAsDraft = async () => {
   try {
     setSavingDraft(true);
     
-    const computedTotalMarks = totalMarksForSave();
+    const sections = await sectionsForSave();
+    const computedTotalMarks = totalMarksForSave(sections);
     const examData: ExamCreateData = {
       ...formData,
       // Preserve whatever status the exam already has (e.g. don't
@@ -751,10 +795,7 @@ const saveAsDraft = async () => {
       // the teacher fixed a typo) - a brand-new exam starts as a draft.
       status: editingStatusPk ?? statusPk('draft'),
       teacher: currentTeacherId!,
-      objective_questions: objectiveQuestions,
-      theory_questions: theoryQuestions,
-      practical_questions: practicalQuestions,
-      custom_sections: getOrderedCustomSections(),
+      ...sections,
       objective_instructions: objectiveInstructions,
       theory_instructions: theoryInstructions,
       practical_instructions: practicalInstructions,
@@ -792,16 +833,14 @@ const submitForApproval = async () => {
   try {
     setLoading(true);
     
-    const computedTotalMarks = totalMarksForSave();
+    const sections = await sectionsForSave();
+    const computedTotalMarks = totalMarksForSave(sections);
     const examData: ExamCreateData = {
       ...formData,
       // The admin's Approve action only accepts exams awaiting approval.
       status: statusPk('pending_approval'),
       teacher: currentTeacherId!,
-      objective_questions: objectiveQuestions,
-      theory_questions: theoryQuestions,
-      practical_questions: practicalQuestions,
-      custom_sections: getOrderedCustomSections(),
+      ...sections,
       objective_instructions: objectiveInstructions,
       theory_instructions: theoryInstructions,
       practical_instructions: practicalInstructions,

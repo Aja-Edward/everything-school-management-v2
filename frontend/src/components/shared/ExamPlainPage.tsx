@@ -74,6 +74,37 @@ export const plainPageHasContent = (html?: string | null): boolean => {
   return plainPageToText(html).trim().length > 0;
 };
 
+/** Why a conversion failed, in words, from the parser's reply or the error. */
+const conversionFailure = (err: unknown): string => {
+  const data = (err as any)?.response?.data;
+  const parts = data
+    ? [data.detail, data.help, data.example, data.warnings?.length ? 'Issues found:\n' + data.warnings.join('\n') : '']
+    : [err instanceof Error ? err.message : 'Could not convert the page into questions.'];
+  return parts.filter(Boolean).join('\n\n');
+};
+
+/**
+ * The page turned into questions, in the shape the Import tab produces.
+ * Throws an Error whose message says why when no questions can be read.
+ */
+export const convertPlainPage = async (html: string): Promise<any> => {
+  const text = plainPageToText(html);
+  if (!text) throw new Error('Type your exam on the page first.');
+  try {
+    return convertParsedDataToExamFormat(await parseExamPastedText(text));
+  } catch (err) {
+    throw new Error(conversionFailure(err));
+  }
+};
+
+/** Questions in an exam's sections, custom sections counted by their questions. */
+export const countQuestions = (exam: {
+  objective_questions?: any[]; theory_questions?: any[]; practical_questions?: any[]; custom_sections?: any[];
+}): number =>
+  (exam.objective_questions?.length ?? 0) + (exam.theory_questions?.length ?? 0) +
+  (exam.practical_questions?.length ?? 0) +
+  (exam.custom_sections ?? []).reduce((n, s) => n + (s.questions?.length ?? 0), 0);
+
 interface ExamPlainPageProps {
   value: string;
   onChange: (html: string) => void;
@@ -98,8 +129,7 @@ export const ExamPlainPage: React.FC<ExamPlainPageProps> = ({
 
   const convert = async () => {
     setError(null);
-    const text = plainPageToText(value);
-    if (!text) {
+    if (!plainPageToText(value)) {
       setError('Type your exam on the page first.');
       return;
     }
@@ -115,14 +145,9 @@ export const ExamPlainPage: React.FC<ExamPlainPageProps> = ({
 
     setConverting(true);
     try {
-      const parsed = await parseExamPastedText(text);
-      onConvert(convertParsedDataToExamFormat(parsed));
+      onConvert(await convertPlainPage(value));
     } catch (err) {
-      const data = (err as any)?.response?.data;
-      const parts = data
-        ? [data.detail, data.help, data.example, data.warnings?.length ? 'Issues found:\n' + data.warnings.join('\n') : '']
-        : [err instanceof Error ? err.message : 'Could not convert the page into questions.'];
-      setError(parts.filter(Boolean).join('\n\n'));
+      setError((err as Error).message);
     } finally {
       setConverting(false);
     }
@@ -139,9 +164,10 @@ export const ExamPlainPage: React.FC<ExamPlainPageProps> = ({
           empty lines wherever you want space. The page is saved exactly as you type it.
         </p>
         <p>
-          To use the paper for CBT or marking, press <strong>Convert to questions</strong>. Put options on
-          their own lines as A., B., C., D. and number theory questions 1., 2., 3. Pictures, tables and
-          formulas aren't carried over, so add those again in the section tabs.
+          When you save, the page is turned into questions for you if the exam has none yet, so it can be
+          viewed, marked and used for CBT. Press <strong>Convert to questions</strong> to do it now and check
+          them first. Put options on their own lines as A., B., C., D. and number theory questions 1., 2., 3.
+          Pictures, tables and formulas aren't carried over, so add those again in the section tabs.
         </p>
       </div>
 

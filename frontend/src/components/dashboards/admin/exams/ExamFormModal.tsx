@@ -15,7 +15,8 @@ import QuestionSectionTheory from './QuestionSectionTheory';
 import QuestionSectionPractical from './QuestionSectionPractical';
 import QuestionSectionCustom from './QuestionSectionCustom';
 import { SoundClipField } from '@/components/shared/ExamEditor';
-import ExamPlainPage, { plainPageHasContent } from '@/components/shared/ExamPlainPage';
+import ExamPlainPage, { convertPlainPage, countQuestions, plainPageHasContent } from '@/components/shared/ExamPlainPage';
+import { toast } from 'react-toastify';
 import type { SoundClip } from '@/services/SoundClipService';
 import ClassroomService from '@/services/ClassroomService';
 import { loadDefaultPrintSettings, saveDefaultPrintSettings } from '@/utils/printSettingsDefaults';
@@ -453,6 +454,33 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
     }
     setSubmitting(true);
     try {
+      // A paper only on the Plain Page becomes questions as it's saved:
+      // viewing, editing and CBT all work from the questions, and a page
+      // nobody converted looked like an exam with none.
+      let sections = {
+        objective_questions: objectiveQs, theory_questions: theoryQs,
+        practical_questions: practicalQs, custom_sections: customSecs,
+      };
+      if (countQuestions(sections) === 0 && plainPageHasContent(plainPage)) {
+        try {
+          const converted = await convertPlainPage(plainPage);
+          sections = {
+            objective_questions: converted.objective_questions, theory_questions: converted.theory_questions,
+            practical_questions: converted.practical_questions, custom_sections: converted.custom_sections,
+          };
+          setObjectiveQs(sections.objective_questions);
+          setTheoryQs(sections.theory_questions);
+          setPracticalQs(sections.practical_questions);
+          setCustomSecs(sections.custom_sections);
+        } catch (err) {
+          toast.warn(
+            "The Plain Page is saved, but no questions could be read from it, so the exam can't be viewed " +
+            `as questions or used for CBT yet. ${(err as Error).message}`,
+            { autoClose: 12000 },
+          );
+        }
+      }
+
       const data: ExamCreateData = {
         title: title.trim(),
         description: description.trim(),
@@ -474,10 +502,7 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
         is_practical: isPractical,
         requires_computer: requiresComputer,
         is_online: isOnline,
-        objective_questions: objectiveQs,
-        theory_questions: theoryQs,
-        practical_questions: practicalQs,
-        custom_sections: customSecs,
+        ...sections,
         objective_instructions: objInstructions,
         theory_instructions: theoInstructions,
         practical_instructions: practInstructions,
