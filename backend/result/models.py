@@ -740,7 +740,7 @@ class ScoringConfiguration(TenantMixin, models.Model):
     id = models.AutoField(primary_key=True)
     education_level = models.ForeignKey(
         EducationLevel,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="scoring_configurations",
     )
     result_type = models.CharField(max_length=20, choices=RESULT_TYPE_CHOICES)
@@ -806,7 +806,7 @@ class AssessmentType(TenantMixin, models.Model):
     description = models.TextField(blank=True)
     education_level = models.ForeignKey(
         EducationLevel,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="assessment_types",
         null=True,
         blank=True,
@@ -960,7 +960,7 @@ class ExamSession(TenantMixin, models.Model):
     name = models.CharField(max_length=100)
     exam_type = models.ForeignKey(
         ExamType,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="exam_sessions",
         help_text="Configured per school",
     )
@@ -969,7 +969,7 @@ class ExamSession(TenantMixin, models.Model):
     )
     term = models.ForeignKey(
         Term,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="exam_sessions",
         null=True,
         blank=True,
@@ -1051,7 +1051,7 @@ class ComponentScore(TenantMixin, models.Model):
         related_name="component_scores",
     )
     component = models.ForeignKey(
-        AssessmentComponent, on_delete=models.PROTECT, related_name="scores"
+        AssessmentComponent, on_delete=models.RESTRICT, related_name="scores"
     )
     score = models.DecimalField(
         max_digits=6,
@@ -2232,7 +2232,7 @@ class SeniorSecondaryResult(TenantMixin, BaseResult, models.Model):
     )
     grading_system = models.ForeignKey(
         GradingSystem,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="senior_secondary_results",
     )
     stream = models.ForeignKey(
@@ -2445,7 +2445,7 @@ class JuniorSecondaryResult(TenantMixin, BaseResult, models.Model):
     )
     grading_system = models.ForeignKey(
         GradingSystem,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="junior_secondary_results",
     )
     term_report = models.ForeignKey(
@@ -2639,7 +2639,7 @@ class PrimaryResult(TenantMixin, BaseResult, models.Model):
     )
     grading_system = models.ForeignKey(
         GradingSystem,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="primary_results",
     )
     term_report = models.ForeignKey(
@@ -2955,7 +2955,7 @@ class NurseryResult(TenantMixin, BaseResult, models.Model):
     )
     grading_system = models.ForeignKey(
         GradingSystem,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="nursery_results",
     )
     term_report = models.ForeignKey(
@@ -3232,7 +3232,7 @@ class StudentTermResult(TenantMixin, models.Model):
     )
     term = models.ForeignKey(
         Term,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="student_term_results",
         null=True,
         blank=True,
@@ -3317,7 +3317,7 @@ class ResultSheet(TenantMixin, models.Model):
         StudentClass,
         null=True,
         blank=True,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="result_sheets",
     )
     total_students = models.PositiveIntegerField(default=0)
@@ -3373,7 +3373,7 @@ class ResultTemplate(TenantMixin, models.Model):
     template_type = models.CharField(max_length=20, choices=TEMPLATE_TYPES)
     education_level = models.ForeignKey(
         EducationLevel,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="result_templates",
         null=True,
         blank=True,

@@ -133,7 +133,7 @@ class StaffActivityLog(TenantMixin, models.Model):
     )
     category = models.ForeignKey(
         StaffActivityCategory,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="logs",
     )
     activity_date = models.DateField()
@@ -616,7 +616,7 @@ class AppraisalScore(models.Model):
         PerformanceAppraisal, on_delete=models.CASCADE, related_name="scores"
     )
     criteria = models.ForeignKey(
-        AppraisalCriteria, on_delete=models.PROTECT, related_name="scores"
+        AppraisalCriteria, on_delete=models.RESTRICT, related_name="scores"
     )
     score = models.PositiveSmallIntegerField(
         help_text="Score given (1 to criteria.max_score)."

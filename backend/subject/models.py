@@ -226,7 +226,7 @@ class Subject(TenantMixin, models.Model):
     # ========================================
     category_new = models.ForeignKey(
         SubjectCategory,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="subjects_new",
         null=True,
         blank=True,

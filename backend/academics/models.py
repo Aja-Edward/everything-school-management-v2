@@ -325,7 +325,7 @@ class SubjectAllocation(TenantMixin, models.Model):
     # UPDATED: FK replaces education_level CharField
     education_level = models.ForeignKey(
         EducationLevel,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="subject_allocations",
         help_text="Education level this allocation belongs to",
     )
@@ -371,7 +371,7 @@ class Curriculum(TenantMixin, models.Model):
     # UPDATED: FK replaces education_level CharField
     education_level = models.ForeignKey(
         EducationLevel,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="curricula",
         help_text="Education level this curriculum is designed for",
     )
@@ -450,7 +450,7 @@ class AcademicCalendar(TenantMixin, models.Model):
     # UPDATED: FK replaces EVENT_TYPES CharField
     event_type = models.ForeignKey(
         CalendarEventType,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="calendar_events",
         help_text="Type of calendar event",
     )

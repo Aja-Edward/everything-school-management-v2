@@ -10,7 +10,7 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import ProtectedError
+from django.db.models import RestrictedError
 from django.test import TestCase
 from django.utils import timezone
 
@@ -427,9 +427,45 @@ class AnswerTest(CBTTestCase):
     def test_a_question_with_answers_cannot_be_deleted(self):
         self.answer(self.objective, selected_option="A").save()
 
-        with self.assertRaises(ProtectedError):
+        with self.assertRaises(RestrictedError):
             self.objective.delete()
 
     def test_an_exam_with_sittings_cannot_be_deleted(self):
-        with self.assertRaises(ProtectedError):
+        with self.assertRaises(RestrictedError):
             self.paper.exam.delete()
+
+
+class SchoolDeletionTest(CBTTestCase):
+    """
+    Deleting a school takes everything in it. With PROTECT on the links
+    between a school's own records (a class to its education level, a
+    sitting to its paper) the platform admin couldn't delete any school that
+    had classes: Django refused PROTECT even when both ends were going.
+    """
+
+    def setUp(self):
+        super().setUp()
+        paper = self.make_paper()
+        self.attempt = CBTAttempt.start(paper, self.make_student(), now=OPENS)
+        CBTAnswer.objects.create(
+            tenant=self.school, attempt=self.attempt, question=paper.questions.get(order=1), selected_option="A")
+
+    def test_a_school_with_classes_students_and_cbt_sittings_can_be_deleted(self):
+        other = self.make_school("Other School", "other-school")
+        other_student = self.make_student(other)
+        school_id = self.school.id  # delete() clears it
+
+        self.school.delete()
+
+        for model in (EducationLevel, Class, Student, Exam, CBTPaper, CBTAttempt, CBTAnswer, User):
+            with self.subTest(model=model.__name__):
+                self.assertFalse(model.objects.filter(tenant_id=school_id).exists())
+        # Another school is untouched.
+        self.assertTrue(Student.objects.filter(pk=other_student.pk).exists())
+        self.assertTrue(EducationLevel.objects.filter(tenant=other).exists())
+
+    def test_an_education_level_with_classes_still_cannot_be_deleted_on_its_own(self):
+        level = self.attempt.student.student_class.education_level
+
+        with self.assertRaises(RestrictedError):
+            level.delete()

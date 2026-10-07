@@ -356,7 +356,7 @@ class Exam(TenantMixin, models.Model):
     # exam_type: FK to ExamType (replaces old CharField)
     exam_type = models.ForeignKey(
         ExamType,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="exams",
         help_text="Type of exam (Quiz, Test, Mid-Term, Final, etc.)",
     )
@@ -368,7 +368,7 @@ class Exam(TenantMixin, models.Model):
     # difficulty_level: FK to DifficultyLevel (replaces old CharField)
     difficulty_level = models.ForeignKey(
         DifficultyLevel,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="exams",
         null=True,
         blank=True,
@@ -378,7 +378,7 @@ class Exam(TenantMixin, models.Model):
     # status: FK to ExamStatus (replaces old CharField)
     status = models.ForeignKey(
         ExamStatus,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="exams",
         help_text="Current status of the exam",
     )
@@ -801,7 +801,7 @@ class QuestionBank(TenantMixin, models.Model):
     # UPDATED: FK to DifficultyLevel (replaces old CharField)
     difficulty = models.ForeignKey(
         DifficultyLevel,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="questions",
         help_text="Difficulty level of this question",
     )
@@ -976,7 +976,7 @@ class ExamReview(TenantMixin, models.Model):
     # UPDATED: FK to ReviewStatus (replaces old CharField)
     status = models.ForeignKey(
         ReviewStatus,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="reviews",
         help_text="Current review status",
     )

@@ -103,7 +103,7 @@ class Class(TenantMixin, models.Model):
 
     education_level = models.ForeignKey(
         EducationLevel,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="classes",
         help_text="Education level this class belongs to",
     )
@@ -348,7 +348,7 @@ class Stream(TenantMixin, models.Model):
     # ========================================
     stream_type_new = models.ForeignKey(
         StreamType,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="streams_new",
         null=True,
         blank=True,
@@ -358,7 +358,7 @@ class Stream(TenantMixin, models.Model):
     # New fields
     grade_level = models.ForeignKey(
         GradeLevel,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="streams",
         null=True,
         blank=True,

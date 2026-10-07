@@ -28,7 +28,7 @@ class Student(TenantMixin, models.Model):
 
     student_class = models.ForeignKey(
         "classroom.Class",
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="students",
         help_text="Student's current class/grade",
         null=True,

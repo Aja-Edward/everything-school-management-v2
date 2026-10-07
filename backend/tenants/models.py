@@ -497,12 +497,12 @@ class TenantInvoice(models.Model):
         max_length=20, choices=BILLING_PERIOD_CHOICES, default='term')
     academic_session = models.ForeignKey(
         'academics.AcademicSession',
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name='tenant_invoices'
     )
     term = models.ForeignKey(
         'academics.Term',
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         null=True,
         blank=True,
         related_name='tenant_invoices'

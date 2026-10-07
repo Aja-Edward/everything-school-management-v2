@@ -115,13 +115,13 @@ class FeeStructure(TenantMixin, models.Model):
 
     education_level = models.ForeignKey(
         EducationLevel,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="fee_structures",
         help_text="Education level this fee applies to",
     )
     student_class = models.ForeignKey(
         StudentClass,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="fee_structures",
         help_text="Specific class this fee applies to",
     )

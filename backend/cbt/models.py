@@ -359,7 +359,7 @@ class CBTAttempt(TenantMixin, models.Model):
         VOIDED = "voided", "Voided"
 
     # PROTECT: deleting an exam must not silently delete the scripts of students who sat it.
-    paper = models.ForeignKey(CBTPaper, on_delete=models.PROTECT, related_name="attempts")
+    paper = models.ForeignKey(CBTPaper, on_delete=models.RESTRICT, related_name="attempts")
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="cbt_attempts")
     registration = models.ForeignKey(
         ExamRegistration, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
@@ -395,7 +395,7 @@ class CBTAttempt(TenantMixin, models.Model):
         default=dict, blank=True,
         help_text='Seconds the student\'s screen showed each question, as the exam page reports it: {"<question id>": seconds}')
     offline_package = models.ForeignKey(
-        "CBTOfflinePackage", on_delete=models.PROTECT, null=True, blank=True, related_name="attempts",
+        "CBTOfflinePackage", on_delete=models.RESTRICT, null=True, blank=True, related_name="attempts",
         help_text="The package this attempt was sat from, on the school's exam station")
     offline_id = models.UUIDField(
         null=True, blank=True, unique=True, help_text="The station's id for the attempt, so an upload can be repeated")
@@ -476,7 +476,7 @@ class CBTAttempt(TenantMixin, models.Model):
 class CBTAnswer(TenantMixin, models.Model):
     attempt = models.ForeignKey(CBTAttempt, on_delete=models.CASCADE, related_name="answers")
     # PROTECT: a paper's questions are only replaced before anyone has answered them.
-    question = models.ForeignKey(CBTQuestion, on_delete=models.PROTECT, related_name="answers")
+    question = models.ForeignKey(CBTQuestion, on_delete=models.RESTRICT, related_name="answers")
     selected_option = models.CharField(
         max_length=10, blank=True, help_text='The key chosen, or every key chosen in order for "choose all that apply": "AC"')
     text_answer = models.TextField(blank=True, help_text="A typed answer, or a number as the student wrote it")
