@@ -9,7 +9,7 @@
  * Features:
  *  • 40 shape types across 5 categories, every basic geometric shape among them
  *  • Fill colour, stroke colour, background colour
- *  • Size (24 – 300 px), stroke width (0 – 12 px)
+ *  • Size (8 – 300 px), stroke width (0 – 12 px)
  *  • Live preview
  */
 import React, { useState, useCallback } from 'react';
@@ -105,14 +105,48 @@ interface ShapeConfig {
   strokeWidth: number;
 }
 
+const tightBoxes = new Map<string, { x: number; y: number; w: number; h: number }>();
+
+/**
+ * The part of the 100×100 square a shape actually covers, line included.
+ * Every shape used to keep the whole square, so a rectangle or an oval came
+ * with empty bands above and below it that took up room in the question.
+ */
+function tightBox(inner: string, strokeWidth: number) {
+  const known = tightBoxes.get(inner);
+  if (known) return known;
+  let box = { x: 0, y: 0, w: 100, h: 100 };
+  try {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('style', 'position:absolute;left:-9999px;top:-9999px;width:100px;height:100px');
+    svg.innerHTML = inner;
+    document.body.appendChild(svg);
+    const b = svg.getBBox();
+    document.body.removeChild(svg);
+    // getBBox leaves out the line drawn round the edge, and pointed corners
+    // poke a little past it, so give a line's width to spare.
+    const pad = Math.max(1, strokeWidth);
+    if (b.width > 0 && b.height > 0) {
+      box = { x: b.x - pad, y: b.y - pad, w: b.width + pad * 2, h: b.height + pad * 2 };
+    }
+  } catch {
+    // No layout to measure with: keep the whole square.
+  }
+  tightBoxes.set(inner, box);
+  return box;
+}
+
 function buildSvgDataUrl(config: ShapeConfig): string {
   const { categoryIdx, shapeIdx, fillColor, strokeColor, bgColor, size, strokeWidth } = config;
   const shape = SHAPE_CATEGORIES[categoryIdx]?.shapes[shapeIdx];
   if (!shape) return '';
 
   const inner = shape.path(fillColor, strokeColor, strokeWidth);
-  const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 100 100">
-    ${bgColor !== 'transparent' ? `<rect x="0" y="0" width="100" height="100" fill="${bgColor}" rx="6"/>` : ''}
+  const { x, y, w, h } = tightBox(inner, strokeWidth);
+  // `size` is the longer side; the shorter one follows the shape.
+  const scale = size / Math.max(w, h);
+  const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.max(1, Math.round(w * scale))}" height="${Math.max(1, Math.round(h * scale))}" viewBox="${x} ${y} ${w} ${h}">
+    ${bgColor !== 'transparent' ? `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${bgColor}" rx="6"/>` : ''}
     ${inner}
   </svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgStr)}`;
@@ -121,11 +155,16 @@ function buildSvgDataUrl(config: ShapeConfig): string {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface ShapePanelProps {
-  onInsert: (dataUrl: string, altText: string, size: number) => void;
+  /** `width` is the picture's width in pixels. */
+  onInsert: (dataUrl: string, altText: string, width: number) => void;
   onClose: () => void;
   /** Opens the drawing board, where shapes can be labelled. */
   onDraw?: () => void;
 }
+
+/** Any size from a dot to most of a line; it can be changed again in the question. */
+const MIN_SIZE = 8;
+const MAX_SIZE = 300;
 
 const DEFAULT: ShapeConfig = {
   categoryIdx: 0,
@@ -148,7 +187,11 @@ const ShapePanel: React.FC<ShapePanelProps> = ({ onInsert, onClose, onDraw }) =>
 
   const handleInsert = useCallback(() => {
     const url = buildSvgDataUrl(cfg);
-    if (url) onInsert(url, selectedShape?.label ?? 'Shape', cfg.size);
+    if (!url || !selectedShape) return;
+    // Inserted at the width the picture really has: for a tall shape that's
+    // less than `size`, which is its height.
+    const { w, h } = tightBox(selectedShape.path(cfg.fillColor, cfg.strokeColor, cfg.strokeWidth), cfg.strokeWidth);
+    onInsert(url, selectedShape.label, Math.max(1, Math.round((w * cfg.size) / Math.max(w, h))));
   }, [cfg, onInsert, selectedShape]);
 
   const swatch = (color: string) => (
@@ -225,12 +268,17 @@ const ShapePanel: React.FC<ShapePanelProps> = ({ onInsert, onClose, onDraw }) =>
           <div>
             <label className="flex items-center justify-between text-xs font-medium text-gray-600 mb-1">
               <span>Size</span>
-              <span className="font-mono text-gray-400">{cfg.size}px</span>
+              <span className="flex items-center gap-1">
+                <input type="number" min={MIN_SIZE} max={MAX_SIZE} value={cfg.size} aria-label="Size in pixels"
+                  onChange={e => set('size', Math.max(MIN_SIZE, Math.min(MAX_SIZE, Number(e.target.value) || MIN_SIZE)))}
+                  className="w-16 text-xs border border-gray-200 rounded px-1.5 py-0.5 font-mono text-right" />
+                <span className="font-mono text-gray-400">px</span>
+              </span>
             </label>
-            <input type="range" min={24} max={300} step={4} value={cfg.size}
+            <input type="range" min={MIN_SIZE} max={MAX_SIZE} step={1} value={cfg.size}
               onChange={e => set('size', Number(e.target.value))} className="w-full" />
             <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
-              <span>24</span><span>150</span><span>300</span>
+              <span>{MIN_SIZE}</span><span>150</span><span>{MAX_SIZE}</span>
             </div>
           </div>
 

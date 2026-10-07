@@ -23,6 +23,8 @@ const MIN_SIZE = 8;
 
 /** Marks an SVG as one of our drawings, and carries the items to edit again. */
 const DRAWING_ATTR = 'data-drawing';
+/** The space kept around the drawing, so it opens again with the same choice. */
+const MARGIN_ATTR = 'data-margin';
 
 /** Every shape the board draws, each filling the box it is dragged out to. */
 const SHAPES = [
@@ -162,32 +164,84 @@ const itemToSvg = (item: DrawingItem): string => {
   return `<text x="${item.x}" y="${item.y}"${anchor} fill="${item.fill}" font-size="${item.fontSize}" font-family="system-ui, -apple-system, Segoe UI, sans-serif">${escapeXml(item.text)}</text>`;
 };
 
-/** The finished drawing: an SVG carrying its own items, so it can be edited again. */
-export const drawingToSvg = (items: DrawingItem[], background: string): string => {
+/** How far an item reaches on the sheet: [left, top, right, bottom]. */
+const itemBounds = (item: DrawingItem): [number, number, number, number] => {
+  if (isBox(item)) {
+    const pad = item.strokeWidth / 2;
+    return [item.x - pad, item.y - pad, item.x + item.w + pad, item.y + item.h + pad];
+  }
+  if (isLine(item)) {
+    // An arrow head is five line-widths long and as wide, so it pokes out further.
+    const pad = item.kind === 'arrow' ? item.strokeWidth * 2.5 : item.strokeWidth / 2;
+    return [
+      Math.min(item.x1, item.x2) - pad, Math.min(item.y1, item.y2) - pad,
+      Math.max(item.x1, item.x2) + pad, Math.max(item.y1, item.y2) + pad,
+    ];
+  }
+  const width = item.text.length * item.fontSize * 0.6;
+  const left = item.anchor === 'middle' ? item.x - width / 2 : item.anchor === 'end' ? item.x - width : item.x;
+  return [left, item.y - item.fontSize * 0.85, left + width, item.y + item.fontSize * 0.3];
+};
+
+/** Space left around the drawing unless the teacher picks otherwise. */
+export const DEFAULT_MARGIN = 4;
+
+/**
+ * The part of the sheet the picture keeps: just what is drawn, plus `margin`
+ * on every side. The whole sheet went into the question before, so a small
+ * triangle came with a page of empty space around it.
+ */
+export const drawingBounds = (items: DrawingItem[], margin: number) => {
+  if (!items.length) return { x: 0, y: 0, w: CANVAS_WIDTH, h: CANVAS_HEIGHT };
+  const edges = items.map(itemBounds);
+  const left = Math.floor(Math.min(...edges.map((e) => e[0])) - margin);
+  const top = Math.floor(Math.min(...edges.map((e) => e[1])) - margin);
+  const right = Math.ceil(Math.max(...edges.map((e) => e[2])) + margin);
+  const bottom = Math.ceil(Math.max(...edges.map((e) => e[3])) + margin);
+  return { x: left, y: top, w: Math.max(1, right - left), h: Math.max(1, bottom - top) };
+};
+
+/**
+ * The finished drawing: an SVG carrying its own items, so it can be edited
+ * again. The items keep their places on the sheet and the viewBox picks out
+ * the part that is drawn on, so reopening it puts everything back where it was.
+ */
+export const drawingToSvg = (items: DrawingItem[], background: string, margin = DEFAULT_MARGIN): string => {
   const model = btoa(unescape(encodeURIComponent(JSON.stringify(items))));
+  const { x, y, w, h } = drawingBounds(items, margin);
   const needsArrow = items.some((item) => item.kind === 'arrow');
   const marker = needsArrow
     ? `<defs><marker id="${ARROW_HEAD}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>`
     : '';
   const sheet = background === 'transparent'
     ? ''
-    : `<rect x="0" y="0" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="${background}"/>`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" viewBox="0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}">`
-    + `<desc ${DRAWING_ATTR}="${model}">Drawing</desc>${marker}${sheet}`
+    : `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${background}"/>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="${x} ${y} ${w} ${h}">`
+    + `<desc ${DRAWING_ATTR}="${model}" ${MARGIN_ATTR}="${margin}">Drawing</desc>${marker}${sheet}`
     + items.map(itemToSvg).join('')
     + '</svg>';
 };
 
-export const drawingToDataUrl = (items: DrawingItem[], background: string): string =>
-  `data:image/svg+xml;charset=utf-8,${encodeURIComponent(drawingToSvg(items, background))}`;
+export const drawingToDataUrl = (items: DrawingItem[], background: string, margin = DEFAULT_MARGIN): string =>
+  `data:image/svg+xml;charset=utf-8,${encodeURIComponent(drawingToSvg(items, background, margin))}`;
 
-/** The items inside one of our drawings, or null for any other picture. */
-export const readDrawing = (src: string | null | undefined): DrawingItem[] | null => {
+/** The SVG markup inside an SVG data URL, or null for any other picture. */
+const svgOf = (src: string | null | undefined): string | null => {
   if (!src || !src.startsWith('data:image/svg+xml')) return null;
   try {
     const comma = src.indexOf(',');
     const body = src.slice(comma + 1);
-    const svg = src.slice(0, comma).includes(';base64') ? atob(body) : decodeURIComponent(body);
+    return src.slice(0, comma).includes(';base64') ? atob(body) : decodeURIComponent(body);
+  } catch {
+    return null;
+  }
+};
+
+/** The items inside one of our drawings, or null for any other picture. */
+export const readDrawing = (src: string | null | undefined): DrawingItem[] | null => {
+  const svg = svgOf(src);
+  if (!svg) return null;
+  try {
     const match = svg.match(new RegExp(`${DRAWING_ATTR}="([^"]+)"`));
     if (!match) return null;
     const items = JSON.parse(decodeURIComponent(escape(atob(match[1]))));
@@ -197,12 +251,27 @@ export const readDrawing = (src: string | null | undefined): DrawingItem[] | nul
   }
 };
 
+/** The space a drawing was saved with; older drawings, saved as the whole sheet, get the usual margin. */
+export const readDrawingMargin = (src: string | null | undefined): number => {
+  const match = svgOf(src)?.match(new RegExp(`${MARGIN_ATTR}="(\\d+)"`));
+  return match ? Number(match[1]) : DEFAULT_MARGIN;
+};
+
+/** How wide an SVG says it is, in its own pixels. */
+export const svgWidth = (src: string | null | undefined): number | null => {
+  const match = svgOf(src)?.match(/<svg[^>]*\swidth="([\d.]+)"/);
+  return match ? Number(match[1]) : null;
+};
+
 // ─── Board ────────────────────────────────────────────────────────────────────
 
 interface Props {
   /** Items to open with, for changing a drawing already in the question. */
   initialItems?: DrawingItem[] | null;
-  onInsert: (dataUrl: string) => void;
+  /** The space around the drawing it was saved with. */
+  initialMargin?: number;
+  /** The picture, and how wide it is in its own pixels. */
+  onInsert: (dataUrl: string, width: number) => void;
   onClose: () => void;
 }
 
@@ -222,7 +291,7 @@ const shapeIcon = (kind: ShapeKind) => {
 
 const SWATCHES = ['#1d4ed8', '#dc2626', '#16a34a', '#ca8a04', '#7c3aed', '#0f172a', '#ffffff', 'none'];
 
-const ShapeCanvas: React.FC<Props> = ({ initialItems, onInsert, onClose }) => {
+const ShapeCanvas: React.FC<Props> = ({ initialItems, initialMargin, onInsert, onClose }) => {
   const [items, setItems] = useState<DrawingItem[]>(initialItems ?? []);
   const [past, setPast] = useState<DrawingItem[][]>([]);
   const [future, setFuture] = useState<DrawingItem[][]>([]);
@@ -233,6 +302,7 @@ const ShapeCanvas: React.FC<Props> = ({ initialItems, onInsert, onClose }) => {
   const [strokeWidth, setStrokeWidth] = useState(2);
   const [background, setBackground] = useState<'transparent' | '#ffffff'>('transparent');
   const [showShapes, setShowShapes] = useState(false);
+  const [margin, setMargin] = useState(initialMargin ?? DEFAULT_MARGIN);
   const svgRef = useRef<SVGSVGElement>(null);
   // What the pointer is doing between mousedown and mouseup.
   const drag = useRef<{ mode: 'draw' | 'move' | 'resize' | 'end1' | 'end2'; id: string; dx: number; dy: number } | null>(null);
@@ -434,7 +504,8 @@ const ShapeCanvas: React.FC<Props> = ({ initialItems, onInsert, onClose }) => {
 
   const currentShape = SHAPES.find((shape) => shape.kind === tool);
 
-  const preview = useMemo(() => drawingToDataUrl(items, background), [items, background]);
+  const preview = useMemo(() => drawingToDataUrl(items, background, margin), [items, background, margin]);
+  const kept = useMemo(() => drawingBounds(items, margin), [items, margin]);
 
   const handle = (x: number, y: number, onGrab: (event: React.MouseEvent) => void, key: string) => (
     <rect key={key} x={x - 5} y={y - 5} width={10} height={10} rx={2}
@@ -452,7 +523,7 @@ const ShapeCanvas: React.FC<Props> = ({ initialItems, onInsert, onClose }) => {
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5">
           <div>
             <h2 className="text-sm font-semibold text-slate-800">Draw a diagram</h2>
-            <p className="text-xs text-slate-500">Pick a shape, drag on the sheet to draw it, then drag it about to arrange.</p>
+            <p className="text-xs text-slate-500">Pick a shape, drag on the sheet to draw it, then drag it about to arrange. Only the part inside the dashed frame goes into the question.</p>
           </div>
           <button type="button" onClick={onClose} className="rounded p-1 text-slate-400 hover:text-slate-700" aria-label="Close">
             <X className="h-5 w-5" />
@@ -580,6 +651,13 @@ const ShapeCanvas: React.FC<Props> = ({ initialItems, onInsert, onClose }) => {
               </g>
             ))}
 
+            {/* The part of the sheet the picture keeps. Only this goes into
+                the question, so the empty sheet around it takes no space. */}
+            {items.length > 0 && (
+              <rect x={kept.x} y={kept.y} width={kept.w} height={kept.h}
+                fill="none" stroke="#94a3b8" strokeDasharray="6 4" strokeWidth={1} pointerEvents="none" />
+            )}
+
             {/* Selection outline and handles */}
             {selected && isBox(selected) && (
               <>
@@ -644,6 +722,13 @@ const ShapeCanvas: React.FC<Props> = ({ initialItems, onInsert, onClose }) => {
               className={`${button(false)} disabled:opacity-40`}><Redo2 className="h-4 w-4" /></button>
             <button type="button" onClick={removeSelected} disabled={!selected} title="Delete the selected shape"
               className={`${button(false)} text-rose-600 disabled:opacity-40`}><Trash2 className="h-4 w-4" /></button>
+            <label className="mr-1 flex items-center gap-1.5 text-xs text-slate-600"
+              title="Empty space kept around the drawing in the question. The dashed frame on the sheet shows it.">
+              Space around
+              <input type="range" min={0} max={60} value={margin} aria-label="Space around the drawing"
+                onChange={(e) => setMargin(Number(e.target.value))} className="w-20" />
+              <span className="w-8 font-mono text-slate-400">{margin}px</span>
+            </label>
             <button type="button" onClick={() => setBackground((b) => (b === 'transparent' ? '#ffffff' : 'transparent'))}
               className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50">
               {background === 'transparent' ? 'No background' : 'White background'}
@@ -655,7 +740,7 @@ const ShapeCanvas: React.FC<Props> = ({ initialItems, onInsert, onClose }) => {
           <button type="button" onClick={onClose} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
             Cancel
           </button>
-          <button type="button" disabled={!items.length} onClick={() => onInsert(preview)}
+          <button type="button" disabled={!items.length} onClick={() => onInsert(preview, kept.w)}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
             {initialItems?.length ? 'Save changes' : 'Insert drawing'}
           </button>

@@ -526,17 +526,25 @@ function generateStudentCopy(
       margin-top: 4px;
     }
 
-    /* Images in questions */
+    /* Images in questions. They sit in the line like the editor shows them,
+       so shapes set side by side stay side by side; one on a line of its
+       own is in a paragraph of its own. Shapes and drawings get no frame:
+       the teacher sized them to the space they should take. */
     .question-content img, img {
       max-width: 100%;
       height: auto;
-      margin: 10px 0;
-      display: block;
+      margin: 2px;
+      display: inline-block;
+      vertical-align: middle;
       border: 1px solid #ddd;
       border-radius: 4px;
       padding: 4px;
       background: #fff;
     }
+    img[src^="data:image/svg"] { border: 0; padding: 0; background: none; border-radius: 0; }
+    /* Questions saved before pictures went in the line have them outside any
+       paragraph, where they always had a line of their own. */
+    .question-content > img { display: block; margin: 4px 0; }
 
     /* Tables in questions */
     .question-content table, table {
@@ -830,7 +838,9 @@ function generateTeacherCopy(
     .question-content > p + p { display: block; margin-top: 4px; }
     .question-content { display: inline; }
 
-    .question-content img, img { max-width: 100%; height: auto; margin: 10px 0; display: block; border: 1px solid #ddd; border-radius: 4px; padding: 4px; background: #fff; }
+    .question-content img, img { max-width: 100%; height: auto; margin: 2px; display: inline-block; vertical-align: middle; border: 1px solid #ddd; border-radius: 4px; padding: 4px; background: #fff; }
+    img[src^="data:image/svg"] { border: 0; padding: 0; background: none; border-radius: 0; }
+    .question-content > img { display: block; margin: 4px 0; }
     .question-content table, table { border-collapse: collapse; width: 100%; margin: 10px 0; border: 1px solid #333; }
     .question-content th, th { border: 1px solid #333; padding: 8px; background-color: #f0f0f0; text-align: left; font-weight: bold; }
     .question-content td, td { border: 1px solid #333; padding: 8px; text-align: left; }

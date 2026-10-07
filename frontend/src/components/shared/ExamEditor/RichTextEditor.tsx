@@ -25,12 +25,24 @@ import { NodeSelection } from '@tiptap/pm/state';
 import { uploadImageToCloudinary } from './ImageUploader';
 import ImageEditModal from './ImageEditModal';
 import ShapePanel from './ShapePanel';
-import ShapeCanvas, { CANVAS_WIDTH, type DrawingItem, readDrawing } from './ShapeCanvas';
+import ShapeCanvas, { type DrawingItem, readDrawing, readDrawingMargin, svgWidth } from './ShapeCanvas';
 import MathDialog from './MathDialog';
 import MathNode, { MATH_NODE, type MathEditRequest } from './MathNode';
 import type { RichTextEditorProps } from './types';
 
 // Shapes are now handled by ShapePanel.tsx (SVG-based, fully configurable)
+
+/**
+ * A chain that puts a picture in at the cursor. With a picture selected it
+ * goes just after that one, instead of replacing it the way typing over a
+ * selection would. Finish it with `.run()`.
+ */
+const insertImage = (editor: any, attrs: Record<string, any>) => {
+  const { selection } = editor.state;
+  const chain = editor.chain().focus();
+  if (selection instanceof NodeSelection) chain.setTextSelection(selection.to);
+  return chain.setImage(attrs);
+};
 
 // ─── Image floating toolbar ────────────────────────────────────────────────────
 
@@ -39,19 +51,54 @@ interface ImageFloatToolbarProps {
   onResize: (pct: number) => void;
   onEdit: () => void;
   onDelete: () => void;
+  /** A copy on the same line as the picture, or on a line of its own below it. */
+  onDuplicate: (where: 'beside' | 'below') => void;
+  /** The picture's width as shown, and a way to set it to any number of pixels. */
+  widthPx: number;
+  onSetWidth: (px: number) => void;
   /** Only for a drawing made on the board, which can be opened and changed again. */
   onEditDrawing?: () => void;
 }
 
+/** The smallest a picture can be made, so it can't vanish altogether. */
+const MIN_IMAGE_PX = 8;
+
 const SIZE_OPTIONS = [
+  { label: 'XS', pct: 10, title: 'Extra small (10%)' },
   { label: 'S', pct: 25, title: 'Small (25%)' },
   { label: 'M', pct: 50, title: 'Medium (50%)' },
   { label: 'L', pct: 75, title: 'Large (75%)' },
   { label: '↔', pct: 100, title: 'Full width' },
 ];
 
+/** Any width at all, typed in pixels: the preset sizes stop at a tenth of the line. */
+const WidthInput: React.FC<{ widthPx: number; onSetWidth: (px: number) => void }> = ({ widthPx, onSetWidth }) => {
+  const [text, setText] = useState(String(widthPx));
+  useEffect(() => setText(String(widthPx)), [widthPx]);
+  const apply = () => {
+    const px = Math.round(Number(text));
+    if (Number.isFinite(px) && px >= MIN_IMAGE_PX && px !== widthPx) onSetWidth(px);
+    else setText(String(widthPx));
+  };
+  return (
+    <label className="flex items-center gap-0.5 ml-1" title="Type a width in pixels and press Enter">
+      <input
+        type="number"
+        min={MIN_IMAGE_PX}
+        value={text}
+        onChange={e => setText(e.target.value)}
+        onBlur={apply}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); apply(); } }}
+        className="w-14 rounded bg-gray-800 border border-gray-600 px-1 py-0.5 text-white text-xs"
+        aria-label="Width in pixels"
+      />
+      <span className="text-gray-400 text-[10px]">px</span>
+    </label>
+  );
+};
+
 const ImageFloatToolbar: React.FC<ImageFloatToolbarProps> = ({
-  position, onResize, onEdit, onDelete, onEditDrawing,
+  position, onResize, onEdit, onDelete, onDuplicate, widthPx, onSetWidth, onEditDrawing,
 }) => (
   <div
     style={{
@@ -62,7 +109,8 @@ const ImageFloatToolbar: React.FC<ImageFloatToolbarProps> = ({
       transform: 'translateY(-110%)',
     }}
     className="flex items-center gap-1 bg-gray-900 text-white text-xs rounded-lg px-2 py-1.5 shadow-xl select-none"
-    onMouseDown={e => e.preventDefault()}  // don't steal focus from editor
+    // Don't steal focus from the editor, except for typing a width.
+    onMouseDown={e => { if ((e.target as HTMLElement).tagName !== 'INPUT') e.preventDefault(); }}
   >
     {/* Resize */}
     <span className="text-gray-400 mr-1 text-[10px]">Size:</span>
@@ -77,6 +125,28 @@ const ImageFloatToolbar: React.FC<ImageFloatToolbarProps> = ({
         {o.label}
       </button>
     ))}
+    <WidthInput widthPx={widthPx} onSetWidth={onSetWidth} />
+
+    <div className="w-px h-4 bg-gray-600 mx-1" />
+
+    {/* Copies: the teacher decides whether a copy shares the line or starts a new one. */}
+    <span className="text-gray-400 mr-0.5 text-[10px]">Copy:</span>
+    <button
+      type="button"
+      onClick={() => onDuplicate('beside')}
+      title="Duplicate on the same line, beside this one"
+      className="px-1.5 py-0.5 rounded hover:bg-gray-700 transition-colors whitespace-nowrap"
+    >
+      ⧉ Beside
+    </button>
+    <button
+      type="button"
+      onClick={() => onDuplicate('below')}
+      title="Duplicate on a new line below"
+      className="px-1.5 py-0.5 rounded hover:bg-gray-700 transition-colors whitespace-nowrap"
+    >
+      ⧉ Below
+    </button>
 
     <div className="w-px h-4 bg-gray-600 mx-1" />
 
@@ -146,7 +216,7 @@ const MenuBar: React.FC<MenuBarProps> = ({
     setUploading(true);
     try {
       const result = await uploadImageToCloudinary(file);
-      editor.chain().focus().setImage({ src: result.url, width: '75%' }).run();
+      insertImage(editor, { src: result.url, width: '75%' }).run();
       onImageUploaded(result.url);
     } catch (err: any) {
       alert(`Image upload failed: ${err?.message || 'Unknown error'}. Please try again.`);
@@ -298,7 +368,7 @@ const MenuBar: React.FC<MenuBarProps> = ({
           <button type="button"
             onClick={() => {
             const url = prompt('Enter image URL:');
-            if (url) editor.chain().focus().setImage({ src: url, width: '75%' }).run();
+            if (url) insertImage(editor, { src: url, width: '75%' }).run();
           }}
             className="px-3 py-1 rounded text-sm font-medium bg-white text-gray-700 hover:bg-gray-200 transition"
             title="Insert Image by URL">🖼️ URL</button>
@@ -307,7 +377,7 @@ const MenuBar: React.FC<MenuBarProps> = ({
         <button type="button"
           onClick={() => {
             const url = prompt('Enter image URL:');
-            if (url) editor.chain().focus().setImage({ src: url, width: '75%' }).run();
+            if (url) insertImage(editor, { src: url, width: '75%' }).run();
           }}
           className="px-3 py-1 rounded text-sm font-medium bg-white text-gray-700 hover:bg-gray-200 transition">🖼️ Image</button>
       )}
@@ -334,7 +404,7 @@ const MenuBar: React.FC<MenuBarProps> = ({
             onClose={() => setShowShapePanel(false)}
             onDraw={() => { setShowShapePanel(false); onDraw(); }}
             onInsert={(dataUrl, label, size) => {
-              editor.chain().focus().setImage({
+              insertImage(editor, {
                 src: dataUrl,
                 alt: label,
                 // Start at the configured size; user can drag-resize via the toolbar
@@ -389,7 +459,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   // ── Drawing board state ─────────────────────────────────────────────────────
   // `editing` is the image being changed, so its drawing replaces it rather
   // than being added a second time.
-  const [drawing, setDrawing] = useState<{ items: DrawingItem[] | null; editing: HTMLImageElement | null } | null>(null);
+  const [drawing, setDrawing] = useState<{ items: DrawingItem[] | null; margin?: number; editing: HTMLImageElement | null } | null>(null);
 
   // ── Formula dialog state ────────────────────────────────────────────────────
   // `pos` is set when changing a formula already in the document.
@@ -409,8 +479,12 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
         openOnClick: false,
         HTMLAttributes: { class: 'text-blue-600 underline hover:text-blue-800' },
       }),
+      // Inline, so pictures sit in a line of text like characters: several
+      // shapes fit side by side, and a picture can be dragged to any spot in
+      // the text. As blocks, each one took a whole line of the paper to itself.
       Image.configure({
-        HTMLAttributes: { class: 'inline-block max-w-full h-auto rounded my-2 cursor-pointer' },
+        inline: true,
+        HTMLAttributes: { class: 'inline-block align-middle max-w-full h-auto mx-0.5 my-0.5 cursor-move' },
         allowBase64: true,
       }),
       Table.configure({ resizable: true, HTMLAttributes: { class: 'border-collapse table-auto w-full my-4' } }),
@@ -489,7 +563,9 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
     if (!editor) return false;
     const pos = findImagePos(img);
     if (pos === null) return false;
-    editor.chain().focus().setNodeSelection(pos).updateAttributes('image', attrs).run();
+    // Changing a picture replaces it, which drops the selection; select it
+    // again so its toolbar stays put for the next change.
+    editor.chain().focus().setNodeSelection(pos).updateAttributes('image', attrs).setNodeSelection(pos).run();
     return true;
   }, [editor, findImagePos]);
 
@@ -523,15 +599,47 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
     [selectedImg],
   );
 
-  const handleDrawingSave = useCallback((dataUrl: string) => {
+  const handleDrawingSave = useCallback((dataUrl: string, width: number) => {
     if (!editor) return;
     const editing = drawing?.editing;
-    if (editing) commitImageAttrs(editing, { src: dataUrl });
-    else {
-      editor.chain().focus().setImage({ src: dataUrl, alt: 'Drawing', width: CANVAS_WIDTH } as any).run();
+    if (editing) {
+      // Keep the drawing at the scale it was shown at: adding to it makes the
+      // picture bigger, trimming it makes it smaller, and nothing jumps in size.
+      const before = svgWidth(editing.getAttribute('src'));
+      const shown = editing.getBoundingClientRect().width;
+      const attrs: Record<string, any> = { src: dataUrl };
+      if (before && shown) attrs.width = Math.max(MIN_IMAGE_PX, Math.round((width * shown) / before));
+      commitImageAttrs(editing, attrs);
+    } else {
+      insertImage(editor, { src: dataUrl, alt: 'Drawing', width } as any).run();
     }
     setDrawing(null);
   }, [editor, drawing, commitImageAttrs]);
+
+  // ── Duplicate selected image ────────────────────────────────────────────────
+  const handleDuplicate = useCallback((where: 'beside' | 'below') => {
+    if (!selectedImg || !editor) return;
+    const pos = findImagePos(selectedImg);
+    if (pos === null) return;
+    const node = editor.state.doc.nodeAt(pos);
+    if (!node) return;
+    editor.chain().focus().command(({ tr, state }) => {
+      const copy = node.type.create(node.attrs);
+      if (where === 'beside') {
+        // A space between them, which the teacher can delete to butt them up.
+        tr.insert(pos + node.nodeSize, [state.schema.text(' '), copy]);
+      } else {
+        // A paragraph of its own straight after the line the picture is on.
+        tr.insert(tr.doc.resolve(pos).after(), state.schema.nodes.paragraph.create(null, copy));
+      }
+      return true;
+    }).run();
+  }, [selectedImg, editor, findImagePos]);
+
+  const handleSetWidth = useCallback((px: number) => {
+    if (!selectedImg) return;
+    commitImageAttrs(selectedImg, { width: px });
+  }, [selectedImg, commitImageAttrs]);
 
   // ── Apply edit result (new src) ─────────────────────────────────────────────
   const handleEditSave = useCallback((newSrc: string) => {
@@ -569,6 +677,32 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
     };
   }, [selectedImg]);
 
+  // Follow the selected picture through every change. Dragging it somewhere
+  // else, or changing its size, makes the editor draw a fresh <img>, which
+  // left the toolbar floating where the old one was. The editor selects the
+  // picture it just dropped or changed, so pick that one up instead.
+  useEffect(() => {
+    if (!editor || !selectedImg) return;
+    const follow = () => {
+      let img: HTMLImageElement | null = selectedImg;
+      if (!img.isConnected) {
+        const { selection } = editor.state;
+        const dom = selection instanceof NodeSelection && selection.node.type.name === 'image'
+          ? editor.view.nodeDOM(selection.from)
+          : null;
+        img = dom instanceof HTMLImageElement ? dom : null;
+        setSelectedImg(img);
+      }
+      const container = containerRef.current;
+      if (!img || !container) { setToolbarPos(null); return; }
+      const containerRect = container.getBoundingClientRect();
+      const imgRect = img.getBoundingClientRect();
+      setToolbarPos({ top: imgRect.top - containerRect.top, left: imgRect.left - containerRect.left });
+    };
+    editor.on('update', follow);
+    return () => { editor.off('update', follow); };
+  }, [editor, selectedImg]);
+
   const handleResizeDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -578,11 +712,10 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
     const startX        = e.clientX;
     const startWidthPx   = img.getBoundingClientRect().width;
     const parentWidth    = img.parentElement?.clientWidth || startWidthPx;
-    const MIN_PX          = 30;
 
     const onMouseMove = (moveEvent: MouseEvent) => {
       const deltaX     = moveEvent.clientX - startX;
-      const newWidthPx = Math.max(MIN_PX, Math.min(parentWidth, startWidthPx + deltaX));
+      const newWidthPx = Math.max(MIN_IMAGE_PX, Math.min(parentWidth, startWidthPx + deltaX));
       // Live feedback only - not persisted until mouseup commits it.
       img.style.width = `${newWidthPx}px`;
       positionResizeHandle(img);
@@ -592,12 +725,13 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
 
-      const finalPct = Math.max(5, Math.min(100, (img.getBoundingClientRect().width / parentWidth) * 100));
+      const finalPct = Math.max(0.5, Math.min(100, (img.getBoundingClientRect().width / parentWidth) * 100));
       // Clear the temporary drag style so the committed `width` attribute -
       // not a leftover inline pixel style - drives the rendered size.
       img.style.width = '';
-      commitImageAttrs(img, { width: `${finalPct.toFixed(1)}%` });
+      commitImageAttrs(img, { width: `${finalPct.toFixed(2)}%` });
 
+      // A redrawn picture is picked up by the effect that follows the selection.
       if (document.body.contains(img)) {
         positionResizeHandle(img);
         const container = containerRef.current;
@@ -606,9 +740,6 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
           const imgRect        = img.getBoundingClientRect();
           setToolbarPos({ top: imgRect.top - containerRect.top, left: imgRect.left - containerRect.left });
         }
-      } else {
-        setSelectedImg(null);
-        setToolbarPos(null);
       }
     };
 
@@ -692,8 +823,15 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
             onResize={handleResize}
             onEdit={handleEditOpen}
             onDelete={handleDeleteImage}
+            onDuplicate={handleDuplicate}
+            widthPx={Math.round(selectedImg.getBoundingClientRect().width)}
+            onSetWidth={handleSetWidth}
             onEditDrawing={selectedDrawing
-              ? () => setDrawing({ items: selectedDrawing, editing: selectedImg })
+              ? () => setDrawing({
+                items: selectedDrawing,
+                margin: readDrawingMargin(selectedImg.getAttribute('src')),
+                editing: selectedImg,
+              })
               : undefined}
           />
         )}
@@ -729,7 +867,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
             <span>{placeholder}</span>
             {!readOnly && (
               <span className="ml-auto text-gray-400">
-                💡 Click any image, then drag its bottom-right handle to resize (or crop / remove background)
+                💡 Click a picture to resize, copy or edit it; drag it to move it anywhere in the text
               </span>
             )}
           </div>
@@ -748,6 +886,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
       {drawing && (
         <ShapeCanvas
           initialItems={drawing.items}
+          initialMargin={drawing.margin}
           onInsert={handleDrawingSave}
           onClose={() => setDrawing(null)}
         />
