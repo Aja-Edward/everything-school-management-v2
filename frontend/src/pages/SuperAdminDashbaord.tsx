@@ -84,6 +84,19 @@ interface ConfirmModalProps {
   onClose: () => void;
 }
 
+/**
+ * Whether the name typed to confirm a delete is the school's name. Spacing,
+ * capitals and the kind of apostrophe don't count: a name saved with a
+ * trailing or double space, or a curly ’, looks the same on screen (the
+ * page collapses spaces) but could never be typed to match exactly, so the
+ * Delete button stayed greyed out for good.
+ */
+const sameName = (typed: string, name: string) => {
+  const plain = (text: string) =>
+    text.normalize('NFKC').replace(/[‘’ʼ`´]/g, "'").replace(/\s+/g, ' ').trim().toLowerCase();
+  return plain(typed) !== '' && plain(typed) === plain(name);
+};
+
 const ConfirmModal = ({ state, processing, onChange, onConfirm, onClose }: ConfirmModalProps) => {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -95,7 +108,7 @@ const ConfirmModal = ({ state, processing, onChange, onConfirm, onClose }: Confi
   const isSuspend  = state.action === 'suspend';
   const isActivate = state.action === 'activate';
 
-  const deleteReady = !isDelete || state.confirmName === state.tenant.name;
+  const deleteReady = !isDelete || sameName(state.confirmName, state.tenant.name);
 
   const title = isDelete
     ? 'Delete school'
