@@ -1,6 +1,7 @@
 from rest_framework import viewsets, filters, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from django.http import HttpResponse
 from django.core.exceptions import ValidationError
@@ -242,6 +243,8 @@ class ExamTypeViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
     queryset = ExamType.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['is_active']
+    # The AllowAny default let signed-out visitors read these.
+    permission_classes = [IsAuthenticated]
     pagination_class = None
 
     def get_serializer_class(self):
@@ -259,6 +262,8 @@ class ExamTypeViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
 class DifficultyLevelViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
     """Returns tenant-specific difficulty levels for form dropdowns."""
     queryset = DifficultyLevel.objects.all()
+    # The AllowAny default let signed-out visitors read these.
+    permission_classes = [IsAuthenticated]
     pagination_class = None
 
     def get_serializer_class(self):
@@ -276,6 +281,8 @@ class DifficultyLevelViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
 class ExamStatusViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
     """Returns tenant-specific exam statuses for form dropdowns."""
     queryset = ExamStatus.objects.all()
+    # The AllowAny default let signed-out visitors read these.
+    permission_classes = [IsAuthenticated]
     pagination_class = None
 
     def get_serializer_class(self):

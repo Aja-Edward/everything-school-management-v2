@@ -8,5 +8,11 @@ router.register(r"timetables", TimetableViewSet, basename="timetable")
 
 urlpatterns = [
     path("", include(router.urls)),
-    path("test-email/", test_email_view, name="test_email"),
 ]
+
+# Sends a real email through Brevo on every visit, to anyone who opens it;
+# a development aid only, as the auth app does with its debug views.
+from django.conf import settings
+
+if settings.DEBUG:
+    urlpatterns.append(path("test-email/", test_email_view, name="test_email"))

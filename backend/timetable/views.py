@@ -11,15 +11,23 @@ from .models import Timetable
 from .serializers import TimetableSerializer
 from utils.email import send_email_via_brevo
 from utils.section_filtering import AutoSectionFilterMixin
+from tenants.mixins import TenantFilterMixin
+from common.admin_access import IsSchoolAdminOrReadOnly
 
 from django.http import JsonResponse
 
 
-class TimetableViewSet(viewsets.ModelViewSet):
+class TimetableViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelViewSet):
+    # No permission_classes and no school filter: the AllowAny default let
+    # anyone, signed in or not, list every school's timetable and create, edit
+    # or delete entries in it. The section filter was imported but unused.
     queryset = Timetable.objects.all()
     serializer_class = TimetableSerializer
+    permission_classes = [IsSchoolAdminOrReadOnly]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["day", "classroom", "teacher", "subject"]
+    # "classroom" is not a field (it is section), and naming it made every list
+    # request raise TypeError.
+    filterset_fields = ["day", "section", "teacher", "subject"]
 
     @action(detail=False, methods=["post"], url_path="bulk-upload")
     def bulk_upload(self, request):
@@ -30,7 +38,7 @@ class TimetableViewSet(viewsets.ModelViewSet):
             )
         serializer = self.get_serializer(data=data, many=True)
         if serializer.is_valid():
-            serializer.save()
+            serializer.save(tenant=request.tenant)
             return Response(
                 {"message": "Bulk upload successful.", "count": len(serializer.data)},
                 status=201,
@@ -81,7 +89,7 @@ class TimetableViewSet(viewsets.ModelViewSet):
 
         # Save all valid entries
         for serializer in entries:
-            serializer.save()
+            serializer.save(tenant=request.tenant)
 
         return Response(
             {"message": f"CSV upload successful. {len(entries)} entries created."},

@@ -1496,6 +1496,9 @@ def delete_admin(request, user_id):
 
 @api_view(["POST"])
 @authentication_classes([SupabaseJWTAuthentication])
+# Without a valid Supabase token the user is anonymous, which has no email or
+# tenant, so this answered with a 500 rather than refusing.
+@permission_classes([IsAuthenticated])
 def supabase_login(request):
     user = request.user
     return Response(
