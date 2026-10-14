@@ -118,3 +118,43 @@ class TimetableStaysInItsSchoolTest(APITestCase):
         for path in ("/api/exams/exam-types/", "/api/exams/difficulty-levels/"):
             response = self.client.get(path, HTTP_X_TENANT_SLUG=self.school.slug)
             self.assertIn(response.status_code, (401, 403), path)
+
+    # ── The form only takes this school's records ──────────────────────────────
+
+    def _other_schools_records(self):
+        from classroom.models import Class
+
+        grade = Class.objects.create(tenant=self.other, name="Other Class", code="OTC",
+                                     education_level=None, grade_number=1, order=1) \
+            if False else None
+        section = Section.objects.create(tenant=self.other, name="Z")
+        subject = Subject.objects.create(tenant=self.other, name="Their Maths", code="TMT")
+        teacher = Teacher.objects.create(
+            tenant=self.other, user=self._user("tt-their-teacher", "teacher", self.other), employee_id="OT1",
+        )
+        return section, subject, teacher
+
+    def test_another_schools_section_subject_or_teacher_is_refused(self):
+        section, subject, teacher = self._other_schools_records()
+        self.client.force_authenticate(self.admin)
+
+        for field, foreign in (("section", section), ("subject", subject), ("teacher", teacher)):
+            payload = dict(self._payload("13:00"), **{field: foreign.pk})
+            response = self.client.post(URL, payload, format="json", HTTP_X_TENANT_SLUG=self.school.slug)
+
+            self.assertEqual(response.status_code, 400, field)
+            # Reads as an id that does not exist, not as another school's.
+            self.assertIn("does not exist", str(response.json()[field]), field)
+        self.assertEqual(Timetable.objects.count(), 1)
+
+    def test_a_bulk_upload_naming_another_schools_teacher_is_refused(self):
+        _, _, teacher = self._other_schools_records()
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.post(
+            f"{URL}bulk-upload/", [dict(self._payload("14:00"), teacher=teacher.pk)],
+            format="json", HTTP_X_TENANT_SLUG=self.school.slug,
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Timetable.objects.count(), 1)
