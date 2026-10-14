@@ -8,7 +8,7 @@ A school's own top admin is registered as role="superadmin" with a tenant
 alongside role="admin". Section admins are narrowed to their levels.
 """
 
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 from common.education_levels import expand_tokens
 from tenants.membership import user_belongs_to_tenant, user_school_id
@@ -96,6 +96,21 @@ def may_see_upload(user, record):
     another section's sheet holds that section's passwords.
     """
     return is_whole_school_staff(user) or record.uploaded_by_id == user.pk
+
+
+class IsSchoolAdminOrReadOnly(BasePermission):
+    """
+    Signed-in users read; only whole-school admins change. For school-wide
+    settings that a section admin should not alter.
+    """
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        if request.method in SAFE_METHODS:
+            return True
+        return is_whole_school_staff(user)
 
 
 class IsSchoolOrSectionAdmin(BasePermission):

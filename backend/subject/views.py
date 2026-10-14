@@ -52,6 +52,7 @@ from .subjectmanagementviewset import SubjectManagementViewSet
 logger = logging.getLogger(__name__)
 from .utils import filter_subjects_by_education_level
 from .cache import invalidate as clear_subject_caches
+from common.admin_access import IsSchoolAdminOrReadOnly
 
 
 logger = logging.getLogger(__name__)
@@ -807,6 +808,12 @@ class SubjectCombinationViewSet(TenantFilterMixin, viewsets.ModelViewSet):
 
     queryset = SubjectCombination.objects.all()
     serializer_class = SubjectCombinationSerializer
+    # No permission_classes meant the AllowAny default: anyone, signed in or
+    # not, could create, edit or delete a school's combinations.
+    permission_classes = [IsSchoolAdminOrReadOnly]
+    # The settings screen asks for one stream's combinations (?stream=<id>);
+    # without this it got every stream's, shown under whichever was picked.
+    filterset_fields = ["stream", "is_active"]
 
     def get_queryset(self):
         """Filter by tenant"""

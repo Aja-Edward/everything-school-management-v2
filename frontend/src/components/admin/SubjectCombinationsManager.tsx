@@ -289,6 +289,7 @@ const SubjectCombinationsManager: React.FC = () => {
                   <div>
                     <Label>Combination Name *</Label>
                     <Input
+                      autoFocus
                       value={editingCombination.name}
                       onChange={(e) => setEditingCombination({
                         ...editingCombination,
@@ -452,7 +453,17 @@ const SubjectCombinationsManager: React.FC = () => {
                 </div>
 
                 {/* Actions */}
-                <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+                <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
+                  {/* Save stays disabled until both are filled; the ticked
+                      subjects alone never enable it, which read as broken. */}
+                  {(!editingCombination.name?.trim() || !editingCombination.code?.trim()) && (
+                    <p className="mr-auto text-sm text-amber-700">
+                      Enter a {[
+                        !editingCombination.name?.trim() && 'combination name',
+                        !editingCombination.code?.trim() && 'code',
+                      ].filter(Boolean).join(' and a ')} to save.
+                    </p>
+                  )}
                   <Button
                     variant="outline"
                     onClick={() => setEditingCombination(null)}
@@ -461,7 +472,7 @@ const SubjectCombinationsManager: React.FC = () => {
                   </Button>
                   <Button
                     onClick={handleSaveCombination}
-                    disabled={isLoading || !editingCombination.name || !editingCombination.code}
+                    disabled={isLoading || !editingCombination.name?.trim() || !editingCombination.code?.trim()}
                     className="bg-gradient-to-r from-cyan-500 to-blue-600"
                   >
                     <Save className="w-4 h-4 mr-2" />
