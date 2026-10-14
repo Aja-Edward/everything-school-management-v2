@@ -1,0 +1,108 @@
+/*
+ * The school hero's slide layers (HeroSlides.tsx).
+ *
+ * Each change of slide picks one of the `hs-in-*` entrances at random, and
+ * the outgoing slide the matching `hs-out-*` where it has one. While on
+ * screen, every image drifts on its own `hs-drift`, its start and end set per
+ * slide through --hs-from / --hs-to, so no two slides move the same way.
+ */
+
+.hs-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  will-change: transform, opacity, clip-path, filter;
+}
+
+.hs-layer > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform-origin: var(--hs-origin, 50% 50%);
+  animation: hs-drift var(--hs-drift-ms, 9000ms) linear both;
+}
+
+@keyframes hs-drift {
+  from { transform: var(--hs-from, scale(1.06)); }
+  to   { transform: var(--hs-to, scale(1.16)); }
+}
+
+/* Every entrance runs this long; HeroSlides waits the same before it drops
+   the outgoing slide, so there is never a frame with nothing behind. */
+.hs-enter, .hs-exit {
+  animation-duration: var(--hs-ms, 1400ms);
+  animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+  animation-fill-mode: both;
+}
+
+/* ── Entrances ─────────────────────────────────────────────────────────── */
+
+.hs-in-fade { animation-name: hs-fade-in; }
+@keyframes hs-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+.hs-in-zoom { animation-name: hs-zoom-in; }
+@keyframes hs-zoom-in {
+  from { opacity: 0; transform: scale(1.25); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.hs-in-blur { animation-name: hs-blur-in; }
+@keyframes hs-blur-in {
+  from { opacity: 0; filter: blur(24px) saturate(1.4); transform: scale(1.08); }
+  to   { opacity: 1; filter: blur(0) saturate(1); transform: scale(1); }
+}
+
+.hs-in-slide-left  { animation-name: hs-slide-from-right; }
+.hs-in-slide-right { animation-name: hs-slide-from-left; }
+.hs-in-slide-up    { animation-name: hs-slide-from-bottom; }
+.hs-in-slide-down  { animation-name: hs-slide-from-top; }
+@keyframes hs-slide-from-right  { from { transform: translateX(100%); } to { transform: none; } }
+@keyframes hs-slide-from-left   { from { transform: translateX(-100%); } to { transform: none; } }
+@keyframes hs-slide-from-bottom { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes hs-slide-from-top    { from { transform: translateY(-100%); } to { transform: none; } }
+
+.hs-in-circle { animation-name: hs-circle-in; }
+@keyframes hs-circle-in {
+  from { clip-path: circle(0% at var(--hs-x, 50%) var(--hs-y, 50%)); }
+  to   { clip-path: circle(150% at var(--hs-x, 50%) var(--hs-y, 50%)); }
+}
+
+.hs-in-wipe { animation-name: hs-wipe-in; }
+@keyframes hs-wipe-in {
+  from { clip-path: polygon(0 0, 0 0, 0 0, 0 0); }
+  to   { clip-path: polygon(0 0, 200% 0, 0 200%, 0 0); }
+}
+
+.hs-in-curtain { animation-name: hs-curtain-in; }
+@keyframes hs-curtain-in {
+  from { clip-path: inset(0 50% 0 50%); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+
+.hs-in-tilt { animation-name: hs-tilt-in; }
+@keyframes hs-tilt-in {
+  from { opacity: 0; transform: rotate(-5deg) scale(1.3); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ── Exits: the outgoing slide moves with the slides, for a push ─────────── */
+
+.hs-out-slide-left  { animation-name: hs-push-left; }
+.hs-out-slide-right { animation-name: hs-push-right; }
+.hs-out-slide-up    { animation-name: hs-push-up; }
+.hs-out-slide-down  { animation-name: hs-push-down; }
+@keyframes hs-push-left  { to { transform: translateX(-35%); filter: brightness(0.6); } }
+@keyframes hs-push-right { to { transform: translateX(35%);  filter: brightness(0.6); } }
+@keyframes hs-push-up    { to { transform: translateY(-35%); filter: brightness(0.6); } }
+@keyframes hs-push-down  { to { transform: translateY(35%);  filter: brightness(0.6); } }
+
+.hs-out-zoom { animation-name: hs-recede; }
+@keyframes hs-recede { to { transform: scale(0.92); filter: brightness(0.5); } }
+
+/* People who have asked their device for less motion get a plain fade and a
+   still image. */
+@media (prefers-reduced-motion: reduce) {
+  .hs-layer > img { animation: none; transform: none; }
+  .hs-enter { animation-name: hs-fade-in !important; }
+  .hs-exit { animation: none !important; }
+}

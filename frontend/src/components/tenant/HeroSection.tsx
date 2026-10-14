@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { TenantLandingPage } from '@/services/LandingPageService';
+import HeroSlides, { type HeroSlidesHandle } from './HeroSlides';
 
 interface CarouselImage {
   id: number;
@@ -37,37 +38,21 @@ const HeroSection: React.FC<HeroSectionProps> = ({
   activeBannerEvent,
 }) => {
   const [current, setCurrent] = useState(0);
-  const [fade, setFade] = useState(true);
+  const slidesRef = useRef<HeroSlidesHandle>(null);
 
+  // The images each school sets on its Landing Page settings (up to five),
+  // or an active event's slides in their place.
   const isCarousel = landing.hero_type === 'carousel' && carouselImages.length > 0;
-  const slides = isCarousel ? carouselImages : [];
+  const slides = isCarousel ? carouselImages.filter((s) => s.image) : [];
 
-  const advance = useCallback(
-    (dir: 1 | -1) => {
-      setFade(false);
-      setTimeout(() => {
-        setCurrent((c) => (c + dir + slides.length) % slides.length);
-        setFade(true);
-      }, 300);
-    },
-    [slides.length]
-  );
+  /* ── Which images the background shows ── */
+  let images: string[] = [];
+  if (activeBannerEvent?.image) images = [activeBannerEvent.image];
+  else if (slides.length) images = slides.map((s) => s.image);
+  else if (landing.hero_image) images = [landing.hero_image];
 
-  useEffect(() => {
-    if (!isCarousel || slides.length < 2) return;
-    const id = setInterval(() => advance(1), 5000);
-    return () => clearInterval(id);
-  }, [isCarousel, slides.length, advance]);
-
-  /* ── Background image resolution ── */
-  let bgUrl: string | undefined;
-  if (activeBannerEvent?.image) bgUrl = activeBannerEvent.image;
-  else if (isCarousel && slides[current]) bgUrl = slides[current].image;
-  else if (landing.hero_image) bgUrl = landing.hero_image;
-
-  const bgStyle: React.CSSProperties = bgUrl
-    ? { backgroundImage: `url(${bgUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-    : { background: `linear-gradient(135deg, ${primaryColor} 0%, ${primaryColor}cc 60%, #1e293b 100%)` };
+  const advance = (dir: 1 | -1) =>
+    slidesRef.current?.go((current + dir + images.length) % images.length);
 
   /* ── Texts resolution: banner overrides landing config ── */
   const heroTitle = activeBannerEvent?.title ?? landing.hero_title ?? schoolName ?? 'Welcome';
@@ -78,14 +63,11 @@ const HeroSection: React.FC<HeroSectionProps> = ({
   const secondaryCtaUrl = !activeBannerEvent ? landing.hero_secondary_cta_url : undefined;
 
   return (
-    <section className="relative min-h-screen flex items-center overflow-hidden" style={bgStyle}>
-      {/* Carousel slides fade — rendered before the overlay so darkening applies on top */}
-      {isCarousel && slides.length > 1 && (
-        <div
-          className="absolute inset-0 transition-opacity duration-700"
-          style={{ opacity: fade ? 1 : 0, backgroundImage: `url(${slides[current].image})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
-        />
-      )}
+    <section className="relative min-h-screen flex items-center overflow-hidden">
+      {/* Images change with a different transition each time, and only once
+          loaded; the school's colour shows under them, never white. Rendered
+          before the overlay so the darkening applies on top. */}
+      <HeroSlides ref={slidesRef} images={images} baseColor={primaryColor} onChange={setCurrent} />
 
       {/* Overlay — light tint so the image shows clearly */}
       <div className="absolute inset-0 bg-black/15" />
@@ -141,25 +123,28 @@ const HeroSection: React.FC<HeroSectionProps> = ({
       </div>
 
       {/* Carousel controls */}
-      {isCarousel && slides.length > 1 && (
+      {images.length > 1 && (
         <>
           <button
             onClick={() => advance(-1)}
+            aria-label="Previous image"
             className="absolute left-4 top-1/2 -translate-y-1/2 z-20 p-2 rounded-full bg-white/20 backdrop-blur-sm border border-white/30 text-white hover:bg-white/40 transition"
           >
             <ChevronLeft className="w-6 h-6" />
           </button>
           <button
             onClick={() => advance(1)}
+            aria-label="Next image"
             className="absolute right-4 top-1/2 -translate-y-1/2 z-20 p-2 rounded-full bg-white/20 backdrop-blur-sm border border-white/30 text-white hover:bg-white/40 transition"
           >
             <ChevronRight className="w-6 h-6" />
           </button>
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex gap-2">
-            {slides.map((_, i) => (
+            {images.map((_, i) => (
               <button
                 key={i}
-                onClick={() => setCurrent(i)}
+                onClick={() => slidesRef.current?.go(i)}
+                aria-label={`Show image ${i + 1}`}
                 className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${i === current ? 'bg-white scale-125' : 'bg-white/50'}`}
               />
             ))}
