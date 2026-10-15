@@ -20,6 +20,7 @@ import MetaPixel from '@/components/MetaPixel';
 import { lazy, Suspense } from 'react';
 import Navbar from '@/components/home/Nav';
 import Footer from '@/components/home/Footer';
+import WhatsAppButton from '@/components/home/WhatsAppButton';
 import TeacherDashboardRoute from './../pages/teacher/TeacherDashboardRoute';
 import StationService from '@/services/StationService';
 
@@ -37,6 +38,8 @@ const Home = lazy(() => import('./../pages/Landing'));
 const School_Activities = lazy(() => import('./../pages/School_Activities'));
 const About = lazy(() => import('./../pages/About'));
 const HowToApplyPage = lazy(() => import('./../pages/HowToApplyPage'));
+const BookDemoPage = lazy(() => import('./../pages/BookDemoPage'));
+const SchoolLoginFinderPage = lazy(() => import('./../pages/SchoolLoginFinderPage'));
 const NotFound = lazy(() => import('./../pages/NotFound'));
 
 // Onboarding pages (Main Domain)
@@ -212,14 +215,22 @@ const RootLayout = () => {
   </DesignProvider>
 );
 }
-// Main domain layout with Navbar and Footer (for marketing pages)
-const MainDomainLayout = () => (
-  <>
-    <Navbar />
-    <Outlet />
-    <Footer />
-  </>
-);
+// Main domain layout with Navbar and Footer (for marketing pages). A school's
+// own subdomain or domain has no use for these pages, so it goes to its own
+// homepage instead.
+const MainDomainLayout = () => {
+  const { isSubdomain, isLoading } = useTenant();
+  if (isLoading) return <PageLoader />;
+  if (isSubdomain) return <Navigate to="/" replace />;
+  return (
+    <>
+      <Navbar />
+      <Outlet />
+      <Footer />
+      <WhatsAppButton />
+    </>
+  );
+};
 
 // Component to render Home only on main domain, show tenant landing page on subdomain
 const HomeOrRedirect = () => {
@@ -236,6 +247,7 @@ const HomeOrRedirect = () => {
       <Navbar />
       <LazyWrapper><Home /></LazyWrapper>
       <Footer />
+      <WhatsAppButton />
     </>
   );
 };
@@ -250,6 +262,7 @@ const AboutRoute = () => {
       <Navbar />
       <LazyWrapper><About /></LazyWrapper>
       <Footer />
+      <WhatsAppButton />
     </>
   );
 };
@@ -263,6 +276,7 @@ const ContactRoute = () => {
       <Navbar />
       <LazyWrapper><PlatformContact /></LazyWrapper>
       <Footer />
+      <WhatsAppButton />
     </>
   );
 };
@@ -276,6 +290,7 @@ const SchoolActivitiesRoute = () => {
       <Navbar />
       <LazyWrapper><School_Activities /></LazyWrapper>
       <Footer />
+      <WhatsAppButton />
     </>
   );
 };
@@ -367,6 +382,14 @@ export const router = createBrowserRouter([
           {
             path: 'how-to-apply',
             element: <LazyWrapper><HowToApplyPage /></LazyWrapper>,
+          },
+          {
+            path: 'book-demo',
+            element: <LazyWrapper><BookDemoPage /></LazyWrapper>,
+          },
+          {
+            path: 'school-login',
+            element: <LazyWrapper><SchoolLoginFinderPage /></LazyWrapper>,
           },
         ]
       },

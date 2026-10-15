@@ -11,24 +11,24 @@ const Footer: React.FC<FooterProps> = ({ isDashboard = false }) => {
   const currentYear = new Date().getFullYear();
   const { settings } = useSettings();
 
+  // Only pages that exist. Every user of a school logs in on that school's
+  // own address, so the portal links go to the finder that sends them there.
   const footerLinks = {
-    school: [
+    product: [
+      { name: 'Features', href: '/#features' },
+      { name: 'How It Works', href: '/#how-it-works' },
+      { name: 'Pricing', href: '/#pricing' },
+      { name: 'FAQ', href: '/#faq' },
+    ],
+    company: [
       { name: 'About Us', href: '/about' },
-      { name: 'Admissions', href: '/how-to-apply' },
-      { name: 'Activities', href: '/school_activities' },
-      { name: 'Contact', href: '/about' },
-    ],
-    portal: [
-      { name: 'Student Login', href: '/student-login' },
-      { name: 'Teacher Login', href: '/teacher-login' },
-      { name: 'Parent Login', href: '/parent-login' },
-      { name: 'Admin Login', href: '/admin-login' },
-    ],
-    resources: [
+      { name: 'Contact', href: '/contact' },
+      { name: 'Book a Demo', href: '/book-demo' },
       { name: 'Register School', href: '/onboarding/register' },
-      { name: 'Help Center', href: '#' },
-      { name: 'Privacy Policy', href: '#' },
-      { name: 'Terms of Service', href: '#' },
+    ],
+    'log in': [
+      { name: 'School login', href: '/school-login' },
+      { name: 'Nuventa staff', href: '/platform-admin/login' },
     ],
   };
 
@@ -74,7 +74,7 @@ const Footer: React.FC<FooterProps> = ({ isDashboard = false }) => {
               </span>
             </div>
             <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed mb-4">
-              {settings?.motto || 'Empowering the next generation with quality education and innovative learning experiences.'}
+              {settings?.motto || 'Cloud school management for nursery, primary and secondary schools.'}
             </p>
             {settings?.email && (
               <p className="text-sm text-gray-500 dark:text-gray-400">{settings.email}</p>
@@ -112,14 +112,6 @@ const Footer: React.FC<FooterProps> = ({ isDashboard = false }) => {
             <p className="text-sm text-gray-500 dark:text-gray-400">
               © {currentYear} {settings?.school_name || 'Nuventa Cloud'}. All rights reserved.
             </p>
-            <div className="flex items-center gap-4">
-              <a href="#" className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
-                Privacy
-              </a>
-              <a href="#" className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
-                Terms
-              </a>
-            </div>
           </div>
         </div>
       </div>

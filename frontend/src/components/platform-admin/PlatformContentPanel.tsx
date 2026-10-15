@@ -30,6 +30,7 @@ interface PlatformContentData {
   contact_phone: string;
   contact_address: string;
   contact_office_hours: string;
+  contact_whatsapp: string;
   updated_at?: string;
   updated_by_name?: string | null;
 }
@@ -41,7 +42,7 @@ const EMPTY: PlatformContentData = {
   about_story_title: '', about_story_body: '',
   about_values: [], about_stats: [],
   contact_intro: '', contact_email: '', contact_phone: '',
-  contact_address: '', contact_office_hours: '',
+  contact_address: '', contact_office_hours: '', contact_whatsapp: '',
 };
 
 const Field: React.FC<{ label: string; hint?: string; children: React.ReactNode }> = ({ label, hint, children }) => (
@@ -214,6 +215,9 @@ const PlatformContentPanel: React.FC = () => {
             ))}
             {data.about_stats.length === 0 && <p className="text-xs text-gray-400">No stats added yet.</p>}
           </div>
+          <p className="text-xs text-gray-400 mt-2">
+            Shown on the homepage and the About page. Prospective schools may ask you to back these up, so only add numbers you can.
+          </p>
         </div>
       </section>
 
@@ -241,6 +245,10 @@ const PlatformContentPanel: React.FC = () => {
               onChange={e => set('contact_office_hours', e.target.value)} placeholder="Mon–Fri, 9am–5pm WAT" />
           </Field>
         </div>
+        <Field label="WhatsApp number" hint="International format, e.g. 2348012345678. Once set, a WhatsApp button appears on the marketing pages.">
+          <input className={inputCls} inputMode="tel" value={data.contact_whatsapp}
+            onChange={e => set('contact_whatsapp', e.target.value)} placeholder="2348012345678" />
+        </Field>
       </section>
 
       <div className="flex items-center justify-between">

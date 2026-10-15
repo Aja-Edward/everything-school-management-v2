@@ -4,7 +4,8 @@ import { useSettings } from '../contexts/SettingsContext';
 import { getAbsoluteUrl } from '../utils/urlUtils';
 
 const PLATFORM_NAME = 'Nuventa Cloud';
-const PLATFORM_DESCRIPTION = 'The all-in-one cloud school management platform built for modern schools.';
+const PLATFORM_DESCRIPTION =
+  'School management software for Nigerian schools: student records, exams, results and report cards, CBT, attendance, fees and parent access in one cloud platform.';
 const PLATFORM_LOGO = 'https://www.nuventacloud.com/images/nuventa-logo.png';
 const PLATFORM_URL = 'https://www.nuventacloud.com/';
 
