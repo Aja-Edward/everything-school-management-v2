@@ -6,7 +6,6 @@ import { createBrowserRouter, Outlet, Navigate } from 'react-router-dom';
 import ErrorBoundary from './../components/ErrorBoundary';
 import { AuthProvider } from './../hooks/useAuth';
 import { AuthLostProvider } from './../components/common/AuthLostProvider';
-import { ClassroomProvider } from '@/contexts/ClassroomContext';
 import { GlobalThemeProvider } from '@/contexts/GlobalThemeContext';
 import { TenantProvider, useTenant } from '@/contexts/TenantContext';
 import { PromotionThresholdProvider } from "@/contexts/PromotionThresholdContext";
@@ -30,6 +29,15 @@ const PageLoader = () => (
     <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
   </div>
 );
+
+// Pages that call useTranslation() — i18next is only downloaded and
+// initialised when one of them is opened, keeping it off the marketing pages.
+const lazyWithI18n = <T extends React.ComponentType<any>>(load: () => Promise<{ default: T }>) =>
+  lazy(() => import('@/i18n').then((m) => m.initI18n()).then(load));
+
+// Only the admin classroom pages use it, so it stays out of the entry chunk.
+const ClassroomProvider = lazy(() =>
+  import('@/contexts/ClassroomContext').then((m) => ({ default: m.ClassroomProvider })));
 
 // Lazy load all components
 // Public/Marketing pages (Main Domain)
@@ -90,7 +98,7 @@ const TeacherBio = lazy(() => import('./../components/dashboards/teacher/PublicT
 const AdminLayout = lazy(() => import('./../components/layouts/AdminLayout'));
 const AdminDashboardContentLoader = lazy(() => import('./../pages/admin/AdminDashboardContentLoader'));
 const StudentList = lazy(() => import('./../pages/admin/AdminStudentList'));
-const AdminLoginPage = lazy(() => import('./../pages/AdminLoginPage'));
+const AdminLoginPage = lazyWithI18n(() => import('./../pages/AdminLoginPage'));
 const BulkUploadPage = lazy(() => import('./../pages/admin/BulkUploadPage'));
 const ParentBulkUploadPage = lazy(() => import('./../pages/admin/ParentBulkUploadPage'))
 const StudentDetailView = lazy(() => import('./../components/dashboards/admin/StudentDetailView'));
@@ -117,7 +125,7 @@ const AllParents = lazy(() => import('./../pages/admin/AllParents'));
 const AddParentForm = lazy(() => import('./../pages/admin/AddParentForm'));
 const AllAdmins = lazy(() => import('./../pages/admin/AllAdmins'));
 const AddAdminForm = lazy(() => import('./../pages/admin/AddAdminForm'));
-const SettingsPage = lazy(() => import('./../pages/admin/Settings'));
+const SettingsPage = lazyWithI18n(() => import('./../pages/admin/Settings'));
 const MessageManagement = lazy(() => import('./../components/dashboards/admin/MessageManagement'));
 const PasswordRecovery = lazy(() => import('./../pages/admin/PasswordRecovery'));
 const StudentResultDetail = lazy(() => import('./../components/dashboards/admin/StudentResultDetail'));
@@ -589,9 +597,11 @@ export const router = createBrowserRouter([
           {
             path: 'classroom-management',
             element: (
-              <ClassroomProvider>
-                <Outlet />
-              </ClassroomProvider>
+              <LazyWrapper>
+                <ClassroomProvider>
+                  <Outlet />
+                </ClassroomProvider>
+              </LazyWrapper>
             ),
             children: [
               {
