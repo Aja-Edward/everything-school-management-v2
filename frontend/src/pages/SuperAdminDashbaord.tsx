@@ -4,13 +4,14 @@ import {
   LogOut, RefreshCw, AlertCircle, CheckCircle,
   Clock, XCircle, ChevronRight, Building2,
   PowerOff, Power, Trash2, Loader2, X,
-  FileText, UserCog, Copy, Link2, BadgeDollarSign,
+  FileText, UserCog, Copy, Link2, BadgeDollarSign, Inbox,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import api from '@/services/api';
 import { UserRole } from '@/types/types';
 import PlatformContentPanel from '@/components/platform-admin/PlatformContentPanel';
+import DemoRequestsPanel from '@/components/platform-admin/DemoRequestsPanel';
 import PlatformUsersPanel from '@/components/platform-admin/PlatformUsersPanel';
 import PlatformBillingPanel from '@/components/platform-admin/PlatformBillingPanel';
 import TenantPricingModal from '@/components/platform-admin/TenantPricingModal';
@@ -245,7 +246,7 @@ const ConfirmModal = ({ state, processing, onChange, onConfirm, onClose }: Confi
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-type DashboardTab = 'tenants' | 'billing' | 'content' | 'users';
+type DashboardTab = 'tenants' | 'leads' | 'billing' | 'content' | 'users';
 
 const SuperAdminDashboard = () => {
   const navigate = useNavigate();
@@ -498,6 +499,7 @@ const SuperAdminDashboard = () => {
             <div className="inline-flex bg-white border border-gray-200 rounded-lg p-1 gap-1">
               {([
                 { key: 'tenants', label: 'Tenants', icon: Building2 },
+                { key: 'leads', label: 'Demo Requests', icon: Inbox },
                 { key: 'billing', label: 'Billing', icon: CreditCard },
                 { key: 'content', label: 'Site Content', icon: FileText },
                 { key: 'users', label: 'Platform Users', icon: UserCog },
@@ -573,6 +575,7 @@ const SuperAdminDashboard = () => {
           </div>
         )}
 
+        {activeTab === 'leads' && <DemoRequestsPanel />}
         {activeTab === 'billing' && <PlatformBillingPanel />}
         {activeTab === 'content' && <PlatformContentPanel />}
         {activeTab === 'users' && <PlatformUsersPanel />}

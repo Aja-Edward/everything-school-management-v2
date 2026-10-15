@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mail, Phone, MapPin, Clock, ArrowRight } from 'lucide-react';
+import { Mail, Phone, MapPin, Clock, ArrowRight, MessageCircle } from 'lucide-react';
 import api from '@/services/api';
+import DemoRequestForm from '@/components/home/DemoRequestForm';
+import { whatsappLink } from '@/hooks/usePlatformContent';
 
 const FALLBACK = {
   intro: "Questions about Nuventa Cloud, want a demo, or need help with an existing school account? We'd like to hear from you.",
@@ -9,6 +11,7 @@ const FALLBACK = {
   phone: '',
   address: '',
   office_hours: '',
+  whatsapp: '',
 };
 
 const PlatformContact: React.FC = () => {
@@ -26,6 +29,7 @@ const PlatformContact: React.FC = () => {
           phone: res.contact_phone || FALLBACK.phone,
           address: res.contact_address || FALLBACK.address,
           office_hours: res.contact_office_hours || FALLBACK.office_hours,
+          whatsapp: res.contact_whatsapp || FALLBACK.whatsapp,
         });
       } catch {
         setContent(FALLBACK);
@@ -35,7 +39,10 @@ const PlatformContact: React.FC = () => {
     })();
   }, []);
 
+  const wa = whatsappLink(content.whatsapp, "Hello, I'd like to know more about Nuventa Cloud for my school.");
+
   const cards = [
+    wa && { icon: MessageCircle, label: 'WhatsApp', value: 'Chat with us', href: wa },
     content.email && { icon: Mail, label: 'Email', value: content.email, href: `mailto:${content.email}` },
     content.phone && { icon: Phone, label: 'Phone', value: content.phone, href: `tel:${content.phone.replace(/\s+/g, '')}` },
     content.address && { icon: MapPin, label: 'Address', value: content.address, href: undefined },
@@ -86,7 +93,7 @@ const PlatformContact: React.FC = () => {
                   </div>
                   <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">{label}</p>
                   {href ? (
-                    <a href={href} className="text-sm font-medium text-gray-900 dark:text-white hover:text-blue-600 break-words">
+                    <a href={href} {...(href.startsWith('https://') ? { target: '_blank', rel: 'noopener noreferrer' } : {})} className="text-sm font-medium text-gray-900 dark:text-white hover:text-blue-600 break-words">
                       {value}
                     </a>
                   ) : (
@@ -96,6 +103,19 @@ const PlatformContact: React.FC = () => {
               ))}
             </div>
           )}
+        </div>
+      </section>
+
+      {/* Demo / enquiry form */}
+      <section className="py-16 bg-white dark:bg-gray-950">
+        <div className="max-w-3xl mx-auto px-6">
+          <h2 className="text-xl sm:text-2xl font-semibold text-gray-900 dark:text-white">Ask for a demo or a quote</h2>
+          <p className="mt-2 mb-6 text-sm text-gray-600 dark:text-gray-400">
+            Leave your details and we'll get back to you. Already using Nuventa Cloud and need help? Email us instead.
+          </p>
+          <div className="relative rounded-xl border border-gray-200 dark:border-gray-800 p-5 sm:p-6">
+            <DemoRequestForm source="contact" />
+          </div>
         </div>
       </section>
 

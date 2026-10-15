@@ -160,6 +160,7 @@ def is_public_path(path):
         "/api/tenants/check-domain/",
         "/api/tenants/setup/exchange/",
         "/api/tenants/public/",
+        "/api/tenants/demo-requests/",
         "/api/auth/",
         "/admin/",
         "/health/",

@@ -3,6 +3,9 @@ import { useLocation } from 'react-router-dom';
 import { useTenant } from '@/contexts/TenantContext';
 
 const PLATFORM_NAME = 'Nuventa Cloud';
+// The marketing homepage's title, for search results. Never on a school's own
+// homepage, which is just the school's name.
+const PLATFORM_HOME_LABEL = 'School Management Software for Nigerian Schools';
 
 const PATH_LABELS: Record<string, string> = {
   '/':            '',
@@ -11,7 +14,9 @@ const PATH_LABELS: Record<string, string> = {
   '/contact':     'Contact',
   '/login':       'Portal Login',
   '/school_activities': 'Activities',
-  '/how-to-apply': 'How to Apply',
+  '/how-to-apply': 'How It Works',
+  '/book-demo':   'Book a Free Demo',
+  '/school-login': 'School Login',
   '/verify-email': 'Verify Email',
   '/onboarding/register': 'Register Your School',
   '/onboarding/services':  'Select Services',
@@ -50,7 +55,7 @@ const TitleManager: React.FC = () => {
 
   useEffect(() => {
     const base = isSubdomain && tenant?.name ? tenant.name : PLATFORM_NAME;
-    const label = getLabelForPath(pathname);
+    const label = pathname === '/' && !isSubdomain ? PLATFORM_HOME_LABEL : getLabelForPath(pathname);
     document.title = label ? `${label} | ${base}` : base;
   }, [pathname, tenant, isSubdomain]);
 

@@ -191,6 +191,9 @@ class PlatformContent(models.Model):
     contact_phone = models.CharField(max_length=32, blank=True, default='')
     contact_address = models.TextField(blank=True, default='')
     contact_office_hours = models.CharField(max_length=255, blank=True, default='')
+    # International format without "+", e.g. 2348012345678. The site shows a
+    # WhatsApp button only once this is set, so no number is ever guessed.
+    contact_whatsapp = models.CharField(max_length=20, blank=True, default='')
 
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(
@@ -216,6 +219,52 @@ class PlatformContent(models.Model):
     def load(cls):
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
+
+
+class DemoRequest(models.Model):
+    """
+    A school asking for a demo from the marketing site. Not tied to a tenant:
+    the school is not on the platform yet. Anyone can create one; only
+    platform admins can read or update them.
+    """
+
+    STATUS_CHOICES = [
+        ('new', 'New'),
+        ('contacted', 'Contacted'),
+        ('demo_booked', 'Demo booked'),
+        ('won', 'Subscribed'),
+        ('lost', 'Not interested'),
+    ]
+    CONTACT_CHOICES = [
+        ('whatsapp', 'WhatsApp'),
+        ('phone', 'Phone call'),
+        ('email', 'Email'),
+    ]
+
+    school_name = models.CharField(max_length=200)
+    contact_name = models.CharField(max_length=120)
+    role = models.CharField(max_length=60, blank=True, default='')
+    phone = models.CharField(max_length=32)
+    email = models.EmailField(blank=True, default='')
+    location = models.CharField(max_length=120, blank=True, default='')
+    student_count = models.CharField(max_length=20, blank=True, default='')
+    preferred_contact = models.CharField(
+        max_length=10, choices=CONTACT_CHOICES, default='whatsapp')
+    message = models.TextField(blank=True, default='', max_length=2000)
+    # Which page or campaign it came from, e.g. "home" or "utm:facebook/cbt".
+    source = models.CharField(max_length=120, blank=True, default='')
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='new')
+    notes = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'demo_request'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.school_name} ({self.contact_name})"
 
 
 class TenantService(models.Model):

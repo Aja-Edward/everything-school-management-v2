@@ -29,6 +29,7 @@ from .views import (
     # Platform content and platform users
     PlatformContentView,
     PlatformUserViewSet,
+    DemoRequestViewSet,
 )
 
 router = DefaultRouter()
@@ -39,6 +40,7 @@ router.register(r'payments', TenantPaymentViewSet, basename='tenant-payment')
 router.register(r'invitations', TenantInvitationViewSet,
                 basename='tenant-invitation')
 router.register(r'platform-users', PlatformUserViewSet, basename='platform-user')
+router.register(r'demo-requests', DemoRequestViewSet, basename='demo-request')
 
 # Service management as a ViewSet
 service_list = ServiceManagementViewSet.as_view({

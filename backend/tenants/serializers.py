@@ -9,7 +9,7 @@ import string
 from .models import (
     Tenant, TenantService, ServicePricing, TenantSettings,
     TenantInvoice, TenantInvoiceLineItem, TenantPayment, TenantInvitation,
-    TenantSetupToken, PlatformContent
+    TenantSetupToken, PlatformContent, DemoRequest
 )
 
 User = get_user_model()
@@ -61,7 +61,7 @@ class PlatformContentSerializer(serializers.ModelSerializer):
             'about_story_title', 'about_story_body',
             'about_values', 'about_stats',
             'contact_intro', 'contact_email', 'contact_phone',
-            'contact_address', 'contact_office_hours',
+            'contact_address', 'contact_office_hours', 'contact_whatsapp',
             'updated_at', 'updated_by_name',
         ]
         read_only_fields = ['updated_at']
@@ -72,6 +72,62 @@ class PlatformContentSerializer(serializers.ModelSerializer):
         u = obj.updated_by
         name = f"{u.first_name} {u.last_name}".strip()
         return name or u.username
+
+    def validate_contact_whatsapp(self, value):
+        digits = ''.join(ch for ch in value if ch.isdigit())
+        if value and not 8 <= len(digits) <= 15:
+            raise serializers.ValidationError(
+                "Enter the number in international format, e.g. 2348012345678.")
+        return digits
+
+
+class DemoRequestSerializer(serializers.ModelSerializer):
+    """What a school sends from the marketing site's demo form."""
+    # Honeypot: hidden from people, filled in by bots. The view drops any
+    # request that has it before it gets here.
+    website = serializers.CharField(
+        write_only=True, required=False, allow_blank=True)
+
+    class Meta:
+        model = DemoRequest
+        fields = [
+            'id', 'school_name', 'contact_name', 'role', 'phone', 'email',
+            'location', 'student_count', 'preferred_contact', 'message',
+            'source', 'website', 'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']
+
+    def validate_phone(self, value):
+        digits = ''.join(ch for ch in value if ch.isdigit())
+        if not 10 <= len(digits) <= 15:
+            raise serializers.ValidationError(
+                "Enter a phone number we can reach you on, e.g. 0801 234 5678.")
+        return value.strip()
+
+    def validate(self, attrs):
+        if attrs.get('preferred_contact') == 'email' and not attrs.get('email'):
+            raise serializers.ValidationError(
+                {'email': "Add an email address, or choose another way to reach you."})
+        attrs.pop('website', None)
+        return attrs
+
+
+class DemoRequestAdminSerializer(serializers.ModelSerializer):
+    """A demo request as the platform admin sees it. Only the follow-up
+    status and notes can be changed; what the school sent stays as sent."""
+
+    class Meta:
+        model = DemoRequest
+        fields = [
+            'id', 'school_name', 'contact_name', 'role', 'phone', 'email',
+            'location', 'student_count', 'preferred_contact', 'message',
+            'source', 'status', 'notes', 'created_at', 'updated_at',
+        ]
+        read_only_fields = [
+            'id', 'school_name', 'contact_name', 'role', 'phone', 'email',
+            'location', 'student_count', 'preferred_contact', 'message',
+            'source', 'created_at', 'updated_at',
+        ]
 
     def validate_about_values(self, value):
         return self._validate_list_of_pairs(value, 'title', 'description')

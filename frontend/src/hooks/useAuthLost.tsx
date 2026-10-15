@@ -9,6 +9,8 @@ const PUBLIC_PATHS = [
   '/',
   '/about',
   '/how-to-apply',
+  '/book-demo',
+  '/school-login',
   '/school_activities',
   '/admissions',
   '/contact',

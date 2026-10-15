@@ -19,7 +19,9 @@ from django.utils import timezone
 from django.conf import settings
 from django.conf import settings as django_settings
 from django.shortcuts import get_object_or_404
+from django.utils.decorators import method_decorator
 from django.core.cache import cache
+from django_ratelimit.decorators import ratelimit
 import dns.resolver
 import logging
 import json as _json
@@ -35,9 +37,11 @@ from . import pricing as school_pricing
 from .models import (
     Tenant, TenantService, ServicePricing, TenantSettings,
     TenantInvoice, TenantInvoiceLineItem, TenantPayment, TenantInvitation,
-    TenantSetupToken, PlatformContent
+    TenantSetupToken, PlatformContent, DemoRequest
 )
 from .serializers import (
+    DemoRequestSerializer,
+    DemoRequestAdminSerializer,
     TenantSerializer,
     TenantSettingsSerializer,
     DesignSettingsSerializer,
@@ -572,6 +576,89 @@ class PlatformContentView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save(updated_by=request.user)
         return Response(serializer.data)
+
+
+# ============ Demo requests from the marketing site ============
+
+DEFAULT_DEMO_NOTIFY_EMAIL = 'support@nuventacloud.com'
+
+
+def notify_demo_request(demo):
+    """Email the platform team about a new demo request. A failure is only
+    logged: the request is already saved and shows in the platform dashboard."""
+    from html import escape
+    from utils.email import send_email_via_brevo
+
+    to_email = (getattr(settings, 'DEMO_REQUEST_NOTIFY_EMAIL', '')
+                or PlatformContent.load().contact_email
+                or DEFAULT_DEMO_NOTIFY_EMAIL)
+    rows = [
+        ('School', demo.school_name),
+        ('Contact', demo.contact_name),
+        ('Role', demo.role),
+        ('Phone', demo.phone),
+        ('Email', demo.email),
+        ('Location', demo.location),
+        ('Students', demo.student_count),
+        ('Reach them by', demo.get_preferred_contact_display()),
+        ('Message', demo.message),
+        ('Came from', demo.source),
+    ]
+    html = '<h2>New demo request</h2><table>' + ''.join(
+        f'<tr><td><b>{label}</b></td><td>{escape(value)}</td></tr>'
+        for label, value in rows if value
+    ) + '</table>'
+    try:
+        send_email_via_brevo(f'Demo request: {demo.school_name}', html, to_email)
+    except Exception:
+        logger.exception('Could not email demo request %s', demo.pk)
+
+
+class DemoRequestViewSet(viewsets.ModelViewSet):
+    """
+    POST is the marketing site's public demo form: no login, limited per IP,
+    and a filled-in honeypot is answered as a success without saving anything.
+    Reading the requests and updating their follow-up status is platform-admin
+    only. Nothing is deleted; a request no longer wanted is marked lost.
+    """
+    queryset = DemoRequest.objects.all()
+    http_method_names = ['get', 'post', 'patch', 'head', 'options']
+    filter_backends = [SearchFilter]
+    search_fields = ['school_name', 'contact_name', 'phone', 'email', 'location']
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return DemoRequestSerializer
+        return DemoRequestAdminSerializer
+
+    def get_authenticators(self):
+        # A visitor's stale or expired login cookie must not turn the public
+        # form into a 401.
+        if self.request.method == 'POST':
+            return []
+        return super().get_authenticators()
+
+    def get_permissions(self):
+        if self.action == 'create':
+            return [AllowAny()]
+        return [IsAuthenticated(), IsPlatformAdmin()]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        return qs
+
+    @method_decorator(ratelimit(key='ip', rate='5/h', method='POST', block=True))
+    def create(self, request, *args, **kwargs):
+        if request.data.get('website'):
+            return Response({'ok': True}, status=status.HTTP_201_CREATED)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        demo = serializer.save()
+        notify_demo_request(demo)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 # ============ Platform Users (admins, marketers) ============

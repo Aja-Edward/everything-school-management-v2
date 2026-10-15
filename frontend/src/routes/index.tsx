@@ -6,7 +6,6 @@ import { createBrowserRouter, Outlet, Navigate } from 'react-router-dom';
 import ErrorBoundary from './../components/ErrorBoundary';
 import { AuthProvider } from './../hooks/useAuth';
 import { AuthLostProvider } from './../components/common/AuthLostProvider';
-import { ClassroomProvider } from '@/contexts/ClassroomContext';
 import { GlobalThemeProvider } from '@/contexts/GlobalThemeContext';
 import { TenantProvider, useTenant } from '@/contexts/TenantContext';
 import { PromotionThresholdProvider } from "@/contexts/PromotionThresholdContext";
@@ -20,6 +19,7 @@ import MetaPixel from '@/components/MetaPixel';
 import { lazy, Suspense } from 'react';
 import Navbar from '@/components/home/Nav';
 import Footer from '@/components/home/Footer';
+import WhatsAppButton from '@/components/home/WhatsAppButton';
 import TeacherDashboardRoute from './../pages/teacher/TeacherDashboardRoute';
 import StationService from '@/services/StationService';
 
@@ -31,12 +31,23 @@ const PageLoader = () => (
   </div>
 );
 
+// Pages that call useTranslation() — i18next is only downloaded and
+// initialised when one of them is opened, keeping it off the marketing pages.
+const lazyWithI18n = <T extends React.ComponentType<any>>(load: () => Promise<{ default: T }>) =>
+  lazy(() => import('@/i18n').then((m) => m.initI18n()).then(load));
+
+// Only the admin classroom pages use it, so it stays out of the entry chunk.
+const ClassroomProvider = lazy(() =>
+  import('@/contexts/ClassroomContext').then((m) => ({ default: m.ClassroomProvider })));
+
 // Lazy load all components
 // Public/Marketing pages (Main Domain)
 const Home = lazy(() => import('./../pages/Landing'));
 const School_Activities = lazy(() => import('./../pages/School_Activities'));
 const About = lazy(() => import('./../pages/About'));
 const HowToApplyPage = lazy(() => import('./../pages/HowToApplyPage'));
+const BookDemoPage = lazy(() => import('./../pages/BookDemoPage'));
+const SchoolLoginFinderPage = lazy(() => import('./../pages/SchoolLoginFinderPage'));
 const NotFound = lazy(() => import('./../pages/NotFound'));
 
 // Onboarding pages (Main Domain)
@@ -90,7 +101,7 @@ const TeacherBio = lazy(() => import('./../components/dashboards/teacher/PublicT
 const AdminLayout = lazy(() => import('./../components/layouts/AdminLayout'));
 const AdminDashboardContentLoader = lazy(() => import('./../pages/admin/AdminDashboardContentLoader'));
 const StudentList = lazy(() => import('./../pages/admin/AdminStudentList'));
-const AdminLoginPage = lazy(() => import('./../pages/AdminLoginPage'));
+const AdminLoginPage = lazyWithI18n(() => import('./../pages/AdminLoginPage'));
 const BulkUploadPage = lazy(() => import('./../pages/admin/BulkUploadPage'));
 const ParentBulkUploadPage = lazy(() => import('./../pages/admin/ParentBulkUploadPage'))
 const StudentDetailView = lazy(() => import('./../components/dashboards/admin/StudentDetailView'));
@@ -117,7 +128,7 @@ const AllParents = lazy(() => import('./../pages/admin/AllParents'));
 const AddParentForm = lazy(() => import('./../pages/admin/AddParentForm'));
 const AllAdmins = lazy(() => import('./../pages/admin/AllAdmins'));
 const AddAdminForm = lazy(() => import('./../pages/admin/AddAdminForm'));
-const SettingsPage = lazy(() => import('./../pages/admin/Settings'));
+const SettingsPage = lazyWithI18n(() => import('./../pages/admin/Settings'));
 const MessageManagement = lazy(() => import('./../components/dashboards/admin/MessageManagement'));
 const PasswordRecovery = lazy(() => import('./../pages/admin/PasswordRecovery'));
 const StudentResultDetail = lazy(() => import('./../components/dashboards/admin/StudentResultDetail'));
@@ -212,14 +223,22 @@ const RootLayout = () => {
   </DesignProvider>
 );
 }
-// Main domain layout with Navbar and Footer (for marketing pages)
-const MainDomainLayout = () => (
-  <>
-    <Navbar />
-    <Outlet />
-    <Footer />
-  </>
-);
+// Main domain layout with Navbar and Footer (for marketing pages). A school's
+// own subdomain or domain has no use for these pages, so it goes to its own
+// homepage instead.
+const MainDomainLayout = () => {
+  const { isSubdomain, isLoading } = useTenant();
+  if (isLoading) return <PageLoader />;
+  if (isSubdomain) return <Navigate to="/" replace />;
+  return (
+    <>
+      <Navbar />
+      <Outlet />
+      <Footer />
+      <WhatsAppButton />
+    </>
+  );
+};
 
 // Component to render Home only on main domain, show tenant landing page on subdomain
 const HomeOrRedirect = () => {
@@ -236,6 +255,7 @@ const HomeOrRedirect = () => {
       <Navbar />
       <LazyWrapper><Home /></LazyWrapper>
       <Footer />
+      <WhatsAppButton />
     </>
   );
 };
@@ -250,6 +270,7 @@ const AboutRoute = () => {
       <Navbar />
       <LazyWrapper><About /></LazyWrapper>
       <Footer />
+      <WhatsAppButton />
     </>
   );
 };
@@ -263,6 +284,7 @@ const ContactRoute = () => {
       <Navbar />
       <LazyWrapper><PlatformContact /></LazyWrapper>
       <Footer />
+      <WhatsAppButton />
     </>
   );
 };
@@ -276,6 +298,7 @@ const SchoolActivitiesRoute = () => {
       <Navbar />
       <LazyWrapper><School_Activities /></LazyWrapper>
       <Footer />
+      <WhatsAppButton />
     </>
   );
 };
@@ -367,6 +390,14 @@ export const router = createBrowserRouter([
           {
             path: 'how-to-apply',
             element: <LazyWrapper><HowToApplyPage /></LazyWrapper>,
+          },
+          {
+            path: 'book-demo',
+            element: <LazyWrapper><BookDemoPage /></LazyWrapper>,
+          },
+          {
+            path: 'school-login',
+            element: <LazyWrapper><SchoolLoginFinderPage /></LazyWrapper>,
           },
         ]
       },
@@ -589,9 +620,11 @@ export const router = createBrowserRouter([
           {
             path: 'classroom-management',
             element: (
-              <ClassroomProvider>
-                <Outlet />
-              </ClassroomProvider>
+              <LazyWrapper>
+                <ClassroomProvider>
+                  <Outlet />
+                </ClassroomProvider>
+              </LazyWrapper>
             ),
             children: [
               {

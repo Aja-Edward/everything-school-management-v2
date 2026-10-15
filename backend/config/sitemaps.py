@@ -4,8 +4,9 @@ MAIN_DOMAINS = {'nuventacloud.com', 'www.nuventacloud.com'}
 
 MAIN_PLATFORM_PAGES = [
     {'loc': '/', 'priority': '1.0', 'changefreq': 'weekly'},
+    {'loc': '/book-demo', 'priority': '0.9', 'changefreq': 'monthly'},
     {'loc': '/about', 'priority': '0.8', 'changefreq': 'monthly'},
-    {'loc': '/school_activities', 'priority': '0.7', 'changefreq': 'monthly'},
+    {'loc': '/contact', 'priority': '0.7', 'changefreq': 'monthly'},
     {'loc': '/how-to-apply', 'priority': '0.7', 'changefreq': 'monthly'},
     {'loc': '/onboarding/register', 'priority': '0.6', 'changefreq': 'monthly'},
 ]
@@ -17,7 +18,6 @@ TENANT_PUBLIC_PAGES = [
     {'loc': '/contact', 'priority': '0.7', 'changefreq': 'monthly'},
     {'loc': '/school_activities', 'priority': '0.7', 'changefreq': 'monthly'},
     {'loc': '/login', 'priority': '0.7', 'changefreq': 'monthly'},
-    {'loc': '/how-to-apply', 'priority': '0.7', 'changefreq': 'monthly'},
 ]
 
 
