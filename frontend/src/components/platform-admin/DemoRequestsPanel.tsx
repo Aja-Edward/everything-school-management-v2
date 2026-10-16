@@ -30,12 +30,15 @@ interface DemoRequest {
   created_at: string;
 }
 
+// Badges sit in gray so a long list doesn't turn into a wall of colour; each
+// status shows its own colour only while the pointer is over it.
+const BADGE_BASE = 'bg-gray-50 text-gray-600 border-gray-200 transition-colors duration-150 cursor-default';
 const STATUSES: { value: Status; label: string; cls: string }[] = [
-  { value: 'new', label: 'New', cls: 'bg-blue-50 text-blue-700 border-blue-200' },
-  { value: 'contacted', label: 'Contacted', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-  { value: 'demo_booked', label: 'Demo booked', cls: 'bg-purple-50 text-purple-700 border-purple-200' },
-  { value: 'won', label: 'Subscribed', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  { value: 'lost', label: 'Not interested', cls: 'bg-gray-100 text-gray-600 border-gray-200' },
+  { value: 'new', label: 'New', cls: `${BADGE_BASE} hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200` },
+  { value: 'contacted', label: 'Contacted', cls: `${BADGE_BASE} hover:bg-amber-50 hover:text-amber-700 hover:border-amber-200` },
+  { value: 'demo_booked', label: 'Demo booked', cls: `${BADGE_BASE} hover:bg-purple-50 hover:text-purple-700 hover:border-purple-200` },
+  { value: 'won', label: 'Subscribed', cls: `${BADGE_BASE} hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200` },
+  { value: 'lost', label: 'Not interested', cls: `${BADGE_BASE} hover:bg-gray-200 hover:text-gray-800 hover:border-gray-300` },
 ];
 const statusOf = (s: Status) => STATUSES.find((x) => x.value === s) ?? STATUSES[0];
 
@@ -85,7 +88,7 @@ const Row: React.FC<{ demo: DemoRequest; onSaved: (d: DemoRequest) => void }> = 
 
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
         <a href={`https://wa.me/${waNumber(demo.phone)}`} target="_blank" rel="noopener noreferrer"
-          className={`inline-flex items-center gap-1 hover:underline ${demo.preferred_contact === 'whatsapp' ? 'font-bold text-green-700' : 'text-gray-700'}`}>
+          className={`inline-flex items-center gap-1 hover:underline ${demo.preferred_contact === 'whatsapp' ? 'font-bold text-gray-900' : 'text-gray-700'}`}>
           <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
         </a>
         <a href={`tel:${demo.phone.replace(/\s+/g, '')}`}
