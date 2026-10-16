@@ -195,6 +195,12 @@ class PlatformContent(models.Model):
     # WhatsApp button only once this is set, so no number is ever guessed.
     contact_whatsapp = models.CharField(max_length=20, blank=True, default='')
 
+    # --- Sales ---
+    # Link to the product demo video (hosted on Cloudinary or YouTube, never in
+    # the repo). The Demo Requests panel sends it to schools by WhatsApp or
+    # email; its Send buttons stay hidden until this is set.
+    demo_video_url = models.URLField(max_length=500, blank=True, default='')
+
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(
         'users.CustomUser', on_delete=models.SET_NULL, null=True, blank=True,

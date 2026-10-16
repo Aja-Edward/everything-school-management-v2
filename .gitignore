@@ -44,3 +44,8 @@ node_modules
 
 # Celery beat local schedule state
 celerybeat-schedule*
+
+# Demo video media lives in Cloudinary, not git
+marketing-demo/audio/
+marketing-demo/slides/
+marketing-demo/*.mp4

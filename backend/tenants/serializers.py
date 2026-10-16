@@ -62,6 +62,7 @@ class PlatformContentSerializer(serializers.ModelSerializer):
             'about_values', 'about_stats',
             'contact_intro', 'contact_email', 'contact_phone',
             'contact_address', 'contact_office_hours', 'contact_whatsapp',
+            'demo_video_url',
             'updated_at', 'updated_by_name',
         ]
         read_only_fields = ['updated_at']

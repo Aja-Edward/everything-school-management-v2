@@ -18,7 +18,7 @@ const WhatsAppButton: React.FC = () => {
       target="_blank"
       rel="noopener noreferrer"
       onClick={() => trackPixelEvent('Contact', { content_name: 'WhatsApp button' })}
-      className="fixed bottom-5 right-5 z-40 inline-flex items-center gap-2 pl-3 pr-4 py-3 rounded-full bg-green-600 hover:bg-green-700 text-white text-sm font-medium shadow-lg focus:outline-none focus:ring-4 focus:ring-green-300"
+      className="fixed bottom-5 right-5 z-40 inline-flex items-center gap-2 pl-3 pr-4 py-3 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium shadow-lg focus:outline-none focus:ring-4 focus:ring-blue-300"
     >
       <MessageCircle className="w-5 h-5" aria-hidden="true" />
       <span>Chat on WhatsApp</span>

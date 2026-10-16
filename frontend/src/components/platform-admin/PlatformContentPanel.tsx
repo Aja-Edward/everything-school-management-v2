@@ -31,6 +31,7 @@ interface PlatformContentData {
   contact_address: string;
   contact_office_hours: string;
   contact_whatsapp: string;
+  demo_video_url: string;
   updated_at?: string;
   updated_by_name?: string | null;
 }
@@ -43,6 +44,7 @@ const EMPTY: PlatformContentData = {
   about_values: [], about_stats: [],
   contact_intro: '', contact_email: '', contact_phone: '',
   contact_address: '', contact_office_hours: '', contact_whatsapp: '',
+  demo_video_url: '',
 };
 
 const Field: React.FC<{ label: string; hint?: string; children: React.ReactNode }> = ({ label, hint, children }) => (
@@ -249,6 +251,19 @@ const PlatformContentPanel: React.FC = () => {
           <input className={inputCls} inputMode="tel" value={data.contact_whatsapp}
             onChange={e => set('contact_whatsapp', e.target.value)} placeholder="2348012345678" />
         </Field>
+      </section>
+
+      <section className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+        <h3 className="text-sm font-bold text-gray-900">Demo Video</h3>
+        <Field label="Video link" hint="Where the demo video is hosted, e.g. a Cloudinary or unlisted YouTube link. Once set, each demo request gets buttons to send it by WhatsApp or email.">
+          <input type="url" className={inputCls} value={data.demo_video_url}
+            onChange={e => set('demo_video_url', e.target.value)} placeholder="https://res.cloudinary.com/…/nuventa-cloud-demo.mp4" />
+        </Field>
+        {data.demo_video_url && (
+          <a href={data.demo_video_url} target="_blank" rel="noopener noreferrer" className="inline-block text-xs font-semibold text-gray-700 hover:underline">
+            Open the video to check the link →
+          </a>
+        )}
       </section>
 
       <div className="flex items-center justify-between">

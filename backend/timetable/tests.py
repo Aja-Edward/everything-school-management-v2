@@ -122,11 +122,6 @@ class TimetableStaysInItsSchoolTest(APITestCase):
     # ── The form only takes this school's records ──────────────────────────────
 
     def _other_schools_records(self):
-        from classroom.models import Class
-
-        grade = Class.objects.create(tenant=self.other, name="Other Class", code="OTC",
-                                     education_level=None, grade_number=1, order=1) \
-            if False else None
         section = Section.objects.create(tenant=self.other, name="Z")
         subject = Subject.objects.create(tenant=self.other, name="Their Maths", code="TMT")
         teacher = Teacher.objects.create(
