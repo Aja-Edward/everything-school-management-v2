@@ -16,14 +16,14 @@ const RUN = Array.from({ length: 4 }, () => SCHOOLS).flat();
 const Tile: React.FC<{ school: (typeof SCHOOLS)[number]; hidden: boolean }> = ({ school, hidden }) => (
   <li
     aria-hidden={hidden || undefined}
-    className="group/tile shrink-0 w-48 h-28 flex items-center justify-center rounded-xl bg-white dark:bg-gray-300 border border-gray-200 dark:border-gray-700 px-5"
+    className="shrink-0 w-48 h-28 flex items-center justify-center rounded-xl bg-white dark:bg-gray-300 border border-gray-200 dark:border-gray-700 px-5"
     title={school.name}
   >
     <img
       src={school.logo}
       alt={hidden ? '' : school.name}
       loading="lazy"
-      className="max-h-20 max-w-full object-contain grayscale opacity-60 transition duration-300 group-hover/tile:grayscale-0 group-hover/tile:opacity-100"
+      className="max-h-20 max-w-full object-contain"
     />
   </li>
 );
