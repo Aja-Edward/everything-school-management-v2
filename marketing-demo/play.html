@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nuventa Cloud Demo</title>
+<style>
+  :root { --bg: #000; --fg: #e5e7eb; --accent: #2563eb; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: 'Segoe UI', system-ui, sans-serif;
+         height: 100vh; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  #stage { position: relative; width: min(100vw, 177.78vh); aspect-ratio: 16 / 9; }
+  #stage img { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity .6s; }
+  #stage img.on { opacity: 1; }
+  #start { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+           background: rgba(0,0,0,.55); border: 0; color: #fff; font: 600 28px 'Segoe UI', sans-serif; cursor: pointer; z-index: 2; }
+  #start span { background: var(--accent); padding: 18px 36px; border-radius: 14px; }
+  #bar { position: absolute; left: 0; bottom: 0; height: 4px; background: var(--accent); width: 0; z-index: 1; }
+  body.recording #bar { display: none; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <button id="start"><span>▶ Play demo</span></button>
+  <div id="bar"></div>
+</div>
+<script>
+  // 13 slides, each shown for its narration plus a short pause.
+  // Add ?record to the URL to hide the progress bar for screen recording.
+  const N = 13, PAUSE = 900;
+  const pad = (i) => String(i).padStart(2, '0');
+  const stage = document.getElementById('stage');
+  const bar = document.getElementById('bar');
+  if (location.search.includes('record')) document.body.classList.add('recording');
+
+  const imgs = [], clips = [];
+  for (let i = 1; i <= N; i++) {
+    const img = new Image();
+    img.src = `slides/slide-${pad(i)}.png`;
+    img.alt = `Slide ${i}`;
+    stage.appendChild(img);
+    imgs.push(img);
+    clips.push(new Audio(`audio/voice-${pad(i)}.wav`));
+  }
+  imgs[0].classList.add('on');
+
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const play = (a) => new Promise((r) => { a.onended = r; a.play().catch(r); });
+
+  document.getElementById('start').addEventListener('click', async (e) => {
+    e.currentTarget.remove();
+    await wait(600);
+    for (let i = 0; i < N; i++) {
+      imgs.forEach((im, k) => im.classList.toggle('on', k === i));
+      bar.style.width = `${(i / N) * 100}%`;
+      await play(clips[i]);
+      await wait(PAUSE);
+    }
+    bar.style.width = '100%';
+  });
+</script>
+</body>
+</html>
