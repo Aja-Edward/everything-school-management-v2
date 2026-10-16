@@ -156,3 +156,28 @@ class WhatsAppNumberTest(APITestCase):
                                 format='json', HTTP_HOST='localhost')
         self.assertEqual(res.status_code, 200, res.content)
         self.assertEqual(PlatformContent.load().contact_whatsapp, '2348012345678')
+
+
+class DemoVideoUrlTest(APITestCase):
+    def setUp(self):
+        admin = User.objects.create_user(
+            username='video_admin', email='video@example.com', role='platform_admin',
+            password=None, is_active=True, tenant=None)
+        self.client.force_authenticate(admin)
+
+    def test_the_link_is_saved_and_served_publicly(self):
+        url = 'https://res.cloudinary.com/demo/video/upload/nuventa-cloud-demo.mp4'
+        res = self.client.patch('/api/tenants/platform-content/',
+                                {'demo_video_url': url},
+                                format='json', HTTP_HOST='localhost')
+        self.assertEqual(res.status_code, 200, res.content)
+        self.client.force_authenticate(None)
+        res = self.client.get('/api/tenants/platform-content/', HTTP_HOST='localhost')
+        self.assertEqual(res.json()['demo_video_url'], url)
+
+    def test_something_that_is_not_a_link_is_refused(self):
+        res = self.client.patch('/api/tenants/platform-content/',
+                                {'demo_video_url': 'nuventa demo video'},
+                                format='json', HTTP_HOST='localhost')
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(PlatformContent.load().demo_video_url, '')

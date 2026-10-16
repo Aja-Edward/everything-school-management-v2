@@ -8,7 +8,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Loader2, AlertCircle, Phone, Mail, MessageCircle, RefreshCw, Search } from 'lucide-react';
+import { Loader2, AlertCircle, Phone, Mail, MessageCircle, RefreshCw, Search, PlayCircle } from 'lucide-react';
 import api from '@/services/api';
 
 type Status = 'new' | 'contacted' | 'demo_booked' | 'won' | 'lost';
@@ -48,9 +48,19 @@ const waNumber = (phone: string) => {
   return d.startsWith('0') ? `234${d.slice(1)}` : d;
 };
 
+/** The note that goes with the demo video, by WhatsApp or email. */
+const videoMessage = (demo: DemoRequest, url: string) => {
+  const name = demo.contact_name.trim().split(/\s+/)[0];
+  return `Hello${name ? ` ${name}` : ''}, thank you for asking about Nuventa Cloud for ${demo.school_name}. `
+    + `Here is a short video showing how it works:\n\n${url}\n\n`
+    + `Reply here with any questions, or to book a time for a live demo.`;
+};
+
 const inputCls = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-black focus:border-black';
 
-const Row: React.FC<{ demo: DemoRequest; onSaved: (d: DemoRequest) => void }> = ({ demo, onSaved }) => {
+const sendBtnCls = 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-800 hover:border-gray-900 transition-colors';
+
+const Row: React.FC<{ demo: DemoRequest; videoUrl: string; onSaved: (d: DemoRequest) => void }> = ({ demo, videoUrl, onSaved }) => {
   const [status, setStatus] = useState<Status>(demo.status);
   const [notes, setNotes] = useState(demo.notes);
   const [saving, setSaving] = useState(false);
@@ -106,6 +116,24 @@ const Row: React.FC<{ demo: DemoRequest; onSaved: (d: DemoRequest) => void }> = 
 
       {demo.message && <p className="mt-3 text-sm text-gray-700 bg-gray-50 rounded-lg p-3 whitespace-pre-wrap">{demo.message}</p>}
 
+      {videoUrl && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+            <PlayCircle className="w-3.5 h-3.5" /> Send demo video:
+          </span>
+          <a href={`https://wa.me/${waNumber(demo.phone)}?text=${encodeURIComponent(videoMessage(demo, videoUrl))}`}
+            target="_blank" rel="noopener noreferrer" className={sendBtnCls}>
+            <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+          </a>
+          {demo.email && (
+            <a href={`mailto:${demo.email}?subject=${encodeURIComponent(`Nuventa Cloud demo video for ${demo.school_name}`)}&body=${encodeURIComponent(videoMessage(demo, videoUrl))}`}
+              className={sendBtnCls}>
+              <Mail className="w-3.5 h-3.5" /> Email
+            </a>
+          )}
+        </div>
+      )}
+
       <div className="mt-3 grid sm:grid-cols-[180px_1fr_auto] gap-2 items-start">
         <select className={inputCls} value={status} onChange={(e) => setStatus(e.target.value as Status)} aria-label="Follow-up status">
           {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -128,6 +156,15 @@ const DemoRequestsPanel: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Status | ''>('');
   const [search, setSearch] = useState('');
+  const [videoUrl, setVideoUrl] = useState('');
+
+  // Read fresh rather than through usePlatformContent, whose per-page cache
+  // would miss a link saved in Site Content a moment ago.
+  useEffect(() => {
+    api.get('/api/tenants/platform-content/')
+      .then((res: any) => setVideoUrl(res?.demo_video_url || ''))
+      .catch(() => setVideoUrl(''));
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -196,7 +233,7 @@ const DemoRequestsPanel: React.FC = () => {
       ) : (
         <div className="space-y-3">
           {rows.map((d) => (
-            <Row key={d.id} demo={d} onSaved={(saved) => setRows((rs) => rs.map((r) => (r.id === saved.id ? saved : r)))} />
+            <Row key={d.id} demo={d} videoUrl={videoUrl} onSaved={(saved) => setRows((rs) => rs.map((r) => (r.id === saved.id ? saved : r)))} />
           ))}
         </div>
       )}
