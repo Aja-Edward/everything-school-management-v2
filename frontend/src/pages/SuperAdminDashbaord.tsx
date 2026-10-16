@@ -4,7 +4,7 @@ import {
   LogOut, RefreshCw, AlertCircle, CheckCircle,
   Clock, XCircle, ChevronRight, Building2,
   PowerOff, Power, Trash2, Loader2, X,
-  FileText, UserCog, Copy, Link2, BadgeDollarSign, Inbox,
+  FileText, UserCog, Copy, Link2, BadgeDollarSign, Inbox, Eye, EyeOff,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
@@ -32,6 +32,7 @@ interface Tenant {
   custom_domain?: string | null;
   referred_by?: number | null;
   referred_by_name?: string | null;
+  show_on_homepage?: boolean;
 }
 
 interface PlatformStats {
@@ -361,6 +362,22 @@ const SuperAdminDashboard = () => {
       setTenants(prev => prev.map(t => t.id === tenant.id ? { ...t, ...updated } : t));
     } catch (err: any) {
       setActionError(err?.response?.data?.detail || err?.message || 'Failed to update referral.');
+    } finally {
+      setAssigningId(null);
+    }
+  };
+
+  // ── Show or hide a school's logo on the marketing homepage ─────────────────
+  const handleToggleHomepage = async (tenant: Tenant) => {
+    setActionError(null);
+    setAssigningId(tenant.id);
+    try {
+      const updated = await api.patch(`/api/tenants/list/${tenant.id}/`, {
+        show_on_homepage: !(tenant.show_on_homepage ?? true),
+      });
+      setTenants(prev => prev.map(t => t.id === tenant.id ? { ...t, ...updated } : t));
+    } catch (err: any) {
+      setActionError(err?.response?.data?.detail || err?.message || 'Failed to update the homepage setting.');
     } finally {
       setAssigningId(null);
     }
@@ -745,6 +762,18 @@ const SuperAdminDashboard = () => {
                                     Pricing
                                   </button>
 
+                                  {/* Whether its logo scrolls on the marketing homepage */}
+                                  <button
+                                    onClick={() => handleToggleHomepage(t)}
+                                    disabled={assigningId === t.id}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-40"
+                                    title={(t.show_on_homepage ?? true) ? 'Logo shows on the homepage once uploaded. Click to hide it.' : 'Logo is hidden from the homepage. Click to show it.'}
+                                  >
+                                    {(t.show_on_homepage ?? true)
+                                      ? <><Eye className="w-3.5 h-3.5" />On homepage</>
+                                      : <><EyeOff className="w-3.5 h-3.5" />Hidden</>}
+                                  </button>
+
                                   {/* Deactivate / Activate */}
                                   {isActive ? (
                                     <button
@@ -826,6 +855,15 @@ const SuperAdminDashboard = () => {
                               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
                             >
                               <BadgeDollarSign className="w-3 h-3" />Pricing
+                            </button>
+                            <button
+                              onClick={() => handleToggleHomepage(t)}
+                              disabled={assigningId === t.id}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-40"
+                            >
+                              {(t.show_on_homepage ?? true)
+                                ? <><Eye className="w-3 h-3" />On homepage</>
+                                : <><EyeOff className="w-3 h-3" />Hidden</>}
                             </button>
                             {isActive ? (
                               <button

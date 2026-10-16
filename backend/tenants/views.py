@@ -13,7 +13,8 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
-from django.db.models import Sum, Q
+from django.db.models import Sum, Q, TextField
+from django.db.models.functions import Cast
 from authentication.utils import get_tenant_session_timeout
 from django.utils import timezone
 from django.conf import settings
@@ -24,6 +25,7 @@ from django.core.cache import cache
 from django_ratelimit.decorators import ratelimit
 import dns.resolver
 import logging
+import re
 import json as _json
 import urllib.request
 import urllib.error
@@ -576,6 +578,61 @@ class PlatformContentView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save(updated_by=request.user)
         return Response(serializer.data)
+
+
+# ============ Schools shown on the marketing homepage ============
+
+_CLOUDINARY_URL = re.compile(r'https://res\.cloudinary\.com/\S+')
+
+
+def showcase_logo_url(stored):
+    """
+    A web-sized copy of a school's uploaded logo, or None.
+
+    The logo column holds the upload's URL, but not always cleanly: some rows
+    carry a stray 'image/upload/' in front of it. So the Cloudinary URL is
+    picked out of whatever is stored, and Cloudinary is asked for a copy no
+    taller than 200px in the best format the visitor's browser takes.
+    """
+    match = _CLOUDINARY_URL.search(stored or '')
+    if not match:
+        return None
+    url = match.group(0)
+    return url.replace('/image/upload/', '/image/upload/c_fit,h_200,f_auto,q_auto/', 1)
+
+
+class ShowcaseSchoolsView(APIView):
+    """
+    GET /api/tenants/showcase/ - the schools whose logos scroll across the
+    marketing homepage. Public, since the homepage is read logged out.
+
+    Every active school with an uploaded logo is listed, unless a platform
+    admin has switched show_on_homepage off for it. A school appears as soon
+    as it uploads a logo, with nothing to deploy.
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        rows = (
+            TenantSettings.objects
+            .filter(tenant__status='active', tenant__is_active=True,
+                    tenant__deleted_at__isnull=True, tenant__show_on_homepage=True)
+            .exclude(logo__isnull=True).exclude(logo='')
+            .annotate(logo_raw=Cast('logo', TextField()))
+            .order_by('tenant__activated_at', 'tenant__created_at')
+            .values('tenant__name', 'tenant__slug', 'logo_raw')
+        )
+        schools = []
+        for row in rows:
+            logo = showcase_logo_url(row['logo_raw'])
+            if logo:
+                schools.append({
+                    'name': row['tenant__name'],
+                    'slug': row['tenant__slug'],
+                    'logo': logo,
+                })
+        return Response(schools)
 
 
 # ============ Demo requests from the marketing site ============

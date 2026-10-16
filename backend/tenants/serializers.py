@@ -28,7 +28,7 @@ class TenantSerializer(serializers.ModelSerializer):
             'id', 'name', 'slug', 'custom_domain', 'custom_domain_verified',
             'status', 'is_active', 'owner_email', 'owner_name', 'owner_phone',
             'subdomain_url', 'created_at', 'activated_at',
-            'referred_by', 'referred_by_name',
+            'referred_by', 'referred_by_name', 'show_on_homepage',
         ]
         read_only_fields = ['id', 'slug', 'status',
                             'is_active', 'created_at', 'activated_at']

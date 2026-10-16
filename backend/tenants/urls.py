@@ -28,6 +28,7 @@ from .views import (
     PlatformInfoView,
     # Platform content and platform users
     PlatformContentView,
+    ShowcaseSchoolsView,
     PlatformUserViewSet,
     DemoRequestViewSet,
 )
@@ -98,6 +99,7 @@ urlpatterns = [
     ),
     path("api/platform/info/", PlatformInfoView.as_view(), name="platform-info"),
     path("platform-content/", PlatformContentView.as_view(), name="platform-content"),
+    path("showcase/", ShowcaseSchoolsView.as_view(), name="showcase-schools"),
     # Current tenant context
     path("current/", CurrentTenantView.as_view(), name="current-tenant"),
 

@@ -109,6 +109,11 @@ class Tenant(models.Model):
         help_text="Platform user (e.g. marketer) credited with bringing this school onto the platform",
     )
 
+    # The marketing homepage shows the logo of every active school that has
+    # uploaded one. A platform admin turns this off for test or demo schools,
+    # or a school that asks not to be listed.
+    show_on_homepage = models.BooleanField(default=True)
+
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
