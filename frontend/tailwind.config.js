@@ -192,8 +192,14 @@ export default {
         'pulse-soft': 'pulseSoft 2s ease-in-out infinite',
         'bounce-soft': 'bounceSoft 1s ease-in-out infinite',
         'shimmer': 'shimmer 2s linear infinite',
+        'marquee': 'marquee 40s linear infinite',
       },
       keyframes: {
+        // The track holds its contents twice, so half its width is one loop.
+        marquee: {
+          '0%': { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(-50%)' },
+        },
         fadeIn: {
           '0%': { opacity: '0' },
           '100%': { opacity: '1' },

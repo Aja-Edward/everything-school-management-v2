@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import Hero from '@/components/home/HeroSection';
+import Schools from '@/components/home/landing/Schools';
 import Problems from '@/components/home/landing/Problems';
 import Features from '@/components/home/landing/Features';
 import HowItWorksSteps from '@/components/home/landing/HowItWorksSteps';
@@ -25,6 +26,7 @@ const Landing = () => {
   return (
     <main className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'dark bg-slate-950' : 'bg-slate-50'}`}>
       <Hero />
+      <Schools />
       <Problems />
       <Features />
       <HowItWorksSteps />
