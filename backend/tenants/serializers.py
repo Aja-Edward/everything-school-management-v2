@@ -256,6 +256,17 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
             "require_email_verification",
             "session_timeout_minutes",
             "max_login_attempts",
+            # The Security tab saves through this serializer. Without these it
+            # silently dropped the master switch, the lockout duration and the
+            # whole password policy, so each came back as its default.
+            "security_features_enabled",
+            "account_lock_duration_minutes",
+            "password_min_length",
+            "password_reset_interval_days",
+            "password_require_numbers",
+            "password_require_symbols",
+            "password_require_uppercase",
+            "password_expiration_days",
             "student_portal_enabled",
             "teacher_portal_enabled",
             "parent_portal_enabled",
