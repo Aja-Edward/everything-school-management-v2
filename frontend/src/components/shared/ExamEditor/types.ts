@@ -23,6 +23,11 @@ export interface RichTextEditorProps {
   className?: string;
   /** Simplified mode - fewer toolbar options */
   simplified?: boolean;
+  /**
+   * Turn a line typed as "1. " or "- " into a list (default true). Off, a
+   * question number stays typed text, and lists come only from the toolbar.
+   */
+  autoLists?: boolean;
 }
 
 export interface ImageUploadResult {

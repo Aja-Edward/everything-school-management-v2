@@ -12,7 +12,7 @@
  */
 
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { useEditor, EditorContent } from '@tiptap/react';
+import { useEditor, EditorContent, flattenExtensions } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
@@ -437,6 +437,9 @@ const MenuBar: React.FC<MenuBarProps> = ({
 
 // ─── Main RichTextEditor ──────────────────────────────────────────────────────
 
+/** The lists a typed "1. " or "- " starts when autoLists is on. */
+const AUTO_LIST_NODES = ['orderedList', 'bulletList'];
+
 const RichTextEditor: React.FC<RichTextEditorProps> = ({
   value,
   onChange,
@@ -448,6 +451,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   maxHeight,
   className = '',
   simplified = false,
+  autoLists = true,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -469,30 +473,35 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   const onFormulaClick = useRef<(request: MathEditRequest) => void>(() => {});
   onFormulaClick.current = (request) => setFormula(request);
 
+  const extensions = [
+    // StarterKit v3 includes Link and Underline by default.
+    // Disable them here so we can add our own configured versions below.
+    StarterKit.configure({ link: false, underline: false }),
+    Underline,
+    Link.configure({
+      openOnClick: false,
+      HTMLAttributes: { class: 'text-blue-600 underline hover:text-blue-800' },
+    }),
+    // Inline, so pictures sit in a line of text like characters: several
+    // shapes fit side by side, and a picture can be dragged to any spot in
+    // the text. As blocks, each one took a whole line of the paper to itself.
+    Image.configure({
+      inline: true,
+      HTMLAttributes: { class: 'inline-block align-middle max-w-full h-auto mx-0.5 my-0.5 cursor-move' },
+      allowBase64: true,
+    }),
+    Table.configure({ resizable: true, HTMLAttributes: { class: 'border-collapse table-auto w-full my-4' } }),
+    TableRow.configure({ HTMLAttributes: { class: 'border border-gray-300' } }),
+    TableHeader.configure({ HTMLAttributes: { class: 'border border-gray-300 bg-gray-100 px-4 py-2 text-left font-semibold' } }),
+    TableCell.configure({ HTMLAttributes: { class: 'border border-gray-300 px-4 py-2' } }),
+    MathNode.configure({ onEdit: (request) => onFormulaClick.current(request) }),
+  ];
+
   const editor = useEditor({
-    extensions: [
-      // StarterKit v3 includes Link and Underline by default.
-      // Disable them here so we can add our own configured versions below.
-      StarterKit.configure({ link: false, underline: false }),
-      Underline,
-      Link.configure({
-        openOnClick: false,
-        HTMLAttributes: { class: 'text-blue-600 underline hover:text-blue-800' },
-      }),
-      // Inline, so pictures sit in a line of text like characters: several
-      // shapes fit side by side, and a picture can be dragged to any spot in
-      // the text. As blocks, each one took a whole line of the paper to itself.
-      Image.configure({
-        inline: true,
-        HTMLAttributes: { class: 'inline-block align-middle max-w-full h-auto mx-0.5 my-0.5 cursor-move' },
-        allowBase64: true,
-      }),
-      Table.configure({ resizable: true, HTMLAttributes: { class: 'border-collapse table-auto w-full my-4' } }),
-      TableRow.configure({ HTMLAttributes: { class: 'border border-gray-300' } }),
-      TableHeader.configure({ HTMLAttributes: { class: 'border border-gray-300 bg-gray-100 px-4 py-2 text-left font-semibold' } }),
-      TableCell.configure({ HTMLAttributes: { class: 'border border-gray-300 px-4 py-2' } }),
-      MathNode.configure({ onEdit: (request) => onFormulaClick.current(request) }),
-    ],
+    extensions,
+    // Every typing shortcut except the two that start a list.
+    enableInputRules: autoLists
+      || flattenExtensions(extensions).filter((extension) => !AUTO_LIST_NODES.includes(extension.name)),
     content: value,
     onUpdate: ({ editor }) => onChange(editor.getHTML()),
     editable: !readOnly,

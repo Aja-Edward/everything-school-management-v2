@@ -75,9 +75,9 @@ SECTION_HEADER_RE = re.compile(
     re.IGNORECASE
 )
 
-# A multiple-choice option line: "A. text", "B) text", "C: text" - upper or
-# lower case letter, A through E.
-OPTION_LINE_RE = re.compile(r'^([A-Ea-e])[\.\):]\s*(.+)$')
+# A multiple-choice option line: "A. text", "B) text", "C: text", "(D) text"
+# - upper or lower case letter, A through E.
+OPTION_LINE_RE = re.compile(r'^\(?([A-Ea-e])[\.\):]\s*(.+)$')
 
 # A leading question number: "1. text", "12) text".
 NUMBERED_LINE_RE = re.compile(r'^(\d+)[\.\)]\s*(.+)$')

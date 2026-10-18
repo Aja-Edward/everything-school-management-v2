@@ -663,6 +663,36 @@ class ReadingATypedPaperTest(SimpleTestCase):
         self.assertEqual(questions[1]["options"]["optionB"], "6")
         self.assertEqual(questions[1]["question"], "<p>What is 2 * 3?</p>")
 
+    def test_options_written_in_brackets_are_options(self):
+        """
+        A teacher wrote her options as "(A) 4". They weren't read as options,
+        so her objective questions came in as theory questions, one for each
+        line of the question and its options.
+        """
+        parsed = ExamDocumentParser(dedent("""\
+            SECTION A: OBJECTIVES:
+            INSTRUCTION: Answer all the questions in this section
+            1. Which among these is a prime number?
+            (A) 4
+            (B) 3
+            (C) 12
+            (D) 8
+            Correct answer: B
+            2. Which of the animals are farm animal?
+            (a) Elephant
+            (b) Hippo
+            (c) Goat
+            (d) Crocodile
+            """).encode("utf-8"), "pasted-exam.txt").parse()
+        section = parsed["sections"][0]
+
+        self.assertEqual([(s["type"], len(s["questions"])) for s in parsed["sections"]], [("objective", 2)])
+        self.assertEqual(section["instructions"], "INSTRUCTION: Answer all the questions in this section")
+        self.assertEqual(section["questions"][0]["options"],
+                         {"optionA": "4", "optionB": "3", "optionC": "12", "optionD": "8"})
+        self.assertEqual(section["questions"][0]["correctAnswer"], "B")
+        self.assertEqual(section["questions"][1]["options"]["optionC"], "Goat")
+
     def test_a_title_line_is_still_left_out_of_the_questions(self):
         self.assertEqual(self.sections(dedent("""\
             First Term Mathematics Examination

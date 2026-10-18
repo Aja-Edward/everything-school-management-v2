@@ -21,6 +21,30 @@ const BLOCK_TAGS = new Set([
 ]);
 const BLOCK_SELECTOR = [...BLOCK_TAGS].join(',');
 
+/** A line that carries its own label: "1. ", "A. ", "(A) " or "Section A". */
+const OWN_LABEL = /^(?:\d+[.)]\s|\(?[A-Ea-e][.):]\s|section\s+[a-z]\b)/i;
+
+/**
+ * Whether a numbered list holds a paper typed into it by mistake rather than
+ * a list of questions: some of its lines carry their own labels. Numbering
+ * every line of such a list made each option and heading a theory question.
+ */
+const isTypedIntoList = (list: Element): boolean =>
+  Array.from(list.children).some((item) => OWN_LABEL.test((item.textContent ?? '').trim()));
+
+/**
+ * The number a list item adds in front of its text. In a list a paper was
+ * typed into, only its first line keeps the number the list was started
+ * with - the "1. " typed there - unless that line has a label of its own.
+ */
+const listItemNumber = (item: Element): string => {
+  const list = item.parentElement!;
+  const start = Number(list.getAttribute('start')) || 1;
+  const index = Array.from(list.children).indexOf(item);
+  if (!isTypedIntoList(list)) return `${start + index}. `;
+  return index === 0 && !OWN_LABEL.test((item.textContent ?? '').trim()) ? `${start}. ` : '';
+};
+
 /**
  * The page as plain text, one line for each line the teacher typed. The
  * parser reads lines, so an Enter or a Shift+Enter both have to become one.
@@ -49,8 +73,7 @@ export const plainPageToText = (html: string): string => {
     // A numbered list's numbers aren't in its text, and the parser needs them
     // to tell theory questions apart.
     if (element.tagName === 'LI' && element.parentElement?.tagName === 'OL') {
-      const start = Number(element.parentElement.getAttribute('start')) || 1;
-      number = `${start + Array.from(element.parentElement.children).indexOf(element)}. `;
+      number = listItemNumber(element);
     }
     element.childNodes.forEach((child, index) => {
       // Cells on one row stay on one line, a space apart.
@@ -179,6 +202,8 @@ export const ExamPlainPage: React.FC<ExamPlainPageProps> = ({
             placeholder="Start typing your exam here…"
             enableImageUpload={true}
             enableTables={true}
+            // A typed "1. " put the rest of the paper in a numbered list.
+            autoLists={false}
             minHeight={700}
           />
         </div>
