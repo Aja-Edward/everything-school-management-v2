@@ -28,6 +28,8 @@ interface Props {
   answer?: CBTAnswer;
   sectionTitle?: string;
   sectionInstructions?: string;
+  /** The section's instructions on its later questions, folded away. */
+  sectionRecap?: string;
   fontSize: string;
   disabled?: boolean;
   /** The whole choice after a click: one key, "" for none, or every key ticked ("AC"). */
@@ -156,14 +158,25 @@ const NumberAnswer: React.FC<{
  * student's "A" may be another student's "C".
  */
 const QuestionView: React.FC<Props> = ({
-  question, total, answer, sectionTitle, sectionInstructions, fontSize, disabled, onChoose, onType, sectionClip, questionClip,
+  question, total, answer, sectionTitle, sectionInstructions, sectionRecap, fontSize, disabled, onChoose, onType, sectionClip, questionClip,
 }) => (
   <div style={{ fontSize }} className="text-slate-900 dark:text-slate-100">
     {sectionTitle && (
       <div className="mb-4 rounded-lg bg-indigo-50 px-4 py-2 dark:bg-indigo-900/30">
         <p className="text-[0.8em] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">{sectionTitle}</p>
-        {sectionInstructions && <p className="mt-0.5 text-[0.85em] text-indigo-900 dark:text-indigo-200">{sectionInstructions}</p>}
+        {/* pre-line: a comprehension passage keeps its paragraphs. */}
+        {sectionInstructions && <p className="mt-0.5 whitespace-pre-line text-[0.85em] text-indigo-900 dark:text-indigo-200">{sectionInstructions}</p>}
       </div>
+    )}
+    {/* Further into the section the passage is one tap away, for questions
+        that send the student back to it. */}
+    {!sectionTitle && sectionRecap && (
+      <details className="mb-4 rounded-lg bg-indigo-50 px-4 py-2 dark:bg-indigo-900/30">
+        <summary className="cursor-pointer text-[0.8em] font-semibold text-indigo-700 dark:text-indigo-300">
+          Read the passage / instructions again
+        </summary>
+        <p className="mt-2 whitespace-pre-line text-[0.85em] text-indigo-900 dark:text-indigo-200">{sectionRecap}</p>
+      </details>
     )}
     {sectionClip}
 

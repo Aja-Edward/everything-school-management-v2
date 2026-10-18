@@ -82,5 +82,6 @@ class PaperWithInlineOptionsTest(SimpleTestCase):
         self.assertIn("The teacher was furious.", question)
 
     def test_a_section_heading_with_only_a_space_is_a_section(self):
-        self.assertEqual(self.sections[1]["name"], "Section B")
+        self.assertEqual(self.sections[1]["name"],
+                         "Section B: LITERARY APPRECIATION - Choose the best option")
         self.assertEqual(self.sections[1]["type"], "objective")

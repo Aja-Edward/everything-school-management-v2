@@ -469,6 +469,7 @@ const ExamScreen: React.FC<Props> = ({ detail, onEnded, onReplaced }) => {
               answer={answer}
               sectionTitle={showSection ? section?.title : undefined}
               sectionInstructions={showSection ? section?.instructions : undefined}
+              sectionRecap={showSection ? undefined : section?.instructions}
               fontSize={FONT_SIZES[fontStep] ?? FONT_SIZES[1]}
               disabled={!!finishing}
               onChoose={choose}

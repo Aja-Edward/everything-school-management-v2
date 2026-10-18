@@ -1138,7 +1138,10 @@ class ExamDocumentParser:
             if questions:
                 sections.append({
                     'type': section_type,
-                    'name': f'Section {letter}',
+                    # The whole heading, "Section B: LITERARY APPRECIATION -
+                    # Choose the best option", which a later section's first
+                    # question is shown under once sections are joined.
+                    'name': f'Section {letter}: {subtitle}' if subtitle else f'Section {letter}',
                     'instructions': instructions,
                     'questions': questions
                 })

@@ -1256,8 +1256,9 @@ const submitForApproval = async () => {
                     {section.kind === 'objective' && (
                       <div className="space-y-4">
                         <div>
-                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Section Instructions (Objective)</label>
-                          <textarea value={objectiveInstructions} onChange={(e) => setObjectiveInstructions(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" rows={2} placeholder="Enter instructions for this section" />
+                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Section Instructions or Comprehension Passage (Objective)</label>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">Shown above this section's questions on the printed paper and in CBT, where students can open it again on every question. Put each paragraph on its own line.</p>
+                          <textarea value={objectiveInstructions} onChange={(e) => setObjectiveInstructions(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white resize-y" rows={Math.min(16, Math.max(3, objectiveInstructions.split('\n').length + 1))} placeholder="Instructions for this section, e.g. &quot;Choose the correct option&quot; - or a comprehension passage for the questions that follow" />
                           <div className="mt-2"><SoundClipField value={sectionAudio.objective} onChange={(clip) => setSectionClip('objective', clip)} forWhat="this section" /></div>
                         </div>
                         <div className="flex items-center justify-between">
@@ -1306,8 +1307,9 @@ const submitForApproval = async () => {
                     {section.kind === 'theory' && (
                       <div className="space-y-4">
                         <div>
-                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Section Instructions (Theory)</label>
-                          <textarea value={theoryInstructions} onChange={(e) => setTheoryInstructions(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white" rows={2} placeholder="Enter instructions for this section" />
+                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Section Instructions or Comprehension Passage (Theory)</label>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">Shown above this section's questions on the printed paper and in CBT, where students can open it again on every question. Put each paragraph on its own line.</p>
+                          <textarea value={theoryInstructions} onChange={(e) => setTheoryInstructions(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white resize-y" rows={Math.min(16, Math.max(3, theoryInstructions.split('\n').length + 1))} placeholder="Instructions for this section, e.g. &quot;Choose the correct option&quot; - or a comprehension passage for the questions that follow" />
                           <div className="mt-2"><SoundClipField value={sectionAudio.theory} onChange={(clip) => setSectionClip('theory', clip)} forWhat="this section" /></div>
                         </div>
                         <div className="flex items-center justify-between">

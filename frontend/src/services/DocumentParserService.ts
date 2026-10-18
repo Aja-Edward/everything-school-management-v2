@@ -465,54 +465,90 @@ function normalizeMarks(marks: unknown, fallback = 1): number {
   return typeof marks === 'number' && marks > 0 ? marks : fallback;
 }
 
+/** Plain text as HTML-safe text: a heading or instruction going into a question. */
+const escapeHtml = (text: string) =>
+  text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/**
+ * Add a section's questions to the exam's part of the same kind.
+ *
+ * Each section used to replace the questions before it, so a paper with a
+ * Section A and a Section B of objective questions kept only Section B,
+ * and Section A's comprehension passage with it. Now the first section's
+ * instructions (a passage, say) become that part's instructions, and a later
+ * section's heading and instructions go above its first question, so the
+ * paper reads in the order it was set.
+ */
+function appendSection(
+  examData: any, questionsKey: string, instructionsKey: string, textKey: string,
+  section: ParsedSection, questions: any[],
+): void {
+  const existing: any[] = examData[questionsKey];
+  if (existing.length === 0) {
+    examData[instructionsKey] = section.instructions ?? '';
+  } else if (questions.length > 0) {
+    const heading = [section.name, section.instructions].filter(Boolean).join('\n');
+    if (heading) {
+      const lead = heading.split('\n').filter(Boolean)
+        .map((line) => `<p><strong>${escapeHtml(line)}</strong></p>`).join('');
+      questions[0] = { ...questions[0], [textKey]: lead + (questions[0][textKey] ?? '') };
+    }
+  }
+  examData[questionsKey] = [...existing, ...questions];
+}
+
 /** Mutate `examData` with the content of one parsed section. */
 function processSection(section: ParsedSection, examData: any): void {
   const validQuestions = section.questions.filter((q) => q?.question);
+  // Ids count on from every question already added, so sections joined
+  // together, converted in the same millisecond, never share one.
+  const base = Date.now() + examData.objective_questions.length + examData.theory_questions.length
+    + examData.practical_questions.length;
 
   switch (section.type) {
     case 'objective':
-      examData.objective_questions = validQuestions.map((q, i) => ({
-        id: Date.now() + i,
-        question: q.question,
-        optionA: q.options?.optionA ?? '',
-        optionB: q.options?.optionB ?? '',
-        optionC: q.options?.optionC ?? '',
-        optionD: q.options?.optionD ?? '',
-        optionE: q.options?.optionE ?? '',
-        correctAnswer: q.correctAnswer ?? '',
-        // Worked out on import because the paper didn't mark it: shown for a teacher to check.
-        ...(q.answerSuggested ? { answerSuggested: true } : {}),
-        marks: normalizeMarks(q.marks),
-      }));
-      examData.objective_instructions = section.instructions ?? '';
+      appendSection(examData, 'objective_questions', 'objective_instructions', 'question', section,
+        validQuestions.map((q, i) => ({
+          id: base + i,
+          question: q.question,
+          optionA: q.options?.optionA ?? '',
+          optionB: q.options?.optionB ?? '',
+          optionC: q.options?.optionC ?? '',
+          optionD: q.options?.optionD ?? '',
+          optionE: q.options?.optionE ?? '',
+          correctAnswer: q.correctAnswer ?? '',
+          // Worked out on import because the paper didn't mark it: shown for a teacher to check.
+          ...(q.answerSuggested ? { answerSuggested: true } : {}),
+          marks: normalizeMarks(q.marks),
+        })));
       break;
 
     case 'theory':
-      examData.theory_questions = validQuestions.map((q, i) => ({
-        id: Date.now() + i,
-        question: q.question,
-        expectedPoints: q.expectedPoints ?? '',
-        marks: normalizeMarks(q.marks),
-        subQuestions: (q.subQuestions ?? [])
-          .filter((sq) => sq?.question)
-          .map((sq, si) => ({
-            id: Date.now() + i * 1000 + si,
-            question: sq.question,
-            expectedPoints: sq.expectedPoints ?? '',
-            marks: normalizeMarks(sq.marks),
-          })),
-      }));
-      examData.theory_instructions = section.instructions ?? '';
+      appendSection(examData, 'theory_questions', 'theory_instructions', 'question', section,
+        validQuestions.map((q, i) => ({
+          id: base + i,
+          question: q.question,
+          expectedPoints: q.expectedPoints ?? '',
+          marks: normalizeMarks(q.marks),
+          subQuestions: (q.subQuestions ?? [])
+            .filter((sq) => sq?.question)
+            .map((sq, si) => ({
+              id: base + i * 1000 + si + 1,
+              question: sq.question,
+              expectedPoints: sq.expectedPoints ?? '',
+              marks: normalizeMarks(sq.marks),
+            })),
+        })));
       break;
 
     case 'practical':
-      examData.practical_questions = validQuestions.map((q, i) => ({
-        id: Date.now() + i,
-        task: q.question,
-        expectedOutcome: q.expectedPoints ?? '',
-        marks: normalizeMarks(q.marks),
-      }));
-      examData.practical_instructions = section.instructions ?? '';
+      appendSection(examData, 'practical_questions', 'practical_instructions', 'task', section,
+        validQuestions.map((q, i) => ({
+          id: base + i,
+          task: q.question,
+          expectedOutcome: q.expectedPoints ?? '',
+          marks: normalizeMarks(q.marks),
+        })));
       break;
 
     default:
@@ -524,7 +560,7 @@ function processSection(section: ParsedSection, examData: any): void {
           name: section.name || 'Custom Section',
           instructions: section.instructions ?? '',
           questions: validQuestions.map((q, i) => ({
-            id: Date.now() + i,
+            id: base + i,
             question: q.question,
             marks: normalizeMarks(q.marks),
           })),

@@ -494,10 +494,14 @@ function generateStudentCopy(
     }
     .section-instruction {
       margin: 6px 0 8px 0;
-      font-weight: bold;
       font-size: 13px;
       padding: 4px 0;
+      /* A comprehension passage keeps its paragraphs, and only its first
+         line (the instruction, or its heading) is bold; a one-line
+         instruction prints bold, as before. */
+      white-space: pre-line;
     }
+    .section-instruction::first-line { font-weight: bold; }
 
     /* ===== QUESTIONS ===== */
     .question {
@@ -829,7 +833,8 @@ function generateTeacherCopy(
 
     .section { margin: 12px 0; }
     .section h3 { background-color: #f0f0f0; padding: 6px 10px; margin: 8px 0 6px 0; border-left: 4px solid #333; font-size: 16px; font-weight: bold; page-break-after: avoid; }
-    .section-instruction { margin: 6px 0 8px 0; font-weight: bold; font-size: 13px; padding: 4px 0; }
+    .section-instruction { margin: 6px 0 8px 0; font-size: 13px; padding: 4px 0; white-space: pre-line; }
+    .section-instruction::first-line { font-weight: bold; }
 
     .question { margin: var(--question-gap, 8px) 0; padding-left: 10px; page-break-inside: avoid; }
     /* See the student copy: keep the question text on the same line as its number. */
