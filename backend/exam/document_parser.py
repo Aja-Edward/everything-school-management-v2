@@ -83,6 +83,25 @@ OPTION_LINE_RE = re.compile(r'^\(?([A-Ea-e])[\.\):]\s*(.+)$')
 
 OPTION_LETTERS = 'abcde'
 
+# A line this long is a paragraph of a passage, not a heading or an
+# instruction such as "Read the passage carefully and answer the questions".
+PASSAGE_LINE_CHARS = 120
+
+
+def split_passage(lines: List[str]) -> Tuple[List[str], List[str]]:
+    """
+    (instructions, passage) from the lines above a section's first question.
+
+    The passage starts at its first paragraph; the short lines before it,
+    "COMPREHENSION" and "Read the passage carefully...", are the section's
+    instructions. Lines with no paragraph among them are all instructions.
+    """
+    lines = [line for line in lines if line and line.strip()]
+    for i, line in enumerate(lines):
+        if len(line.strip()) >= PASSAGE_LINE_CHARS:
+            return lines[:i], lines[i:]
+    return lines, []
+
 
 def split_inline_options(line: str) -> List[str]:
     """
@@ -1112,6 +1131,7 @@ class ExamDocumentParser:
             section_type = self._detect_section_type_from_subtitle(subtitle.lower())
 
             instructions = ''
+            passage = ''
             if body:
                 lead = body[0]
                 lead_lower = lead.lower()
@@ -1130,8 +1150,9 @@ class ExamDocumentParser:
                 questions = self._extract_objective_from_paragraphs(body, lead_out=lead)
                 # A comprehension passage, or an instruction, above the first
                 # question belongs to the section, not to question 1.
-                if lead:
-                    instructions = '\n'.join(filter(None, [instructions, *lead]))
+                instruction_lines, passage_lines = split_passage([instructions, *lead])
+                instructions = '\n'.join(instruction_lines)
+                passage = '\n'.join(passage_lines)
             else:
                 questions = self._extract_questions('\n'.join(body), section_type)
 
@@ -1143,6 +1164,7 @@ class ExamDocumentParser:
                     # question is shown under once sections are joined.
                     'name': f'Section {letter}: {subtitle}' if subtitle else f'Section {letter}',
                     'instructions': instructions,
+                    'passage': passage,
                     'questions': questions
                 })
 

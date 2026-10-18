@@ -122,16 +122,19 @@ export const convertPlainPage = async (html: string): Promise<any> => {
 
 export type SectionInstructions = {
   objective_instructions?: string; theory_instructions?: string; practical_instructions?: string;
+  objective_passage?: string; theory_passage?: string;
 };
 
 /**
- * The instructions a converted page sets: a comprehension passage or a
- * section's own instructions. Only the ones the page has, so a section the
- * page says nothing about keeps what the form already holds.
+ * The instructions and comprehension passages a converted page sets. Only
+ * the ones the page has, so a section the page says nothing about keeps what
+ * the form already holds.
  */
 export const convertedInstructions = (converted: SectionInstructions): SectionInstructions => {
   const found: SectionInstructions = {};
-  (['objective_instructions', 'theory_instructions', 'practical_instructions'] as const).forEach((key) => {
+  ([
+    'objective_instructions', 'theory_instructions', 'practical_instructions', 'objective_passage', 'theory_passage',
+  ] as const).forEach((key) => {
     const text = (converted[key] || '').trim();
     if (text) found[key] = text;
   });

@@ -14,6 +14,7 @@ import {
   normalizeExamDataForEdit
 } from '@/utils/examDataNormalizer';
 import { ExamDocumentUploader } from '@/components/shared/ExamDocumentUploader';
+import SectionPassageField, { hasPassages } from '@/components/shared/SectionPassageField';
 import ExamPlainPage, { convertPlainPage, convertedInstructions, countQuestions, plainPageHasContent, SectionInstructions } from '@/components/shared/ExamPlainPage';
 
 /** The question sections an exam is saved with, and any instructions a conversion brought. */
@@ -115,6 +116,9 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({
   const [examStatuses,     setExamStatuses]     = useState<any[]>([]);
   const [objectiveInstructions, setObjectiveInstructions] = useState<string>('');
   const [theoryInstructions, setTheoryInstructions] = useState<string>('');
+  // Comprehension passages, kept apart from the instructions.
+  const [objectivePassage, setObjectivePassage] = useState<string>('');
+  const [theoryPassage, setTheoryPassage] = useState<string>('');
   // Sound clips for the objective and theory sections; custom sections keep their own.
   const [sectionAudio, setSectionAudio] = useState<Record<string, SoundClip>>({});
   const setSectionClip = (section: string, clip: SoundClip | undefined) => setSectionAudio((current) => {
@@ -209,6 +213,8 @@ useEffect(() => {
     setTheoryInstructions(normalized.theory_instructions || '');
     setSectionAudio(normalized.section_audio || {});
     setPracticalInstructions(normalized.practical_instructions || '');
+    setObjectivePassage(normalized.objective_passage || '');
+    setTheoryPassage(normalized.theory_passage || '');
     const order: Array<{ kind: 'objective' | 'theory' | 'practical' | 'custom'; id?: number }> = [
       { kind: 'objective' },
       { kind: 'theory' },
@@ -760,6 +766,11 @@ const totalMarksForSave = (sections: SectionsToSave) => {
     : formData.total_marks;
 };
 
+// English and Literature papers have a passage box; any other paper only
+// shows one that already holds a passage, so none is hidden.
+const subjectName = subjects.find((s: any) => s.id === formData.subject)?.name ?? (editingExam as any)?.subject_name;
+const showPassages = hasPassages(subjectName) || !!objectivePassage.trim() || !!theoryPassage.trim();
+
 const handlePlainPageConvert = (examData: any, announce = true) => {
   // The passage and section instructions come with the questions; taking
   // only the questions dropped a comprehension passage.
@@ -767,6 +778,8 @@ const handlePlainPageConvert = (examData: any, announce = true) => {
   if (found.objective_instructions) setObjectiveInstructions(found.objective_instructions);
   if (found.theory_instructions) setTheoryInstructions(found.theory_instructions);
   if (found.practical_instructions) setPracticalInstructions(found.practical_instructions);
+  if (found.objective_passage) setObjectivePassage(found.objective_passage);
+  if (found.theory_passage) setTheoryPassage(found.theory_passage);
   setObjectiveQuestions(examData.objective_questions);
   setTheoryQuestions(examData.theory_questions);
   setPracticalQuestions(examData.practical_questions);
@@ -832,6 +845,8 @@ const saveAsDraft = async () => {
       objective_instructions: objectiveInstructions,
       theory_instructions: theoryInstructions,
       practical_instructions: practicalInstructions,
+      objective_passage: objectivePassage,
+      theory_passage: theoryPassage,
       ...sections,
       section_audio: sectionAudio,
       ...plainPageFields(),
@@ -877,6 +892,8 @@ const submitForApproval = async () => {
       objective_instructions: objectiveInstructions,
       theory_instructions: theoryInstructions,
       practical_instructions: practicalInstructions,
+      objective_passage: objectivePassage,
+      theory_passage: theoryPassage,
       ...sections,
       section_audio: sectionAudio,
       ...plainPageFields(),
@@ -1263,9 +1280,11 @@ const submitForApproval = async () => {
                     {section.kind === 'objective' && (
                       <div className="space-y-4">
                         <div>
-                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Section Instructions or Comprehension Passage (Objective)</label>
-                          <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">Shown above this section's questions on the printed paper and in CBT, where students can open it again on every question. Put each paragraph on its own line.</p>
-                          <textarea value={objectiveInstructions} onChange={(e) => setObjectiveInstructions(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white resize-y" rows={Math.min(16, Math.max(3, objectiveInstructions.split('\n').length + 1))} placeholder="Instructions for this section, e.g. &quot;Choose the correct option&quot; - or a comprehension passage for the questions that follow" />
+                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Section Instructions (Objective)</label>
+                          <textarea value={objectiveInstructions} onChange={(e) => setObjectiveInstructions(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white resize-y" rows={Math.min(8, Math.max(3, objectiveInstructions.split('\n').length + 1))} placeholder="Instructions for this section, e.g. &quot;Choose the correct option&quot;" />
+                          {showPassages && (
+                            <div className="mt-3"><SectionPassageField section="Section" value={objectivePassage} onChange={setObjectivePassage} /></div>
+                          )}
                           <div className="mt-2"><SoundClipField value={sectionAudio.objective} onChange={(clip) => setSectionClip('objective', clip)} forWhat="this section" /></div>
                         </div>
                         <div className="flex items-center justify-between">
@@ -1314,9 +1333,11 @@ const submitForApproval = async () => {
                     {section.kind === 'theory' && (
                       <div className="space-y-4">
                         <div>
-                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Section Instructions or Comprehension Passage (Theory)</label>
-                          <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">Shown above this section's questions on the printed paper and in CBT, where students can open it again on every question. Put each paragraph on its own line.</p>
-                          <textarea value={theoryInstructions} onChange={(e) => setTheoryInstructions(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white resize-y" rows={Math.min(16, Math.max(3, theoryInstructions.split('\n').length + 1))} placeholder="Instructions for this section, e.g. &quot;Choose the correct option&quot; - or a comprehension passage for the questions that follow" />
+                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Section Instructions (Theory)</label>
+                          <textarea value={theoryInstructions} onChange={(e) => setTheoryInstructions(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white resize-y" rows={Math.min(8, Math.max(3, theoryInstructions.split('\n').length + 1))} placeholder="Instructions for this section, e.g. &quot;Answer any FIVE questions&quot;" />
+                          {showPassages && (
+                            <div className="mt-3"><SectionPassageField section="Section" value={theoryPassage} onChange={setTheoryPassage} /></div>
+                          )}
                           <div className="mt-2"><SoundClipField value={sectionAudio.theory} onChange={(clip) => setSectionClip('theory', clip)} forWhat="this section" /></div>
                         </div>
                         <div className="flex items-center justify-between">

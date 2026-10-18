@@ -40,6 +40,8 @@ export interface ParsedSection {
   type: 'objective' | 'theory' | 'practical' | 'custom';
   name: string;
   instructions?: string;
+  /** A comprehension passage the section's questions are about. */
+  passage?: string;
   questions: ParsedQuestion[];
 }
 
@@ -230,6 +232,8 @@ export function convertParsedDataToExamFormat(parsedData: ParsedExamData) {
     objective_instructions: '',
     theory_instructions: '',
     practical_instructions: '',
+    objective_passage: '',
+    theory_passage: '',
   };
 
   for (const section of parsedData.sections) {
@@ -469,25 +473,33 @@ function normalizeMarks(marks: unknown, fallback = 1): number {
 const escapeHtml = (text: string) =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+/** Where each part keeps a comprehension passage; practical has none. */
+const PASSAGE_KEYS: Record<string, string | undefined> = {
+  objective_questions: 'objective_passage',
+  theory_questions: 'theory_passage',
+};
+
 /**
  * Add a section's questions to the exam's part of the same kind.
  *
  * Each section used to replace the questions before it, so a paper with a
  * Section A and a Section B of objective questions kept only Section B,
  * and Section A's comprehension passage with it. Now the first section's
- * instructions (a passage, say) become that part's instructions, and a later
- * section's heading and instructions go above its first question, so the
+ * instructions and passage become that part's, and a later section's
+ * heading, instructions and passage go above its first question, so the
  * paper reads in the order it was set.
  */
 function appendSection(
   examData: any, questionsKey: string, instructionsKey: string, textKey: string,
   section: ParsedSection, questions: any[],
 ): void {
+  const passageKey = PASSAGE_KEYS[questionsKey];
   const existing: any[] = examData[questionsKey];
   if (existing.length === 0) {
     examData[instructionsKey] = section.instructions ?? '';
+    if (passageKey) examData[passageKey] = section.passage ?? '';
   } else if (questions.length > 0) {
-    const heading = [section.name, section.instructions].filter(Boolean).join('\n');
+    const heading = [section.name, section.instructions, section.passage].filter(Boolean).join('\n');
     if (heading) {
       const lead = heading.split('\n').filter(Boolean)
         .map((line) => `<p><strong>${escapeHtml(line)}</strong></p>`).join('');

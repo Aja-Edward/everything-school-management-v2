@@ -242,7 +242,7 @@ def build_paper(exam, include_objective=True, include_theory=False):
     """
     Read `exam` into (sections, questions, problems).
 
-    sections  -- [{"key", "title", "instructions"}], in paper order, with
+    sections  -- [{"key", "title", "instructions", "passage"?}], in paper order, with
                  "audio" for a section that has a sound clip
     questions -- unsaved field dicts for CBTQuestion, in paper order
     problems  -- one sentence per question that can't go on a paper as it
@@ -254,8 +254,10 @@ def build_paper(exam, include_objective=True, include_theory=False):
         questions.append({"section": section, "source_number": number,
                           "order": len(questions) + 1, **fields})
 
-    def add_section(key, title, instructions, raw_clip):
+    def add_section(key, title, instructions, raw_clip, passage=""):
         section = {"key": key, "title": title, "instructions": instructions}
+        if passage:
+            section["passage"] = passage
         clip, clip_problems = sound_clip(raw_clip)
         if clip:
             section["audio"] = clip
@@ -271,7 +273,8 @@ def build_paper(exam, include_objective=True, include_theory=False):
     section_audio = exam.section_audio if isinstance(exam.section_audio, dict) else {}
 
     if include_objective and exam.objective_questions:
-        add_section(OBJECTIVE_SECTION, "Objective", exam.objective_instructions or "", section_audio.get(OBJECTIVE_SECTION))
+        add_section(OBJECTIVE_SECTION, "Objective", exam.objective_instructions or "", section_audio.get(OBJECTIVE_SECTION),
+                    exam.objective_passage or "")
         for number, raw in enumerate(exam.objective_questions, start=1):
             name = f"Objective question {number}"
             kind = question_type(raw)
@@ -293,14 +296,14 @@ def build_paper(exam, include_objective=True, include_theory=False):
     if include_theory:
         if exam.theory_questions:
             text_sections.append((THEORY_SECTION, "Theory", exam.theory_instructions or "",
-                                  exam.theory_questions, section_audio.get(THEORY_SECTION)))
+                                  exam.theory_questions, section_audio.get(THEORY_SECTION), exam.theory_passage or ""))
         for index, custom in enumerate(exam.custom_sections or [], start=1):
             if isinstance(custom, dict) and custom.get("questions"):
                 text_sections.append((f"custom-{index}", custom.get("name") or f"Section {index}",
-                                      custom.get("instructions") or "", custom["questions"], custom.get("audio")))
+                                      custom.get("instructions") or "", custom["questions"], custom.get("audio"), ""))
 
-    for key, title, instructions, raw_questions, raw_clip in text_sections:
-        add_section(key, title, instructions, raw_clip)
+    for key, title, instructions, raw_questions, raw_clip, passage in text_sections:
+        add_section(key, title, instructions, raw_clip, passage)
         for number, raw in enumerate(raw_questions, start=1):
             name = f"{title} question {number}"
             parts = raw.get("subQuestions") or []

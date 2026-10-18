@@ -7,7 +7,7 @@ parser only took options one per line. Converting it now reads each one.
 """
 from django.test import SimpleTestCase
 
-from exam.document_parser import ExamDocumentParser, split_inline_options
+from exam.document_parser import ExamDocumentParser, split_inline_options, split_passage
 
 
 def parse(text):
@@ -85,3 +85,36 @@ class PaperWithInlineOptionsTest(SimpleTestCase):
         self.assertEqual(self.sections[1]["name"],
                          "Section B: LITERARY APPRECIATION - Choose the best option")
         self.assertEqual(self.sections[1]["type"], "objective")
+
+
+PARAGRAPH = (
+    "All over the world, women are faced with several violations of their human rights. "
+    "They are denied participation in the decisions that affect their lives."
+)
+
+
+class SplitPassageTest(SimpleTestCase):
+    def test_short_lines_before_the_first_paragraph_are_instructions(self):
+        self.assertEqual(
+            split_passage(["COMPREHENSION", "Read the passage carefully.", PARAGRAPH, PARAGRAPH, "QUESTIONS"]),
+            (["COMPREHENSION", "Read the passage carefully."], [PARAGRAPH, PARAGRAPH, "QUESTIONS"]),
+        )
+
+    def test_no_paragraph_means_no_passage(self):
+        self.assertEqual(split_passage(["Choose the correct option.", ""]), (["Choose the correct option."], []))
+
+
+class PaperWithPassageTest(SimpleTestCase):
+    def test_the_passage_is_kept_apart_from_the_instructions(self):
+        section = parse("\n".join([
+            "SECTION A: OBJECTIVE",
+            "COMPREHENSION",
+            "Read the passage carefully and answer the questions that follow it.",
+            PARAGRAPH,
+            "1. Women are denied ______.",
+            "A. food B. participation C. money D. land",
+        ]))["sections"][0]
+        self.assertEqual(section["instructions"],
+                         "COMPREHENSION\nRead the passage carefully and answer the questions that follow it.")
+        self.assertEqual(section["passage"], PARAGRAPH)
+        self.assertNotIn("women are faced", section["questions"][0]["question"])

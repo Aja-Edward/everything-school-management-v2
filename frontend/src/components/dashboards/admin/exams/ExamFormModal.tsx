@@ -16,6 +16,7 @@ import QuestionSectionPractical from './QuestionSectionPractical';
 import QuestionSectionCustom from './QuestionSectionCustom';
 import { SoundClipField } from '@/components/shared/ExamEditor';
 import ExamPlainPage, { convertPlainPage, convertedInstructions, countQuestions, plainPageHasContent } from '@/components/shared/ExamPlainPage';
+import SectionPassageField, { hasPassages } from '@/components/shared/SectionPassageField';
 import { toast } from 'react-toastify';
 import type { SoundClip } from '@/services/SoundClipService';
 import ClassroomService from '@/services/ClassroomService';
@@ -212,6 +213,13 @@ const Field: React.FC<{
   </div>
 );
 
+/** The marks an exam's questions add up to, custom sections included. */
+const questionMarks = (exam: any): number => {
+  const sum = (qs: any[] = []) => qs.reduce((s, q) => s + (Number(q?.marks) || 0), 0);
+  return sum(exam.objective_questions) + sum(exam.theory_questions) + sum(exam.practical_questions) +
+    (exam.custom_sections || []).reduce((s: number, sec: any) => s + sum(sec?.questions), 0);
+};
+
 /** Rows for a section's instructions box: a passage shows in full, up to a point. */
 const passageRows = (text: string) => Math.min(16, Math.max(2, Math.ceil(text.length / 90) + text.split('\n').length));
 
@@ -253,13 +261,21 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
     return next;
   });
   const [practInstructions,setPractInstructions]= useState('Complete ALL practical tasks as instructed.');
-  // A converted Plain Page brings its passage and section instructions with
-  // its questions; taking only the questions dropped a comprehension passage.
+  // Comprehension passages, kept apart from the instructions.
+  const [objPassage,  setObjPassage]  = useState('');
+  const [theoPassage, setTheoPassage] = useState('');
+  // A converted Plain Page brings its passages and section instructions with
+  // its questions, and its questions' marks become the exam's total: left at
+  // the old total, the tracker showed a paper of 42 marks as over its 4.
   const applyInstructions = (converted: any) => {
     const found = convertedInstructions(converted);
     if (found.objective_instructions) setObjInstructions(found.objective_instructions);
     if (found.theory_instructions) setTheoInstructions(found.theory_instructions);
     if (found.practical_instructions) setPractInstructions(found.practical_instructions);
+    if (found.objective_passage) setObjPassage(found.objective_passage);
+    if (found.theory_passage) setTheoPassage(found.theory_passage);
+    const marks = questionMarks(converted);
+    if (marks > 0) setTotalMarks(marks);
   };
 
   // Questions
@@ -398,6 +414,8 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
       setObjInstructions(exam.objective_instructions || objInstructions);
       setTheoInstructions(exam.theory_instructions || theoInstructions);
       setPractInstructions(exam.practical_instructions || practInstructions);
+      setObjPassage(exam.objective_passage || '');
+      setTheoPassage(exam.theory_passage || '');
       setObjectiveQs(exam.objective_questions || []);
       setTheoryQs(exam.theory_questions || []);
       setPracticalQs(exam.practical_questions || []);
@@ -420,6 +438,7 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
       setVenue(''); setInstructions(''); setMaterialsAllowed('');
       setStatus('draft'); setIsPractical(false); setRequiresComputer(false); setIsOnline(false);
       setObjectiveQs([]); setTheoryQs([]); setPracticalQs([]); setCustomSecs([]); setSectionAudio({});
+      setObjPassage(''); setTheoPassage('');
       setPlainPage(''); setPrintPlainPage(false);
       setPrintSettings({ ...DEFAULT_PRINT_SETTINGS, ...(loadDefaultPrintSettings() ?? {}) });
     }
@@ -436,6 +455,11 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
       s + ((sec as any).questions || []).reduce((ss: number, q: any) => ss + (Number(q.marks) || 0), 0), 0);
     return { mcq, theo, prac, cust, total: mcq + theo + prac + cust };
   }, [objectiveQs, theoryQs, practicalQs, customSecs]);
+
+  // English and Literature papers have a passage box; any other paper only
+  // shows one that already holds a passage, so none is hidden.
+  const subjectName = subjects.find((s: any) => s.id === subject)?.name ?? (exam as any)?.subject_name;
+  const showPassages = hasPassages(subjectName) || !!objPassage.trim() || !!theoPassage.trim();
 
   const marksOk   = marksBreakdown.total === totalMarks;
   const marksOver = marksBreakdown.total > totalMarks;
@@ -475,12 +499,15 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
       let sectionInstructions = {
         objective_instructions: objInstructions, theory_instructions: theoInstructions,
         practical_instructions: practInstructions,
+        objective_passage: objPassage, theory_passage: theoPassage,
       };
+      let examTotal = totalMarks;
       if (countQuestions(sections) === 0 && plainPageHasContent(plainPage)) {
         try {
           const converted = await convertPlainPage(plainPage);
           sectionInstructions = { ...sectionInstructions, ...convertedInstructions(converted) };
           applyInstructions(converted);
+          examTotal = questionMarks(converted) || examTotal;
           sections = {
             objective_questions: converted.objective_questions, theory_questions: converted.theory_questions,
             practical_questions: converted.practical_questions, custom_sections: converted.custom_sections,
@@ -510,7 +537,7 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
         exam_date: examDate,
         start_time: startTime,
         end_time: endTime,
-        total_marks: totalMarks,
+        total_marks: examTotal,
         pass_marks: passMarks === '' ? undefined : Number(passMarks),
         venue: venue.trim(),
         instructions: instructions.trim(),
@@ -824,12 +851,17 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
             {activeTab === 'mcq' && (
               <div>
                 <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <Field label="Section A Instructions or Comprehension Passage" hint="Shown above this section's questions on the printed paper and in CBT. Put each paragraph on its own line.">
+                  <Field label="Section A Instructions">
                     <textarea
                       value={objInstructions} onChange={e => setObjInstructions(e.target.value)}
                       rows={passageRows(objInstructions)} className="w-full border border-blue-200 rounded-lg px-3 py-2 text-sm resize-y bg-white"
                     />
                   </Field>
+                  {showPassages && (
+                    <div className="mt-3">
+                      <SectionPassageField section="Section A" value={objPassage} onChange={setObjPassage} />
+                    </div>
+                  )}
                   <SoundClipField value={sectionAudio.objective} onChange={clip => setSectionClip('objective', clip)} forWhat="Section A" />
                 </div>
                 <QuestionSectionObjectives value={objectiveQs} onChange={setObjectiveQs} />
@@ -840,12 +872,17 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
             {activeTab === 'theory' && (
               <div>
                 <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <Field label="Section B Instructions or Comprehension Passage" hint="Shown above this section's questions on the printed paper and in CBT. Put each paragraph on its own line.">
+                  <Field label="Section B Instructions">
                     <textarea
                       value={theoInstructions} onChange={e => setTheoInstructions(e.target.value)}
                       rows={passageRows(theoInstructions)} className="w-full border border-green-200 rounded-lg px-3 py-2 text-sm resize-y bg-white"
                     />
                   </Field>
+                  {showPassages && (
+                    <div className="mt-3">
+                      <SectionPassageField section="Section B" value={theoPassage} onChange={setTheoPassage} />
+                    </div>
+                  )}
                   <SoundClipField value={sectionAudio.theory} onChange={clip => setSectionClip('theory', clip)} forWhat="Section B" />
                 </div>
                 <QuestionSectionTheory value={theoryQs} onChange={setTheoryQs} />

@@ -416,6 +416,10 @@ class Exam(TenantMixin, models.Model):
     objective_instructions = models.TextField(blank=True)
     theory_instructions = models.TextField(blank=True)
     practical_instructions = models.TextField(blank=True)
+    # A comprehension passage the section's questions are about, kept apart
+    # from its instructions ("Read the passage and answer...").
+    objective_passage = models.TextField(blank=True, default="")
+    theory_passage = models.TextField(blank=True, default="")
     section_audio = models.JSONField(
         default=dict, blank=True,
         help_text='A sound clip for the objective or theory section, played on the CBT paper: '

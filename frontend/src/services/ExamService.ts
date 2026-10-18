@@ -60,6 +60,8 @@ export interface Exam {
   custom_sections?: any[];
   objective_instructions?: string;
   theory_instructions?: string;
+  objective_passage?: string;
+  theory_passage?: string;
   practical_instructions?: string;
   /** Sound clips for whole sections: {objective?, theory?}. Custom sections keep their own. */
   section_audio?: Record<string, SoundClip>;
@@ -136,6 +138,8 @@ export interface ExamCreateData {
   custom_sections?: any[];
   objective_instructions?: string;
   theory_instructions?: string;
+  objective_passage?: string;
+  theory_passage?: string;
   practical_instructions?: string;
   /** Sound clips for whole sections: {objective?, theory?}. Custom sections keep their own. */
   section_audio?: Record<string, SoundClip>;
@@ -170,6 +174,8 @@ export interface ExamUpdateData {
   custom_sections?: any[];
   objective_instructions?: string;
   theory_instructions?: string;
+  objective_passage?: string;
+  theory_passage?: string;
   practical_instructions?: string;
   /** Sound clips for whole sections: {objective?, theory?}. Custom sections keep their own. */
   section_audio?: Record<string, SoundClip>;

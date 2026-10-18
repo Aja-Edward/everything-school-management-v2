@@ -28,7 +28,9 @@ interface Props {
   answer?: CBTAnswer;
   sectionTitle?: string;
   sectionInstructions?: string;
-  /** The section's instructions on its later questions, folded away. */
+  /** The comprehension passage the section's questions are about. */
+  sectionPassage?: string;
+  /** The section's passage (or instructions) on its later questions, folded away. */
   sectionRecap?: string;
   fontSize: string;
   disabled?: boolean;
@@ -158,7 +160,7 @@ const NumberAnswer: React.FC<{
  * student's "A" may be another student's "C".
  */
 const QuestionView: React.FC<Props> = ({
-  question, total, answer, sectionTitle, sectionInstructions, sectionRecap, fontSize, disabled, onChoose, onType, sectionClip, questionClip,
+  question, total, answer, sectionTitle, sectionInstructions, sectionPassage, sectionRecap, fontSize, disabled, onChoose, onType, sectionClip, questionClip,
 }) => (
   <div style={{ fontSize }} className="text-slate-900 dark:text-slate-100">
     {sectionTitle && (
@@ -166,6 +168,11 @@ const QuestionView: React.FC<Props> = ({
         <p className="text-[0.8em] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">{sectionTitle}</p>
         {/* pre-line: a comprehension passage keeps its paragraphs. */}
         {sectionInstructions && <p className="mt-0.5 whitespace-pre-line text-[0.85em] text-indigo-900 dark:text-indigo-200">{sectionInstructions}</p>}
+        {sectionPassage && (
+          <div className="mt-3 max-h-[60vh] overflow-y-auto rounded-md border border-indigo-200 bg-white px-4 py-3 text-[0.95em] leading-relaxed whitespace-pre-line text-slate-900 dark:border-indigo-800 dark:bg-slate-800 dark:text-slate-100">
+            {sectionPassage}
+          </div>
+        )}
       </div>
     )}
     {/* Further into the section the passage is one tap away, for questions

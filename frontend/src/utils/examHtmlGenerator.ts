@@ -26,6 +26,14 @@ import { answerTypeOf, describeAnswer } from "./objectiveQuestions";
 import { describePlays } from "../services/SoundClipService";
 
 /**
+ * A section's comprehension passage, under its instructions. It prints even
+ * with section instructions turned off: the questions can't be answered
+ * without it.
+ */
+const passageBlock = (passage: any): string =>
+  passage && String(passage).trim() ? `<div class="section-passage">${renderRichContent(passage)}</div>` : '';
+
+/**
  * A note that a question or section has a sound clip. On paper it is played
  * aloud or from a speaker, so the note says how many times.
  */
@@ -502,6 +510,16 @@ function generateStudentCopy(
       white-space: pre-line;
     }
     .section-instruction::first-line { font-weight: bold; }
+    .section-passage {
+      margin: 4px 0 12px 0;
+      padding: 8px 12px;
+      border: 1px solid #999;
+      font-size: 13px;
+      line-height: 1.5;
+      text-align: justify;
+      white-space: pre-line;
+      page-break-inside: auto;
+    }
 
     /* ===== QUESTIONS ===== */
     .question {
@@ -665,6 +683,7 @@ function generateStudentCopy(
   <div class="section">
     <h3>SECTION A: OBJECTIVE QUESTIONS</h3>
     ${ps.show_instructions && exam.objective_instructions ? `<div class="section-instruction">${renderRichContent(exam.objective_instructions)}</div>` : ''}
+    ${passageBlock(exam.objective_passage)}
     ${clipNote(exam.section_audio?.objective)}
     <div class="questions-grid">
     ${exam.objective_questions.map((q: any, index: number) => `
@@ -690,6 +709,7 @@ function generateStudentCopy(
   <div class="section">
     <h3>SECTION B: THEORY QUESTIONS</h3>
     ${ps.show_instructions && exam.theory_instructions ? `<div class="section-instruction">${renderRichContent(exam.theory_instructions)}</div>` : ''}
+    ${passageBlock(exam.theory_passage)}
     ${clipNote(exam.section_audio?.theory)}
     ${exam.theory_questions.map((q: any, index: number) => `
     <div class="question">
@@ -835,6 +855,7 @@ function generateTeacherCopy(
     .section h3 { background-color: #f0f0f0; padding: 6px 10px; margin: 8px 0 6px 0; border-left: 4px solid #333; font-size: 16px; font-weight: bold; page-break-after: avoid; }
     .section-instruction { margin: 6px 0 8px 0; font-size: 13px; padding: 4px 0; white-space: pre-line; }
     .section-instruction::first-line { font-weight: bold; }
+    .section-passage { margin: 4px 0 12px 0; padding: 8px 12px; border: 1px solid #999; font-size: 13px; line-height: 1.5; text-align: justify; white-space: pre-line; }
 
     .question { margin: var(--question-gap, 8px) 0; padding-left: 10px; page-break-inside: avoid; }
     /* See the student copy: keep the question text on the same line as its number. */
@@ -932,6 +953,7 @@ function generateTeacherCopy(
   <div class="section">
     <h3>SECTION A: OBJECTIVE QUESTIONS - ANSWER KEY</h3>
     ${exam.objective_instructions ? `<div class="section-instruction">${renderRichContent(exam.objective_instructions)}</div>` : ''}
+    ${passageBlock(exam.objective_passage)}
     ${clipNote(exam.section_audio?.objective)}
     ${exam.objective_questions.map((q: any, index: number) => `
     <div class="question">
@@ -958,6 +980,7 @@ function generateTeacherCopy(
   <div class="section">
     <h3>SECTION B: THEORY QUESTIONS - MARKING GUIDE</h3>
     ${exam.theory_instructions ? `<div class="section-instruction">${renderRichContent(exam.theory_instructions)}</div>` : ''}
+    ${passageBlock(exam.theory_passage)}
     ${clipNote(exam.section_audio?.theory)}
     ${exam.theory_questions.map((q: any, index: number) => `
     <div class="question">

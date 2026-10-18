@@ -101,7 +101,7 @@ export interface CBTPaperForStudent {
   exam_title: string;
   subject: string;
   instructions: string;
-  sections: { key: string; title: string; instructions: string; audio?: SoundClip }[];
+  sections: { key: string; title: string; instructions: string; passage?: string; audio?: SoundClip }[];
   duration_minutes: number;
   allow_backtracking: boolean;
   total_marks: string;
