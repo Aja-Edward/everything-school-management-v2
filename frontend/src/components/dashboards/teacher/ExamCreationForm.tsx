@@ -40,6 +40,29 @@ export const minutesBetween = (startTime?: string, endTime?: string): number | n
   return minutes > 0 ? minutes : null;
 };
 
+/** The id of a lookup the API sent as {id, name, ...}, or the value itself. */
+const idOf = (value: any) => (value && typeof value === 'object' ? value.id : value);
+
+/**
+ * Why a save was refused, in words. Every refusal used to read "Failed to
+ * save exam. Please try again.", which named nothing a teacher could fix.
+ */
+const saveErrorMessage = (error: any): string => {
+  const data = error?.response?.data;
+  if (data && typeof data === 'object') {
+    const parts = Object.entries(data).map(([field, messages]) => {
+      const text = Array.isArray(messages) ? messages.join(' ') : String(messages);
+      return field === 'detail' || field === 'non_field_errors' ? text : `${field.replace(/_/g, ' ')}: ${text}`;
+    });
+    if (parts.length) return parts.join(' · ');
+  }
+  return error?.message || 'Please try again.';
+};
+
+/** `value` if it is one of `options`' ids, else `fallback`. */
+const keepIfOption = (value: any, options: any[], fallback: any) =>
+  options.some((o: any) => String(o.id) === String(value)) ? Number(value) : (fallback ?? value);
+
 const ExamCreationForm: React.FC<ExamCreationFormProps> = ({
   isOpen,
   onClose,
@@ -151,8 +174,9 @@ useEffect(() => {
       title: normalized.title || '',
       subject: normalized.subject?.id || normalized.subject || 0,
       grade_level: normalized.grade_level?.id || normalized.grade_level || 0,
-      exam_type: normalized.exam_type || 'test',
-      difficulty_level: normalized.difficulty_level || 'medium',
+      // The API returns these as {id, name, ...}; the dropdowns hold the id.
+      exam_type: idOf(normalized.exam_type) || 'test',
+      difficulty_level: idOf(normalized.difficulty_level) || 'medium',
       exam_date: normalized.exam_date || '',
       start_time: normalized.start_time || '',
       end_time: normalized.end_time || '',
@@ -161,7 +185,7 @@ useEffect(() => {
       pass_marks: normalized.pass_marks || 50,
       venue: normalized.venue || '',
       instructions: normalized.instructions || '',
-      status: normalized.status || formData.status,
+      status: idOf(normalized.status) || formData.status,
       is_practical: normalized.is_practical || false,
       requires_computer: normalized.requires_computer || false,
       is_online: normalized.is_online || false,
@@ -257,13 +281,16 @@ useEffect(() => {
       setDifficultyLevels(rawDifficulties);
       setExamStatuses(rawStatuses);
 
-      // Pre-select first valid PKs so the form doesn't submit with string codes
+      // Pre-select a valid PK so the form doesn't submit a string code - but
+      // only where nothing valid is set. This used to overwrite all three on
+      // every open, so editing an exam reset it to the first exam type (Quiz)
+      // and saved it that way.
       const initialStatus = rawStatuses.find((s: any) => s.is_initial) ?? rawStatuses[0];
       setFormData(prev => ({
         ...prev,
-        exam_type:        rawExamTypes[0]?.id  ?? prev.exam_type,
-        difficulty_level: rawDifficulties[0]?.id ?? prev.difficulty_level,
-        status:           initialStatus?.id     ?? prev.status,
+        exam_type:        keepIfOption(prev.exam_type, rawExamTypes, rawExamTypes[0]?.id),
+        difficulty_level: keepIfOption(prev.difficulty_level, rawDifficulties, rawDifficulties[0]?.id),
+        status:           keepIfOption(prev.status, rawStatuses, initialStatus?.id),
       }));
 
       if (subjectOptions.length === 0) {
@@ -821,7 +848,7 @@ const saveAsDraft = async () => {
   } catch (error) {
     console.error('❌ Error saving exam:', error);
     console.error('❌ Error details:', error instanceof Error ? error.message : error);
-    toast.error('Failed to save exam. Please try again.');
+    toast.error(`Couldn't save the exam: ${saveErrorMessage(error)}`, { autoClose: 10000 });
   } finally {
     setSavingDraft(false);
   }
@@ -865,7 +892,7 @@ const submitForApproval = async () => {
     onClose();
   } catch (error) {
     console.error('❌ Error submitting exam:', error);
-    toast.error('Failed to submit exam. Please try again.');
+    toast.error(`Couldn't submit the exam: ${saveErrorMessage(error)}`, { autoClose: 10000 });
   } finally {
     setLoading(false);
   }

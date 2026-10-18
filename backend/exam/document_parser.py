@@ -71,13 +71,56 @@ def is_template_boilerplate(text: str) -> bool:
 # Questions)" followed immediately by "Section B: Theory (5 Questions)") so
 # those don't get mistaken for a section with no questions in it.
 SECTION_HEADER_RE = re.compile(
-    r'^section\s+([a-zA-Z])\s*(?:[:\-–—]\s*(.*))?$',
+    # "Section A", "Section A: Objective", "SECTION B - Theory", and with
+    # just a space, "SECTION B LITERARY APPRECIATION - Choose the best option".
+    r'^section\s+([a-zA-Z])(?:(?:\s*[:\-–—]\s*|\s+)(.*))?$',
     re.IGNORECASE
 )
 
 # A multiple-choice option line: "A. text", "B) text", "C: text", "(D) text"
 # - upper or lower case letter, A through E.
 OPTION_LINE_RE = re.compile(r'^\(?([A-Ea-e])[\.\):]\s*(.+)$')
+
+OPTION_LETTERS = 'abcde'
+
+
+def split_inline_options(line: str) -> List[str]:
+    """
+    One option per line, from a line typed with several on it.
+
+    Papers are often set with the options run together, "A. keep B. put
+    C. make D. let" or "(a) Girls alone (b) Boys alone", and the readers
+    below want each option on its own line. Only a line that starts with an
+    option is split, and only at the next letters in order (B after A, then
+    C...) written the same way, so a question that merely mentions "B." is
+    left alone.
+    """
+    first = OPTION_LINE_RE.match(line)
+    if not first:
+        return [line]
+
+    letter = first.group(1)
+    upper = letter.isupper()
+    bracketed = line.startswith('(')
+    position = OPTION_LETTERS.index(letter.lower())
+
+    starts = [0]
+    cursor = first.end(1) + 1
+    for nxt in OPTION_LETTERS[position + 1:]:
+        mark = nxt.upper() if upper else nxt
+        # "(b)" needs no space after it ("(b)for"); "B." must stand alone.
+        pattern = (r'\(' + mark + r'\)' if bracketed
+                   else r'(?<=\s)' + mark + r'[\.\)]\s')
+        found = re.compile(pattern).search(line, cursor)
+        if not found:
+            break
+        starts.append(found.start())
+        cursor = found.end()
+
+    if len(starts) == 1:
+        return [line]
+    starts.append(len(line))
+    return [line[a:b].strip() for a, b in zip(starts, starts[1:]) if line[a:b].strip()]
 
 # A leading question number: "1. text", "12) text".
 NUMBERED_LINE_RE = re.compile(r'^(\d+)[\.\)]\s*(.+)$')
@@ -928,7 +971,8 @@ class ExamDocumentParser:
         straight into the box). Splitting on individual lines handles both
         the same way - blank lines just disappear as empty entries.
         """
-        return [l.strip() for l in text.splitlines() if l.strip()]
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        return [part for line in lines for part in split_inline_options(line)]
 
     def _extract_marking_guide(self, text: str) -> Tuple[str, Dict[int, str]]:
         """
@@ -1082,7 +1126,12 @@ class ExamDocumentParser:
                     body = body[1:]
 
             if section_type == 'objective':
-                questions = self._extract_objective_from_paragraphs(body)
+                lead: List[str] = []
+                questions = self._extract_objective_from_paragraphs(body, lead_out=lead)
+                # A comprehension passage, or an instruction, above the first
+                # question belongs to the section, not to question 1.
+                if lead:
+                    instructions = '\n'.join(filter(None, [instructions, *lead]))
             else:
                 questions = self._extract_questions('\n'.join(body), section_type)
 
@@ -1096,7 +1145,9 @@ class ExamDocumentParser:
 
         return sections
 
-    def _extract_objective_from_paragraphs(self, lines: List[str]) -> List[Dict[str, Any]]:
+    def _extract_objective_from_paragraphs(
+        self, lines: List[str], lead_out: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
         """
         Extract MCQ questions from a list of lines, whether or not the
         question itself is numbered. A run of one or more non-option lines
@@ -1130,10 +1181,25 @@ class ExamDocumentParser:
                 continue
 
             stem_lines = lines[i:j]
+            # Lines before a numbered question are not its text: a passage,
+            # or an "INSTRUCTION: choose the word nearest in meaning" over
+            # the questions that follow. Above the first question they go to
+            # the section (lead_out); further down they stay with the
+            # question they introduce, on lines of their own.
+            lead: List[str] = []
+            numbered_at = next(
+                (p for p, s in enumerate(stem_lines) if p and NUMBERED_LINE_RE.match(s)), None)
+            if numbered_at is not None:
+                lead, stem_lines = stem_lines[:numbered_at], stem_lines[numbered_at:]
+                if not questions and lead_out is not None:
+                    lead_out.extend(lead)
+                    lead = []
             num_m = NUMBERED_LINE_RE.match(stem_lines[0])
             if num_m:
                 stem_lines = [num_m.group(2).strip()] + stem_lines[1:]
             stem_text = ' '.join(s for s in stem_lines if s)
+            if lead:
+                stem_text = '\n'.join(lead) + '\n\n' + stem_text
 
             options, correct_answer = self._options_and_answer(
                 [OPTION_LINE_RE.match(opt_line).groups() for opt_line in option_lines], stem_text)
