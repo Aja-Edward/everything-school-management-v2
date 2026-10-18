@@ -314,6 +314,31 @@ class ThePlainPageTest(ExamApiTestCase):
         self.assertEqual((self.exam.plain_page, self.exam.print_plain_page), ("", False))
 
 
+class TheExamListFillsTheEditFormTest(ExamApiTestCase):
+    """
+    The admin's Exams page opens an exam for editing from the list. With only
+    the subject's and class's names in it, the form's dropdowns came up empty
+    and every save said "Subject is required / Grade level is required".
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.login("admin")
+
+    def listed(self):
+        listing = self.get(EXAMS).data
+        return next(e for e in listing.get("results", listing) if e["id"] == self.exam.id)
+
+    def test_the_list_carries_the_subject_and_class_ids(self):
+        listed = self.listed()
+        self.assertEqual((listed["subject"], listed["grade_level"]),
+                         (self.exam.subject_id, self.exam.grade_level_id))
+
+    def test_the_list_carries_the_comprehension_passages(self):
+        Exam.objects.filter(pk=self.exam.pk).update(objective_passage="Once upon a time.", theory_passage="")
+        self.assertEqual(self.listed()["objective_passage"], "Once upon a time.")
+
+
 class SavingAnExamsPrintSettingsTest(ExamApiTestCase):
     """
     The exam form and Print Preview both say an exam keeps its own print

@@ -307,8 +307,13 @@ class ExamListSerializer(serializers.ModelSerializer):
             "total_marks",
             "pass_marks",
             "duration_minutes",
+            # The ids the admin's edit form fills its dropdowns from: with
+            # only the names here, every exam opened for editing came up
+            # "Subject is required / Grade level is required".
+            "subject",
             "subject_name",
             "subject_code",
+            "grade_level",
             "grade_level_name",
             "academic_session_name",
             "term_name",
