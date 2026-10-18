@@ -14,10 +14,10 @@ import {
   normalizeExamDataForEdit
 } from '@/utils/examDataNormalizer';
 import { ExamDocumentUploader } from '@/components/shared/ExamDocumentUploader';
-import ExamPlainPage, { convertPlainPage, countQuestions, plainPageHasContent } from '@/components/shared/ExamPlainPage';
+import ExamPlainPage, { convertPlainPage, convertedInstructions, countQuestions, plainPageHasContent, SectionInstructions } from '@/components/shared/ExamPlainPage';
 
-/** The question sections an exam is saved with. */
-type SectionsToSave = {
+/** The question sections an exam is saved with, and any instructions a conversion brought. */
+type SectionsToSave = SectionInstructions & {
   objective_questions: any[]; theory_questions: any[]; practical_questions: any[]; custom_sections: any[];
 };
 
@@ -761,6 +761,12 @@ const totalMarksForSave = (sections: SectionsToSave) => {
 };
 
 const handlePlainPageConvert = (examData: any, announce = true) => {
+  // The passage and section instructions come with the questions; taking
+  // only the questions dropped a comprehension passage.
+  const found = convertedInstructions(examData);
+  if (found.objective_instructions) setObjectiveInstructions(found.objective_instructions);
+  if (found.theory_instructions) setTheoryInstructions(found.theory_instructions);
+  if (found.practical_instructions) setPracticalInstructions(found.practical_instructions);
   setObjectiveQuestions(examData.objective_questions);
   setTheoryQuestions(examData.theory_questions);
   setPracticalQuestions(examData.practical_questions);
@@ -796,6 +802,7 @@ const sectionsForSave = async (): Promise<SectionsToSave> => {
     return {
       objective_questions: converted.objective_questions, theory_questions: converted.theory_questions,
       practical_questions: converted.practical_questions, custom_sections: converted.custom_sections,
+      ...convertedInstructions(converted),
     };
   } catch (err) {
     toast.warn(
@@ -822,10 +829,10 @@ const saveAsDraft = async () => {
       // the teacher fixed a typo) - a brand-new exam starts as a draft.
       status: editingStatusPk ?? statusPk('draft'),
       teacher: currentTeacherId!,
-      ...sections,
       objective_instructions: objectiveInstructions,
       theory_instructions: theoryInstructions,
       practical_instructions: practicalInstructions,
+      ...sections,
       section_audio: sectionAudio,
       ...plainPageFields(),
       total_marks: computedTotalMarks,
@@ -867,10 +874,10 @@ const submitForApproval = async () => {
       // The admin's Approve action only accepts exams awaiting approval.
       status: statusPk('pending_approval'),
       teacher: currentTeacherId!,
-      ...sections,
       objective_instructions: objectiveInstructions,
       theory_instructions: theoryInstructions,
       practical_instructions: practicalInstructions,
+      ...sections,
       section_audio: sectionAudio,
       ...plainPageFields(),
       total_marks: computedTotalMarks,

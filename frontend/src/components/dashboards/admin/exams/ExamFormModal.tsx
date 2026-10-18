@@ -15,7 +15,7 @@ import QuestionSectionTheory from './QuestionSectionTheory';
 import QuestionSectionPractical from './QuestionSectionPractical';
 import QuestionSectionCustom from './QuestionSectionCustom';
 import { SoundClipField } from '@/components/shared/ExamEditor';
-import ExamPlainPage, { convertPlainPage, countQuestions, plainPageHasContent } from '@/components/shared/ExamPlainPage';
+import ExamPlainPage, { convertPlainPage, convertedInstructions, countQuestions, plainPageHasContent } from '@/components/shared/ExamPlainPage';
 import { toast } from 'react-toastify';
 import type { SoundClip } from '@/services/SoundClipService';
 import ClassroomService from '@/services/ClassroomService';
@@ -250,6 +250,14 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
     return next;
   });
   const [practInstructions,setPractInstructions]= useState('Complete ALL practical tasks as instructed.');
+  // A converted Plain Page brings its passage and section instructions with
+  // its questions; taking only the questions dropped a comprehension passage.
+  const applyInstructions = (converted: any) => {
+    const found = convertedInstructions(converted);
+    if (found.objective_instructions) setObjInstructions(found.objective_instructions);
+    if (found.theory_instructions) setTheoInstructions(found.theory_instructions);
+    if (found.practical_instructions) setPractInstructions(found.practical_instructions);
+  };
 
   // Questions
   const [objectiveQs,  setObjectiveQs]  = useState<ObjectiveQuestion[]>([]);
@@ -461,9 +469,15 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
         objective_questions: objectiveQs, theory_questions: theoryQs,
         practical_questions: practicalQs, custom_sections: customSecs,
       };
+      let sectionInstructions = {
+        objective_instructions: objInstructions, theory_instructions: theoInstructions,
+        practical_instructions: practInstructions,
+      };
       if (countQuestions(sections) === 0 && plainPageHasContent(plainPage)) {
         try {
           const converted = await convertPlainPage(plainPage);
+          sectionInstructions = { ...sectionInstructions, ...convertedInstructions(converted) };
+          applyInstructions(converted);
           sections = {
             objective_questions: converted.objective_questions, theory_questions: converted.theory_questions,
             practical_questions: converted.practical_questions, custom_sections: converted.custom_sections,
@@ -503,9 +517,7 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
         requires_computer: requiresComputer,
         is_online: isOnline,
         ...sections,
-        objective_instructions: objInstructions,
-        theory_instructions: theoInstructions,
-        practical_instructions: practInstructions,
+        ...sectionInstructions,
         section_audio: sectionAudio,
         plain_page: plainPageHasContent(plainPage) ? plainPage : '',
         // Nothing typed means nothing to print in place of the sections.
@@ -869,6 +881,7 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
                   customSecs.reduce((n, sec) => n + ((sec as any).questions?.length ?? 0), 0)
                 }
                 onConvert={converted => {
+                  applyInstructions(converted);
                   setObjectiveQs(converted.objective_questions);
                   setTheoryQs(converted.theory_questions);
                   setPracticalQs(converted.practical_questions);
