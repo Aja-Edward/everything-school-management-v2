@@ -212,6 +212,9 @@ const Field: React.FC<{
   </div>
 );
 
+/** Rows for a section's instructions box: a passage shows in full, up to a point. */
+const passageRows = (text: string) => Math.min(16, Math.max(2, Math.ceil(text.length / 90) + text.split('\n').length));
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSubmit, saveError }) => {
@@ -821,10 +824,10 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
             {activeTab === 'mcq' && (
               <div>
                 <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <Field label="Section A Instructions">
+                  <Field label="Section A Instructions or Comprehension Passage" hint="Shown above this section's questions on the printed paper and in CBT. Put each paragraph on its own line.">
                     <textarea
                       value={objInstructions} onChange={e => setObjInstructions(e.target.value)}
-                      rows={2} className="w-full border border-blue-200 rounded-lg px-3 py-2 text-sm resize-none bg-white"
+                      rows={passageRows(objInstructions)} className="w-full border border-blue-200 rounded-lg px-3 py-2 text-sm resize-y bg-white"
                     />
                   </Field>
                   <SoundClipField value={sectionAudio.objective} onChange={clip => setSectionClip('objective', clip)} forWhat="Section A" />
@@ -837,10 +840,10 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
             {activeTab === 'theory' && (
               <div>
                 <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <Field label="Section B Instructions">
+                  <Field label="Section B Instructions or Comprehension Passage" hint="Shown above this section's questions on the printed paper and in CBT. Put each paragraph on its own line.">
                     <textarea
                       value={theoInstructions} onChange={e => setTheoInstructions(e.target.value)}
-                      rows={2} className="w-full border border-green-200 rounded-lg px-3 py-2 text-sm resize-none bg-white"
+                      rows={passageRows(theoInstructions)} className="w-full border border-green-200 rounded-lg px-3 py-2 text-sm resize-y bg-white"
                     />
                   </Field>
                   <SoundClipField value={sectionAudio.theory} onChange={clip => setSectionClip('theory', clip)} forWhat="Section B" />
