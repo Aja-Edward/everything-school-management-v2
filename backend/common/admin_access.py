@@ -113,6 +113,20 @@ class IsSchoolAdminOrReadOnly(BasePermission):
         return is_whole_school_staff(user)
 
 
+class PublicReadSchoolAdminWrite(BasePermission):
+    """
+    Anyone reads, signed in or not; only whole-school admins change. For a
+    school's settings, which its public pages read (name, colours) but which
+    no teacher, pupil or parent should be able to alter.
+    """
+
+    def has_permission(self, request, view):
+        if request.method in SAFE_METHODS:
+            return True
+        user = request.user
+        return bool(user and user.is_authenticated and user.is_active and is_whole_school_staff(user))
+
+
 class IsSchoolOrSectionAdmin(BasePermission):
     """IsAdminUser, plus section admins; see is_school_or_section_admin."""
 

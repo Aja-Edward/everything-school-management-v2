@@ -45,6 +45,7 @@ export interface SchoolSettings {
   allowProfileImageUpload: boolean;
   profileImageMaxSize: number;
   security?: {
+    securityFeaturesEnabled?: boolean;
     twoFactorAuth: boolean;
     passwordPolicy: {
       minLength: number;
@@ -180,6 +181,10 @@ class SettingsService {
           }
         }
         
+        // The master switch was never sent, so it fell back to off on reload.
+        if (security.securityFeaturesEnabled !== undefined) {
+          backendSettings.security_features_enabled = security.securityFeaturesEnabled;
+        }
         if (security.sessionTimeout !== undefined) {
           backendSettings.session_timeout_minutes = security.sessionTimeout;
         }
@@ -377,7 +382,11 @@ async getClassrooms(): Promise<Classroom[]> {
       chatSystem: response.chat_system ?? defaultSettings.chatSystem,
       
       // Security - map from flat backend fields to nested frontend structure
+      // The server answers with session_timeout / account_lock_duration /
+      // password_expiration (now alongside the *_minutes / *_days names);
+      // reading only the long names showed the defaults whatever was saved.
       security: {
+        securityFeaturesEnabled: response.security_features_enabled ?? false,
         twoFactorAuth: true, // Not in backend yet
         passwordPolicy: {
           minLength: response.password_min_length ?? 8,
@@ -385,11 +394,11 @@ async getClassrooms(): Promise<Classroom[]> {
           requireLowercase: true, // Not in backend
           requireNumbers: response.password_require_numbers ?? false,
           requireSpecialChars: response.password_require_symbols ?? false,
-          passwordExpiry: response.password_expiration_days ?? 90
+          passwordExpiry: response.password_expiration_days ?? response.password_expiration ?? 90
         },
-        sessionTimeout: response.session_timeout_minutes ?? 240,
+        sessionTimeout: response.session_timeout_minutes ?? response.session_timeout ?? 240,
         maxLoginAttempts: response.max_login_attempts ?? 5,
-        lockoutDuration: response.account_lock_duration_minutes ?? 15,
+        lockoutDuration: response.account_lock_duration_minutes ?? response.account_lock_duration ?? 15,
         ipWhitelist: [],
         auditLogging: true,
         dataEncryption: true
@@ -633,6 +642,7 @@ async getClassrooms(): Promise<Classroom[]> {
         }
       },
       security: {
+        securityFeaturesEnabled: false,
         twoFactorAuth: false,
         passwordPolicy: {
           minLength: 8,

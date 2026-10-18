@@ -20,6 +20,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from common.admin_access import in_same_school
 from tenants.membership import in_school_q, user_school_id
+from common.admin_access import PublicReadSchoolAdminWrite
 from django.db import transaction
 from django.core.cache import cache
 import cloudinary
@@ -70,7 +71,10 @@ class SchoolSettingsDetail(APIView):
     The school name comes from Tenant.name, other settings from TenantSettings.
     """
 
-    permission_classes = [PublicReadOnly]
+    # Reads stay public (a school's own pages need its name and colours), but
+    # PublicReadOnly let any signed-in user write: a pupil or parent could
+    # change the school's settings, its security options included.
+    permission_classes = [PublicReadSchoolAdminWrite]
 
     def get_permissions(self):
         """Allow public read access, require admin for write"""
@@ -146,9 +150,14 @@ class SchoolSettingsDetail(APIView):
             "default_user_role": tenant_settings.default_user_role,
             # Security & Authentication
             "email_verification_required": tenant_settings.require_email_verification,
+            "security_features_enabled": tenant_settings.security_features_enabled,
             "session_timeout": tenant_settings.session_timeout_minutes,
             "max_login_attempts": tenant_settings.max_login_attempts,
             "account_lock_duration": tenant_settings.account_lock_duration_minutes,
+            # The settings screen reads these names; under the shorter ones
+            # above alone it always showed its defaults, whatever was saved.
+            "session_timeout_minutes": tenant_settings.session_timeout_minutes,
+            "account_lock_duration_minutes": tenant_settings.account_lock_duration_minutes,
             # Password Policy
             "password_min_length": tenant_settings.password_min_length,
             "password_reset_interval": tenant_settings.password_reset_interval_days,
@@ -156,6 +165,7 @@ class SchoolSettingsDetail(APIView):
             "password_require_symbols": tenant_settings.password_require_symbols,
             "password_require_uppercase": tenant_settings.password_require_uppercase,
             "password_expiration": tenant_settings.password_expiration_days,
+            "password_expiration_days": tenant_settings.password_expiration_days,
             # Profile Settings
             "allow_profile_image_upload": tenant_settings.allow_profile_image_upload,
             "profile_image_max_size": tenant_settings.profile_image_max_size_mb,
@@ -311,6 +321,7 @@ class SchoolSettingsDetail(APIView):
                 "default_user_role": "default_user_role",
 
                 # Security & Authentication
+                "security_features_enabled": "security_features_enabled",
                 "email_verification_required": "require_email_verification",
 
                 "session_timeout": "session_timeout_minutes",
@@ -328,6 +339,7 @@ class SchoolSettingsDetail(APIView):
                 "password_require_symbols": "password_require_symbols",
                 "password_require_uppercase": "password_require_uppercase",
                 "password_expiration": "password_expiration_days",
+                "password_expiration_days": "password_expiration_days",
 
                 # Profile Settings
                 "allow_profile_image_upload": "allow_profile_image_upload",

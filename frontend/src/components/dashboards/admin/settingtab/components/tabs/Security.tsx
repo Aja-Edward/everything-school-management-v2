@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Lock, Users, EyeOff, Plus, X, Save } from 'lucide-react';
 import ToggleSwitch from '@/components/dashboards/admin/settingtab/components/ToggleSwitch';
 
@@ -54,9 +54,13 @@ const Security: React.FC<SecurityProps> = ({ settings, onSettingsUpdate }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
-  // Initialize settings from props
+  // Copy the saved settings in, except over changes not yet saved: this ran on
+  // every settings refresh and put the master toggle straight back.
+  const hasChangesRef = useRef(hasChanges);
+  hasChangesRef.current = hasChanges;
+
   useEffect(() => {
-  if (settings) {
+  if (settings && !hasChangesRef.current) {
     console.log("Security component settings:", settings);
     setSecuritySettings(prev => ({
       ...prev,
