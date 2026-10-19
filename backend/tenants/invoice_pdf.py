@@ -10,11 +10,15 @@ payment is confirmed.
 """
 
 import io
+import logging
+from pathlib import Path
 from xml.sax.saxutils import escape
 
 from django.utils import timezone
 
 from .models import PlatformContent
+
+logger = logging.getLogger(__name__)
 
 # The account schools pay into by transfer. The Pay Now screen shows the same
 # account (frontend/src/components/billing/BankTransferInfo.tsx): change both.
@@ -42,6 +46,19 @@ def period_label(invoice):
 
 def invoice_filename(invoice):
     return f"{invoice.invoice_number}.pdf"
+
+
+LOGO_PATH = Path(__file__).resolve().parent / "assets" / "nuventa-logo.png"
+
+
+def _logo(size):
+    """The Nuventa Cloud logo, size across, for the top of every invoice and receipt."""
+    from reportlab.platypus import Image
+
+    if not LOGO_PATH.exists():
+        logger.error("Nuventa Cloud logo missing at %s; PDF made without it", LOGO_PATH)
+        return None
+    return Image(str(LOGO_PATH), width=size, height=size)
 
 
 class _Page:
@@ -87,10 +104,18 @@ class _Page:
         from reportlab.platypus import HRFlowable, Paragraph, Spacer, Table, TableStyle
 
         platform = PlatformContent.load()
-        issuer = [Paragraph("Nuventa Cloud", self.brand)]
+        details = [Paragraph("Nuventa Cloud", self.brand)]
         for line in (platform.contact_address, platform.contact_email, platform.contact_phone):
             if line:
-                issuer.append(Paragraph(escape(line).replace("\n", "<br/>"), self.small))
+                details.append(Paragraph(escape(line).replace("\n", "<br/>"), self.small))
+        issuer = details
+        logo = _logo(22*mm)
+        if logo is not None:
+            issuer = Table([[logo, details]], colWidths=[26*mm, self.width * 0.6 - 26*mm])
+            issuer.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ]))
         heading = [
             Paragraph(kind, self.title),
             Paragraph(escape(number), self.right),

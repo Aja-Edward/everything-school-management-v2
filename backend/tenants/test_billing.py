@@ -319,6 +319,7 @@ class SchoolBillingTest(APITestCase):
         self.assertIn(f'filename="{invoice["invoice_number"]}.pdf"',
                       response["Content-Disposition"])
         self.assertTrue(response.content.startswith(b"%PDF"))
+        self.assertIn(b"/Subtype /Image", response.content)  # the Nuventa Cloud logo
         # Unpaid, so it says where to transfer the money.
         text = pdf_text(response.content)
         self.assertIn("4011611294", text)

@@ -250,6 +250,7 @@ class PlatformBillingTest(PlatformBillingCase):
         number = invoice.invoice_number.removeprefix("INV-")
         self.assertEqual(part.status_code, status.HTTP_200_OK)
         self.assertEqual(part["Content-Type"], "application/pdf")
+        self.assertIn(b"/Subtype /Image", part.content)  # the Nuventa Cloud logo
         self.assertIn(f'filename="RCT-{number}-1.pdf"', part["Content-Disposition"])
         self.assertIn(f'filename="RCT-{number}-2.pdf"', full["Content-Disposition"])
         # The first stays a part payment even now the invoice is paid.
